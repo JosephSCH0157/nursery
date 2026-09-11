@@ -2,6 +2,8 @@
 
 Status: implementation support prepared, financially inactive. This document supersedes the personal-owner funding and model-lineup portions of `CUSTOMER_FUNDED_CREATOR_FLOW.md` and `RESTRICTED_BETA_FINANCIAL_ENFORCEMENT_PREPARATION.md`. It does not publish a price, activate a route, establish a numeric owner budget, or authorize a provider call.
 
+The canonical non-spending request, exposure, and tail repair is documented in `NON_SPENDING_FINANCIAL_REPAIR_RELEASE.md`. Its complete-request binding and corrected supporting-cost assumptions supersede earlier domain-input-only and 120-second pricing proposals.
+
 ## Funding identities
 
 Forge treats the acting creator and funding payer as separate identities.

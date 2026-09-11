@@ -1,3 +1,5 @@
+import type { BoundedProviderRequest } from "./bounded-provider-request.js";
+
 export type ImagePromptVisualBrief = {
   narrative_purpose: string;
   central_message: string;
@@ -11,7 +13,7 @@ export type ImagePromptVisualBrief = {
   avoid: string[];
   source_context: { before: string|null; focus: string; after: string|null };
 };
-export type InterpretImagePromptInput={request:Record<string,unknown>;model?:string|null;coordinatedExecution?:<T>(execute:()=>Promise<T>)=>Promise<T>};
+export type InterpretImagePromptInput={request:Record<string,unknown>;model?:string|null;boundedProviderRequest?:BoundedProviderRequest;coordinatedExecution?:<T>(execute:()=>Promise<T>)=>Promise<T>};
 export type InterpretImagePromptOutput={brief:ImagePromptVisualBrief;rawResponse:Record<string,unknown>;providerRequestId:string|null;inputTokens:number;outputTokens:number;totalTokens:number;model:string};
 export interface NarrativeInterpretationProvider{interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>}
 
@@ -20,6 +22,10 @@ const briefSchema={type:"object",additionalProperties:false,required,properties:
   narrative_purpose:{type:"string"},central_message:{type:"string"},primary_subjects:{type:"array",items:{type:"string"},minItems:1,maxItems:4},relationship_or_action:{type:"string"},emotional_tone:{type:"string"},visual_mode:{type:"string",enum:["literal","documentary","editorial","metaphorical","historical_reconstruction","diagrammatic"]},setting:{type:"string"},composition:{type:"string"},essential_visual_evidence:{type:"array",items:{type:"string"},minItems:1,maxItems:5},avoid:{type:"array",items:{type:"string"},minItems:1,maxItems:5},source_context:{type:"object",additionalProperties:false,required:["before","focus","after"],properties:{before:{type:["string","null"]},focus:{type:"string"},after:{type:["string","null"]}}}
 }};
 const systemInstruction=`Interpret one canonical podcast image moment before writing any image prompt. Return concrete, moment-specific visual meaning. Name visible people, products, objects, actions, and supported environments. Interpret rivalry, cooperation, decline, transformation, and figurative language from context. Keep the brief selective: 2-4 primary subjects, one concise action or relationship, a one-sentence setting, a mood phrase, composition in at most two short sentences, 3-5 essential visible details, and 3-5 specific exclusions. Each list item should name one defining detail, not a scene-within-a-scene. Never substitute generic phrases such as appropriate context, supporting the stated narrative idea, clear editorial hierarchy, visual evidence of the idea, or grounded and documentary. Do not write a vendor prompt or request multiple candidates, alternate angles, or multiple interpretations. Return only the structured brief.`;
+
+export function buildNarrativeInterpretationProviderRequestBody(input:{request:Record<string,unknown>;model:string}):Record<string,unknown>{
+  return{model:input.model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}};
+}
 
 function outputText(payload:Record<string,unknown>):string|null{
   const output=payload.output;if(!Array.isArray(output))return null;
@@ -37,7 +43,7 @@ export class OpenAiNarrativeInterpretationProvider implements NarrativeInterpret
   async interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>{
     const model=input.model?.trim()||this.defaultModel;
     let response:Response;
-    try{const executeLegacy=()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}})});response=await executeOpenAiTextTransport({routeCode:"visual.narrative_interpretation",executeLegacy,coordinatedExecution:input.coordinatedExecution?()=>input.coordinatedExecution!(executeLegacy):undefined});}
+    try{const executeLegacy=()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:input.boundedProviderRequest?.serializedBody??JSON.stringify(buildNarrativeInterpretationProviderRequestBody({request:input.request,model}))});response=await executeOpenAiTextTransport({routeCode:"visual.narrative_interpretation",executeLegacy,coordinatedExecution:input.coordinatedExecution?()=>input.coordinatedExecution!(executeLegacy):undefined});}
     catch(error){
       if(error instanceof OpenAiTextBoundaryError||error instanceof OpenAiTextProviderError)throw error;
       const cause=error instanceof Error&&error.cause&&typeof error.cause==="object"?error.cause as {code?:unknown;message?:unknown}:null;

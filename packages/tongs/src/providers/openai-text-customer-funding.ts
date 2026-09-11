@@ -7,6 +7,10 @@ import {
 import type { OpenAiTextRouteCode } from "./openai-text-paid-boundary.js";
 import type { OpenAiTranscriptionRouteCode } from "./openai-transcription-paid-boundary.js";
 import type { OpenAiTextGateClient } from "./paid-openai-text-execution-coordinator.js";
+import {
+  boundedProviderRequestEvidence,
+  type BoundedProviderRequest,
+} from "./bounded-provider-request.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/i;
@@ -238,6 +242,12 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   serviceGate: OpenAiTextGateClient;
   userGate: OpenAiTextGateClient;
   quoteLifetimeSeconds?: number;
+  prepareBoundedRequest?: (limits: {
+    model: string;
+    maximumInputTokens: number;
+    maximumOutputTokens: number;
+    maximumAttempts: number;
+  }) => BoundedProviderRequest | Promise<BoundedProviderRequest>;
   transcriptionSource?: {
     assetRevision: string;
     sha256: string;
@@ -311,6 +321,74 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     } : {}),
   }), selection);
 
+  // Transcription binds its exact source bytes, hash, duration, chunks, and
+  // multipart output contract through the dedicated transcription authority.
+  // JSON text routes additionally bind the complete provider-visible payload
+  // to the quote before it can be shown or accepted.
+  if (!transcriptionRoute) {
+    if (!args.prepareBoundedRequest) {
+      throw new OpenAiTextFundingPreparationError(
+        503,
+        "complete_provider_request_required",
+        "The complete serialized provider request is required before this quote can be accepted.",
+      );
+    }
+    const boundContext = object(await rpc(args.serviceGate, "read_openai_text_quote_bounding_context", {
+      p_quote_id: quote.quoteId,
+      p_user_id: args.userId,
+      p_operation_id: args.operationId,
+      p_route_code: args.routeCode,
+      p_request_fingerprint: args.requestFingerprint,
+    }));
+    const maximumInputTokens = integer(boundContext.maximum_input_units);
+    const maximumOutputTokens = integer(boundContext.maximum_output_units);
+    const maximumAttempts = integer(boundContext.maximum_attempts);
+    const acceptedModel = string(boundContext.model);
+    if (maximumInputTokens < 1 || maximumOutputTokens < 1 || maximumAttempts < 1
+      || acceptedModel !== selection.runtimeModelId) {
+      throw new OpenAiTextFundingPreparationError(
+        502,
+        "invalid_quote_bounding_context",
+        "The billing service returned invalid provider-request limits.",
+      );
+    }
+    const bounded = await args.prepareBoundedRequest({
+      model: acceptedModel,
+      maximumInputTokens,
+      maximumOutputTokens,
+      maximumAttempts,
+    });
+    if (bounded.model !== acceptedModel || bounded.boundedInputTokens > maximumInputTokens
+      || bounded.maximumOutputTokens !== maximumOutputTokens
+      || bounded.maximumAttempts !== maximumAttempts) {
+      throw new OpenAiTextFundingPreparationError(
+        422,
+        "provider_request_out_of_bounds",
+        "The complete provider request exceeds the accepted cost-policy limits.",
+      );
+    }
+    const evidence = boundedProviderRequestEvidence(bounded);
+    await rpc(args.serviceGate, "bind_bounded_provider_quote_request", {
+      p_quote_id: quote.quoteId,
+      p_user_id: args.userId,
+      p_operation_id: args.operationId,
+      p_route_code: args.routeCode,
+      p_request_fingerprint: args.requestFingerprint,
+      p_model: bounded.model,
+      p_service_tier: bounded.serviceTier,
+      p_estimator_revision: bounded.estimatorRevision,
+      p_tokenizer_revision: bounded.tokenizerRevision,
+      p_serialized_body_sha256: evidence.serialized_body_sha256,
+      p_serialized_bytes: evidence.serialized_bytes,
+      p_tokenizer_input_tokens: evidence.tokenizer_input_tokens,
+      p_protocol_overhead_tokens: evidence.protocol_overhead_tokens,
+      p_utf8_byte_token_upper_bound: evidence.utf8_byte_token_upper_bound,
+      p_bounded_input_tokens: evidence.bounded_input_tokens,
+      p_maximum_output_tokens: bounded.maximumOutputTokens,
+      p_maximum_attempts: bounded.maximumAttempts,
+    });
+  }
+
   const acceptance = args.acceptance;
   if (!acceptance) throw new OpenAiTextQuoteRequiredError(quote);
   if (acceptance.operationId !== args.operationId || acceptance.quoteId !== quote.quoteId
@@ -323,6 +401,8 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   if (!quote.fundingEligible) {
     throw new OpenAiTextFundingPreparationError(402, "insufficient_verified_funds", "No verified eligible funding can cover this maximum charge.", {
       funding_source: quote.fundingSource,
+      payer_kind: quote.payerKind,
+      funding_label: quote.fundingLabel,
     });
   }
 

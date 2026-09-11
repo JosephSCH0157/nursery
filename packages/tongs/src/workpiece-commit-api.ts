@@ -151,6 +151,7 @@ import {
   type ImageProvider,
 } from "./providers/image-provider.js";
 import {
+  buildNarrativeInterpretationProviderRequestBody,
   OpenAiNarrativeInterpretationProvider,
   validateSubstantiveVisualBrief,
   synthesizeConcreteVendorPrompt,
@@ -158,6 +159,7 @@ import {
   type ImagePromptVisualBrief,
 } from "./providers/narrative-interpretation-provider.js";
 import {
+  buildBrollMotionInterpretationProviderRequestBody,
   OpenAiBrollMotionInterpretationProvider,
   synthesizeBrollMotionPrompt,
   validateBrollMotionBrief,
@@ -166,6 +168,7 @@ import {
 } from "./providers/broll-motion-interpretation-provider.js";
 import {
   arbitrateUnifiedVisualPlanCoverage,
+  buildUnifiedVisualPlanProviderRequestBody,
   normalizeUnifiedVisualPlanContextAnchors,
   OpenAiUnifiedVisualPlanProvider,
   validateUnifiedVisualPlan,
@@ -175,6 +178,8 @@ import {
   type UnifiedVisualPlanResult,
   type UnifiedVisualSourceCatalogEntry,
 } from "./providers/unified-visual-plan-provider.js";
+import { buildBoundedOpenAiProviderRequest } from "./providers/bounded-provider-request.js";
+import { OpenAiTextBoundaryError } from "./providers/openai-text-paid-boundary.js";
 import {
   buildHearthVisualStylePromptLines,
   normalizeHearthVisualStyle,
@@ -28804,6 +28809,23 @@ export class TongsCommitService {
           credentialFunding: "forge",
           acceptance: input.spending_acceptance ?? null,
           serviceGate: this.openAiTextGate,
+          prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+            buildBoundedOpenAiProviderRequest({
+              body: {
+                ...buildUnifiedVisualPlanProviderRequestBody({
+                  scriptText,
+                  creatorDirection: readStringField(normalizedInputs, "creator_direction"),
+                  generationScope: (readStringField(normalizedInputs, "generation_scope") ?? "full_media_plan") as UnifiedVisualPlanGenerationScope,
+                  sourceCatalog: frozenCatalog,
+                  model,
+                }),
+                max_output_tokens: maximumOutputTokens,
+              },
+              model,
+              maximumOutputTokens,
+              maximumAttempts,
+              serviceTier: "standard",
+            }),
           userGate: authority as unknown as OpenAiTextGateClient,
         });
         if (paidExecution) input = { ...input, paid_execution: paidExecution };
@@ -28891,7 +28913,22 @@ export class TongsCommitService {
         workspaceId: input.workspace_id,
         workpieceId,
         credentialSource: "forge_managed",
-        inputUnitUpperBound: new TextEncoder().encode(JSON.stringify({ scriptText, creatorDirection: readStringField(normalizedInputs, "creator_direction"), generationScope, sourceCatalog: frozenCatalog })).byteLength,
+        prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({
+          body: {
+            ...buildUnifiedVisualPlanProviderRequestBody({
+              scriptText,
+              creatorDirection: readStringField(normalizedInputs, "creator_direction"),
+              generationScope,
+              sourceCatalog: frozenCatalog,
+              model: context.model,
+            }),
+            max_output_tokens: context.maximumOutputUnits,
+          },
+          model: context.model,
+          maximumOutputTokens: context.maximumOutputUnits,
+          maximumAttempts: context.maximumAttempts,
+          serviceTier: "standard",
+        }),
         requestFingerprintPayload: normalizedInputs,
         recoverCanonical: async () => {
           if (!operation || readStringField(operation, "state") !== "verified" || !isRecord(operation.receipt_json) || !providerResponse) return null;
@@ -28902,13 +28939,15 @@ export class TongsCommitService {
             outputUnits: Number(providerResponse.output_units ?? 0),
           };
         },
-        executeProvider: async (context) => {
+        executeProvider: async (context, _attemptNumber, boundedProviderRequest) => {
+          if (!boundedProviderRequest) throw new OpenAiTextBoundaryError("funding_context_required");
           const result = await this.unifiedVisualPlanProvider!.generate({
             scriptText,
             creatorDirection: readStringField(normalizedInputs, "creator_direction"),
             generationScope,
             sourceCatalog: frozenCatalog,
             model: context.model,
+            boundedProviderRequest,
             coordinatedExecution: (execute) => execute(),
           });
           return {
@@ -31790,6 +31829,16 @@ export class TongsCommitService {
         "broll_creative_input_invalid",
         "Canonical B-roll creative input readback was incomplete.",
       );
+    const requestJson = {
+      creative_inputs: creativeInputs,
+      questions: [
+        "What should visibly happen during this clip?",
+        "What should the viewer understand?",
+        "What does the shot begin and end on?",
+        "What should the camera do?",
+        "Which evidence makes the clip relevant?",
+      ],
+    };
     const expectedFingerprint = await sha256Hex(
       canonicalJsonBytes({
         workspace_id: input.workspace_id,
@@ -31829,6 +31878,17 @@ export class TongsCommitService {
           credentialFunding: "forge",
           acceptance: input.spending_acceptance ?? null,
           serviceGate: this.openAiTextGate,
+          prepareBoundedRequest: ({ model: acceptedModel, maximumOutputTokens, maximumAttempts }) =>
+            buildBoundedOpenAiProviderRequest({
+              body: {
+                ...buildBrollMotionInterpretationProviderRequestBody({ request: requestJson, model: acceptedModel }),
+                max_output_tokens: maximumOutputTokens,
+              },
+              model: acceptedModel,
+              maximumOutputTokens,
+              maximumAttempts,
+              serviceTier: "standard",
+            }),
           userGate: authority as unknown as OpenAiTextGateClient,
         });
         if (paidExecution) input = { ...input, paid_execution: paidExecution };
@@ -31836,16 +31896,6 @@ export class TongsCommitService {
         throwOpenAiFundingHttpError(error);
       }
     }
-    const requestJson = {
-      creative_inputs: creativeInputs,
-      questions: [
-        "What should visibly happen during this clip?",
-        "What should the viewer understand?",
-        "What does the shot begin and end on?",
-        "What should the camera do?",
-        "Which evidence makes the clip relevant?",
-      ],
-    };
     const begun = await authority.rpc("begin_broll_prompt_interpretation", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
@@ -31907,7 +31957,16 @@ export class TongsCommitService {
         workspaceId: input.workspace_id,
         workpieceId,
         credentialSource: "forge_managed",
-        inputUnitUpperBound: new TextEncoder().encode(JSON.stringify(requestJson)).byteLength,
+        prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({
+          body: {
+            ...buildBrollMotionInterpretationProviderRequestBody({ request: requestJson, model: context.model }),
+            max_output_tokens: context.maximumOutputUnits,
+          },
+          model: context.model,
+          maximumOutputTokens: context.maximumOutputUnits,
+          maximumAttempts: context.maximumAttempts,
+          serviceTier: "standard",
+        }),
         requestFingerprintPayload: {
           workspace_id: input.workspace_id,
           workpiece_id: workpieceId,
@@ -31931,10 +31990,12 @@ export class TongsCommitService {
             outputUnits: Number(providerResponse.output_units ?? 0),
           };
         },
-        executeProvider: async (context) => {
+        executeProvider: async (context, _attemptNumber, boundedProviderRequest) => {
+          if (!boundedProviderRequest) throw new OpenAiTextBoundaryError("funding_context_required");
           const result = await this.brollMotionInterpretationProvider!.interpret({
             request: requestJson,
             model: context.model,
+            boundedProviderRequest,
             coordinatedExecution: (execute) => execute(),
           });
           return {
@@ -32273,6 +32334,12 @@ export class TongsCommitService {
       validator_version: "forge.image-prompt-validator.v1",
       synthesis_contract_version: "forge.image-prompt-synthesis.v3",
     };
+    const requestJson: Record<string, unknown> = {
+      ...input.source_context,
+      creator_direction: input.creator_direction,
+      image_moment_id: input.image_moment_id,
+      style: input.style,
+    };
     const expectedFingerprint = await sha256Hex(
       canonicalJsonBytes({
         workspace_id: input.workspace_id,
@@ -32312,6 +32379,17 @@ export class TongsCommitService {
           credentialFunding: "forge",
           acceptance: input.spending_acceptance ?? null,
           serviceGate: this.openAiTextGate,
+          prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+            buildBoundedOpenAiProviderRequest({
+              body: {
+                ...buildNarrativeInterpretationProviderRequestBody({ request: requestJson, model }),
+                max_output_tokens: maximumOutputTokens,
+              },
+              model,
+              maximumOutputTokens,
+              maximumAttempts,
+              serviceTier: "standard",
+            }),
           userGate: authority as unknown as OpenAiTextGateClient,
         });
         if (paidExecution) input = { ...input, paid_execution: paidExecution };
@@ -32357,12 +32435,6 @@ export class TongsCommitService {
       : null;
     let brief: ImagePromptVisualBrief;
     let model = "gpt-5-mini";
-    const requestJson: Record<string, unknown> = {
-      ...input.source_context,
-      creator_direction: input.creator_direction,
-      image_moment_id: input.image_moment_id,
-      style: input.style,
-    };
     if (input.paid_execution) {
       if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
         throw new HttpError(
@@ -32387,7 +32459,16 @@ export class TongsCommitService {
         workspaceId: input.workspace_id,
         workpieceId,
         credentialSource: "forge_managed",
-        inputUnitUpperBound: new TextEncoder().encode(JSON.stringify(requestJson)).byteLength,
+        prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({
+          body: {
+            ...buildNarrativeInterpretationProviderRequestBody({ request: requestJson, model: context.model }),
+            max_output_tokens: context.maximumOutputUnits,
+          },
+          model: context.model,
+          maximumOutputTokens: context.maximumOutputUnits,
+          maximumAttempts: context.maximumAttempts,
+          serviceTier: "standard",
+        }),
         requestFingerprintPayload: {
           workspace_id: input.workspace_id,
           workpiece_id: workpieceId,
@@ -32414,10 +32495,12 @@ export class TongsCommitService {
             outputUnits: Number(providerResponse.output_units ?? 0),
           };
         },
-        executeProvider: async (context) => {
+        executeProvider: async (context, _attemptNumber, boundedProviderRequest) => {
+          if (!boundedProviderRequest) throw new OpenAiTextBoundaryError("funding_context_required");
           const result = await this.narrativeInterpretationProvider!.interpret({
             request: requestJson,
             model: context.model,
+            boundedProviderRequest,
             coordinatedExecution: (execute) => execute(),
           });
           paidModel = result.model;

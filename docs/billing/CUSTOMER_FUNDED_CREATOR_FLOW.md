@@ -58,7 +58,7 @@ The activation proposal uses the worst current domestic ratio, 5.9%, and solves 
 
 ### Exact inactive price proposals
 
-These prices include the complete Option B support allocation from `OPENAI_TEXT_SUPPORTING_COST_DECISION.md`, the 5.9% processor-allocation ceiling, the private 33% markup, and whole-cent upward rounding. They remain proposals because no candidate except the bounded Hearth Luna pilot has generation-compatible route evidence. Choosing a row is a model/quality decision; the release does not substitute Luna for an existing route.
+These historical prices used a superseded 120-second Option B support allocation. They are retained for audit context only and must not be published or used for admission. Any replacement proposal must use the current 60-second first-30-day variable ceiling in `OPENAI_TEXT_SUPPORTING_COST_DECISION.md`, include the exact complete-request token bound, and separately fund post-30-day tails. No candidate except the bounded Hearth Luna pilot has generation-compatible route evidence; the release does not substitute Luna for an existing route.
 
 | Route capacity | Astra | Sol | Terra | Luna | deprecated Mini snapshot |
 |---|---:|---:|---:|---:|---:|
@@ -68,7 +68,7 @@ These prices include the complete Option B support allocation from `OPENAI_TEXT_
 
 The already-proven bounded `hearth.chat_completion` Luna policy remains **$0.02**: $0.001015 direct + $0.010000 support, at most $0.001180 allocated acquisition fee, 33% markup, one attempt, 2,000 input and 512 output tokens. It is not published by this release.
 
-Using the same Option B $0.092567 support allocation for transcription gives the following inactive proposals:
+The following transcription figures likewise used the superseded Option B $0.092567 allocation. They are inactive historical proposals and cannot authorize execution:
 
 | Route/model | Direct ceiling | Support ceiling | Processor ceiling | Customer ceiling |
 |---|---:|---:|---:|---:|

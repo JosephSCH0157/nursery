@@ -6,6 +6,7 @@ import {
   OpenAiTextQuoteRequiredError,
   resolveOrdinaryOpenAiTextFunding,
 } from "../dist/providers/openai-text-customer-funding.js";
+import { buildBoundedOpenAiProviderRequest } from "../dist/providers/bounded-provider-request.js";
 
 const quoteId = "11111111-1111-4111-8111-111111111111";
 const reservationId = "22222222-2222-4222-8222-222222222222";
@@ -45,6 +46,13 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
         funding_label: "Verified prepaid balance",
         expires_at: new Date(Date.now() + 60_000).toISOString(),
       }, error: null };
+      if (name === "read_openai_text_quote_bounding_context") return { data: {
+        model: selectedModel,
+        maximum_input_units: 10000,
+        maximum_output_units: 512,
+        maximum_attempts: 1,
+      }, error: null };
+      if (name === "bind_bounded_provider_quote_request") return { data: { replay: false }, error: null };
       if (name === "reserve_customer_openai_text_quote") return { data: { paid_execution: {
         operation_id: "ordinary-operation-1",
         reservation_id: reservationId,
@@ -69,6 +77,19 @@ function input(serviceGate, userGate, acceptance = null) {
     acceptance,
     serviceGate,
     userGate,
+    prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+      buildBoundedOpenAiProviderRequest({
+        body: {
+          model,
+          instructions: "Bounded system instructions",
+          input: JSON.stringify({ history: ["prior turn"], context: "injected context", request: "creator request" }),
+          max_output_tokens: maximumOutputTokens,
+        },
+        model,
+        maximumOutputTokens,
+        maximumAttempts,
+        serviceTier: "standard",
+      }),
   };
 }
 
@@ -91,6 +112,7 @@ test("enforced routes return only a customer-safe quote before acceptance", asyn
   });
   assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
   assert.equal(service.calls.some((call) => call.name === "resolve_openai_text_model_for_funding_quote"), true);
+  assert.equal(service.calls.filter((call) => call.name === "bind_bounded_provider_quote_request").length, 1);
 });
 
 test("an exact acceptance is atomically reserved and returned as an opaque handle", async () => {
@@ -110,6 +132,8 @@ test("an exact acceptance is atomically reserved and returned as an opaque handl
   assert.equal(user.calls.filter((call) => call.name === "accept_quote").length, 1);
   assert.equal(service.calls.filter((call) => call.name === "reserve_customer_openai_text_quote").length, 1);
   assert.equal(service.calls.find((call) => call.name === "create_customer_openai_text_quote").args.p_model, "gpt-5.6-terra");
+  assert.ok(service.calls.findIndex((call) => call.name === "bind_bounded_provider_quote_request")
+    < service.calls.findIndex((call) => call.name === "reserve_customer_openai_text_quote"));
 });
 
 test("changed inputs cannot use an accepted quote", async () => {

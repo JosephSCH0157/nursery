@@ -29,7 +29,10 @@ import {
   OpenAiTextQuoteRequiredError,
   resolveOrdinaryOpenAiTextFunding,
 } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
-import { executePaidJsonOpenAiRoute } from "../billing/paid-json-openai-route";
+import {
+  buildBoundedPaidJsonOpenAiRequest,
+  executePaidJsonOpenAiRoute,
+} from "../billing/paid-json-openai-route";
 import {
   coordinateOpenAiTranscription,
   OpenAiTextFundingPreparationError as OpenAiTranscriptionFundingPreparationError,
@@ -105,6 +108,7 @@ import {
 } from "./ai-pricing";
 import {
   deriveHearthCustomerPaidIdentifiers,
+  buildBoundedHearthChatProviderRequest,
   executePaidHearthChatCompletion,
   fingerprintPaidHearthChatRequest,
   normalizeHearthPaidExecutionHandle,
@@ -4527,6 +4531,18 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const modelAllowsTemperatureOverride = !isGpt5FamilyModel(model);
         const requestedTemperature = readBehaviorTemperature(bodyRaw.behavior);
         const completionMessages = [system, ...messages];
+        const paidCompletionMessages: ChatMessage[] = [
+          {
+            role: "system",
+            content: [
+              "You are Hearth, a concise podcast writing collaborator.",
+              "Answer only the creator's bounded request.",
+              "Do not browse, call tools, purchase assets, or claim work you did not perform.",
+              "Return plain text or the existing Hearth JSON reply shape.",
+            ].join(" "),
+          },
+          latestUserMessage ?? { role: "user", content: requestText },
+        ];
         const callOpenAi = async (
           currentModel: string,
           allowTemperatureOverride: boolean,
@@ -4685,6 +4701,20 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 credentialFunding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
                 acceptance: spendingAcceptance,
                 serviceGate: openAiTextGate,
+                prepareBoundedRequest: ({ model: acceptedModel, maximumOutputTokens, maximumAttempts }) =>
+                  paidRouteCode === "hearth.chat_completion"
+                    ? buildBoundedHearthChatProviderRequest({
+                        messages: paidCompletionMessages,
+                        model: acceptedModel,
+                        maximumOutputTokens,
+                        maximumAttempts,
+                      })
+                    : buildBoundedPaidJsonOpenAiRequest({
+                        body: { model: acceptedModel, messages: completionMessages },
+                        model: acceptedModel,
+                        maximumOutputTokens,
+                        maximumAttempts,
+                      }),
                 userGate: {
                   rpc: async (name, payload) => {
                     const result = await callUserScopedTongsRpc({
@@ -4700,14 +4730,19 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               });
             } catch (error) {
               if (error instanceof OpenAiTextQuoteRequiredError) {
-                return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
+                const ownerBudgetRequired = !error.quote.fundingEligible && error.quote.payerKind === "owner_testing";
+                return jsonResponse(error.quote.fundingEligible || ownerBudgetRequired ? 409 : 402, {
                   ok: false,
                   error: error.quote.fundingEligible
                     ? "Review and accept the maximum customer charge before Hearth uses OpenAI."
-                    : "This funding source cannot cover the quoted operation. Choose Add Credits or another authorized payer, then request a fresh quote.",
+                    : ownerBudgetRequired
+                      ? "Private owner testing is authorized for this account, but a separately approved active spending cap is required before OpenAI can run."
+                      : "This funding source cannot cover the quoted operation. Choose Add Credits or another authorized payer, then request a fresh quote.",
                   code: error.quote.fundingEligible
                     ? "hearth_spending_confirmation_required"
-                    : "hearth_insufficient_verified_funds",
+                    : ownerBudgetRequired
+                      ? "hearth_owner_testing_budget_required"
+                      : "hearth_insufficient_verified_funds",
                   billing_quote: {
                     quote_id: error.quote.quoteId,
                     operation_id: error.quote.operationId,
@@ -4732,10 +4767,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 });
               }
               if (error instanceof OpenAiTextFundingPreparationError) {
-                return jsonResponse(error.status, {
+                const ownerBudgetRequired = error.details.payer_kind === "owner_testing";
+                return jsonResponse(ownerBudgetRequired ? 409 : error.status, {
                   ok: false,
-                  error: error.message,
-                  code: error.code,
+                  error: ownerBudgetRequired
+                    ? "Private owner testing is authorized for this account, but its explicit spending cap is not active. Add Credits is not required for this funding lane."
+                    : error.message,
+                  code: ownerBudgetRequired ? "hearth_owner_testing_budget_required" : error.code,
                   ...error.details,
                   ...buildBillingSnapshot(lane),
                 });
@@ -4976,18 +5014,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ...buildBillingSnapshot(lane),
               });
             }
-            const paidCompletionMessages: ChatMessage[] = [
-              {
-                role: "system",
-                content: [
-                  "You are Hearth, a concise podcast writing collaborator.",
-                  "Answer only the creator's bounded request.",
-                  "Do not browse, call tools, purchase assets, or claim work you did not perform.",
-                  "Return plain text or the existing Hearth JSON reply shape.",
-                ].join(" "),
-              },
-              latestUserMessage ?? { role: "user", content: requestText },
-            ];
             const paidOutcome = await executePaidHearthChatCompletion({
               gate: openAiTextGate,
               handle: paidExecutionHandle,

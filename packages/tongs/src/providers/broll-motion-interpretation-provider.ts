@@ -1,3 +1,5 @@
+import type { BoundedProviderRequest } from "./bounded-provider-request.js";
+
 export type BrollMotionBrief = {
   narrative_purpose: string;
   central_message: string;
@@ -16,7 +18,7 @@ export type BrollMotionBrief = {
   loopability: string;
 };
 
-export type InterpretBrollMotionInput = { request: Record<string, unknown>; model?: string | null; coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T> };
+export type InterpretBrollMotionInput = { request: Record<string, unknown>; model?: string | null; boundedProviderRequest?: BoundedProviderRequest; coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T> };
 export type InterpretBrollMotionOutput = { brief: BrollMotionBrief; rawResponse: Record<string, unknown>; providerRequestId: string | null; inputTokens: number; outputTokens: number; totalTokens: number; model: string };
 export interface BrollMotionInterpretationProvider { interpret(input: InterpretBrollMotionInput): Promise<InterpretBrollMotionOutput> }
 
@@ -29,6 +31,10 @@ const schema = { type:"object", additionalProperties:false, required, properties
 } };
 const instructions = `Interpret one script-bound B-roll beat as moving footage. Use only the supplied before/focus/after context and canonical beat direction. State what visibly changes across time, what the camera does, distinct start and end frames, usable duration, setting, pacing, continuity, defining evidence, and exclusions. Never return a still-image composition with camera language appended. Never use generic filler such as support the narrative, appropriate environment, relevant visual evidence, make the motion clear, or cinematic movement. Do not request variants or multiple candidates. Return only the structured motion brief.`;
 
+export function buildBrollMotionInterpretationProviderRequestBody(input:{request:Record<string,unknown>;model:string}):Record<string,unknown>{
+  return{model:input.model,instructions,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"broll_motion_brief",strict:true,schema}}};
+}
+
 function outputText(payload:Record<string,unknown>):string|null { const output=payload.output;if(!Array.isArray(output))return null;for(const item of output){if(!item||typeof item!=="object")continue;const content=(item as Record<string,unknown>).content;if(!Array.isArray(content))continue;for(const part of content){if(part&&typeof part==="object"&&typeof (part as Record<string,unknown>).text==="string")return (part as Record<string,string>).text;}}return null; }
 
 export class OpenAiBrollMotionInterpretationProvider implements BrollMotionInterpretationProvider {
@@ -37,7 +43,7 @@ export class OpenAiBrollMotionInterpretationProvider implements BrollMotionInter
   constructor(apiKey:string,defaultModel="gpt-5-mini"){if(!apiKey.trim())throw new Error("OpenAI interpretation API key is required");this.apiKey=apiKey;this.defaultModel=defaultModel;}
   async interpret(input:InterpretBrollMotionInput):Promise<InterpretBrollMotionOutput>{
     const model=input.model?.trim()||this.defaultModel;
-    const executeLegacy=()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"broll_motion_brief",strict:true,schema}}})});
+    const executeLegacy=()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:input.boundedProviderRequest?.serializedBody??JSON.stringify(buildBrollMotionInterpretationProviderRequestBody({request:input.request,model}))});
     let response:Response;
     try{
       response=await executeOpenAiTextTransport({routeCode:"motion.broll_interpretation",executeLegacy,coordinatedExecution:input.coordinatedExecution?()=>input.coordinatedExecution!(executeLegacy):undefined});
