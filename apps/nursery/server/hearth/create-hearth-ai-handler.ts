@@ -4246,7 +4246,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      let model = aiRoute.model;
+      // The general router currently returns the legacy model union, while the
+      // owner-funded path can replace it with one exact server-approved model.
+      let model: string = aiRoute.model;
       const reasoningEffort = aiRoute.reasoning;
       if (!ALLOWED_CHAT_MODELS.has(model)) {
         return jsonResponse(503, {
