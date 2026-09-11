@@ -71,21 +71,22 @@ test("owner authority is resolved server-side and exact serialized payload is bo
 });
 
 test("owner gate replaces authority and settlement gates but preserves evidence RPCs", async () => {
-  const names: string[] = [];
-  const base = { async rpc(name: string) { names.push(name); return { data: {}, error: null }; } };
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const base = { async rpc(name: string, args: Record<string, unknown>) { calls.push({ name, args }); return { data: {}, error: null }; } };
   const gate = ownerHearthExecutionGate(base);
-  await gate.rpc("resolve_openai_text_paid_execution_context", {});
+  await gate.rpc("resolve_openai_text_paid_execution_context", { p_operation_id: "op", p_route_code: "hearth.chat_completion" });
   await gate.rpc("acquire_openai_text_aggregate_admission", {});
   await gate.rpc("authorize_openai_text_provider_attempt_with_aggregate", {});
   await gate.rpc("settle_owner_operation", {});
   await gate.rpc("record_openai_text_provider_capture", {});
-  assert.deepEqual(names, [
+  assert.deepEqual(calls.map((call) => call.name), [
     "resolve_owner_hearth_paid_execution_context",
     "acquire_owner_hearth_aggregate_admission",
     "authorize_owner_hearth_provider_attempt_with_aggregate",
     "settle_owner_hearth_operation",
     "record_openai_text_provider_capture",
   ]);
+  assert.deepEqual(calls[0]?.args, { p_operation_id: "op" });
 });
 
 test("approved compatibility requests retain the exact complete-request byte ceilings", async () => {
