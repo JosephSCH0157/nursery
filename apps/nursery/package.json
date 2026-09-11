@@ -80,6 +80,7 @@
     "@runwayml/sdk": "4.13.1",
     "@supabase/supabase-js": "^2.98.0",
     "fflate": "^0.8.2",
+    "js-tiktoken": "1.0.21",
     "pdfjs-dist": "5.4.296",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
