@@ -11,6 +11,7 @@ The key must be a restricted OpenAI project key with Models Read and Chat Comple
 ## Authorized phases
 
 - Compatibility: five exact models, one call each, concurrency one, one attempt, 512 maximum output/reasoning tokens, 24 hours, and $0.09 aggregate authorization.
+- A replacement compatibility run uses a new authorization and new $0.09 execution budget only after the preceding batch is closed. It reuses the existing `$0.24` tail authorization; it cannot create a second storage allocation.
 - Creator session: created dormant only after all five compatibility results pass validation and canonical persistence. Its clock starts with the first accepted operation; maximum $10, 20 operations, concurrency two, one attempt, $2 unrecovered failure-loss exposure, 24 hours, and no renewal.
 - Aggregate production exposure: $10.84 including the unresolved historical $0.75 Runway opening commitment. The opening commitment is exposure, never spendable funding and never a duplicate supplier expense.
 - Storage tail: days 0–30 stay inside each operation's existing support allocation. Post-day-30 storage is a separate 12-month allocation capped at $0.02 per monthly period and $0.24 total for 128 MiB canonical content plus 32 MiB provider/reconciliation evidence. Expiry preserves data and evidence, reports continuing cost, and halts new owner AI admissions until replacement funding exists.
