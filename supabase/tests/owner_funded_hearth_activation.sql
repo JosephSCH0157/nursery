@@ -158,7 +158,7 @@ select tongs.release_owner_hearth_definitive_nonbillable_rejection(
 select tongs.record_owner_hearth_compatibility_result(
  '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-original-result','billed_failure',
  'req_test_credit_exhausted',0,null,'{"authoritative":false,"classification":"original"}'::jsonb);
-select tongs.correct_owner_hearth_compatibility_result_after_nonbillable_rejection(
+select tongs.correct_owner_hearth_nonbillable_result(
  '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-correction');
 
 do $$ declare aggregate_state text; failure_state text; begin

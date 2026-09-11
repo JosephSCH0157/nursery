@@ -127,7 +127,7 @@ async function main() {
     if (recorded) {
       const operation = recorded.operation as Record<string, unknown>;
       const correction = recorded.status === "billed_failure"
-        ? await call("correct_owner_hearth_compatibility_result_after_nonbillable_rejection", {
+        ? await call("correct_owner_hearth_nonbillable_result", {
           p_reservation_id: operation.reservation_id,
           p_event_key: `${operation.operation_id}:definitive-nonbillable-correction`,
         })
