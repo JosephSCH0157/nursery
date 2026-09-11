@@ -76,6 +76,9 @@ end $$;
 
 select tongs.acquire_owner_hearth_aggregate_admission(
  '91000000-0000-4000-8000-000000000033','interactive','real');
+select tongs.authorize_owner_hearth_provider_attempt_with_aggregate(
+ '91000000-0000-4000-8000-000000000033','owner-hearth-isolated-attempt',1::smallint,
+ 'interactive',30919,120,'{"provider":"openai","provider_submission_count":0}');
 insert into tongs.legacy_supplier_opening_commitments(id,environment,provider,commitment_key,amount_micros,status,evidence_json)
 values('91000000-0000-4000-8000-000000000050','production','runway','isolated-runway-opening',750000,'unresolved','{"funding_entitlement":false}');
 do $$ declare commitment bigint; concurrency bigint; policy_id uuid; begin
