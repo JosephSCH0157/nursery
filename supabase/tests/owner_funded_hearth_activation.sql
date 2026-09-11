@@ -92,6 +92,20 @@ end $$;
 select tongs.settle_owner_hearth_operation(
  '91000000-0000-4000-8000-000000000033','91000000-0000-4000-8000-000000000060',
  'owner-hearth-isolated-operation-astra:settled','success',null,1000,'{"authoritative":false}');
+select tongs.record_paid_operation_aggregate_outcome(
+ '91000000-0000-4000-8000-000000000033','owner-hearth-isolated-operation-astra:aggregate-settled',
+ 'settled_unconfirmed',1000,null,
+ '{"authoritative":false,"provider_usage_reported":true,"direct_cost_rounding_risk_micros":3}'::jsonb);
+
+do $$ declare policy_id uuid; committed bigint; active_execution bigint; begin
+ select aggregate_policy_revision_id into policy_id from tongs.owner_hearth_model_terms
+ where authorization_id='91000000-0000-4000-8000-000000000020' and provider_model_id='gpt-6-astra';
+ select committed_micros into committed from tongs._restricted_beta_policy_commitment(policy_id);
+ active_execution:=tongs._restricted_beta_policy_execution_concurrency(policy_id);
+ if committed<1000 then raise exception 'settled estimated supplier expense was not retained: %',committed; end if;
+ if active_execution<>0 then
+  raise exception 'terminal settled-estimated exposure still consumed execution concurrency: %',active_execution; end if;
+end $$;
 
 do $$ declare covered_at timestamptz; settled_at timestamptz; begin
  select created_at into settled_at from tongs.funding_reservation_events where event_key='owner-hearth-isolated-operation-astra:settled';
@@ -203,6 +217,34 @@ select tongs.activate_owner_hearth_compatibility_retry(
  '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000020',
  '91000000-0000-4000-8000-000000000090','91000000-0000-4000-8000-000000000091',
  '91000000-0000-4000-8000-000000000022','isolated fresh compatibility retry replay');
+
+select tongs.prepare_owner_hearth_operation(
+ '91000000-0000-4000-8000-000000000092','91000000-0000-4000-8000-000000000093',
+ '91000000-0000-4000-8000-000000000094','91000000-0000-4000-8000-000000000095',
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000010','compat-terra-preprovider',
+ 'owner-hearth-isolated-retry-terra','gpt-5.6-terra',repeat('1',64),repeat('2',64),386,300,16,386,512,1::smallint,
+ 'openai-json-o200k-byte-ceiling-v1','o200k_base-js-tiktoken-1.0.21',now()+interval '10 minutes');
+select tongs.release_operation(
+ '91000000-0000-4000-8000-000000000095','owner-hearth-isolated-terra-aggregate-denied',
+ 'aggregate_concurrency_exhausted',
+ '{"reason":"aggregate_concurrency_exhausted","transmitted":false,"provider_submission_count":0}'::jsonb);
+select tongs.rearm_owner_hearth_preprovider_release(
+ '91000000-0000-4000-8000-000000000095','91000000-0000-4000-8000-000000000001',
+ 'owner-hearth-isolated-terra-rearm');
+select tongs.rearm_owner_hearth_preprovider_release(
+ '91000000-0000-4000-8000-000000000095','91000000-0000-4000-8000-000000000001',
+ 'owner-hearth-isolated-terra-rearm');
+
+do $$ begin
+ if (select event_type from tongs.funding_reservation_events
+     where reservation_id='91000000-0000-4000-8000-000000000095' order by sequence desc limit 1)<>'reserved' then
+  raise exception 'pre-provider aggregate rejection was not rearmed'; end if;
+ if (select count(*) from tongs.funding_reservation_events where event_key='owner-hearth-isolated-terra-rearm')<>1 then
+  raise exception 'pre-provider rearm replay was not idempotent'; end if;
+ if exists(select 1 from tongs.paid_operation_aggregate_bindings where reservation_id='91000000-0000-4000-8000-000000000095')
+    or exists(select 1 from tongs.openai_text_failure_exposure_holds where reservation_id='91000000-0000-4000-8000-000000000095') then
+  raise exception 'rearm fabricated provider or aggregate execution evidence'; end if;
+end $$;
 
 do $$ declare latest_state text; begin
  select e.state into latest_state from tongs.owner_hearth_authorization_events e
