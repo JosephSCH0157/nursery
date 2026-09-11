@@ -29,7 +29,10 @@ import {
   type OpenAiTextSpendingAcceptance,
 } from "../../../packages/tongs/src/providers/openai-text-customer-funding";
 import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
-import { executePaidJsonOpenAiRoute } from "../server/billing/paid-json-openai-route";
+import {
+  buildBoundedPaidJsonOpenAiRequest,
+  executePaidJsonOpenAiRoute,
+} from "../server/billing/paid-json-openai-route";
 import {
   coordinateOpenAiTranscription,
   OpenAiTextFundingPreparationError as OpenAiTranscriptionFundingPreparationError,
@@ -67,7 +70,7 @@ import {
   recordAiUsageEvent,
   type BillingMode,
 } from "../server/ai-usage-accounting";
-import { buildHammerShortsPaidRequestIdentity, executeHammerShortsDiscovery, HAMMER_SHORTS_DISCOVERY_ROUTE, type HammerShortsDiscoveryBody } from "./hammer-shorts-discovery";
+import { buildHammerShortsPaidRequestIdentity, buildHammerShortsProviderRequestBody, executeHammerShortsDiscovery, HAMMER_SHORTS_DISCOVERY_ROUTE, type HammerShortsDiscoveryBody } from "./hammer-shorts-discovery";
 import {
   AI_REASON_CODES,
   getAiReasonMessage,
@@ -1031,6 +1034,50 @@ function quenchPaidFingerprintPayload(request: QuenchMetadataAssistRequest, mode
   };
 }
 
+const TRANSCRIPT_CLEANUP_SYSTEM_PROMPT =
+  "You are a transcript cleanup assistant. Improve readability while preserving meaning, speaker intent, and factual content. " +
+  "Do not add new claims. Return JSON only in shape {\"changes\":[{\"segment_id\":\"...\",\"cleaned_text\":\"...\"}]} for selected segments.";
+const QUENCH_METADATA_SYSTEM_PROMPT =
+  "You are a podcast release metadata assistant. Improve clarity and discoverability while staying faithful to source intent. " +
+  "Return JSON only: {\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"]}.";
+
+function transcriptCleanupProviderBody(request: CleanupAssistRequest, model: string): Record<string, unknown> {
+  const selectedSegments = request.segments.filter((segment) => request.segment_ids.includes(segment.segment_id));
+  return {
+    model,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: TRANSCRIPT_CLEANUP_SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify({
+        instruction: "Tighten selected transcript lines: remove filler/repetition/restart clutter conservatively.",
+        selected_segments: selectedSegments.map((segment) => ({
+          segment_id: segment.segment_id,
+          speaker: segment.speaker,
+          text: segment.text,
+        })),
+      }) },
+    ],
+  };
+}
+
+function quenchMetadataProviderBody(request: QuenchMetadataAssistRequest, model: string): Record<string, unknown> {
+  return {
+    model,
+    temperature: 0.3,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: QUENCH_METADATA_SYSTEM_PROMPT },
+      { role: "user", content: JSON.stringify({
+        instruction: "Draft a tighter title, cleaner description, and concise tags for release packaging.",
+        title: request.title,
+        description: request.description,
+        tags: request.tags,
+      }) },
+    ],
+  };
+}
+
 function sendOpenAiFundingError(res: ServerResponse, error: unknown): boolean {
   if (error instanceof OpenAiTextQuoteRequiredError) {
     sendJson(res, 409, {
@@ -1371,18 +1418,6 @@ async function runOpenAiTranscriptCleanupAssist(args: {
     };
   }
 
-  const systemPrompt =
-    "You are a transcript cleanup assistant. Improve readability while preserving meaning, speaker intent, and factual content. " +
-    "Do not add new claims. Return JSON only in shape {\"changes\":[{\"segment_id\":\"...\",\"cleaned_text\":\"...\"}]} for selected segments.";
-  const userPrompt = JSON.stringify({
-    instruction: "Tighten selected transcript lines: remove filler/repetition/restart clutter conservatively.",
-    selected_segments: selectedSegments.map((segment) => ({
-      segment_id: segment.segment_id,
-      speaker: segment.speaker,
-      text: segment.text,
-    })),
-  });
-
   if (args.paid) {
     const paid = await executePaidJsonOpenAiRoute({
       gate: args.paid.gate,
@@ -1395,15 +1430,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
       callerClass: "background",
       apiKey: args.apiKey,
       requestFingerprintPayload: cleanupPaidFingerprintPayload(args.request, args.model),
-      providerRequestBody: (model) => ({
-        model,
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+      providerRequestBody: (model) => transcriptCleanupProviderBody(args.request, model),
       fetchImpl: args.fetchImpl,
       recover: args.recover,
       validate: (payload) => {
@@ -1454,15 +1481,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
           authorization: `Bearer ${args.apiKey}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        }),
+        body: JSON.stringify(transcriptCleanupProviderBody(args.request, model)),
         signal: upstreamTimeout.controller.signal,
       }) });
     } finally {
@@ -1585,16 +1604,6 @@ async function runOpenAiQuenchMetadataAssist(args: {
   tags: string[];
   billingReceipt?: Record<string, unknown>;
 }> {
-  const systemPrompt =
-    "You are a podcast release metadata assistant. Improve clarity and discoverability while staying faithful to source intent. " +
-    "Return JSON only: {\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"]}.";
-  const userPrompt = JSON.stringify({
-    instruction: "Draft a tighter title, cleaner description, and concise tags for release packaging.",
-    title: args.request.title,
-    description: args.request.description,
-    tags: args.request.tags,
-  });
-
   if (args.paid) {
     const paid = await executePaidJsonOpenAiRoute({
       gate: args.paid.gate,
@@ -1607,15 +1616,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
       callerClass: "background",
       apiKey: args.apiKey,
       requestFingerprintPayload: quenchPaidFingerprintPayload(args.request, args.model),
-      providerRequestBody: (model) => ({
-        model,
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+      providerRequestBody: (model) => quenchMetadataProviderBody(args.request, model),
       fetchImpl: args.fetchImpl,
       recover: args.recover,
       validate: (payload) => {
@@ -1646,15 +1647,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
         authorization: `Bearer ${args.apiKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        model: args.model,
-        temperature: 0.3,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+      body: JSON.stringify(quenchMetadataProviderBody(args.request, args.model)),
       signal: upstreamTimeout.controller.signal,
     }) });
   } finally {
@@ -2168,6 +2161,14 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               credentialFunding: "forge",
               acceptance: shortsAcceptance,
               serviceGate: openAiTextGate,
+              prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+                buildBoundedPaidJsonOpenAiRequest({
+                  body: buildHammerShortsProviderRequestBody(shortsBody, model),
+                  providerUrl: "https://api.openai.com/v1/responses",
+                  model,
+                  maximumOutputTokens,
+                  maximumAttempts,
+                }),
               userGate: userClient.schema("tongs") as unknown as OpenAiTextGateClient,
             });
           } catch (error) {
@@ -2410,6 +2411,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           return;
         }
         if (!assistRequest.paid_execution && quenchUserId && openAiTextGate) {
+          const boundedAssistRequest = assistRequest;
           const requestFingerprint = await fingerprintOpenAiTextPaidRequest(quenchPaidFingerprintPayload(assistRequest, quenchMetadataModel));
           try {
             const handle = await resolveOrdinaryOpenAiTextFunding({
@@ -2423,6 +2425,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               credentialFunding: "forge",
               acceptance: assistRequest.spending_acceptance,
               serviceGate: openAiTextGate,
+              prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+                buildBoundedPaidJsonOpenAiRequest({
+                  body: quenchMetadataProviderBody(boundedAssistRequest, model),
+                  model,
+                  maximumOutputTokens,
+                  maximumAttempts,
+                }),
               userGate: createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
                 auth: { persistSession: false, autoRefreshToken: false },
                 global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
@@ -2545,6 +2554,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           return;
         }
         if (!cleanupRequest.paid_execution && cleanupUserId && openAiTextGate) {
+          const boundedCleanupRequest = cleanupRequest;
           const requestFingerprint = await fingerprintOpenAiTextPaidRequest(cleanupPaidFingerprintPayload(cleanupRequest, cleanupModel));
           try {
             const handle = await resolveOrdinaryOpenAiTextFunding({
@@ -2558,6 +2568,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               credentialFunding: "forge",
               acceptance: cleanupRequest.spending_acceptance,
               serviceGate: openAiTextGate,
+              prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+                buildBoundedPaidJsonOpenAiRequest({
+                  body: transcriptCleanupProviderBody(boundedCleanupRequest, model),
+                  model,
+                  maximumOutputTokens,
+                  maximumAttempts,
+                }),
               userGate: createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
                 auth: { persistSession: false, autoRefreshToken: false },
                 global: { headers: { Authorization: `Bearer ${userAccessToken}` } },

@@ -31,6 +31,7 @@ const migrations = [
   "20261005120000_tongs_customer_funding_read_model.sql",
   "20261006120000_tongs_owner_org_funding_authority.sql",
   "20261006130000_tongs_openai_model_catalog_revision_2.sql",
+  "20261007120000_tongs_non_spending_financial_repairs.sql",
 ];
 
 function docker(args, input) {
@@ -67,6 +68,7 @@ try {
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
   for (const migration of migrations) psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
   psql(readFileSync("supabase/tests/hearth_access_funding.sql", "utf8"), "Hearth access and funding proof");
+  psql(readFileSync("supabase/tests/non_spending_financial_repairs.sql", "utf8"), "non-spending financial repair proof");
   console.log(JSON.stringify({
     isolated_database: true,
     explicit_owner_identity_not_role_inheritance: "passed",
@@ -78,6 +80,10 @@ try {
     legacy_balance_preserved_ineligible: "passed",
     five_model_draft_catalog: "passed",
     production_rollout_unchanged: "passed",
+    complete_serialized_request_binding_private: "passed",
+    cross_revision_supplier_obligations_preserved: "passed",
+    conservative_exposure_adjustment_and_halt: "passed",
+    post_30_day_tail_funding_explicit: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

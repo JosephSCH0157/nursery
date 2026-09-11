@@ -170,6 +170,10 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
           failure_customer_charge_micros: 0, funding_eligible: false, funding_source: "none",
           payer_kind: "personal", funding_label: "No verified eligible funds", expires_at: new Date(Date.now() + 60_000).toISOString(),
         }, error: null };
+        if (name === "read_openai_text_quote_bounding_context") return { data: {
+          model: "gpt-5.6-luna", maximum_input_units: 20000, maximum_output_units: 512, maximum_attempts: 1,
+        }, error: null };
+        if (name === "bind_bounded_provider_quote_request") return { data: { replay: false }, error: null };
         return { data: {}, error: null };
       },
     },
@@ -236,6 +240,12 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           expires_at: args.p_expires_at,
           provider_funding_summary: [{ component: "text_generation", provider_label: "OpenAI", credential_source: "forge" }],
         }, error: null };
+      }
+      if (name === "read_openai_text_quote_bounding_context") return { data: {
+        model: "gpt-5.6-luna", maximum_input_units: 20000, maximum_output_units: 512, maximum_attempts: 1,
+      }, error: null };
+      if (name === "bind_bounded_provider_quote_request" || name === "bind_bounded_provider_request") {
+        return { data: { replay: false }, error: null };
       }
       if (name === "reserve_customer_openai_text_quote") {
         reserveArgs = args;

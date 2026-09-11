@@ -6,6 +6,7 @@ const migrationUrl = new URL("../../../supabase/migrations/20261002120000_tongs_
 const coordinatorUrl = new URL("../src/providers/paid-openai-text-execution-coordinator.ts", import.meta.url);
 const runwayUrl = new URL("../src/providers/runway-paid-execution-boundary.ts", import.meta.url);
 const workpieceUrl = new URL("../src/workpiece-commit-api.ts", import.meta.url);
+const repairMigrationUrl = new URL("../../../supabase/migrations/20261007120000_tongs_non_spending_financial_repairs.sql", import.meta.url);
 
 test("all eight OpenAI text routes map to aggregate capability terms", async () => {
   const sql = await readFile(migrationUrl, "utf8");
@@ -72,4 +73,37 @@ test("ordinary and background caller files reach the aggregate-wired adapters", 
   assert.match(files.hammer, /routeCode:\s*"hammer\.transcript_cleanup"[\s\S]+?callerClass:\s*"background"/);
   assert.match(files.hammer, /routeCode:\s*"quench\.metadata"[\s\S]+?callerClass:\s*"background"/);
   assert.match(files.shorts, /routeCode:\s*"shorts\.discovery"[\s\S]+?callerClass:\s*"background"/);
+});
+
+test("all JSON text callers bind a complete serialized request at quote and provider boundaries", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const [funding, routeExecution, paidJson, hearthExecution, hearth, visual, hammer, shorts, migration] = await Promise.all([
+    readFile(new URL("packages/tongs/src/providers/openai-text-customer-funding.ts", root), "utf8"),
+    readFile(new URL("packages/tongs/src/providers/paid-openai-text-route-execution.ts", root), "utf8"),
+    readFile(new URL("apps/nursery/server/billing/paid-json-openai-route.ts", root), "utf8"),
+    readFile(new URL("apps/nursery/server/hearth/hearth-paid-chat-execution.ts", root), "utf8"),
+    readFile(new URL("apps/nursery/server/hearth/create-hearth-ai-handler.ts", root), "utf8"),
+    readFile(workpieceUrl, "utf8"),
+    readFile(new URL("apps/nursery/scripts/mw-hammer-prep.ts", root), "utf8"),
+    readFile(new URL("apps/nursery/scripts/hammer-shorts-discovery.ts", root), "utf8"),
+    readFile(repairMigrationUrl, "utf8"),
+  ]);
+  assert.match(funding, /bind_bounded_provider_quote_request/);
+  assert.match(routeExecution, /bind_bounded_provider_request/);
+  assert.match(migration, /quote_request\.serialized_body_sha256<>p_serialized_body_sha256/);
+  assert.match(paidJson, /body:\s*boundedRequest\.serializedBody/);
+  assert.match(hearthExecution, /body:\s*boundedRequest\.serializedBody/);
+  assert.ok((hearth.match(/prepareBoundedRequest:/g) ?? []).length >= 1);
+  assert.ok((visual.match(/prepareBoundedRequest:/g) ?? []).length >= 6);
+  assert.ok((hammer.match(/prepareBoundedRequest:/g) ?? []).length >= 3);
+  assert.match(shorts, /buildHammerShortsProviderRequestBody/);
+});
+
+test("repair migration changes no rollout, price publication, budget, or aggregate assignment", async () => {
+  const sql = await readFile(repairMigrationUrl, "utf8");
+  assert.match(sql, /This migration activates no price, budget, assignment/);
+  assert.doesNotMatch(sql, /insert\s+into\s+tongs\.openai_text_rollout_revisions/i);
+  assert.doesNotMatch(sql, /insert\s+into\s+tongs\.paid_execution_aggregate_assignments/i);
+  assert.doesNotMatch(sql, /insert\s+into\s+tongs\.owner_operating_budget_revisions/i);
+  assert.doesNotMatch(sql, /lifecycle_state\s*=\s*'published'/i);
 });

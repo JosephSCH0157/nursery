@@ -405,6 +405,10 @@ export class PaidOpenAiTextExecutionCoordinator {
           provider: "openai",
           provider_request_id: result.requestId,
           authoritative: supplierCostComplete && allCostEvidenceAuthoritative,
+          provider_usage_reported: true,
+          direct_cost_rounding_risk_micros: input.credentialFunding === "forge" ? 3 : 0,
+          supporting_and_tail_costs_confirmed:
+            result.supportingCostAuthoritative === true && result.costCoverageComplete !== false,
         },
       });
       return {

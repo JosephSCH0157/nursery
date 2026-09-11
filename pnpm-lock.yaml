@@ -423,6 +423,9 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      js-tiktoken:
+        specifier: 1.0.21
+        version: 1.0.21
       pdfjs-dist:
         specifier: 5.4.296
         version: 5.4.296
@@ -3681,6 +3684,9 @@ packages:
     peerDependenciesMeta:
       node-notifier:
         optional: true
+
+  js-tiktoken@1.0.21:
+    resolution: {integrity: sha512-biOj/6M5qdgx5TKjDnFT1ymSpM5tbd3ylwDtrQvFQSu0Z7bBYko2dF+W/aUkXUPuk6IVpRxk/3Q2sHOzGlS36g==}
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -8909,6 +8915,10 @@ snapshots:
       - esbuild-register
       - supports-color
       - ts-node
+
+  js-tiktoken@1.0.21:
+    dependencies:
+      base64-js: 1.5.1
 
   js-tokens@4.0.0: {}
 

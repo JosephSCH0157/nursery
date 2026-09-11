@@ -1,3 +1,5 @@
+import type { BoundedProviderRequest } from "./bounded-provider-request.js";
+
 export type UnifiedVisualSourceCatalogEntry = {
   source_key: string;
   title: string;
@@ -103,6 +105,7 @@ export interface UnifiedVisualPlanProvider {
     generationScope: UnifiedVisualPlanGenerationScope;
     sourceCatalog: UnifiedVisualSourceCatalogEntry[];
     model?: string | null;
+    boundedProviderRequest?: BoundedProviderRequest;
     coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T>;
   }): Promise<UnifiedVisualPlanProviderOutput>;
 }
@@ -299,6 +302,26 @@ const schema = {
   },
 };
 const instructions = `Create one mixed editorial visual plan from the exact approved podcast script. Each script passage belongs to exactly one visual family: never reuse or overlap a context_focus across Images, B-roll, Reference Clips, or Reference Visuals. Choose the single treatment that communicates that moment best. A Reference Clip or Reference Visual is canonical Reference Material and MUST use direct provenance with exactly one opaque source_key from source_catalog. Do not create Reference Material when no catalog Source directly supports it; choose Image or B-roll instead. Prefer a Reference Visual for source-backed numbers, comparisons, timelines, quotes, or documents; an authentic Reference Clip when linked source media itself is essential and obtainable; B-roll for motion, process, atmosphere, or newly filmed coverage; and an Image for a static person, place, object, or concept. For Image and B-roll items, identify provenance only with opaque source_key values from source_catalog. Never invent a URL or source key. Use direct only when one source is the specific basis; supporting for an intentionally joint ordered set; ambiguous when several catalog sources are plausible; none with an empty source_keys array when no catalog source applies. When the script centers named public figures, use verified-photo opportunities rather than inventing their appearance. Planning is editorial only: never invent a Source, statistic, quote, URL, archive, rights claim, or existing asset. Every context_focus must be an exact nonempty excerpt from the supplied script. Return only the structured result.`;
+
+export function buildUnifiedVisualPlanProviderRequestBody(input: {
+  scriptText: string;
+  creatorDirection: string | null;
+  generationScope: UnifiedVisualPlanGenerationScope;
+  sourceCatalog: UnifiedVisualSourceCatalogEntry[];
+  model: string;
+}): Record<string, unknown> {
+  return {
+    model: input.model,
+    instructions: `${scopeInstructions}${instructions}`,
+    input: JSON.stringify({
+      approved_script: input.scriptText,
+      creator_direction: input.creatorDirection,
+      generation_scope: input.generationScope,
+      source_catalog: input.sourceCatalog,
+    }),
+    text: { format: { type: "json_schema", name: "unified_visual_plan", strict: true, schema } },
+  };
+}
 function outputText(payload: Record<string, unknown>): string | null {
   const output = payload.output;
   if (!Array.isArray(output)) return null;
@@ -331,6 +354,7 @@ export class OpenAiUnifiedVisualPlanProvider {
     generationScope: UnifiedVisualPlanGenerationScope;
     sourceCatalog: UnifiedVisualSourceCatalogEntry[];
     model?: string | null;
+    boundedProviderRequest?: BoundedProviderRequest;
     coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T>;
   }): Promise<UnifiedVisualPlanProviderOutput> {
     const model = input.model?.trim() || this.defaultModel;
@@ -342,24 +366,9 @@ export class OpenAiUnifiedVisualPlanProvider {
           authorization: `Bearer ${this.apiKey}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          model,
-          instructions: `${scopeInstructions}${instructions}`,
-          input: JSON.stringify({
-            approved_script: input.scriptText,
-            creator_direction: input.creatorDirection,
-            generation_scope: input.generationScope,
-            source_catalog: input.sourceCatalog,
-          }),
-          text: {
-            format: {
-              type: "json_schema",
-              name: "unified_visual_plan",
-              strict: true,
-              schema,
-            },
-          },
-        }),
+        body: input.boundedProviderRequest?.serializedBody ?? JSON.stringify(
+          buildUnifiedVisualPlanProviderRequestBody({ ...input, model }),
+        ),
       });
       response = await executeOpenAiTextTransport({ routeCode: "visual.unified_plan", executeLegacy, coordinatedExecution: input.coordinatedExecution ? () => input.coordinatedExecution!(executeLegacy) : undefined });
     } catch (error) {

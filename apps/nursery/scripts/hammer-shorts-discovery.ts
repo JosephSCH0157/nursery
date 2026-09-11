@@ -93,6 +93,39 @@ export async function buildHammerShortsPaidRequestIdentity(
   };
 }
 
+export function buildHammerShortsProviderRequestBody(
+  body: HammerShortsDiscoveryBody,
+  model: string,
+): Record<string, unknown> {
+  const activeSegments = body.output_segments.filter((segment) => !segment.disabled).map((segment) => ({
+    id: segment.segment_id,
+    text: segment.text,
+    start: segment.output_start_sec,
+    end: segment.output_end_sec,
+  }));
+  return {
+    model,
+    input: [
+      { role: "system", content: "Identify only strong short-form moments. Return segment anchors; never invent timestamps or text." },
+      { role: "user", content: JSON.stringify({
+        goal: body.goal,
+        duration_bounds_seconds: [body.minimum_duration_sec, body.maximum_duration_sec],
+        target_count: body.target_candidate_count,
+        segments: activeSegments,
+      }) },
+    ],
+    text: { format: { type: "json_schema", name: "hammer_shorts_proposals", strict: true, schema: {
+      type: "object", additionalProperties: false, required: ["proposals"], properties: {
+        proposals: { type: "array", maxItems: 6, items: {
+          type: "object", additionalProperties: false,
+          required: ["proposal_id", "rank", "first_segment_id", "last_segment_id", "rationale", "goal_fit"],
+          properties: { proposal_id: { type: "string" }, rank: { type: "integer", minimum: 1 }, first_segment_id: { type: "string" }, last_segment_id: { type: "string" }, rationale: { type: "string" }, goal_fit: { type: "string" } },
+        } },
+      },
+    } } },
+  };
+}
+
 export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBody, dependencies: HammerShortsDiscoveryDependencies): Promise<{ status: number; payload: unknown }> {
   if (!valid(body)) return { status: 400, payload: { ok: false, error: { code: "hammer_shorts_request_invalid" } } };
   const policy = await dependencies.policyPreflight();
@@ -104,19 +137,7 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
   const discoveryId = String(reserved.id ?? "");
   if (!discoveryId) return { status: 502, payload: { ok: false, error: { code: "hammer_shorts_reservation_invalid" } } };
   const activeSegments = body.output_segments.filter((segment) => !segment.disabled).map((segment) => ({ id: segment.segment_id, text: segment.text, start: segment.output_start_sec, end: segment.output_end_sec }));
-  const providerRequestBody = (model: string) => ({
-    model,
-    input: [{ role: "system", content: "Identify only strong short-form moments. Return segment anchors; never invent timestamps or text." }, { role: "user", content: JSON.stringify({ goal: body.goal, duration_bounds_seconds: [body.minimum_duration_sec, body.maximum_duration_sec], target_count: body.target_candidate_count, segments: activeSegments }) }],
-    text: { format: { type: "json_schema", name: "hammer_shorts_proposals", strict: true, schema: {
-      type: "object", additionalProperties: false, required: ["proposals"], properties: {
-        proposals: { type: "array", maxItems: 6, items: {
-          type: "object", additionalProperties: false,
-          required: ["proposal_id", "rank", "first_segment_id", "last_segment_id", "rationale", "goal_fit"],
-          properties: { proposal_id: { type: "string" }, rank: { type: "integer", minimum: 1 }, first_segment_id: { type: "string" }, last_segment_id: { type: "string" }, rationale: { type: "string" }, goal_fit: { type: "string" } },
-        } },
-      },
-    } } },
-  });
+  const providerRequestBody = (model: string) => buildHammerShortsProviderRequestBody(body, model);
   if (body.paid_execution) {
     if (!dependencies.paid || body.paid_execution.requestFingerprint !== operationFingerprint) {
       return { status: 403, payload: { ok: false, error: { code: "funding_context_required" } } };

@@ -10,6 +10,7 @@ import {
   type OpenAiTextProviderResult,
 } from "./paid-openai-text-execution-coordinator.js";
 import type { AggregateAdmissionCallerClass } from "./aggregate-financial-admission.js";
+import type { BoundedProviderRequest } from "./bounded-provider-request.js";
 import type { OpenAiTranscriptionRouteCode } from "./openai-transcription-paid-boundary.js";
 
 export type CoordinatedOpenAiRouteCode =
@@ -107,13 +108,20 @@ type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string,
   workpieceId: string;
   credentialSource: OpenAiTextCredentialSource;
   callerClass?: AggregateAdmissionCallerClass;
-  /** A conservative pre-provider upper bound, normally UTF-8 request bytes. */
-  inputUnitUpperBound: number;
+  /**
+   * Legacy callers may still provide a conservative unit bound. Coordinated
+   * JSON callers must prepare and bind the exact serialized provider request.
+   */
+  inputUnitUpperBound?: number;
+  prepareBoundedRequest?: (
+    context: PaidOpenAiTextRouteContext,
+  ) => Promise<BoundedProviderRequest>;
   /** Exact canonical caller inputs (including the requested route/model). */
   requestFingerprintPayload: unknown;
   executeProvider: (
     context: PaidOpenAiTextRouteContext,
     attemptNumber: number,
+    boundedRequest?: BoundedProviderRequest,
   ) => Promise<OpenAiTextProviderResult<TProvider>>;
   validateResult: (value: TProvider) => Promise<void> | void;
   persistCanonical: (value: TProvider) => Promise<TCanonical>;
@@ -309,13 +317,11 @@ export async function executePaidOpenAiTextRoute<
   if (expectedRequestFingerprint !== args.handle.requestFingerprint) {
     throw new OpenAiTextBoundaryError("funding_context_required");
   }
-  if (
+  if (args.inputUnitUpperBound !== undefined && (
     !Number.isSafeInteger(args.inputUnitUpperBound) ||
     args.inputUnitUpperBound < 0 ||
     args.inputUnitUpperBound > context.maximumInputUnits
-  ) {
-    throw new OpenAiTextBoundaryError("funding_context_required");
-  }
+  )) throw new OpenAiTextBoundaryError("funding_context_required");
   const credentialMatches =
     context.credentialFunding === "forge"
       ? args.credentialSource === "forge_managed"
@@ -370,6 +376,8 @@ export async function executePaidOpenAiTextRoute<
         recovered_from_settled_replay: true,
         authoritative: false,
         usage_evidence_complete: replayUsageIsComplete,
+        provider_usage_reported: replayUsageIsComplete,
+        direct_cost_rounding_risk_micros: context.credentialFunding === "forge" ? 3 : 0,
       },
     });
     return {
@@ -443,6 +451,8 @@ export async function executePaidOpenAiTextRoute<
           provider: "openai",
           recovered_after_domain_persistence: true,
           authoritative: false,
+          provider_usage_reported: true,
+          direct_cost_rounding_risk_micros: context.credentialFunding === "forge" ? 3 : 0,
         },
       });
       return {
@@ -492,6 +502,35 @@ export async function executePaidOpenAiTextRoute<
     };
   }
 
+  const boundedRequest = args.prepareBoundedRequest
+    ? await args.prepareBoundedRequest(context)
+    : undefined;
+  if (boundedRequest) {
+    if (boundedRequest.model !== context.model ||
+        boundedRequest.boundedInputTokens > context.maximumInputUnits ||
+        boundedRequest.maximumOutputTokens !== context.maximumOutputUnits ||
+        boundedRequest.maximumAttempts !== context.maximumAttempts) {
+      throw new OpenAiTextBoundaryError("funding_context_required");
+    }
+    await rpc(args.gate, "bind_bounded_provider_request", {
+      p_reservation_id: context.reservationId,
+      p_route_code: context.routeCode,
+      p_request_fingerprint: args.handle.requestFingerprint,
+      p_model: context.model,
+      p_service_tier: boundedRequest.serviceTier,
+      p_estimator_revision: boundedRequest.estimatorRevision,
+      p_tokenizer_revision: boundedRequest.tokenizerRevision,
+      p_serialized_body_sha256: boundedRequest.serializedBodySha256,
+      p_serialized_bytes: boundedRequest.serializedBytes,
+      p_tokenizer_input_tokens: boundedRequest.tokenizerInputTokens,
+      p_protocol_overhead_tokens: boundedRequest.protocolOverheadTokens,
+      p_utf8_byte_token_upper_bound: boundedRequest.utf8ByteTokenUpperBound,
+      p_bounded_input_tokens: boundedRequest.boundedInputTokens,
+      p_maximum_output_tokens: boundedRequest.maximumOutputTokens,
+      p_maximum_attempts: boundedRequest.maximumAttempts,
+    });
+  }
+
   let canonicalResult: TCanonical | null = null;
   let providerEvidence: OpenAiTextProviderResult<TProvider> | null = null;
   const coordinator = new PaidOpenAiTextExecutionCoordinator(args.gate);
@@ -518,7 +557,7 @@ export async function executePaidOpenAiTextRoute<
     aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",
     reservationAlreadyCreated: true,
     executeProvider: async (attemptNumber) => {
-      const result = await args.executeProvider(context, attemptNumber);
+      const result = await args.executeProvider(context, attemptNumber, boundedRequest);
       providerEvidence = result;
       return result;
     },

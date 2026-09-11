@@ -39,10 +39,13 @@ function buildGate(state = "reserved") {
     calls,
     async rpc(name: string, args: Record<string, unknown>) {
       calls.push({ name, args });
-      if (name === "resolve_hearth_chat_paid_execution_context") {
+      if (name === "resolve_hearth_chat_paid_execution_context" || name === "resolve_openai_text_paid_execution_context") {
         return { data: resolvedContext(state), error: null };
       }
-      if (name === "authorize_openai_text_provider_attempt") {
+      if (name === "bind_bounded_provider_request") {
+        return { data: { replay: false }, error: null };
+      }
+      if (name === "authorize_openai_text_provider_attempt" || name === "authorize_openai_text_provider_attempt_with_aggregate") {
         return { data: { provider_execution_authorized: true }, error: null };
       }
       if (name === "settle_owner_operation") {
@@ -242,6 +245,6 @@ test("an uncertain fake-provider submission remains reserved and is never resubm
   });
   assert.equal(outcome.state, "submission_unknown");
   assert.equal(providerCalls, 1);
-  assert.equal(gate.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt").length, 1);
+  assert.equal(gate.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate").length, 1);
   assert.equal(gate.calls.some((call) => call.name.includes("settle")), false);
 });

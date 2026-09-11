@@ -8,6 +8,10 @@ import {
   type OpenAiTextGateClient,
   type PaidOpenAiTextExecutionResult,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import {
+  boundedProviderRequestEvidence,
+  buildBoundedOpenAiProviderRequest,
+} from "../../../../packages/tongs/src/providers/bounded-provider-request";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/i;
@@ -224,6 +228,25 @@ function extractReply(payload: unknown): string {
   return typeof message.content === "string" ? message.content.trim() : "";
 }
 
+export async function buildBoundedHearthChatProviderRequest(args: {
+  messages: Array<{ role: string; content: string }>;
+  model: string;
+  maximumOutputTokens: number;
+  maximumAttempts: number;
+}) {
+  return buildBoundedOpenAiProviderRequest({
+    body: {
+      model: args.model,
+      messages: args.messages,
+      max_completion_tokens: args.maximumOutputTokens,
+    },
+    model: args.model,
+    maximumOutputTokens: args.maximumOutputTokens,
+    maximumAttempts: args.maximumAttempts,
+    serviceTier: "standard",
+  });
+}
+
 function estimateDirectCostMicros(context: PaidContext, input: number, output: number, cachedInput = 0): number {
   const amount = Math.ceil(
     ((input - cachedInput) * context.inputMicrosPerMillionTokens
@@ -257,13 +280,6 @@ export async function executePaidHearthChatCompletion(
     p_route_code: "hearth.chat_completion",
   });
   const context = parseContext(resolved);
-  // UTF-8 bytes are a conservative upper bound for tokenizer units because an
-  // encoded token cannot represent fewer than one input byte. This intentionally
-  // rejects borderline requests before any provider boundary.
-  const inputByteUpperBound = new TextEncoder().encode(JSON.stringify(args.messages)).byteLength;
-  if (inputByteUpperBound > context.maximumInputUnits) {
-    throw new OpenAiTextBoundaryError("funding_context_required");
-  }
   const credentialMatches = context.credentialFunding === "forge"
     ? args.credentialSource === "forge_managed"
     : args.credentialSource === "user_byo";
@@ -294,6 +310,8 @@ export async function executePaidHearthChatCompletion(
         provider: "openai",
         recovered_from_settled_replay: true,
         authoritative: false,
+        provider_usage_reported: true,
+        direct_cost_rounding_risk_micros: context.credentialFunding === "forge" ? 3 : 0,
       },
     });
     return {
@@ -334,6 +352,32 @@ export async function executePaidHearthChatCompletion(
   } = { latest: null };
   let normalizedResult: PaidHearthChatResult | null = null;
   const providerFetch = args.providerFetch ?? fetch;
+  const boundedRequest = await buildBoundedHearthChatProviderRequest({
+    messages: args.messages,
+    model: context.model,
+    maximumOutputTokens: context.maximumOutputUnits,
+    maximumAttempts: context.maximumAttempts,
+  });
+  if (boundedRequest.boundedInputTokens > context.maximumInputUnits) {
+    throw new OpenAiTextBoundaryError("funding_context_required");
+  }
+  await rpc(args.gate, "bind_bounded_provider_request", {
+    p_reservation_id: context.reservationId,
+    p_route_code: "hearth.chat_completion",
+    p_request_fingerprint: args.handle.requestFingerprint,
+    p_model: context.model,
+    p_service_tier: boundedRequest.serviceTier,
+    p_estimator_revision: boundedRequest.estimatorRevision,
+    p_tokenizer_revision: boundedRequest.tokenizerRevision,
+    p_serialized_body_sha256: boundedRequest.serializedBodySha256,
+    p_serialized_bytes: boundedRequest.serializedBytes,
+    p_tokenizer_input_tokens: boundedRequest.tokenizerInputTokens,
+    p_protocol_overhead_tokens: boundedRequest.protocolOverheadTokens,
+    p_utf8_byte_token_upper_bound: boundedRequest.utf8ByteTokenUpperBound,
+    p_bounded_input_tokens: boundedRequest.boundedInputTokens,
+    p_maximum_output_tokens: boundedRequest.maximumOutputTokens,
+    p_maximum_attempts: boundedRequest.maximumAttempts,
+  });
   const coordinator = new PaidOpenAiTextExecutionCoordinator(args.gate);
   const outcome: PaidOpenAiTextExecutionResult<HearthProviderPayload> = await coordinator.execute({
     routeCode: "hearth.chat_completion",
@@ -361,11 +405,7 @@ export async function executePaidHearthChatCompletion(
         response = await providerFetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { authorization: `Bearer ${args.apiKey}`, "content-type": "application/json" },
-          body: JSON.stringify({
-            model: context.model,
-            messages: args.messages,
-            max_completion_tokens: context.maximumOutputUnits,
-          }),
+          body: boundedRequest.serializedBody,
           signal: args.signal,
         });
       } catch (error) {
@@ -416,6 +456,7 @@ export async function executePaidHearthChatCompletion(
           supporting_cost_ceiling_micros: context.supportingCostCeilingMicros,
           cached_input_units: usage.cachedInput,
           reasoning_output_included: true,
+          ...boundedProviderRequestEvidence(boundedRequest),
         },
       };
     },

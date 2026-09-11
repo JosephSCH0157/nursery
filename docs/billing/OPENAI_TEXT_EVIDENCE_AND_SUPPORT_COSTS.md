@@ -2,7 +2,7 @@
 
 Status: 2026-09-09. This is private pricing evidence and an inactive proposal. It publishes no Live price, changes no rollout mode, and authorizes no provider call.
 
-The approval-ready comparison of subscription-funded versus full-cost allocation, including exact capacity thresholds, retention rules, volume sensitivity, and route/model price tables, is in `OPENAI_TEXT_SUPPORTING_COST_DECISION.md`.
+The current non-spending cost-envelope proposal, including the corrected 60-second request envelope and explicit post-30-day tail treatment, is in `OPENAI_TEXT_SUPPORTING_COST_DECISION.md`. Historical figures later in this document are retained as evidence of earlier proposals only and must not activate a SKU.
 
 ## Credential-bound model visibility
 
@@ -64,7 +64,9 @@ The operator inspected each authorized billing/runtime view on 2026-09-09. These
 
 Rate sources: [Netlify pricing](https://www.netlify.com/pricing/), [Netlify credits](https://docs.netlify.com/manage/accounts-and-billing/billing/billing-for-credit-based-plans/how-credits-work/), [Supabase pricing](https://supabase.com/pricing), [Supabase billing](https://supabase.com/docs/guides/platform/billing-on-supabase), and [Fly pricing](https://fly.io/docs/about/pricing/).
 
-## Conditional numeric proposal
+## Superseded conditional numeric proposal
+
+The 120-second envelope and **$0.002567** subtotal in this section are superseded by the 60-second, **$0.001456** first-30-day variable ceiling in `OPENAI_TEXT_SUPPORTING_COST_DECISION.md`. They remain below only to preserve the decision history. Neither figure is an active price, and neither resolves post-30-day canonical-content or accounting-evidence funding.
 
 For each of the seven routes, the draft revision-2 proposal is:
 

@@ -10,6 +10,10 @@ import {
 } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import type { OpenAiTextRouteCode } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import type { AggregateAdmissionCallerClass } from "../../../../packages/tongs/src/providers/aggregate-financial-admission";
+import {
+  boundedProviderRequestEvidence,
+  buildBoundedOpenAiProviderRequest,
+} from "../../../../packages/tongs/src/providers/bounded-provider-request";
 
 type JsonObject = Record<string, unknown>;
 
@@ -39,6 +43,43 @@ function readUsage(payload: unknown): { input: number; cachedInput: number; outp
     cachedInput: Number.isSafeInteger(cachedInput) && cachedInput >= 0 && cachedInput <= input ? cachedInput : 0,
     output: Number.isSafeInteger(output) && output >= 0 ? output : 0,
   };
+}
+
+export function providerBodyWithOutputBound(args: {
+  body: JsonObject;
+  providerUrl: string;
+  maximumOutputTokens: number;
+}): JsonObject {
+  const body = { ...args.body };
+  if (args.providerUrl.endsWith("/responses")) {
+    body.max_output_tokens = args.maximumOutputTokens;
+    delete body.max_completion_tokens;
+  } else {
+    body.max_completion_tokens = args.maximumOutputTokens;
+    delete body.max_output_tokens;
+  }
+  return body;
+}
+
+export function buildBoundedPaidJsonOpenAiRequest(args: {
+  body: JsonObject;
+  providerUrl?: string;
+  model: string;
+  maximumOutputTokens: number;
+  maximumAttempts: number;
+}) {
+  const providerUrl = args.providerUrl ?? "https://api.openai.com/v1/chat/completions";
+  return buildBoundedOpenAiProviderRequest({
+    body: providerBodyWithOutputBound({
+      body: args.body,
+      providerUrl,
+      maximumOutputTokens: args.maximumOutputTokens,
+    }),
+    model: args.model,
+    maximumOutputTokens: args.maximumOutputTokens,
+    maximumAttempts: args.maximumAttempts,
+    serviceTier: "standard",
+  });
 }
 
 export async function executePaidJsonOpenAiRoute<
@@ -85,7 +126,7 @@ export async function executePaidJsonOpenAiRoute<
 }> {
   let validated: TValidated | null = null;
   let providerPayload: JsonObject = {};
-  const bodyForBound = args.providerRequestBody("model-bound-by-accepted-quote");
+  const providerUrl = args.providerUrl ?? "https://api.openai.com/v1/chat/completions";
   const outcome = await executePaidOpenAiTextRoute<JsonObject, TCanonical>({
     gate: args.gate,
     routeCode: args.routeCode,
@@ -95,20 +136,32 @@ export async function executePaidJsonOpenAiRoute<
     workpieceId: args.workpieceId,
     credentialSource: args.credentialSource,
     callerClass: args.callerClass,
-    inputUnitUpperBound: new TextEncoder().encode(JSON.stringify(bodyForBound)).byteLength,
     requestFingerprintPayload: args.requestFingerprintPayload,
-    executeProvider: async (context) => {
+    prepareBoundedRequest: (context) => buildBoundedPaidJsonOpenAiRequest({
+      body: args.providerRequestBody(context.model),
+      providerUrl,
+      model: context.model,
+      maximumOutputTokens: context.maximumOutputUnits,
+      maximumAttempts: context.maximumAttempts,
+    }),
+    executeProvider: async (context, _attemptNumber, boundedRequest) => {
+      if (!boundedRequest) throw new OpenAiTextProviderError(
+        "The exact OpenAI request was not bound before submission",
+        false,
+        null,
+        { reason: "bounded_provider_request_required" },
+      );
       let response: Response;
       try {
         response = await (args.fetchImpl ?? fetch)(
-          args.providerUrl ?? "https://api.openai.com/v1/chat/completions",
+          providerUrl,
           {
             method: "POST",
             headers: {
               authorization: `Bearer ${args.apiKey}`,
               "content-type": "application/json",
             },
-            body: JSON.stringify(args.providerRequestBody(context.model)),
+            body: boundedRequest.serializedBody,
             signal: args.signal,
           },
         );
@@ -172,6 +225,7 @@ export async function executePaidJsonOpenAiRoute<
           route_code: args.routeCode,
           cached_input_units: usage.cachedInput,
           reasoning_output_included: true,
+          ...boundedProviderRequestEvidence(boundedRequest),
         },
       };
     },
