@@ -126,14 +126,24 @@ async function main() {
     const recorded = existingResultByModel.get(model);
     if (recorded) {
       const operation = recorded.operation as Record<string, unknown>;
+      const correction = recorded.status === "billed_failure"
+        ? await call("correct_owner_hearth_compatibility_result_after_nonbillable_rejection", {
+          p_reservation_id: operation.reservation_id,
+          p_event_key: `${operation.operation_id}:definitive-nonbillable-correction`,
+        })
+        : null;
       operations.push({
         model,
         state: "recorded_replay",
         operation_id: operation.operation_id,
         reservation_id: operation.reservation_id,
-        compatibility_status: recorded.status,
-        provider_request_id: recorded.provider_request_id,
-        estimated_supplier_expense_micros: recorded.estimated_supplier_expense_micros,
+        compatibility_status: correction?.effective_status ?? recorded.status,
+        original_compatibility_status: recorded.status,
+        correction_id: correction?.correction_id ?? null,
+        provider_request_id: correction?.provider_request_id ?? recorded.provider_request_id,
+        estimated_supplier_expense_micros: correction?.effective_status === "definitive_rejection"
+          ? null
+          : recorded.estimated_supplier_expense_micros,
         customer_charge_micros: 0,
         customer_revenue_micros: 0,
       });

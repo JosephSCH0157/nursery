@@ -155,6 +155,11 @@ select tongs.record_paid_operation_aggregate_outcome(
  '{"provider_reference":"req_test_credit_exhausted","status":429,"authoritative":false}'::jsonb);
 select tongs.release_owner_hearth_definitive_nonbillable_rejection(
  '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-definitive-rejection');
+select tongs.record_owner_hearth_compatibility_result(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-original-result','billed_failure',
+ 'req_test_credit_exhausted',0,null,'{"authoritative":false,"classification":"original"}'::jsonb);
+select tongs.correct_owner_hearth_compatibility_result_after_nonbillable_rejection(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-correction');
 
 do $$ declare aggregate_state text; failure_state text; begin
  select e.event_type into aggregate_state from tongs.paid_operation_aggregate_bindings b
@@ -170,6 +175,12 @@ do $$ declare aggregate_state text; failure_state text; begin
  if not exists(select 1 from tongs.supplier_expenses where reservation_id='91000000-0000-4000-8000-000000000077'
    and evidence_status='unresolved' and amount_micros is null) then
   raise exception 'original unresolved supplier evidence was not preserved'; end if;
+ if not exists(select 1 from tongs.owner_hearth_compatibility_result_corrections c
+   join tongs.owner_hearth_compatibility_results r on r.id=c.compatibility_result_id
+   join tongs.owner_hearth_operation_authorizations o on o.id=r.operation_authorization_id
+   where o.reservation_id='91000000-0000-4000-8000-000000000077'
+     and c.original_status='billed_failure' and c.corrected_status='definitive_rejection') then
+  raise exception 'append-only compatibility correction was not recorded'; end if;
 end $$;
 
 rollback;
