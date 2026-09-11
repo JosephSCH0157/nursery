@@ -2411,6 +2411,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           return;
         }
         if (!assistRequest.paid_execution && quenchUserId && openAiTextGate) {
+          const boundedAssistRequest = assistRequest;
           const requestFingerprint = await fingerprintOpenAiTextPaidRequest(quenchPaidFingerprintPayload(assistRequest, quenchMetadataModel));
           try {
             const handle = await resolveOrdinaryOpenAiTextFunding({
@@ -2426,7 +2427,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               serviceGate: openAiTextGate,
               prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
                 buildBoundedPaidJsonOpenAiRequest({
-                  body: quenchMetadataProviderBody(assistRequest, model),
+                  body: quenchMetadataProviderBody(boundedAssistRequest, model),
                   model,
                   maximumOutputTokens,
                   maximumAttempts,
@@ -2553,6 +2554,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           return;
         }
         if (!cleanupRequest.paid_execution && cleanupUserId && openAiTextGate) {
+          const boundedCleanupRequest = cleanupRequest;
           const requestFingerprint = await fingerprintOpenAiTextPaidRequest(cleanupPaidFingerprintPayload(cleanupRequest, cleanupModel));
           try {
             const handle = await resolveOrdinaryOpenAiTextFunding({
@@ -2568,7 +2570,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               serviceGate: openAiTextGate,
               prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
                 buildBoundedPaidJsonOpenAiRequest({
-                  body: transcriptCleanupProviderBody(cleanupRequest, model),
+                  body: transcriptCleanupProviderBody(boundedCleanupRequest, model),
                   model,
                   maximumOutputTokens,
                   maximumAttempts,
