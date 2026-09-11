@@ -7,6 +7,7 @@ This release activates only the explicitly authorized private owner testing lane
 `OPENAI_HEARTH_OWNER_API_KEY` is a server-only Netlify Production Functions secret. Only the coordinated owner Hearth chat path reads it. Legacy text, research, transcription, job-runner, customer, and browser paths continue to use their existing credential resolution and cannot fall back to this key.
 
 The key must be a restricted OpenAI project key with Models Read and Chat Completions Write. No browser variable or report may contain its value.
+After rotating this secret, publish a fresh Git-backed `main` deployment before compatibility checks so the executing Production Function is provably built after the secret revision.
 
 ## Authorized phases
 
