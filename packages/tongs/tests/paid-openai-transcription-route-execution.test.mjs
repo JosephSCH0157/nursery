@@ -33,7 +33,7 @@ function makeGate({ state = "reserved", authorize = true, aggregateAuthorize = t
         }, error: null };
       }
       if (name === "acquire_openai_text_aggregate_admission") {
-        return { data: { enforcement_enabled: true, authorized: aggregateAuthorize, reason: aggregateAuthorize ? "authorized" : "aggregate_capacity_exhausted" }, error: null };
+        return { data: { enforcement_enabled: true, authorized: aggregateAuthorize, hold_id: aggregateAuthorize ? "isolated-hold" : null, reason: aggregateAuthorize ? "authorized" : "aggregate_capacity_exhausted" }, error: null };
       }
       if (name === "authorize_openai_text_provider_attempt_with_aggregate") {
         const allowed = typeof authorize === "function" ? authorize() : authorize;

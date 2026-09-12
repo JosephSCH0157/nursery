@@ -860,10 +860,10 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       }
 
       const transcriptionMode = configuredOpenAiTranscriptionMode();
-      if (transcriptionMode === "halt_new") {
+      if (transcriptionMode === "halt_new" && requestProvider === "openai" && !formData.get("paid_execution")) {
         return jsonResponse(423, { ok: false, text: "", error: "New transcription submissions are halted.", code: "paid_submissions_halted" });
       }
-      if (transcriptionMode === "enforce") {
+      if ((transcriptionMode === "enforce" || transcriptionMode === "halt_new") && requestProvider === "openai") {
         if (requestProvider !== "openai") {
           return jsonResponse(503, { ok: false, text: "", error: "This ASR provider has no active coordinated cost policy.", code: "pricing_not_configured", provider: requestProvider });
         }

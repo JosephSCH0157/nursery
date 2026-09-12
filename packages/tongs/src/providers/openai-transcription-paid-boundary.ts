@@ -32,6 +32,7 @@ export function configuredOpenAiTranscriptionMode(): OpenAiTranscriptionRolloutM
   const value = typeof process !== "undefined"
     ? process.env.FORGE_OPENAI_TRANSCRIPTION_EXECUTION_MODE
     : undefined;
+  if (value && !["inactive", "shadow", "enforce", "halt_new"].includes(value)) return "halt_new";
   return value === "shadow" || value === "enforce" || value === "halt_new"
     ? value
     : "inactive";

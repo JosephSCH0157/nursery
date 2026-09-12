@@ -10,7 +10,7 @@ export const OPENAI_TEXT_ROUTE_CODES = [
 ] as const;
 
 export type OpenAiTextRouteCode = typeof OPENAI_TEXT_ROUTE_CODES[number];
-export type OpenAiTextRolloutMode = "inactive" | "shadow" | "enforce";
+export type OpenAiTextRolloutMode = "inactive" | "shadow" | "enforce" | "halt_new";
 
 export type OpenAiTextTransportRequest<T> = {
   routeCode: OpenAiTextRouteCode;
@@ -49,9 +49,20 @@ export class OpenAiTextBoundaryError extends Error {
   }
 }
 
-function configuredMode(): OpenAiTextRolloutMode {
+export function configuredOpenAiTextMode(): OpenAiTextRolloutMode {
   const value = typeof process !== "undefined" ? process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE : undefined;
-  return value === "shadow" || value === "enforce" ? value : "inactive";
+  if (!value || value === "inactive") return "inactive";
+  return value === "shadow" || value === "enforce" || value === "halt_new" ? value : "halt_new";
+}
+
+/** Environment controls are a safety floor, never an authorization. Database
+ * modes are Forge-funded modes; BYO eligibility must be resolved separately
+ * from exact server-owned component coverage, not from a client lane flag. */
+export function effectiveOpenAiMode(databaseMode: string, environmentMode: OpenAiTextRolloutMode): OpenAiTextRolloutMode {
+  if (!["inactive", "shadow", "enforce", "halt_new"].includes(databaseMode)) return "halt_new";
+  if (databaseMode === "halt_new" || environmentMode === "halt_new") return "halt_new";
+  if (databaseMode === "enforce" || environmentMode === "enforce") return "enforce";
+  return databaseMode === "shadow" || environmentMode === "shadow" ? "shadow" : "inactive";
 }
 
 /**
@@ -64,8 +75,9 @@ export async function executeOpenAiTextTransport<T>(input: {
   coordinatedExecution?: () => Promise<T>;
   mode?: OpenAiTextRolloutMode;
 }): Promise<T> {
-  const mode = input.mode ?? configuredMode();
+  const mode = effectiveOpenAiMode(input.mode ?? configuredOpenAiTextMode(), configuredOpenAiTextMode());
   if (mode === "inactive") return input.executeLegacy();
+  if (mode === "halt_new") throw new OpenAiTextBoundaryError("funding_context_required");
   if (input.coordinatedExecution) return input.coordinatedExecution();
   if (installedAdapter) {
     return installedAdapter.execute({ routeCode: input.routeCode, executeProviderTransport: input.executeLegacy });

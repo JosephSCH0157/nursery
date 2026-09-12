@@ -76,6 +76,7 @@ export type PaidOpenAiTextExecutionInput<T> = {
   maximumOutputUnits: number;
   maximumAttempts: number;
   maximumFailureExposureMicros: number;
+  supportingCostCeilingMicros?: number;
   aggregateCallerClass: AggregateAdmissionCallerClass;
   aggregateProviderMode: AggregateProviderMode;
   /**
@@ -149,7 +150,8 @@ export class PaidOpenAiTextExecutionCoordinator {
       callerClass: input.aggregateCallerClass,
       providerMode: input.aggregateProviderMode,
     });
-    if (admission.enforcementEnabled && !admission.authorized) {
+    if (((input.credentialFunding === "forge" || (input.supportingCostCeilingMicros ?? 0) > 0) && (!admission.enforcementEnabled || !admission.holdId))
+      || (admission.enforcementEnabled && !admission.authorized)) {
       await this.releaseBeforeProvider(input, `${input.attemptKey}:aggregate-admission-denied`, admission.reason);
       throw new OpenAiTextBoundaryError("funding_context_required");
     }

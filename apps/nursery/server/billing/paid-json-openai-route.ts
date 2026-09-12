@@ -14,6 +14,7 @@ import {
   boundedProviderRequestEvidence,
   buildBoundedOpenAiProviderRequest,
 } from "../../../../packages/tongs/src/providers/bounded-provider-request";
+import { openAiProviderHeaders } from "../../../../packages/tongs/src/providers/openai-forge-project";
 
 type JsonObject = Record<string, unknown>;
 
@@ -158,7 +159,7 @@ export async function executePaidJsonOpenAiRoute<
           {
             method: "POST",
             headers: {
-              authorization: `Bearer ${args.apiKey}`,
+              ...openAiProviderHeaders(args.apiKey, context.credentialFunding),
               "content-type": "application/json",
             },
             body: boundedRequest.serializedBody,

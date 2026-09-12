@@ -19,7 +19,7 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
     calls,
     async rpc(name, args) {
       calls.push({ name, args });
-      if (name === "read_openai_text_route_execution_requirement") return { data: { mode }, error: null };
+      if (name === "read_openai_execution_requirement") return { data: { mode }, error: null };
       if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
       if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
         catalog_revision_id: "55555555-5555-4555-8555-555555555555",
@@ -97,7 +97,7 @@ test("inactive routes preserve the legacy path without creating a quote", async 
   const service = makeGate("inactive");
   const result = await resolveOrdinaryOpenAiTextFunding(input(service, makeGate()));
   assert.equal(result, null);
-  assert.deepEqual(service.calls.map((call) => call.name), ["read_openai_text_route_execution_requirement"]);
+  assert.deepEqual(service.calls.map((call) => call.name), ["read_openai_execution_requirement", "read_existing_openai_text_funding_handle"]);
 });
 
 test("enforced routes return only a customer-safe quote before acceptance", async () => {
@@ -151,7 +151,7 @@ test("an existing reservation is replayed without accepting or reserving again",
   const service = makeGate();
   service.rpc = async function rpc(name) {
     this.calls.push({ name });
-    if (name === "read_openai_text_route_execution_requirement") return { data: { mode: "enforce" }, error: null };
+    if (name === "read_openai_execution_requirement") return { data: { mode: "enforce" }, error: null };
     if (name === "read_existing_openai_text_funding_handle") return { data: {
       operation_id: "ordinary-operation-1",
       reservation_id: reservationId,

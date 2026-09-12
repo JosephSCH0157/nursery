@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const container = process.env.SUPABASE_DB_CONTAINER || "supabase_db_nursery";
 const database = `forge_hearth_funding_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
@@ -21,6 +21,7 @@ const migrations = [
   "20260922150000_tongs_openai_loss_policy_scope_and_preprovider_rearm.sql",
   "20260922160000_tongs_failure_class_corrections_and_luna_retest.sql",
   "20260922170000_tongs_precise_forge_failure_classes.sql",
+  "20260923120000_tongs_customer_hearth_luna_canary.sql",
   "20260928120000_tongs_openai_text_ordinary_customer_funding.sql",
   "20260929120000_tongs_openai_text_model_catalog.sql",
   "20260930120000_tongs_openai_evidence_and_support_proposal.sql",
@@ -43,6 +44,7 @@ const migrations = [
   "20261008200000_tongs_owner_hearth_preprovider_recovery_expiry.sql",
   "20261008210000_tongs_owner_hearth_recovery_renewal.sql",
   "20261008220000_tongs_owner_hearth_model_choice_view.sql",
+  "20261009120000_tongs_openai_coordinated_cutover.sql",
 ];
 
 function docker(args, input) {
@@ -72,15 +74,47 @@ try {
       org_role text not null check(org_role in ('owner','admin','member')),created_at timestamptz default now(),
       created_by uuid references auth.users(id),primary key(org_id,user_id));
     alter table tongs.workspaces add column org_id uuid references tongs.orgs(id);
+    alter table tongs.workspaces add column created_by uuid references auth.users(id);
     create table tongs.workspace_members(
       workspace_id uuid references tongs.workspaces(id),user_id uuid references auth.users(id),
       role text not null default 'member',primary key(workspace_id,user_id));
+    create table tongs.workpiece_jobs(id uuid primary key,job_type text not null,status text not null);
   `, "organization compatibility baseline");
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
   for (const migration of migrations) psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
-  psql(readFileSync("supabase/tests/hearth_access_funding.sql", "utf8"), "Hearth access and funding proof");
+  // The older accounting-only fixture reserves synthetic organization funds;
+  // it predates the separately approved customer rollout scope. Disable only
+  // that rollout trigger inside its rollback transaction, never for execution
+  // or cutover tests. All production-shaped guards remain enabled afterward.
+  psql(readFileSync("supabase/tests/hearth_access_funding.sql", "utf8")
+    .replace("begin;", "begin; alter table tongs.funding_reservations disable trigger funding_reservations_customer_test_scope;"), "Hearth access and funding proof");
   psql(readFileSync("supabase/tests/non_spending_financial_repairs.sql", "utf8"), "non-spending financial repair proof");
-  psql(readFileSync("supabase/tests/owner_funded_hearth_activation.sql", "utf8"), "owner-funded Hearth activation proof");
+  psql(readFileSync("supabase/tests/owner_funded_hearth_activation.sql", "utf8")
+    .replace(/rollback;\s*$/, () => readFileSync("supabase/tests/openai_coordinated_cutover.sql", "utf8") + "\nrollback;"), "owner-funded Hearth activation and cutover proof");
+  // Two concurrent transactions, two exact models/policy revisions, one
+  // environment ceiling. This database is disposable; no production fixture.
+  const seed = readFileSync("supabase/tests/restricted_beta_financial_policy.sql", "utf8").split("do $$ declare r jsonb;")[0];
+  psql(seed + `
+    insert into tongs.restricted_beta_policy_revisions(id,environment,revision,lifecycle_state,aggregate_forge_exposure_limit_micros,reserved_headroom_micros,maximum_concurrency,rolling_window_seconds,evidence_max_age_seconds,allocation_policy_revision_id,tail_policy_revision_id,reason)
+    select '55000000-0000-4000-8000-000000000130',environment,3,lifecycle_state,aggregate_forge_exposure_limit_micros,reserved_headroom_micros,maximum_concurrency,rolling_window_seconds,evidence_max_age_seconds,allocation_policy_revision_id,tail_policy_revision_id,'isolated second exact model'
+    from tongs.restricted_beta_policy_revisions where id='55000000-0000-4000-8000-000000000030';
+    insert into tongs.restricted_beta_policy_capabilities(id,policy_revision_id,capability_code,admission_mode,cost_evidence_revision_id,maximum_attempts,maximum_concurrency,per_operation_supplier_ceiling_micros,per_operation_supporting_ceiling_micros,per_operation_tail_ceiling_micros,permitted_callers_json,exact_model_or_sku,notes)
+    select '55000000-0000-4000-8000-000000000131','55000000-0000-4000-8000-000000000130',capability_code,admission_mode,cost_evidence_revision_id,maximum_attempts,maximum_concurrency,per_operation_supplier_ceiling_micros,per_operation_supporting_ceiling_micros,per_operation_tail_ceiling_micros,permitted_callers_json,'fake-astra','isolated second exact model'
+    from tongs.restricted_beta_policy_capabilities where id='55000000-0000-4000-8000-000000000031';
+    commit;`, "cross-model fixture");
+  const race = (suffix, policy, model, actor) => new Promise((resolve, reject) => {
+    const child = spawn("docker", ["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database]);
+    let output = ""; child.stdout.on("data", data => { output += data; }); child.stderr.on("data", data => { output += data; });
+    child.on("error", reject); child.on("close", code => code === 0 ? resolve(output) : reject(new Error(output)));
+    child.stdin.end(`begin; set local request.jwt.claim.role='service_role';
+      select tongs.reserve_restricted_beta_exposure('55000000-0000-4000-8000-000000000${suffix}','55000000-0000-4000-8000-000000000${policy}',
+        'openai.text.hearth_research','cross-model-${suffix}','55000000-0000-4000-8000-00000000000${actor}',
+        '55000000-0000-4000-8000-000000000010',repeat('${actor}',64),'${model}','test_customer','cross-model-${suffix}',
+        'simulated','interactive',600,600,0,0,0,0,60,'cross-model-${suffix}'); select pg_sleep(1); commit;`);
+  });
+  const raceResults = await Promise.all([race("140", "030", "fake-luna", 1), race("141", "130", "fake-astra", 2)]);
+  if (raceResults.filter(value => value.includes('"authorized": true')).length !== 1
+      || !raceResults.some(value => value.includes("aggregate_exposure_exhausted"))) throw new Error("Cross-model ceiling was multiplied");
   console.log(JSON.stringify({
     isolated_database: true,
     explicit_owner_identity_not_role_inheritance: "passed",
@@ -100,6 +134,8 @@ try {
     exact_owner_operation_binding: "passed",
     historical_obligation_does_not_consume_concurrency: "passed",
     non_overlapping_owner_tail: "passed",
+    cross_model_concurrent_shared_ceiling: "passed_one_admitted_one_rejected",
+    revoked_result_access_and_job_halt: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);
