@@ -42,6 +42,7 @@ const migrations = [
   "20261008190000_tongs_owner_hearth_terminal_concurrency_recovery.sql",
   "20261008200000_tongs_owner_hearth_preprovider_recovery_expiry.sql",
   "20261008210000_tongs_owner_hearth_recovery_renewal.sql",
+  "20261008220000_tongs_owner_hearth_model_choice_view.sql",
 ];
 
 function docker(args, input) {
