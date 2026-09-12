@@ -21,9 +21,10 @@ import {
 import { routeForgeAiRequest } from "../../../../packages/tongs/src/ai-router";
 import {
   executeOpenAiTextTransport,
+  configuredOpenAiTextMode,
   type OpenAiTextRouteCode,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
-import { fingerprintOpenAiTextPaidRequest } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import { executePaidOpenAiTextRoute, fingerprintOpenAiTextPaidRequest } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import {
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
@@ -3410,7 +3411,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         }
 
         const transcriptionMode = configuredOpenAiTranscriptionMode();
-        if (transcriptionMode === "halt_new") {
+        if (transcriptionMode === "halt_new" && !bodyRaw.paid_execution) {
           return jsonResponse(423, {
             ok: false,
             error: "New transcription submissions are halted while existing operations remain available for reconciliation.",
@@ -3418,7 +3419,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ...buildBillingSnapshot(lane),
           });
         }
-        if (transcriptionMode === "enforce") {
+        if (transcriptionMode === "enforce" || transcriptionMode === "halt_new") {
           const workspaceId = readOptionalString(bodyRaw.workspace_id);
           if (!workspaceId || !isUuid(workspaceId) || !openAiTextGate || !bearerToken) {
             return jsonResponse(401, {
@@ -3444,7 +3445,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           let capturedProviderRequestId: string | null = null;
           try {
             const coordinated = await executeOpenAiTranscriptionTransport({
-              mode: transcriptionMode,
+              mode: "enforce",
               executeLegacy: async () => {
                 throw new Error("legacy_transcription_unreachable_in_enforce_mode");
               },
@@ -4258,15 +4259,55 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
+      // Recovery consumes only the original canonical result. Never repeat
+      // search/extraction to reconstruct an expired synthesis request.
+      const researchExecutionRequirement = researchModeRequested && openAiTextGate
+        ? await openAiTextGate.rpc("read_openai_execution_requirement", {
+            p_route_code: "hearth.research_synthesis",
+            p_credential_funding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
+          }) : null;
+      const researchExecutionMode = isRecord(researchExecutionRequirement?.data) ? researchExecutionRequirement.data.mode : null;
+      if (researchModeRequested && researchExecutionMode === "halt_new" && paidExecutionHandle && openAiTextGate && userId) {
+        try {
+          const recovered = await executePaidOpenAiTextRoute({
+            recoveryOnly: true, gate: openAiTextGate, routeCode: "hearth.research_synthesis",
+            handle: paidExecutionHandle, userId, workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId, credentialSource: resolvedCredentials.keySource,
+            requestFingerprintPayload: null,
+            executeProvider: async () => { throw new Error("recovery_cannot_submit"); },
+            validateResult: () => { throw new Error("recovery_cannot_generate"); },
+            persistCanonical: async () => { throw new Error("recovery_cannot_generate"); },
+            recoverCanonical: async () => {
+              const row = await openAiTextGate.rpc("read_hearth_research_synthesis_result", {
+                p_operation_id: paidExecutionHandle!.operationId, p_reservation_id: paidExecutionHandle!.reservationId,
+              });
+              if (row.error || !isRecord(row.data)) return null;
+              return { result: row.data, providerRequestId: readOptionalString(row.data.provider_request_id),
+                inputUnits: Number(row.data.input_units), outputUnits: Number(row.data.output_units) };
+            },
+          });
+          if (recovered.state === "settled" || recovered.state === "settled_replay") {
+            return jsonResponse(200, { ok: true, ...recovered.result, reply: recovered.result.assistant_text,
+              billing_receipt: { operation_id: paidExecutionHandle.operationId, status: recovered.state,
+                customer_charge_micros: recovered.customerChargeMicros } });
+          }
+          return jsonResponse(409, { ok: false, code: "operation_reconciliation_required",
+            error: "The original operation is unresolved. No provider request was repeated." });
+        } catch {
+          return jsonResponse(409, { ok: false, code: "recovery_unavailable",
+            error: "Recovery requires original captured evidence and current workspace access. No provider request was repeated." });
+        }
+      }
+      if (researchModeRequested && !openAiTextGate && configuredOpenAiTextMode() !== "inactive") {
+        return jsonResponse(503, { ok: false, code: "paid_execution_control_unavailable",
+          error: "Research execution controls are unavailable." });
+      }
       // Search/extraction is a distinct supporting service. An accepted text
       // quote never authorizes it implicitly. When synthesis enforcement is
       // active, only creator-supplied links may reach this adapter until a
       // separately priced search policy is published.
-      if (researchModeRequested && !linkModeRequested && openAiTextGate) {
-        const earlyRequirement = await openAiTextGate.rpc(
-          "read_openai_text_route_execution_requirement",
-          { p_route_code: "hearth.research_synthesis" },
-        );
+      if (researchModeRequested && openAiTextGate) {
+        const earlyRequirement = researchExecutionRequirement!;
         const earlyRow = isRecord(earlyRequirement.data)
           ? earlyRequirement.data
           : {};
@@ -4668,8 +4709,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           if (ownerHearthRequirement && paidRouteCode === "hearth.chat_completion") {
             paidRequirementRow = ownerHearthRequirement;
           } else {
-            const requirement = await openAiTextGate.rpc("read_openai_text_route_execution_requirement", {
+            const requirement = await openAiTextGate.rpc("read_openai_execution_requirement", {
               p_route_code: paidRouteCode,
+              p_credential_funding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
             });
             if (requirement.error) {
               return jsonResponse(503, {
@@ -4681,7 +4723,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             }
             paidRequirementRow = isRecord(requirement.data) ? requirement.data : {};
           }
-          if (paidRequirementRow.mode === "halt_new") {
+          if (paidRequirementRow.mode === "halt_new" && !paidExecutionHandle) {
             return jsonResponse(503, {
               ok: false,
               error: "New paid submissions are halted while existing operations remain available for reconciliation.",

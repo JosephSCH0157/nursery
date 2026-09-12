@@ -126,6 +126,7 @@ export class OpenAiTextTestCertificationGate implements OpenAiTextGateClient {
   rpc(name: string, args: JsonObject): Promise<RpcResult> {
     switch (name) {
       case "read_openai_text_route_execution_requirement":
+      case "read_openai_execution_requirement":
         return Promise.resolve({
           data: {
             mode: "enforce",

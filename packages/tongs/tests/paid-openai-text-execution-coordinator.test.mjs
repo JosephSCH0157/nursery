@@ -11,7 +11,7 @@ function gate(overrides = {}) {
       if (overrides[name]) return overrides[name](args, calls);
       return {
         data: name === "acquire_openai_text_aggregate_admission"
-          ? { enforcement_enabled: false, authorized: true, reason: "aggregate_assignment_inactive" }
+          ? { enforcement_enabled: true, authorized: true, hold_id: "isolated-hold", reason: "authorized" }
           : name === "authorize_openai_text_provider_attempt_with_aggregate"
             ? { provider_execution_authorized: true, aggregate_enforcement_enabled: false }
             : {},

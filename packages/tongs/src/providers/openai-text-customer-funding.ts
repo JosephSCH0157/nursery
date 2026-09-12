@@ -4,7 +4,8 @@ import {
   normalizeOpenAiTextPaidExecutionHandle,
   type OpenAiTextPaidExecutionHandle,
 } from "./paid-openai-text-route-execution.js";
-import type { OpenAiTextRouteCode } from "./openai-text-paid-boundary.js";
+import { configuredOpenAiTextMode, effectiveOpenAiMode, type OpenAiTextRouteCode } from "./openai-text-paid-boundary.js";
+import { configuredOpenAiTranscriptionMode } from "./openai-transcription-paid-boundary.js";
 import type { OpenAiTranscriptionRouteCode } from "./openai-transcription-paid-boundary.js";
 import type { OpenAiTextGateClient } from "./paid-openai-text-execution-coordinator.js";
 import {
@@ -257,18 +258,12 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     outputContract: string;
   };
 }): Promise<OpenAiTextPaidExecutionHandle | null> {
-  const requirement = object(await rpc(args.serviceGate, "read_openai_text_route_execution_requirement", {
+  const requirement = object(await rpc(args.serviceGate, "read_openai_execution_requirement", {
     p_route_code: args.routeCode,
+    p_credential_funding: args.credentialFunding,
   }));
-  const mode = string(requirement.mode);
-  if (mode === "inactive" || mode === "shadow" || !mode) return null;
-  if (mode === "halt_new") {
-    throw new OpenAiTextFundingPreparationError(423, "paid_execution_halted", "New paid executions are temporarily halted; existing operations can still reconcile.");
-  }
-  if (mode !== "enforce") {
-    throw new OpenAiTextFundingPreparationError(503, "paid_execution_control_unavailable", "The paid-execution mode is invalid.");
-  }
-
+  const mode = effectiveOpenAiMode(string(requirement.mode), args.transcriptionSource
+    ? configuredOpenAiTranscriptionMode() : configuredOpenAiTextMode());
   const existing = object(await rpc(args.serviceGate, "read_existing_openai_text_funding_handle", {
     p_user_id: args.userId,
     p_operation_id: args.operationId,
@@ -280,6 +275,11 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     if (!handle) throw new OpenAiTextFundingPreparationError(502, "invalid_funding_handle", "Stored funding authority is invalid.");
     return handle;
   }
+
+  if (mode === "halt_new") {
+    throw new OpenAiTextFundingPreparationError(423, "paid_execution_halted", "This operation is unavailable for new Forge-funded execution; existing operations can still reconcile.");
+  }
+  if (mode === "inactive" || mode === "shadow") return null;
 
   const transcriptionRoute = args.routeCode === "hearth.speech_transcription"
     || args.routeCode === "anvil.realtime_transcription"

@@ -960,6 +960,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     });
     if (resolved.error || !readJsonObject(resolved.data)) throw new Error(resolved.error?.message ?? "transcription_funding_context_required");
     paidContext = readJsonObject(resolved.data);
+    if (paidContext?.credential_funding !== "forge") throw new Error("background_byo_credential_not_supported");
     model = readTrimmed(paidContext?.model) ?? model;
     const admission = await financialGate.rpc("acquire_openai_text_aggregate_admission", {
       p_reservation_id: paidExecution.reservationId,
@@ -967,7 +968,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       p_provider_mode: "real",
     });
     const admissionRow = readJsonObject(admission.data);
-    if (admission.error || admissionRow?.authorized !== true) {
+    if (admission.error || admissionRow?.authorized !== true || admissionRow.enforcement_enabled !== true || !admissionRow.hold_id) {
       await financialGate.rpc("release_operation", {
         p_reservation_id: paidExecution.reservationId,
         p_release_key: `${paidExecution.operationId}:aggregate-admission-denied`,
@@ -989,6 +990,8 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   }
   await updateJobProgressPercent(deps.service, job.id, 15);
   const originalContentType = inferContentType(sourcePath, mimeTypeHint ?? contentType);
+  if (transcriptionMode === "enforce" && (bytes.byteLength > MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES
+    || originalContentType.startsWith("video/"))) throw new Error("supporting_cost_not_authorized");
   if (job.job_type === "hammer_transcript_regeneration") {
     const audioProbe = await runTranscriptRegenerationAudioPreflight({
       sourcePath,
@@ -1136,9 +1139,6 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
         + openAiResult.usage.textInputTokens * textRate
         + openAiResult.usage.outputTokens * outputRate
       ) / 1_000_000);
-      if (estimatedSupplierCostMicros > Number(paidContext.direct_provider_ceiling_micros)) {
-        throw new Error("transcription_provider_cost_exceeded_accepted_ceiling");
-      }
     }
     const captured = await financialGate.rpc("record_openai_text_provider_capture", {
       p_capture_id: crypto.randomUUID(), p_reservation_id: paidExecution.reservationId,
@@ -1155,6 +1155,9 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       p_evidence_json: { operation_kind: "audio_transcription", route_code: routeCode, authoritative: false },
     });
     if (expensed.error) throw new Error(expensed.error.message ?? "transcription_supplier_expense_capture_failed");
+    if (estimatedSupplierCostMicros != null && estimatedSupplierCostMicros > Number(paidContext.direct_provider_ceiling_micros)) {
+      throw new Error("transcription_provider_cost_exceeded_accepted_ceiling");
+    }
   }
   await updateJobProgressPercent(deps.service, job.id, 70);
 

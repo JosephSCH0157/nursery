@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { openAiProviderHeaders } from "../../../../packages/tongs/src/providers/openai-forge-project";
 import {
   OpenAiTextBoundaryError,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
@@ -418,7 +419,7 @@ export async function executePaidHearthChatCompletion(
       try {
         response = await providerFetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
-          headers: { authorization: `Bearer ${args.apiKey}`, "content-type": "application/json" },
+          headers: { ...openAiProviderHeaders(args.apiKey, context.credentialFunding), "content-type": "application/json" },
           body: boundedRequest.serializedBody,
           signal: args.signal,
         });

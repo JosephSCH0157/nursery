@@ -100,6 +100,8 @@ export type PaidOpenAiTextRouteOutcome<T> =
     };
 
 type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string, unknown>> = {
+  /** Server-only continuation: immutable binding and captured evidence, never submission. */
+  recoveryOnly?: boolean;
   gate: OpenAiTextGateClient;
   routeCode: Exclude<CoordinatedOpenAiRouteCode, "hearth.chat_completion">;
   handle: OpenAiTextPaidExecutionHandle;
@@ -288,16 +290,13 @@ export function estimateOpenAiTextDirectCostMicros(
  * only after its creator-facing result has been validated and persisted in
  * Tongs. This function then writes the generic replay receipt and settles once.
  */
-export async function executePaidOpenAiTextRoute<
+async function executePaidOpenAiTextRouteInternal<
   TProvider,
   TCanonical extends Record<string, unknown>,
 >(
   args: ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical>,
 ): Promise<PaidOpenAiTextRouteOutcome<TCanonical>> {
-  const resolved = await rpc(
-    args.gate,
-    "resolve_openai_text_paid_execution_context",
-    {
+  const binding = {
       p_route_code: args.routeCode,
       p_operation_id: args.handle.operationId,
       p_reservation_id: args.handle.reservationId,
@@ -305,8 +304,15 @@ export async function executePaidOpenAiTextRoute<
       p_workspace_id: args.workspaceId,
       p_workpiece_id: args.workpieceId,
       p_request_fingerprint: args.handle.requestFingerprint,
-    },
-  );
+    };
+  let recoveryOnly = false;
+  const initial = await args.gate.rpc(args.recoveryOnly ? "resolve_openai_text_recovery_context" : "resolve_openai_text_paid_execution_context", binding);
+  recoveryOnly = args.recoveryOnly === true;
+  let resolved = initial.data;
+  if (initial.error) {
+    resolved = await rpc(args.gate, "resolve_openai_text_recovery_context", binding);
+    recoveryOnly = true;
+  }
   const context = parseContext(resolved);
   if (context.routeCode !== args.routeCode) {
     throw new OpenAiTextBoundaryError("funding_context_required");
@@ -314,7 +320,7 @@ export async function executePaidOpenAiTextRoute<
   const expectedRequestFingerprint = await sha256Hex(
     args.requestFingerprintPayload,
   );
-  if (expectedRequestFingerprint !== args.handle.requestFingerprint) {
+  if (!args.recoveryOnly && expectedRequestFingerprint !== args.handle.requestFingerprint) {
     throw new OpenAiTextBoundaryError("funding_context_required");
   }
   if (args.inputUnitUpperBound !== undefined && (
@@ -485,7 +491,7 @@ export async function executePaidOpenAiTextRoute<
       context,
     };
   }
-  if (context.reservationState === "provider_attempt_shadowed") {
+  if (context.reservationState === "provider_attempt_shadowed" || context.reservationState === "attempt_started") {
     return {
       state: "duplicate_in_progress",
       customerChargeMicros: 0,
@@ -501,6 +507,8 @@ export async function executePaidOpenAiTextRoute<
       context,
     };
   }
+
+  if (recoveryOnly) throw new OpenAiTextBoundaryError("funding_context_required");
 
   const boundedRequest = args.prepareBoundedRequest
     ? await args.prepareBoundedRequest(context)
@@ -553,6 +561,7 @@ export async function executePaidOpenAiTextRoute<
     maximumOutputUnits: context.maximumOutputUnits,
     maximumAttempts: context.maximumAttempts,
     maximumFailureExposureMicros: context.maximumFailureExposureMicros,
+    supportingCostCeilingMicros: context.supportingCostCeilingMicros,
     aggregateCallerClass: args.callerClass ?? "interactive",
     aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",
     reservationAlreadyCreated: true,
@@ -612,4 +621,19 @@ export async function executePaidOpenAiTextRoute<
     attempts: outcome.attempts,
     context,
   };
+}
+
+/** Financial continuation uses service authority. Returning content is a
+ * separate decision checked against current membership, after settlement. */
+export async function executePaidOpenAiTextRoute<TProvider, TCanonical extends Record<string, unknown>>(
+  args: ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical>,
+): Promise<PaidOpenAiTextRouteOutcome<TCanonical>> {
+  const outcome = await executePaidOpenAiTextRouteInternal(args);
+  if (outcome.state === "settled" || outcome.state === "settled_replay") {
+    await rpc(args.gate, "assert_openai_result_delivery_access", {
+      p_user_id: args.userId, p_workspace_id: args.workspaceId,
+      p_workpiece_id: args.workpieceId,
+    });
+  }
+  return outcome;
 }

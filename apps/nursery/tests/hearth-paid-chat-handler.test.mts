@@ -27,7 +27,8 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
   const gate = {
     async rpc(name: string, _args: Record<string, unknown>) {
       gateCalls.push(name);
-      if (name === "read_openai_text_route_execution_requirement") {
+      if (name === "acquire_openai_text_aggregate_admission") return { data: { enforcement_enabled: true, authorized: true, hold_id: "isolated-hold" }, error: null };
+      if (name === "read_openai_execution_requirement") {
         return { data: { mode: "enforce", funding_context_required: true }, error: null };
       }
       if (name === "resolve_hearth_chat_paid_execution_context" || name === "resolve_openai_text_paid_execution_context") {
@@ -154,7 +155,7 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
     disableCdcGeneration: false,
     openAiTextGate: {
       async rpc(name: string) {
-        if (name === "read_openai_text_route_execution_requirement") {
+        if (name === "read_openai_execution_requirement") {
           return { data: { mode: "enforce", funding_context_required: true }, error: null };
         }
         if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
@@ -206,7 +207,8 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
   let persistedResult: Record<string, unknown> | null = null;
   const gate = {
     async rpc(name: string, args: Record<string, unknown>) {
-      if (name === "read_openai_text_route_execution_requirement") {
+      if (name === "acquire_openai_text_aggregate_admission") return { data: { enforcement_enabled: true, authorized: true, hold_id: "isolated-hold" }, error: null };
+      if (name === "read_openai_execution_requirement") {
         return { data: { mode: "enforce", funding_context_required: true }, error: null };
       }
       if (name === "read_existing_openai_text_funding_handle") {
@@ -391,7 +393,10 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
   }
 });
 
-test("explicit owner Hearth authority uses only the isolated credential and bypasses neither coordinator nor persistence", async () => {
+test("explicit owner Hearth authority uses only the isolated credential and bypasses neither coordinator nor persistence", async (t) => {
+  const prior = process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE;
+  process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE = "enforce";
+  t.after(() => { if (prior === undefined) delete process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE; else process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE = prior; });
   const workspaceId = "55555555-5555-4555-8555-555555555555";
   let prepared: Record<string, unknown> = {};
   let providerCalls = 0;
@@ -433,7 +438,7 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
         output_micros_per_million_tokens: 1200000,
         reservation_state: "reserved",
       }, error: null };
-      if (name === "acquire_owner_hearth_aggregate_admission") return { data: { enforcement_enabled: true, authorized: true }, error: null };
+      if (name === "acquire_owner_hearth_aggregate_admission") return { data: { enforcement_enabled: true, authorized: true, hold_id: "isolated-owner-hold" }, error: null };
       if (name === "authorize_owner_hearth_provider_attempt_with_aggregate") return { data: { provider_execution_authorized: true }, error: null };
       if (name === "settle_owner_hearth_operation") return { data: { customer_charge_micros: 0, customer_revenue_micros: 0 }, error: null };
       return { data: {}, error: null };

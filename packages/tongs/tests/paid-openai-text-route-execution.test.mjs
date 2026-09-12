@@ -45,7 +45,7 @@ function makeGate({ state = "reserved", authorize = true, stored = null } = {}) 
         }, error: null };
       }
       if (name === "acquire_openai_text_aggregate_admission") {
-        return { data: { enforcement_enabled: false, authorized: true, reason: "aggregate_assignment_inactive" }, error: null };
+        return { data: { enforcement_enabled: true, authorized: true, hold_id: "isolated-hold", reason: "authorized" }, error: null };
       }
       if (name === "authorize_openai_text_provider_attempt_with_aggregate") {
         const allowed = typeof authorize === "function" ? authorize() : authorize;
@@ -57,6 +57,37 @@ function makeGate({ state = "reserved", authorize = true, stored = null } = {}) 
     },
   };
 }
+
+test("missing aggregate assignment rejects before provider execution", async () => {
+  const gate = makeGate();
+  const original = gate.rpc.bind(gate);
+  gate.rpc = (name, args) => name === "acquire_openai_text_aggregate_admission"
+    ? Promise.resolve({ data: { enforcement_enabled: false, authorized: true }, error: null })
+    : original(name, args);
+  const args = await argsFor("quench.metadata", { title: "test" }, () => true, gate);
+  let submissions = 0;
+  args.executeProvider = async () => { submissions++; throw new Error("must not execute"); };
+  await assert.rejects(executePaidOpenAiTextRoute(args), /funding_context_required/);
+  assert.equal(submissions, 0);
+});
+
+test("halted recovery settles captured canonical result but revoked member cannot receive it", async () => {
+  const gate = makeGate();
+  const original = gate.rpc.bind(gate);
+  gate.rpc = async (name, args) => {
+    if (name === "resolve_openai_text_paid_execution_context") return { data: null, error: { message: "halt_new" } };
+    if (name === "resolve_openai_text_recovery_context") return original("resolve_openai_text_paid_execution_context", args);
+    if (name === "assert_openai_result_delivery_access") return { data: null, error: { message: "current workspace access required" } };
+    return original(name, args);
+  };
+  const args = await argsFor("quench.metadata", { title: "retained" }, () => true, gate);
+  args.recoverCanonical = async () => ({ result: { title: "retained" }, providerRequestId: "original-request", inputUnits: 10, outputUnits: 5 });
+  let submissions = 0;
+  args.executeProvider = async () => { submissions++; throw new Error("must not execute"); };
+  await assert.rejects(executePaidOpenAiTextRoute(args), /current workspace access required/);
+  assert.equal(submissions, 0);
+  assert.equal(gate.calls.filter(c => c.name === "settle_operation").length, 1);
+});
 
 async function argsFor(route, value, validator, gate) {
   const requestFingerprintPayload = { schema: `fixture.${route}.v1`, input: "bounded" };
