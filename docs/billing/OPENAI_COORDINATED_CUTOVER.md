@@ -2,6 +2,17 @@
 
 Baseline: `cdf497001ad0959aa9fec9bccca74467fda01d81`. Authority: approved seven-text/four-transcription halt; no new paid execution, prices, credentials, budgets, or owner-session consumption.
 
+## Activation release record
+
+- Compatible code: `aec290cdf012eda8d93f57fc1bb42e59a54f96fc`, merged by PR #52 as `8ca1034357ff48b91efc582b13bda6c6714dc387`.
+- Compatible production deployment: `6aa505f62030c700086eaa81`, published 2026-09-12 07:59:35 UTC.
+- Forward migration `20261009120000` applied. Its first guarded attempt rolled back on the pre-existing customer-authorization wrapper; the corrected migration preserves that wrapper and was retested in the matching isolated fixture before successful application.
+- Eleven Forge-only revision-2 `halt_new` rows appended on 2026-09-12. No chat/Runway revision changed.
+- Both environment floors set to `enforce` on 2026-09-12 08:00:22 UTC, Functions scope, Production only. This documentation commit triggers the required fresh Git-backed build with those settings.
+- Verification before cutover: 52 billing tests, 28 actual handler/runtime tests, full build, disposable migration/access/job guard tests, and cross-model concurrent admission passed. No production provider call or test account was used.
+- The generic PR browser job cannot start because its pre-existing CI login/fixture secrets are absent. Prior isolated browser certification is carried forward; do not claim that CI browser job passed.
+- Final published deployment and runtime rejection checks are reported in the task's completion report after this Git-backed build is ready.
+
 Release follows **AGENTS.md → Production Deployment Policy (Canonical)**: fetch, reconcile, checked Git/PR integration to main, verify the exact published Netlify commit. Never upload production artifacts or switch the site to manual deployment.
 
 ## Mode precedence
