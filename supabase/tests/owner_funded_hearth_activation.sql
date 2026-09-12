@@ -244,6 +244,9 @@ do $$ begin
  if exists(select 1 from tongs.paid_operation_aggregate_bindings where reservation_id='91000000-0000-4000-8000-000000000095')
     or exists(select 1 from tongs.openai_text_failure_exposure_holds where reservation_id='91000000-0000-4000-8000-000000000095') then
   raise exception 'rearm fabricated provider or aggregate execution evidence'; end if;
+ if not exists(select 1 from tongs.owner_hearth_operation_recovery_authorizations
+   where reservation_id='91000000-0000-4000-8000-000000000095' and expires_at>now()) then
+  raise exception 'pre-provider recovery did not receive a bounded append-only quote-recovery window'; end if;
 end $$;
 
 do $$ declare latest_state text; begin
