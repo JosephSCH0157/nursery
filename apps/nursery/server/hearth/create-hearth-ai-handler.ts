@@ -4362,22 +4362,29 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           error: "Research execution controls are unavailable." });
       }
       // Search/extraction is a distinct supporting service. An accepted text
-      // quote never authorizes it implicitly. When synthesis enforcement is
-      // active, only creator-supplied links may reach this adapter until a
-      // separately priced search policy is published.
+      // quote never authorizes it implicitly. No research adapter may run
+      // without the complete owner-research pricing and execution authority.
       if (researchModeRequested && openAiTextGate && !ownerResearchRequirement) {
         const earlyRequirement = researchExecutionRequirement!;
         const earlyRow = isRecord(earlyRequirement.data)
           ? earlyRequirement.data
           : {};
-        if (earlyRequirement.error || earlyRow.funding_context_required === true) {
-          return jsonResponse(422, {
-            ok: false,
-            error: "Research search and extraction are not included in this text authorization.",
-            code: "supporting_service_not_priced",
-            ...buildBillingSnapshot(lane),
-          });
-        }
+        const unavailableReason = earlyRequirement.error
+          ? "Research pricing and execution authority could not be verified."
+          : earlyRow.funding_context_required === true
+            ? "Research search and extraction are not included in this text authorization."
+            : "Research search and extraction have no active pricing and execution authority.";
+        return jsonResponse(422, {
+          ok: false,
+          error: `${unavailableReason} No provider request was sent.`,
+          code: "supporting_service_not_priced",
+          turn_result: buildTurnResult({
+            assistantMessage: "",
+            failureKind: "admission_failure",
+            failureMessage: `${unavailableReason} No provider request was sent.`,
+          }),
+          ...buildBillingSnapshot(lane),
+        });
       }
       const researchBrief = researchModeRequested
         ? buildHearthResearchBrief({

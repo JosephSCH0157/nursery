@@ -3202,6 +3202,26 @@ function createEpisodeContextFixture() {
   });
 }
 
+function createMockScriptTurn(assistantMessage: string, scriptText: string) {
+  return {
+    turn_result: {
+      decision: {
+        mode: "script_generate",
+        requiresArtifact: true,
+        allowsMutation: false,
+        retrievalScope: "active_episode_only",
+        requestedArtifact: "script",
+        reasons: ["confidence_fixture"],
+      },
+      assistantMessage,
+      artifact: { kind: "script", text: scriptText },
+      operations: [],
+      validation: { ok: true, failureKind: "none", message: null },
+      persistence: "not_attempted",
+    },
+  };
+}
+
 async function testBuildEpisodeContextIncludesFields() {
   const context = createEpisodeContextFixture();
   assert.equal(context.episodeId, "episode-123");
@@ -3276,6 +3296,7 @@ async function testAiRequestPayloadIncludesEpisodeId() {
     }
     capturedBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
     return new Response(JSON.stringify({
+      ...createMockScriptTurn("All set.", "[s1]\nHello\n[/s1]"),
       assistant_text: "All set.",
       ops: [],
       script_text: "[s1]\nHello\n[/s1]",
@@ -3328,16 +3349,17 @@ async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
       });
     }
     return new Response(JSON.stringify({
-    assistant_text: "",
-    ops: [],
-    script_text: "[s1]\nCold open\n[/s1]",
-    billing_mode: "forge",
-    token_balance: 77,
-    total_tokens: 9,
-  }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+      ...createMockScriptTurn("", "[s1]\nCold open\n[/s1]"),
+      assistant_text: "",
+      ops: [],
+      script_text: "[s1]\nCold open\n[/s1]",
+      billing_mode: "forge",
+      token_balance: 77,
+      total_tokens: 9,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   }) as typeof fetch;
 
   try {
@@ -3389,15 +3411,16 @@ async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
       });
     }
     return new Response(JSON.stringify({
-    assistant_text: assistantScript,
-    ops: [],
-    billing_mode: "forge",
-    token_balance: 63,
-    total_tokens: 17,
-  }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+      ...createMockScriptTurn(assistantScript, assistantScript),
+      assistant_text: assistantScript,
+      ops: [],
+      billing_mode: "forge",
+      token_balance: 63,
+      total_tokens: 17,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   }) as typeof fetch;
 
   try {
