@@ -39,6 +39,9 @@ test("explicit artifact and mutation language receives one authoritative mode", 
   assert.equal(decide("Show me a first draft of bullet points only.").mode, "outline_generate");
   assert.equal(decide("Write the full script now.").mode, "script_generate");
   assert.equal(decide("Update the script with that.").mode, "script_mutate");
+  assert.equal(decide("Apply that transition to the script.").mode, "script_mutate");
+  assert.equal(decide("Put that transition into the script.").mode, "script_mutate");
+  assert.equal(decide("Rewrite the closing around that contrast.").mode, "script_mutate");
   assert.equal(decide("Are we ready to record?").mode, "readiness_review");
   assert.equal(decide("Research the current figures and cite the sources.").mode, "research");
 });
@@ -49,6 +52,10 @@ test("explicit UI actions are intent inputs but creator negation remains authori
   assert.equal(decide("Generate tags.", { kind: "production", action: "tags" }).mode, "production_action");
   assert.equal(
     decide("I don't want you to edit it yet; let's talk about it.", { kind: "mutate_script" }).mode,
+    "conversation",
+  );
+  assert.equal(
+    decide("I don't want you to draft it yet; let's keep talking.", { kind: "generate_script" }).mode,
     "conversation",
   );
 });

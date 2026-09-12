@@ -195,6 +195,158 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
   assert.equal(providerCalls, 0);
 });
 
+test("successful deterministic research followed by unavailable paid chat returns an authoritative admission result", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const routeReads: string[] = [];
+  const gateCalls: string[] = [];
+  let providerCalls = 0;
+  const config = {
+    textApiKey: "fake-forge-key",
+    imageApiKey: null,
+    researchApiKey: null,
+    apiKey: "fake-forge-key",
+    model: "gpt-5.3",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge" as const,
+    initialTokenBalance: 42,
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: null,
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: {
+      async rpc(name: string, args: Record<string, unknown>) {
+        gateCalls.push(name);
+        if (name === "read_openai_text_route_execution_requirement") {
+          const route = String(args.p_route_code ?? "");
+          routeReads.push(route);
+          return {
+            data: route === "hearth.chat_completion"
+              ? { mode: "enforce", funding_context_required: true }
+              : { mode: "inactive", funding_context_required: false },
+            error: null,
+          };
+        }
+        if (name === "create_customer_hearth_chat_quote") {
+          return {
+            data: null,
+            error: { message: "customer Hearth paid test authorization is not active" },
+          };
+        }
+        return { data: {}, error: null };
+      },
+    },
+    resolveUserIdForAccessToken: async () => USER_ID,
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      return new Response();
+    },
+  } satisfies HearthRuntimeConfig;
+  const handler = createHearthAiHandler(config);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://example.com/creator-source") {
+      return new Response("<html><head><title>Creator source</title></head><body><p>A substantive creator-supplied source.</p></body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      providerCalls += 1;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[0]?.content ?? "";
+      const lines = prompt.split("\n");
+      const marker = lines.indexOf("Canonical research runtime result:");
+      assert.ok(marker >= 0);
+      const result = JSON.parse(lines[marker + 1] ?? "{}") as {
+        brief?: { briefFingerprint?: string; workpieceId?: string };
+        evidence?: Array<{ sourceId?: string; state?: string }>;
+      };
+      const sourceId = result.evidence?.find((entry) => entry.state === "inspected")?.sourceId;
+      assert.ok(result.brief?.briefFingerprint && result.brief.workpieceId && sourceId);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          assistantText: "The inspected creator source remains available as partial evidence.",
+          ops: [],
+          script_text: null,
+          tag_audit: null,
+          research_artifact: {
+            briefFingerprint: result.brief.briefFingerprint,
+            workpieceId: result.brief.workpieceId,
+            status: "partial",
+            findings: [{ text: "The creator supplied a substantive source.", status: "reported_claim", sourceIds: [sourceId] }],
+            uncertainties: ["Further corroboration remains open."],
+            editorialInterpretation: [],
+          },
+        }) } }],
+        usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`Unexpected provider request: ${url}`);
+  };
+  const episodeContext = {
+    episodeId: "episode-1",
+    workspaceId,
+    title: "Unfamiliar certification subject",
+    titleVariants: { A: "", B: "", C: "" },
+    outline: "",
+    body: "",
+    sources: [],
+    sparks: [],
+  };
+
+  try {
+    const researchResponse = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        lane: "forge",
+        messages: [{ role: "user", content: "check https://example.com/creator-source" }],
+        user_authored_text: "check https://example.com/creator-source",
+        explicit_action: { kind: "research" },
+        attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+        episode_context: episodeContext,
+      }),
+    }));
+    const researchPayload = await researchResponse.json() as Record<string, any>;
+    assert.equal(researchResponse.status, 200, JSON.stringify(researchPayload));
+    assert.equal(researchPayload.turn_result.decision.mode, "research");
+    assert.equal(researchPayload.research_result.sources[0].extractionStatus, "extracted");
+    assert.equal(providerCalls, 0);
+
+    const conversationResponse = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        lane: "forge",
+        messages: [{ role: "user", content: "That gives the ending a much clearer emotional direction." }],
+        user_authored_text: "That gives the ending a much clearer emotional direction.",
+        attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+        episode_context: episodeContext,
+      }),
+    }));
+    const conversationPayload = await conversationResponse.json() as Record<string, any>;
+    assert.equal(conversationResponse.status, 409, JSON.stringify(conversationPayload));
+    assert.equal(conversationPayload.code, "hearth_customer_test_not_authorized");
+    assert.equal(conversationPayload.turn_result.decision.mode, "conversation");
+    assert.equal(conversationPayload.turn_result.artifact, null);
+    assert.deepEqual(conversationPayload.turn_result.operations, []);
+    assert.equal(conversationPayload.turn_result.validation.failureKind, "admission_failure");
+    assert.match(conversationPayload.turn_result.validation.message, /no provider request was sent/i);
+    assert.deepEqual(routeReads, ["hearth.chat_completion"]);
+    assert.equal(gateCalls.includes("reserve_customer_hearth_chat_quote"), false);
+    assert.equal(gateCalls.includes("authorize_openai_text_provider_attempt"), false);
+    assert.equal(gateCalls.includes("settle_operation"), false);
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("customer quote acceptance reserves, executes, settles, closes, and replays without a second charge or provider call", async () => {
   const workspaceId = "55555555-5555-4555-8555-555555555555";
   const depositId = "66666666-6666-4666-8666-666666666666";

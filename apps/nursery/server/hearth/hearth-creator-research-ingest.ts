@@ -1,5 +1,6 @@
 import type {
   HearthCreatorResearchClaim,
+  HearthCreatorEntityLead,
   HearthResearchArtifact,
   HearthResearchBrief,
   HearthResearchClaimProvenanceStatus,
@@ -7,6 +8,7 @@ import type {
   HearthResearchResult,
   HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
+import { inspectedSourceSupportsEntity } from "./hearth-source-evidence-policy";
 
 export type HearthCreatorResearchCitation = {
   raw: string;
@@ -17,6 +19,7 @@ export type HearthCreatorResearchCitation = {
 export type HearthCreatorResearchInput = {
   citations: HearthCreatorResearchCitation[];
   claims: HearthCreatorResearchClaim[];
+  entities: HearthCreatorEntityLead[];
   textWithoutCitations: string;
   appearsTruncated: boolean;
 };
@@ -27,13 +30,42 @@ const ADJACENT_FUNDING_RE = /\b(?:broader|citywide|countywide|downtown\s+bond|in
 const INCOMPLETE_TRAILING_RE = /\b(?:for|to|of|at|by|with|and|or|is|are|was|were|will|slated\s+for)\s*$/i;
 const BUSINESS_RESEARCH_CONTEXT_RE = /\b(?:business(?:es)?|restaurant(?:s)?|bar(?:s)?|cafe|coffee|shop(?:s)?|storefront(?:s)?|open doors?|operating|closed|corridor)\b/i;
 const BUSINESS_LEAD_RE = /\b(?:chophouse|restaurant|pizza|bar|bao|coffee|cafe|birria|crepe|gastro|exchange|office|arena|center|centre|adventures?|tours?|travel|leisure|shop|store|market|bakery|brewery|pub|grill|kitchen|dining|rooftop|salon|studio|museum|hotel)\b/i;
-const GENERIC_BUSINESS_HEADING_RE = /^(?:open|closed|active|current|adjacent|local|downtown|church street)?\s*(?:business(?:es)?|restaurant(?:s)?|storefront(?:s)?|open doors?|leads?|sources?)\s*:?[\s-]*$/i;
+const GENERIC_BUSINESS_HEADING_RE = /^(?:open|closed|active|current|adjacent|local|downtown)?\s*(?:business(?:es)?|restaurant(?:s)?|storefront(?:s)?|open doors?|leads?|sources?)\s*:?\s*[-–—]?\s*$/i;
 const BUSINESS_LIST_LINE_RE = /^\s*(?:\p{Extended_Pictographic}\uFE0F?\s*)?(?:(?:[-*•]|\d+[.)])\s+|\*\*|#{1,6}\s+)/u;
-const DENSE_BUSINESS_HEADING_BOUNDARY_RE = /\b(?:[Rr]estaurants?\s*,\s*[Cc]afes?\s*&\s*[Bb]ars?|[Rr]estaurants?\s*&\s*[Bb]ars?|[Oo]pen [Bb]usinesses|[Bb]usiness [Ll]eads|[Cc]orporate\s*&\s*[Pp]rofessional\s+[Hh]ubs?|[Aa]ttractions?\s*&\s*[Ee]ntertainment)(?=[A-Z0-9])/g;
+const DENSE_BUSINESS_HEADING_BOUNDARY_RE = /(?:[Rr]estaurants?\s*,\s*[Cc]afes?\s*&\s*[Bb]ars?|[Rr]estaurants?\s*&\s*[Bb]ars?|[Oo]pen [Bb]usinesses|[Bb]usiness [Ll]eads|[Cc]orporate\s*&\s*[Pp]rofessional\s+[Hh]ubs?|[Aa]ttractions?\s*&\s*[Ee]ntertainment)(?=[A-Z0-9])/g;
 const DENSE_BUSINESS_RECORD_RE = /([A-Z0-9][A-Za-z0-9'’&+.\-]*(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*|&|\+)){0,7})[ \t]*\(([^()\r\n]{2,180})\)/g;
-const DENSE_PLACE_RESULT_RE = /([A-Z][A-Za-z0-9'’&+.\-]*?(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*?|&|\+)){0,7}?)(\d\.\d)\(([\d.]+K?)\)(Business center|Corporate office|Corporate campus|Arena|Tour agency)(?=[A-Z])/g;
-const DENSE_BUSINESS_DESCRIPTOR_RE = /\b(?:\d{1,6}\s+[NSEW]\b|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|church|downtown|corridor|storefront|office|venue|operator|restaurant|cafe|bar)\b/i;
+const DENSE_PLACE_RESULT_RE = /([A-Z][A-Za-z0-9'’&+.\-]*?(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*?|&|\+)){0,7}?)(\d\.\d)\(([\d.]+K?)\)(Business center|Corporate office|Corporate campus|Arena|Tour agency)(?=[A-Z]|$)/g;
+const DENSE_BUSINESS_DESCRIPTOR_RE = /\b(?:\d{1,6}\s+[NSEW]\b|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|downtown|corridor|storefront|office|venue|operator|restaurant|cafe|bar)\b/i;
 const CREATOR_BUSINESS_OBSERVATION_RE = /\b(?:(?:empty|vacant)\s+storefronts?|storefront\s+vacanc(?:y|ies)|available\s+business\s+spaces?)[^.!?\r\n]{0,240}[.!?]?/gi;
+
+function removeCollapsedDenseHeadingPrefix(value: string): string {
+  for (const match of value.matchAll(/(?<=[a-z])(?=[A-Z0-9])/g)) {
+    const boundary = match.index ?? -1;
+    if (boundary <= 0) continue;
+    const prefix = value.slice(0, boundary).trim();
+    const entityName = value.slice(boundary).trim();
+    const prefixWords = prefix.replace(/[,&]+/g, " ").split(/\s+/).filter(Boolean);
+    const entityWords = entityName.split(/\s+/).filter(Boolean);
+    const finalPrefixWord = prefixWords.at(-1) ?? "";
+
+    // Collapsed search-result pastes commonly remove the boundary between a
+    // title-like category heading and the first record. Recognize that shape
+    // structurally: a short multi-word heading ending in a plural noun, then a
+    // new title-cased multi-word entity. The category vocabulary is deliberately
+    // open so unfamiliar domains do not need production-code additions.
+    if (
+      prefixWords.length >= 2
+      && prefixWords.length <= 6
+      && /s$/i.test(finalPrefixWord)
+      && !/(?:ss|us)$/i.test(finalPrefixWord)
+      && entityWords.length >= 2
+      && /^[A-Z0-9]/.test(entityName)
+    ) {
+      return entityName;
+    }
+  }
+  return value;
+}
 
 function countCharacter(value: string, character: "(" | ")"): number {
   return [...value].filter((entry) => entry === character).length;
@@ -108,10 +140,46 @@ function cleanClaimText(value: string): string {
 
 function creatorBusinessStatus(text: string): HearthCreatorResearchClaim["businessStatus"] {
   if (/\b(?:business\s+center|corporate\s+(?:office|campus)|administrative\s+office|regional\s+office)\b/i.test(text)) return "non_customer_facing";
-  if (/\b(?:adjacent|farther\s+(?:east|west|north|south)|not\s+on|outside|off)\b.*\b(?:corridor|church street)\b/i.test(text)) {
+  if (/\b(?:adjacent|farther\s+(?:east|west|north|south)|not\s+on|outside|off)\b.*\b(?:corridor|district|area|subject|location)\b/i.test(text)) {
     return "adjacent_location";
   }
   return "creator_supplied_unverified";
+}
+
+function buildCreatorEntityLead(args: {
+  sourceText: string;
+  name: string;
+  descriptor: string;
+  status: HearthCreatorResearchClaim["businessStatus"];
+}): HearthCreatorEntityLead {
+  const combined = `${args.name} ${args.descriptor}`;
+  const entityRole: HearthCreatorEntityLead["entityRole"] = /\b(?:corporate|administrative|regional)\s+(?:office|campus)|\boffice\b/i.test(combined)
+    ? "office"
+    : /\b(?:arena|stadium|theatre|theater|venue|museum)\b/i.test(combined)
+      ? "venue"
+      : /\b(?:tour|adventure|operator)\b/i.test(combined)
+        ? "operator"
+        : /\b(?:city|county|agency|authority|university|college|institution)\b/i.test(combined)
+          ? "institution"
+          : BUSINESS_LEAD_RE.test(combined)
+            ? "customer_facing"
+            : "unknown";
+  const claimedStatus: HearthCreatorEntityLead["claimedStatus"] = /\b(?:closed|inactive|shuttered)\b/i.test(combined)
+    ? "closed"
+    : /\b(?:open|operating|active)\b/i.test(combined)
+      ? "operating"
+      : "unknown";
+  const address = /\b\d{1,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z0-9'’.-]+(?:\s+[A-Za-z0-9'’.-]+){0,5}\s+(?:Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Lane|Ln\.?)(?:\s+(?:Suite|Ste\.?|#)\s*\w+)?\b/i
+    .exec(args.descriptor)?.[0] ?? null;
+  const start = Math.max(0, args.sourceText.indexOf(args.name));
+  return {
+    name: args.name,
+    address,
+    entityRole,
+    claimedStatus,
+    scope: args.status === "adjacent_location" ? "adjacent_context" : "current_subject",
+    sourceSpan: { start, end: start + args.name.length + args.descriptor.length },
+  };
 }
 
 function extractBusinessName(rawLine: string, cleaned: string): string | null {
@@ -170,6 +238,7 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
         claimKind: "business_status",
         businessName,
         businessStatus,
+        entityLead: buildCreatorEntityLead({ sourceText: text, name: businessName, descriptor: claim, status: businessStatus }),
       });
       if (claims.length >= 24) break;
     }
@@ -178,7 +247,7 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
     DENSE_BUSINESS_RECORD_RE.lastIndex = 0;
     for (const match of denseBusinessText.matchAll(DENSE_BUSINESS_RECORD_RE)) {
       if (claims.length >= 24) break;
-      const businessName = cleanClaimText(match[1] ?? "");
+      const businessName = removeCollapsedDenseHeadingPrefix(cleanClaimText(match[1] ?? ""));
       const descriptor = cleanClaimText(match[2] ?? "");
       if (!businessName || !descriptor || GENERIC_BUSINESS_HEADING_RE.test(businessName)) continue;
       if (!DENSE_BUSINESS_DESCRIPTOR_RE.test(descriptor)) continue;
@@ -198,6 +267,7 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
         claimKind: "business_status",
         businessName,
         businessStatus,
+        entityLead: buildCreatorEntityLead({ sourceText: text, name: businessName, descriptor, status: businessStatus }),
       });
     }
 
@@ -223,6 +293,7 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
         claimKind: "business_status",
         businessName,
         businessStatus,
+        entityLead: buildCreatorEntityLead({ sourceText: text, name: businessName, descriptor: placeType, status: businessStatus }),
       });
     }
   }
@@ -278,10 +349,12 @@ export function parseCreatorSuppliedResearch(input: string, maxCitations = 8): H
   const appearsTruncated = Boolean(trailingText)
     && !/[.!?]["')\]]?$/.test(trailingText)
     && INCOMPLETE_TRAILING_RE.test(trailingText);
+  const claims = extractCreatorClaims(textWithoutCitations, appearsTruncated);
 
   return {
     citations,
-    claims: extractCreatorClaims(textWithoutCitations, appearsTruncated),
+    claims,
+    entities: claims.flatMap((claim) => claim.entityLead ? [claim.entityLead] : []),
     textWithoutCitations,
     appearsTruncated,
   };
@@ -421,57 +494,37 @@ function inspectedSourcesSupportMoneyClaim(
   return markers.every((marker) => evidenceMarkers.has(marker));
 }
 
-function normalizeBusinessIdentity(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
 function findInspectedBusinessLocationSource(
   claim: HearthCreatorResearchClaim,
   sources: HearthResearchSource[],
 ): HearthResearchSource | null {
   if (claim.claimKind !== "business_status" || !claim.businessName) return null;
-  const businessIdentity = normalizeBusinessIdentity(claim.businessName);
   const descriptor = claim.text.match(/\(([^)]+)\)/)?.[1] ?? "";
-  const descriptorIdentity = normalizeBusinessIdentity(descriptor);
-  const streetNumber = descriptorIdentity.match(/(?:^|\s)(\d{1,6})(?:\s|$)/)?.[1] ?? null;
-  const expectsChurchStreet = /\bchurch\b/i.test(descriptor);
-  if (!streetNumber && !expectsChurchStreet) return null;
-
-  return sources.find((source) => {
-    if (
-      source.provenance?.inspectionStatus !== "inspected"
-      || !source.provenance.verifiedInCurrentRequest
-      || source.extractionStatus !== "extracted"
-    ) return false;
-    const sourceIdentity = normalizeBusinessIdentity([
-      source.title,
-      source.publisher,
-      source.domain,
-    ].filter(Boolean).join(" "));
-    if (!sourceIdentity.includes(businessIdentity)) return false;
-    const evidenceIdentity = normalizeBusinessIdentity([
-      source.extractedText,
-      source.transcript,
-      source.snippet,
-    ].filter(Boolean).join(" "));
-    if (!evidenceIdentity || (expectsChurchStreet && !evidenceIdentity.includes("church"))) return false;
-    if (streetNumber && !new RegExp(`(?:^|\\s)${streetNumber}(?:\\s|$)`).test(evidenceIdentity)) return false;
-    return true;
-  }) ?? null;
+  const entity = claim.entityLead ?? buildCreatorEntityLead({
+    sourceText: claim.text,
+    name: claim.businessName,
+    descriptor,
+    status: claim.businessStatus,
+  });
+  return sources.find((source) => inspectedSourceSupportsEntity(entity, source)) ?? null;
 }
 
 function buildInspectedBusinessLocationFinding(
   claim: HearthCreatorResearchClaim,
   source: HearthResearchSource,
 ): HearthResearchFinding {
+  const address = claim.entityLead?.address;
   return {
-    text: `The inspected source for ${claim.businessName} lists its Church Street location.`,
+    text: address
+      ? `The inspected source identifies ${claim.businessName} at ${address}.`
+      : `The inspected source identifies ${claim.businessName}.`,
     status: "verified_fact",
     provenanceStatus: "verified_by_current_run",
     sourceIds: [source.sourceId],
     scope: claim.scope,
     businessName: claim.businessName,
     businessStatus: "appears_active_unconfirmed",
+    ...(claim.entityLead ? { entityRole: claim.entityLead.entityRole } : {}),
   };
 }
 
@@ -574,6 +627,7 @@ export function reconcileCreatorSuppliedResearchArtifact(
         scope,
         provenanceStatus: "verified_by_current_run",
         ...(matchingClaim?.businessName && !finding.businessName ? { businessName: matchingClaim.businessName } : {}),
+        ...(matchingClaim?.entityLead && !finding.entityRole ? { entityRole: matchingClaim.entityLead.entityRole } : {}),
         ...(matchingClaim?.claimKind === "business_status" && !finding.businessStatus
           ? { businessStatus: "appears_active_unconfirmed" as const }
           : {}),
@@ -585,6 +639,7 @@ export function reconcileCreatorSuppliedResearchArtifact(
         scope,
         provenanceStatus: "reported_by_accessible_secondary",
         ...(matchingClaim?.businessName && !finding.businessName ? { businessName: matchingClaim.businessName } : {}),
+        ...(matchingClaim?.entityLead && !finding.entityRole ? { entityRole: matchingClaim.entityLead.entityRole } : {}),
         ...(matchingClaim?.claimKind === "business_status" && !finding.businessStatus
           ? { businessStatus: "appears_active_unconfirmed" as const }
           : {}),
@@ -605,6 +660,7 @@ export function reconcileCreatorSuppliedResearchArtifact(
       provenanceStatus,
       sourceIds: finding.sourceIds.filter((sourceId) => sourceById.has(sourceId)),
       ...(matchingClaim?.businessName && !finding.businessName ? { businessName: matchingClaim.businessName } : {}),
+      ...(matchingClaim?.entityLead && !finding.entityRole ? { entityRole: matchingClaim.entityLead.entityRole } : {}),
       ...(matchingClaim?.claimKind === "business_status"
         ? {
             businessStatus: matchingClaim.businessStatus === "non_customer_facing" || matchingClaim.businessStatus === "adjacent_location"
@@ -641,6 +697,7 @@ export function reconcileCreatorSuppliedResearchArtifact(
       scope: claim.scope,
       ...(claim.businessName ? { businessName: claim.businessName } : {}),
       ...(claim.businessStatus ? { businessStatus: claim.businessStatus } : {}),
+      ...(claim.entityLead ? { entityRole: claim.entityLead.entityRole } : {}),
     });
   }
 

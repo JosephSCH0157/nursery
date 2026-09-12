@@ -95,9 +95,9 @@ import {
 } from "../../../hearth/src/lib/hearth-composition-output";
 import {
   createHearthResearchRuntime,
-  classifyResearchSourceAuthority,
   extractUrlToResearchSource,
 } from "./hearth-research-runtime";
+import { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
 import {
   buildMalformedCreatorCitationSource,
   isSubstantiveResearchFinding,
@@ -705,6 +705,7 @@ function buildLinkOnlyResearchResult(args: {
   sources: HearthResearchSource[];
   brief: HearthResearchBrief;
   creatorClaims: NonNullable<HearthResearchResult["creatorClaims"]>;
+  creatorEntities: NonNullable<HearthResearchResult["creatorEntities"]>;
   creatorInputTruncated: boolean;
 }): HearthResearchResult {
   const extracted = args.sources.filter((source) => source.extractionStatus === "extracted").length;
@@ -728,6 +729,7 @@ function buildLinkOnlyResearchResult(args: {
         : "partial",
     brief: args.brief,
     creatorClaims: args.creatorClaims,
+    creatorEntities: args.creatorEntities,
     creatorInputTruncated: args.creatorInputTruncated,
     evidence: args.sources.map((source, index) => ({
       evidenceId: `evidence-${index + 1}`,
@@ -1216,6 +1218,7 @@ function buildProfileStyleSnippet(
   writingProfile: WritingProfile,
   requestText: string,
   contextTonePreset: string | null,
+  decision: HearthTurnDecision,
 ): string {
   const lines = ["Creator Profile Guidance (soft):"];
 
@@ -1231,25 +1234,25 @@ function buildProfileStyleSnippet(
     lines.push("- Lower risk sensitivity: still accurate, but you may use a stronger voice.");
   }
 
-  if (profile.outlineFirstBias >= 0.6 && !/\bscript\b/i.test(requestText)) {
+  if (decision.requiresArtifact && profile.outlineFirstBias >= 0.6 && !/\bscript\b/i.test(requestText)) {
     lines.push("- Workflow preference leans outline-first when the user does not explicitly ask for full script.");
-  } else if (profile.scriptFirstBias >= 0.6) {
+  } else if (decision.requiresArtifact && profile.scriptFirstBias >= 0.6) {
     lines.push("- Workflow preference leans script-first when request is explicit.");
   }
 
-  if (profile.clarifyFirstBias <= 0.4) {
+  if (decision.requiresArtifact && profile.clarifyFirstBias <= 0.4) {
     lines.push("- User often prefers direct drafting when the request is clear.");
   }
 
-  if (writingProfile.defaultAudience) {
+  if (decision.requiresArtifact && writingProfile.defaultAudience) {
     lines.push(`- Audience default: ${writingProfile.defaultAudience}.`);
-  } else {
+  } else if (decision.requiresArtifact) {
     lines.push("- Audience default: general podcast listeners.");
   }
 
-  if (writingProfile.defaultStructure) {
+  if (decision.requiresArtifact && writingProfile.defaultStructure) {
     lines.push(`- Structure default: ${writingProfile.defaultStructure}.`);
-  } else {
+  } else if (decision.requiresArtifact) {
     lines.push("- Structure default: neutral flow (hook, context, points, close).");
   }
 
@@ -1257,7 +1260,11 @@ function buildProfileStyleSnippet(
     lines.push(`- Style notes: ${writingProfile.styleNotes}.`);
   }
 
-  lines.push("- Do not ask follow-up questions about audience, structure, or tone. Use these defaults and generate immediately.");
+  if (decision.requiresArtifact) {
+    lines.push("- Apply these preferences only to the requested artifact; do not use them to change turn intent.");
+  } else {
+    lines.push("- These preferences must not trigger drafting, research, workflow advancement, or a forced next step.");
+  }
 
   return lines.join("\n");
 }
@@ -1353,7 +1360,7 @@ function buildAttachmentContextSnippet(attachments: Array<{
   return lines.join("\n");
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
   options?: {
@@ -1443,7 +1450,7 @@ function buildSystemPrompt(
     "- Do not narrate internal process unless it materially helps the user decide.",
     "- Ask a follow-up only when it materially helps the creator's current intent.",
     "- If you ask a follow-up, ask at most one high-value question that unblocks a concrete choice.",
-    "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and keep moving.",
+    "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and respond to the request they actually made.",
     "- Avoid assistant filler and stale lead-ins. Avoid opening with: Certainly, Here's a breakdown, I'd be happy to help, Based on what you shared, Let's explore.",
     "- Never open with filler phrases such as: Certainly, Of course, I'd be happy to, Here's a breakdown, Let's explore.",
     "- Avoid robotic framing or formal tone unless the user explicitly requests it.",
@@ -1457,10 +1464,10 @@ function buildSystemPrompt(
     "- Flag common failure modes when present: rambling, overexplaining, safe-but-bland framing, emotional drift, missing hook/payoff.",
     "- Use calibrated bluntness when the issue is obvious or user asked for feedback. Example style: This is muddy. This section is not earning its time.",
     "- Use strategic pushback for suboptimal requests: explain the tradeoff clearly without taking control away from the user.",
-    "- Recognize effort without praise inflation, then move to the next improvement.",
-    "- Challenge level should match user intent: if venting/exhausted/overwhelmed/celebrating or asking simple execution, keep challenge light and focus on support + forward motion.",
-    "- Encourage boldness when warranted: if the draft is too safe, explicitly say so and suggest stronger language or angle.",
-    "- Prefer one high-confidence direction over multiple options. Avoid decision overload.",
+    "- Recognize effort without praise inflation, then respond at the creator's current stage.",
+    "- Challenge level should match user intent: if venting/exhausted/overwhelmed/celebrating or asking simple execution, keep challenge light and focus on the present request.",
+    "- When critique is requested and the draft is too safe, say so and suggest a stronger language or angle.",
+    "- When the creator asks for direction, prefer one high-confidence direction over decision overload.",
     "- Do not end with optional brainstorming prompts like: Would you like me to... unless user explicitly asks for options.",
     "- Emotional intelligence adaptation:",
     "- If user is excited, match energy but stay grounded.",
@@ -1472,31 +1479,8 @@ function buildSystemPrompt(
     "- If the user only asks a question, return ops as [].",
     "- Conversation-versus-mutation rule: questions about how, what, or whether to change a script are editorial discussion. Answer with analysis and suggestions in assistantText and return no set_body op. Only produce set_body when the creator affirmatively asks you to apply, update, revise, rewrite, or create a script version.",
     "- Explicit no-edit language such as 'do not edit it yet' or 'I did not ask you to update it' always remains discussion, even when the same message mentions possible script changes.",
-    "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
-    "Artifact presence invariant (hard rule): Never claim that you produced an outline, script, draft, or composed material unless substantive requested content is present in this same response.",
-    "- For a creator-authored outline or bullet-points request, return either a non-empty set_outline op containing actual bullets/sections or put the actual bullets/sections in assistantText. An introductory sentence alone is invalid.",
-    "- For a creator-authored full-script or Compose request, return substantive script_text/set_body content in canonical Anvil form. An introductory sentence alone is invalid.",
-    "- If you cannot produce the requested artifact, state that generation failed or remained incomplete. Never substitute a preamble describing a nonexistent artifact.",
     "- Do not invent source ids for update/remove ops.",
-    "- When proposing or returning a script body, include script_text and tag_audit.",
-    "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
-    "- Do not ask the user to choose audience, structure, or tone during generation.",
     "- Keep output strictly JSON (no code fences).",
-    "Voice examples (style calibration):",
-    "- Desired: User says \"This script feels stiff and I'm starting to hate it.\" Assistant tone: \"Yeah, it feels tight in the wrong places. The stronger pass is simpler and more spoken. Here's a cleaner version.\"",
-    "- Undesired: \"I understand your frustration. Here's a structured breakdown with three strategic pillars.\"",
-    "- Desired: User says \"Okay, now we're onto something.\" Assistant tone: \"Yep, this lands. Let's tighten the middle so the punchline hits faster.\"",
-    "- Undesired: \"Excellent progress! Would you like me to provide a comprehensive optimization framework?\"",
-    "- Desired: User says \"I've got too many directions.\" Assistant tone: \"Makes sense. Let's collapse to one core claim, then build around it.\"",
-    "- Undesired: \"Please select one of the following pathways before we proceed.\"",
-    "- Desired: User says \"I'm thinking of productivity tips everyone already knows.\" Assistant tone: \"Viable topic, weak novelty. Keep the premise, but pick a contrarian angle or a lived-experiment frame so it actually lands.\"",
-    "- Undesired: \"Great idea, let's run with it as-is.\"",
-    "- Desired: User says \"I like it the way it is.\" Assistant tone: \"Totally your call. Tradeoff is pace: this version keeps detail but loses momentum in the middle. If we keep it, I'd still trim these two lines.\"",
-    "- Undesired: \"You're wrong, this needs a full rewrite.\"",
-    "- Desired: User says \"This intro is too long.\" Assistant tone: \"Fastest upgrade: cut everything before the first tension point. Start here instead: <rewritten opening>.\"",
-    "- Undesired: \"You could try a few different approaches if you want.\"",
-    "- Desired: User says \"I have too many directions.\" Assistant tone: \"The move I'd try next: pick one claim and draft a 4-line opening around it. Use this as your base: <draft seed>.\"",
-    "- Undesired: \"Here are five possible paths to consider.\"",
     "## PROJECT KNOWLEDGE ACCESS",
     "You have read access to project knowledge when available, including architecture manifests, design docs, tool contracts, roadmaps/plans, canonical memory/context files, and relevant code summaries.",
     "Use project knowledge to answer how systems work, what exists vs not implemented, next logical steps, feature ownership, and integration points.",
@@ -1529,6 +1513,7 @@ function buildSystemPrompt(
   if (mode === "outline_generate") {
     baseLines.push(
       "Outline generation mode (hard rule):",
+      "- Artifact presence invariant: never claim an outline exists unless substantive outline content is present in this response.",
       "- Produce a substantive outline with at least one actual bullet or labeled section.",
       "- Return the outline in assistantText or set_outline. An announcement-only preamble is invalid.",
       "- Do not produce or mutate a full script.",
@@ -1537,6 +1522,7 @@ function buildSystemPrompt(
   if (mode === "script_generate" || mode === "script_mutate") {
     baseLines.push(
       "ANVIL SCRIPT ARTIFACT CONTRACT:",
+      "- Artifact presence invariant: never claim a script exists unless substantive script content is present in this response.",
       mode === "script_mutate"
         ? "- Propose a substantive revision of the current script; do not claim it was applied."
         : "- Produce a substantive new script artifact; do not claim it was applied.",
@@ -1546,6 +1532,7 @@ function buildSystemPrompt(
       "- Allowed pacing tokens are [pause], [beat], and [reflective pause].",
       "- Do not use Markdown speaker labels or unrecognized control markup.",
       "- Validate tag closure and standalone placement before returning.",
+      "- Include tag_audit confirming closure, standalone tags, and absence of random markup.",
       "- An introductory sentence without substantive script content is invalid.",
     );
   }
@@ -2112,7 +2099,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
     const citations = finding.sourceIds.map((id) => `[${id}]`).join(" ");
     return `- ${finding.text}${citations ? ` ${citations}` : ""}`;
   };
-  const isBusinessFinding = (finding: HearthResearchArtifact["findings"][number]) => Boolean(finding.businessStatus);
+  const isBusinessFinding = (finding: HearthResearchArtifact["findings"][number]) => Boolean(finding.businessStatus || finding.entityRole);
   const verifiedOpenBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "verified_currently_operating"
     && (finding.provenanceStatus === "verified_by_current_run" || finding.provenanceStatus === "reported_by_accessible_secondary")
@@ -2122,6 +2109,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   )).map(renderFinding);
   const unverifiedBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "creator_supplied_unverified"
+    && (finding.entityRole === "customer_facing" || finding.entityRole === "unknown" || !finding.entityRole)
   )).map(renderFinding);
   const closedBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "closed_inactive"
@@ -2129,6 +2117,8 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   )).map(renderFinding);
   const nonStorefrontBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "non_customer_facing" || finding.businessStatus === "adjacent_location"
+    || finding.entityRole === "office" || finding.entityRole === "venue"
+    || finding.entityRole === "operator" || finding.entityRole === "institution"
   )).map(renderFinding);
   const validatedFindingLines = artifact.findings.filter((finding) => (
     !isBusinessFinding(finding)
@@ -2173,7 +2163,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
     ...(appearsActiveBusinessLines.length ? ["Appears active, but current status is not fully confirmed", appearsActiveBusinessLines.join("\n")] : []),
     ...(unverifiedBusinessLines.length ? ["Still unverified", unverifiedBusinessLines.join("\n")] : []),
     ...(closedBusinessLines.length ? ["Closed or inactive", closedBusinessLines.join("\n")] : []),
-    ...(nonStorefrontBusinessLines.length ? ["Adjacent or not a customer-facing Church Street business", nonStorefrontBusinessLines.join("\n")] : []),
+    ...(nonStorefrontBusinessLines.length ? ["Adjacent or not customer-facing", nonStorefrontBusinessLines.join("\n")] : []),
     ...(validatedFindingLines.length ? [artifact.status === "complete" ? "Validated findings" : "Validated partial findings", validatedFindingLines.join("\n")] : []),
     ...(creatorLeadLines.length ? ["Creator-supplied leads still unverified", creatorLeadLines.join("\n")] : []),
     ...(unresolvedFindingLines.length ? ["Conflicting, unsupported, or inaccessible-source-only claims", unresolvedFindingLines.join("\n")] : []),
@@ -3929,7 +3919,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         assistantMessage: string;
         artifact?: HearthValidatedArtifact | null;
         operations?: HearthOp[];
-        failureKind?: "none" | "provider_failure" | "invalid_model_output" | "identity_mismatch";
+        failureKind?: "none" | "admission_failure" | "provider_failure" | "invalid_model_output" | "identity_mismatch";
         failureMessage?: string | null;
       }) => buildHearthTurnResult({
         decision: turnDecision,
@@ -3938,6 +3928,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         operations: args.operations,
         failureKind: args.failureKind,
         failureMessage: args.failureMessage,
+        persistence: args.failureKind && args.failureKind !== "none" ? "not_attempted" : "pending",
+      });
+      const admissionFailureResponse = (args: {
+        status: number;
+        error: string;
+        code: string;
+        extra?: Record<string, unknown>;
+      }) => jsonResponse(args.status, {
+        ok: false,
+        error: args.error,
+        code: args.code,
+        turn_result: buildTurnResult({
+          assistantMessage: "",
+          failureKind: "admission_failure",
+          failureMessage: args.error,
+        }),
+        ...(args.extra ?? {}),
+        ...buildBillingSnapshot(lane),
       });
       const compositionProviderFailureResponse = (providerStatus: number | null): Response | null => {
         if (!compositionRequestKind) return null;
@@ -4353,6 +4361,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           sources: linkSources,
           brief: researchBrief!,
           creatorClaims: creatorResearchInput.claims,
+          creatorEntities: creatorResearchInput.entities,
           creatorInputTruncated: creatorResearchInput.appearsTruncated,
         });
       } else if (researchRequest && researchBrief) {
@@ -4475,6 +4484,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             writingProfile,
             requestText,
             episodeContext.tonePreset,
+            turnDecision,
           ),
         ];
 
@@ -4714,47 +4724,42 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               p_credential_funding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
             });
             if (requirement.error) {
-              return jsonResponse(503, {
-                ok: false,
+              return admissionFailureResponse({
+                status: 503,
                 error: "Paid execution controls are unavailable.",
                 code: "paid_execution_control_unavailable",
-                ...buildBillingSnapshot(lane),
               });
             }
             paidRequirementRow = isRecord(requirement.data) ? requirement.data : {};
           }
           if (paidRequirementRow.mode === "halt_new" && !paidExecutionHandle) {
-            return jsonResponse(503, {
-              ok: false,
+            return admissionFailureResponse({
+              status: 503,
               error: "New paid submissions are halted while existing operations remain available for reconciliation.",
               code: "paid_submissions_halted",
-              ...buildBillingSnapshot(lane),
             });
           }
         } else if (paidExecutionHandle || spendingAcceptance) {
-          return jsonResponse(503, {
-            ok: false,
+          return admissionFailureResponse({
+            status: 503,
             error: "Paid execution controls are unavailable.",
             code: "paid_execution_control_unavailable",
-            ...buildBillingSnapshot(lane),
           });
         }
 
         if (paidRequirementRow.funding_context_required === true && !paidExecutionHandle) {
           if (!paidScopeEligible || !actualRequestFingerprint) {
-            return jsonResponse(422, {
-              ok: false,
+            return admissionFailureResponse({
+              status: 422,
               error: "The published customer price covers only a bounded ordinary Hearth chat completion.",
               code: "paid_quote_scope_mismatch",
-              ...buildBillingSnapshot(lane),
             });
           }
           if (!openAiTextGate || !userId || !bearerToken || !isUuid(episodeContext.workspaceId)) {
-            return jsonResponse(401, {
-              ok: false,
+            return admissionFailureResponse({
+              status: 401,
               error: "Authentication and paid execution controls are required.",
               code: "paid_execution_auth_required",
-              ...buildBillingSnapshot(lane),
             });
           }
           if (paidRouteCode === "hearth.research_synthesis" || paidRouteCode === "hearth.chat_completion") {
@@ -4893,13 +4898,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
             if (quoted.error || !isRecord(quoted.data)) {
               const unavailable = /not active|not configured|operation limit|expired/i.test(quoted.error?.message ?? "");
-              return jsonResponse(unavailable ? 409 : 503, {
-                ok: false,
-                error: unavailable
-                  ? "Customer-funded Hearth testing is not currently available for this account and workspace."
-                  : "A customer-safe Hearth quote could not be created.",
+              const error = unavailable
+                ? "Hearth cannot run this turn because no authorized funding source is available for this account and workspace. No provider request was sent and no charge was made."
+                : "Hearth could not verify an authorized funding source for this turn. No provider request was sent and no charge was made.";
+              return admissionFailureResponse({
+                status: unavailable ? 409 : 503,
+                error,
                 code: unavailable ? "hearth_customer_test_not_authorized" : "hearth_quote_unavailable",
-                ...buildBillingSnapshot(lane),
               });
             }
             const quote = quoted.data;
@@ -4921,12 +4926,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               provider_funding_summary: quote.provider_funding_summary,
             };
             if (funding.eligible !== true) {
-              return jsonResponse(402, {
-                ok: false,
-                error: "This account has no verified Live deposit or economically backed allowance eligible for this operation.",
+              const error = "This account has no verified Live deposit or economically backed allowance eligible for this operation. No provider request was sent and no charge was made.";
+              return admissionFailureResponse({
+                status: 402,
+                error,
                 code: "hearth_insufficient_verified_funds",
-                billing_quote: billingQuote,
-                ...buildBillingSnapshot(lane),
+                extra: { billing_quote: billingQuote },
               });
             }
             return jsonResponse(409, {

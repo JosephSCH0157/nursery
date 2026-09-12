@@ -2210,6 +2210,7 @@ export type AnvilTakeTransitionResult = {
 export type HearthReadyTransitionRequest = {
   workspace_id: string;
   script_approval_id: string;
+  preflight_report_id: string;
   idempotency_key: string;
   publish_evidence: Json;
   user_access_token?: string | null;
@@ -3491,6 +3492,54 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
+  getCanonicalHearthResearchArtifact(
+    workpieceId: string,
+    workspaceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
+  commitCanonicalHearthResearchArtifact(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      expected_revision: number;
+      expected_revision_id: string | null;
+      artifact_json: Json;
+      contract_version: string;
+      operation_id: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
+  getCurrentHearthEditorialPreflight(
+    workpieceId: string,
+    workspaceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
+  commitHearthEditorialPreflight(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      expected_revision: number;
+      expected_revision_id: string | null;
+      expected_source_file_revision: number;
+      expected_script_hash: string;
+      research_artifact_id: string | null;
+      research_artifact_hash: string | null;
+      checker_contract_version: string;
+      report_json: Json;
+      operation_id: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
+  acknowledgeHearthPreflightFinding(
+    workpieceId: string,
+    input: { workspace_id: string; report_id: string; finding_key: string; action: string; note: string | null; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
+  reviewHearthEditorialPreflight(
+    workpieceId: string,
+    input: { workspace_id: string; report_id: string; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
   commitCanonicalScriptApproval(
     workpieceId: string,
     input: {
@@ -3499,6 +3548,7 @@ export type TongsCommitApiService = {
       expected_source_file_revision: number;
       expected_source_content_hash: string;
       creator_version_label: string;
+      preflight_report_id: string;
       operation_id: string;
     },
     options?: { userAccessToken?: string | null },
@@ -16420,11 +16470,12 @@ export class TongsCommitService {
       }>;
     };
     const { data, error } = await rpcClient.rpc(
-      "hearth_transition_approved_script_ready",
+      "hearth_transition_preflighted_script_ready_v3",
       {
         p_workspace_id: input.workspace_id,
         p_workpiece_id: workpieceId,
         p_script_approval_id: input.script_approval_id,
+        p_preflight_report_id: input.preflight_report_id,
         p_idempotency_key: input.idempotency_key,
         p_publish_evidence: input.publish_evidence,
       },
@@ -16432,14 +16483,14 @@ export class TongsCommitService {
     if (error) {
       const missing =
         error.code === "PGRST202" ||
-        /hearth_transition_approved_script_ready/i.test(error.message);
+        /hearth_transition_preflighted_script_ready_v3/i.test(error.message);
       throw new HttpError(
         missing ? 503 : 502,
         missing
           ? "hearth_ready_migration_required"
           : "hearth_ready_transition_failed",
         missing
-          ? "Hearth Ready authority is unavailable; migration 20260713190000 is required."
+          ? "Hearth Ready authority is unavailable; the research/preflight authority migration is required."
           : "Hearth Ready transition failed.",
         { reason: error.message },
       );
@@ -25221,6 +25272,248 @@ export class TongsCommitService {
     });
   }
 
+  private hearthAuthorityRpcClient(accessToken: string | null | undefined) {
+    if (!this.userClientFactory)
+      throw new HttpError(
+        503,
+        "hearth_authority_unavailable",
+        "Canonical Hearth authority requires an authenticated Tongs client.",
+      );
+    return this.userClientFactory(
+      normalizeNonEmptyString(accessToken, "user_access_token"),
+    ).schema("tongs") as unknown as UntypedTongsSchemaClient;
+  }
+
+  async getCanonicalHearthResearchArtifact(
+    workpieceId: string,
+    workspaceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(
+      workspaceId,
+      "viewer",
+      options?.userAccessToken,
+    );
+    const result = await this.hearthAuthorityRpcClient(
+      options?.userAccessToken,
+    ).rpc("read_current_hearth_research_artifact_v1", {
+      p_workspace_id: workspaceId,
+      p_workpiece_id: workpieceId,
+    });
+    if (result.error || !isRecord(result.data))
+      throw new HttpError(
+        502,
+        "hearth_research_read_failed",
+        "Canonical Hearth research could not be read.",
+        { reason: result.error?.message },
+      );
+    return result.data;
+  }
+
+  async commitCanonicalHearthResearchArtifact(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      expected_revision: number;
+      expected_revision_id: string | null;
+      artifact_json: Json;
+      contract_version: string;
+      operation_id: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(
+      input.workspace_id,
+      "editor",
+      options?.userAccessToken,
+    );
+    const result = await this.hearthAuthorityRpcClient(
+      options?.userAccessToken,
+    ).rpc("commit_hearth_research_artifact_v1", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_expected_revision: input.expected_revision,
+      p_expected_revision_id: input.expected_revision_id,
+      p_artifact_json: input.artifact_json,
+      p_contract_version: input.contract_version,
+      p_operation_id: input.operation_id,
+    });
+    if (result.error || !isRecord(result.data))
+      throw new HttpError(
+        502,
+        "hearth_research_commit_failed",
+        "Canonical Hearth research could not be saved.",
+        { reason: result.error?.message },
+      );
+    return result.data;
+  }
+
+  async getCurrentHearthEditorialPreflight(
+    workpieceId: string,
+    workspaceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(
+      workspaceId,
+      "viewer",
+      options?.userAccessToken,
+    );
+    const result = await this.hearthAuthorityRpcClient(
+      options?.userAccessToken,
+    ).rpc("read_current_hearth_preflight_v1", {
+      p_workspace_id: workspaceId,
+      p_workpiece_id: workpieceId,
+    });
+    if (result.error || !isRecord(result.data))
+      throw new HttpError(
+        502,
+        "hearth_preflight_read_failed",
+        "Hearth producer preflight could not be read.",
+        { reason: result.error?.message },
+      );
+    return result.data;
+  }
+
+  async commitHearthEditorialPreflight(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      expected_revision: number;
+      expected_revision_id: string | null;
+      expected_source_file_revision: number;
+      expected_script_hash: string;
+      research_artifact_id: string | null;
+      research_artifact_hash: string | null;
+      checker_contract_version: string;
+      report_json: Json;
+      operation_id: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(
+      input.workspace_id,
+      "editor",
+      options?.userAccessToken,
+    );
+    const { data: file, error } = await this.supabase
+      .schema("tongs")
+      .from("workpiece_files")
+      .select("revision,hash_value,storage_bucket,storage_key")
+      .eq("workpiece_id", workpieceId)
+      .eq("path", "script/script.md")
+      .maybeSingle();
+    if (error || !file)
+      throw new HttpError(
+        409,
+        "preflight_script_unavailable",
+        "Save the working script before reviewing it for recording.",
+        { reason: error?.message },
+      );
+    const bytes = await downloadStorageObject(
+      this.supabase,
+      file.storage_bucket,
+      file.storage_key,
+    );
+    if (!bytes)
+      throw new HttpError(
+        409,
+        "preflight_script_unavailable",
+        "The exact working script bytes are unavailable.",
+      );
+    const scriptText = normalizeLf(stripBom(textDecoder.decode(bytes))).normalize(
+      "NFC",
+    );
+    const scriptHash = await sha256Hex(textEncoder.encode(scriptText));
+    if (
+      file.revision !== input.expected_source_file_revision ||
+      scriptHash !== input.expected_script_hash ||
+      String(file.hash_value ?? "").toLowerCase() !== scriptHash
+    )
+      throw new HttpError(
+        409,
+        "stale_preflight_script",
+        "The working script changed before producer review. Reload and review the current draft.",
+      );
+    const result = await this.hearthAuthorityRpcClient(
+      options?.userAccessToken,
+    ).rpc("commit_hearth_editorial_preflight_v1", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_expected_revision: input.expected_revision,
+      p_expected_revision_id: input.expected_revision_id,
+      p_expected_source_file_revision: input.expected_source_file_revision,
+      p_expected_script_hash: input.expected_script_hash,
+      p_script_text: scriptText,
+      p_research_artifact_id: input.research_artifact_id,
+      p_research_artifact_hash: input.research_artifact_hash,
+      p_checker_contract_version: input.checker_contract_version,
+      p_report_json: input.report_json,
+      p_operation_id: input.operation_id,
+    });
+    if (result.error || !isRecord(result.data))
+      throw new HttpError(
+        502,
+        "hearth_preflight_commit_failed",
+        "Hearth producer preflight could not be saved.",
+        { reason: result.error?.message },
+      );
+    return result.data;
+  }
+
+  async acknowledgeHearthPreflightFinding(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      report_id: string;
+      finding_key: string;
+      action: string;
+      note: string | null;
+      operation_id: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const result = await this.hearthAuthorityRpcClient(
+      options?.userAccessToken,
+    ).rpc("acknowledge_hearth_preflight_finding_v1", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_report_id: input.report_id,
+      p_finding_key: input.finding_key,
+      p_action: input.action,
+      p_note: input.note,
+      p_operation_id: input.operation_id,
+    });
+    if (result.error || !isRecord(result.data))
+      throw new HttpError(502, "hearth_preflight_ack_failed", "The finding decision could not be saved.", { reason: result.error?.message });
+    return result.data;
+  }
+
+  async reviewHearthEditorialPreflight(
+    workpieceId: string,
+    input: { workspace_id: string; report_id: string; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const result = await this.hearthAuthorityRpcClient(
+      options?.userAccessToken,
+    ).rpc("review_hearth_editorial_preflight_v1", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_report_id: input.report_id,
+      p_operation_id: input.operation_id,
+    });
+    if (result.error || !isRecord(result.data))
+      throw new HttpError(502, "hearth_preflight_review_failed", "Producer review could not be completed.", { reason: result.error?.message });
+    return result.data;
+  }
+
   async commitCanonicalScriptApproval(
     workpieceId: string,
     input: {
@@ -25229,6 +25522,7 @@ export class TongsCommitService {
       expected_source_file_revision: number;
       expected_source_content_hash: string;
       creator_version_label: string;
+      preflight_report_id: string;
       operation_id: string;
     },
     options?: { userAccessToken?: string | null },
@@ -25293,7 +25587,7 @@ export class TongsCommitService {
     const rpc = this.userClientFactory(
       normalizeNonEmptyString(options?.userAccessToken, "user_access_token"),
     ).schema("tongs") as unknown as UntypedTongsSchemaClient;
-    const result = await rpc.rpc("approve_canonical_script_v2", {
+    const result = await rpc.rpc("approve_canonical_script_v3", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
       p_expected_current_approval_revision: input.expected_current_revision,
@@ -25301,6 +25595,7 @@ export class TongsCommitService {
       p_expected_source_content_hash: input.expected_source_content_hash,
       p_script_text: scriptText,
       p_creator_version_label: input.creator_version_label,
+      p_preflight_report_id: input.preflight_report_id,
       p_operation_id: input.operation_id,
     });
     if (result.error || !isRecord(result.data))
@@ -35866,6 +36161,10 @@ export function createTongsCommitApiHandlerWithService(
             body.script_approval_id,
             "script_approval_id",
           ),
+          preflight_report_id: normalizeUuid(
+            body.preflight_report_id,
+            "preflight_report_id",
+          ),
           idempotency_key: normalizeNonEmptyString(
             body.idempotency_key,
             "idempotency_key",
@@ -35877,6 +36176,103 @@ export function createTongsCommitApiHandlerWithService(
           workpieceId,
           input,
         );
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 4 &&
+        parts[0] === "tongs" &&
+        parts[1] === "workpieces" &&
+        parts[3] === "hearth-research"
+      ) {
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        if (request.method === "GET") {
+          const workspaceId = normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id");
+          return jsonResponse(200, { ok: true, data: await service.getCanonicalHearthResearchArtifact(workpieceId, workspaceId, { userAccessToken }) });
+        }
+        requireMethod(request, "POST");
+        const body = await parseJsonBody(request);
+        const expectedRevision = Number(body.expected_revision);
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpError(400, "invalid_expected_revision", "expected_revision must be non-negative");
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:hearth-research:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge Hearth research namespace");
+        const result = await service.commitCanonicalHearthResearchArtifact(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          expected_revision: expectedRevision,
+          expected_revision_id: normalizeOptionalUuidOrNull(body.expected_revision_id, "expected_revision_id") ?? null,
+          artifact_json: normalizeJsonValue(body.artifact_json),
+          contract_version: normalizeNonEmptyString(body.contract_version, "contract_version"),
+          operation_id: operationId,
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 4 &&
+        parts[0] === "tongs" &&
+        parts[1] === "workpieces" &&
+        parts[3] === "hearth-preflight"
+      ) {
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        if (request.method === "GET") {
+          const workspaceId = normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id");
+          return jsonResponse(200, { ok: true, data: await service.getCurrentHearthEditorialPreflight(workpieceId, workspaceId, { userAccessToken }) });
+        }
+        requireMethod(request, "POST");
+        const body = await parseJsonBody(request);
+        const expectedRevision = Number(body.expected_revision);
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw new HttpError(400, "invalid_expected_revision", "expected_revision must be non-negative");
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:hearth-preflight:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge Hearth preflight namespace");
+        const result = await service.commitHearthEditorialPreflight(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          expected_revision: expectedRevision,
+          expected_revision_id: normalizeOptionalUuidOrNull(body.expected_revision_id, "expected_revision_id") ?? null,
+          expected_source_file_revision: normalizePositiveInteger(body.expected_source_file_revision, "expected_source_file_revision"),
+          expected_script_hash: normalizeSha256(body.expected_script_hash, "expected_script_hash"),
+          research_artifact_id: normalizeOptionalUuidOrNull(body.research_artifact_id, "research_artifact_id") ?? null,
+          research_artifact_hash: body.research_artifact_hash == null ? null : normalizeSha256(body.research_artifact_hash, "research_artifact_hash"),
+          checker_contract_version: normalizeNonEmptyString(body.checker_contract_version, "checker_contract_version"),
+          report_json: normalizeJsonValue(body.report_json),
+          operation_id: operationId,
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "hearth-preflight" && parts[4] === "review") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:hearth-preflight-review:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge Hearth preflight review namespace");
+        const result = await service.reviewHearthEditorialPreflight(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          report_id: normalizeUuid(body.report_id, "report_id"),
+          operation_id: operationId,
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "hearth-preflight" && parts[4] === "finding") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const action = normalizeNonEmptyString(body.action, "action");
+        if (action !== "acknowledge" && action !== "resolve") throw new HttpError(400, "invalid_action", "action must be acknowledge or resolve");
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:hearth-preflight-finding:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge Hearth preflight finding namespace");
+        const result = await service.acknowledgeHearthPreflightFinding(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          report_id: normalizeUuid(body.report_id, "report_id"),
+          finding_key: normalizeNonEmptyString(body.finding_key, "finding_key"),
+          action,
+          note: typeof body.note === "string" ? body.note : null,
+          operation_id: operationId,
+        }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
@@ -39423,6 +39819,10 @@ export function createTongsCommitApiHandlerWithService(
             creator_version_label: normalizeNonEmptyString(
               body.creator_version_label,
               "creator_version_label",
+            ),
+            preflight_report_id: normalizeUuid(
+              body.preflight_report_id,
+              "preflight_report_id",
             ),
             operation_id: operationId,
           },

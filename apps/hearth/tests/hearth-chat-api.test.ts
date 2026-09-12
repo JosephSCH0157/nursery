@@ -189,6 +189,21 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
       capturedBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       return new Response(JSON.stringify({
         ok: true,
+        turn_result: {
+          decision: {
+            mode: "production_action",
+            requiresArtifact: true,
+            allowsMutation: false,
+            retrievalScope: "active_episode_only",
+            requestedArtifact: "production",
+            reasons: ["explicit_ui_action"],
+          },
+          assistantMessage: "Ready.",
+          artifact: { kind: "production", action: "seo", value: "Ready." },
+          operations: [],
+          validation: { ok: true, failureKind: "none", message: null },
+          persistence: "pending",
+        },
         assistant_text: "Ready.",
         ops: [],
         script_text: null,
@@ -224,6 +239,8 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
       },
       {
         userAuthoredText: "Use my attachments",
+        explicitAction: { kind: "production", action: "seo" },
+        outputPreference: "full_script",
         productionAction: "seo",
         productionScriptVersion: 7,
         attachmentContext: {
@@ -243,6 +260,8 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
     assert.equal(submittedBody.production_action, "seo");
     assert.equal(submittedBody.production_script_version, 7);
     assert.equal(submittedBody.user_authored_text, "Use my attachments");
+    assert.deepEqual(submittedBody.explicit_action, { kind: "production", action: "seo" });
+    assert.equal(submittedBody.output_preference, "full_script");
   } finally {
     globalThis.fetch = originalFetch;
     (globalThis as { window?: unknown }).window = originalWindow;

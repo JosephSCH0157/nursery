@@ -115,6 +115,12 @@ function mockService() {
     createCradle: [],
     commitFile: [],
     transitionHearthScriptReady: [],
+    getCanonicalHearthResearchArtifact: [],
+    commitCanonicalHearthResearchArtifact: [],
+    getCurrentHearthEditorialPreflight: [],
+    commitHearthEditorialPreflight: [],
+    acknowledgeHearthPreflightFinding: [],
+    reviewHearthEditorialPreflight: [],
     getReadyProductionScript: [],
     transitionAnvilTakeCompletedV2: [],
     establishAnvilCaptureAuthority: [],
@@ -277,6 +283,30 @@ function mockService() {
         reason: null,
         ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
       };
+    },
+    async getCanonicalHearthResearchArtifact(workpieceId, workspaceId, options) {
+      calls.getCanonicalHearthResearchArtifact.push({ workpieceId, workspaceId, options });
+      return { disposition: "empty", artifact: null };
+    },
+    async commitCanonicalHearthResearchArtifact(workpieceId, input, options) {
+      calls.commitCanonicalHearthResearchArtifact.push({ workpieceId, input, options });
+      return { disposition: "committed", artifact: { id: "33333333-3333-4333-8333-333333333333", revision: 1 } };
+    },
+    async getCurrentHearthEditorialPreflight(workpieceId, workspaceId, options) {
+      calls.getCurrentHearthEditorialPreflight.push({ workpieceId, workspaceId, options });
+      return { disposition: "empty", report: null };
+    },
+    async commitHearthEditorialPreflight(workpieceId, input, options) {
+      calls.commitHearthEditorialPreflight.push({ workpieceId, input, options });
+      return { disposition: "committed", report: { id: "44444444-4444-4444-8444-444444444444", revision: 1 } };
+    },
+    async acknowledgeHearthPreflightFinding(workpieceId, input, options) {
+      calls.acknowledgeHearthPreflightFinding.push({ workpieceId, input, options });
+      return { disposition: "saved" };
+    },
+    async reviewHearthEditorialPreflight(workpieceId, input, options) {
+      calls.reviewHearthEditorialPreflight.push({ workpieceId, input, options });
+      return { disposition: "reviewed" };
     },
     async getReadyProductionScript(workpieceId, options) {
       calls.getReadyProductionScript.push({ workpieceId, options });
@@ -3894,10 +3924,12 @@ test("POST /tongs/workpieces/:id/ready-transition forwards explicit approval aut
       body: JSON.stringify({
         workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         script_approval_id: "77777777-7777-4777-8777-777777777777",
-        idempotency_key: "hearth-approved-ready:workpiece:approval",
+        preflight_report_id: "88888888-8888-4888-8888-888888888888",
+        idempotency_key: "hearth-preflighted-ready:workpiece:approval",
         publish_evidence: {
-          transition: "hearth.approved-script.ready.v2",
+          transition: "hearth.preflighted-script.ready.v3",
           script_approval_id: "77777777-7777-4777-8777-777777777777",
+          preflight_report_id: "88888888-8888-4888-8888-888888888888",
           script_approval_revision: 7,
           script_approval_hash: "a".repeat(64),
         },
@@ -3907,7 +3939,85 @@ test("POST /tongs/workpieces/:id/ready-transition forwards explicit approval aut
   assert.equal(response.status, 200);
   assert.equal(calls.transitionHearthScriptReady.length, 1);
   assert.equal(calls.transitionHearthScriptReady[0].input.script_approval_id, "77777777-7777-4777-8777-777777777777");
+  assert.equal(calls.transitionHearthScriptReady[0].input.preflight_report_id, "88888888-8888-4888-8888-888888888888");
   assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
+});
+
+test("Hearth research and preflight routes preserve workpiece scope and authenticated user authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "test-token");
+  const base = "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111";
+  const headers = {
+    authorization: "Bearer test-token",
+    "x-forge-user-authorization": "Bearer user-token",
+    "content-type": "application/json",
+  };
+  const research = await handler(new Request(`${base}/hearth-research`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      expected_revision: 0,
+      expected_revision_id: null,
+      artifact_json: { schema: "forge.hearth.research-artifact.v1", result: { artifact: { status: "partial" } } },
+      contract_version: "forge.hearth.research-artifact.v1",
+      operation_id: "forge:hearth-research:commit:11111111-1111-4111-8111-111111111111:payload1234",
+    }),
+  }));
+  assert.equal(research.status, 200);
+  assert.equal(calls.commitCanonicalHearthResearchArtifact.length, 1);
+  assert.equal(calls.commitCanonicalHearthResearchArtifact[0].input.workspace_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  assert.equal(calls.commitCanonicalHearthResearchArtifact[0].options.userAccessToken, "user-token");
+
+  const preflight = await handler(new Request(`${base}/hearth-preflight`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      expected_revision: 0,
+      expected_revision_id: null,
+      expected_source_file_revision: 4,
+      expected_script_hash: "a".repeat(64),
+      research_artifact_id: null,
+      research_artifact_hash: null,
+      checker_contract_version: "forge.hearth.editorial-preflight.deterministic.v1",
+      report_json: { schema: "forge.hearth.editorial-preflight.v1", usedPaidAi: false, findings: [] },
+      operation_id: "forge:hearth-preflight:review:11111111-1111-4111-8111-111111111111:revision4",
+    }),
+  }));
+  assert.equal(preflight.status, 200);
+  assert.equal(calls.commitHearthEditorialPreflight.length, 1);
+  assert.equal(calls.commitHearthEditorialPreflight[0].input.expected_source_file_revision, 4);
+  assert.equal(calls.commitHearthEditorialPreflight[0].options.userAccessToken, "user-token");
+
+  const finding = await handler(new Request(`${base}/hearth-preflight/finding`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      report_id: "44444444-4444-4444-8444-444444444444",
+      finding_key: "finding-1",
+      action: "acknowledge",
+      note: "Creator accepts this uncertainty.",
+      operation_id: "forge:hearth-preflight-finding:44444444-4444-4444-8444-444444444444:finding-1:acknowledge",
+    }),
+  }));
+  assert.equal(finding.status, 200);
+  assert.equal(calls.acknowledgeHearthPreflightFinding.length, 1);
+  assert.equal(calls.acknowledgeHearthPreflightFinding[0].input.action, "acknowledge");
+
+  const review = await handler(new Request(`${base}/hearth-preflight/review`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      report_id: "44444444-4444-4444-8444-444444444444",
+      operation_id: "forge:hearth-preflight-review:11111111-1111-4111-8111-111111111111:44444444-4444-4444-8444-444444444444",
+    }),
+  }));
+  assert.equal(review.status, 200);
+  assert.equal(calls.reviewHearthEditorialPreflight.length, 1);
+  assert.equal(calls.reviewHearthEditorialPreflight[0].options.userAccessToken, "user-token");
 });
 
 test("GET /tongs/workpieces/:id/production-script returns Ready approval content", async () => {

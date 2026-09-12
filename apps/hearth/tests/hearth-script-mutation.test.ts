@@ -85,6 +85,9 @@ test("affirmative script-change instructions still enter mutation mode", () => {
   for (const request of [
     "Update the script with that.",
     "Apply those changes.",
+    "Apply that transition to the script.",
+    "Put that transition into the script.",
+    "Rewrite the closing around that contrast.",
     "Create Version 2.",
     "Put that into the script.",
   ]) {

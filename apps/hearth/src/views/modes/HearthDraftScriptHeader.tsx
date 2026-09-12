@@ -1,5 +1,9 @@
 import type { Draft } from "../../domain/draft";
 import type { ScriptValidationResult, ScriptValidationIssue } from "@forge/shared/script-tags";
+import type { HearthPreflightAuthority } from "../../lib/hearth-research-preflight-authority";
+import { lazy, Suspense } from "react";
+
+const HearthPreflightPanel = lazy(() => import("./HearthPreflightPanel"));
 
 type ToneOption = {
   value: string;
@@ -27,6 +31,14 @@ type HearthDraftScriptHeaderProps = {
   openRevisionModal: () => void;
   openRevisionPanel: () => void;
   onApproveScript: () => void | Promise<unknown>;
+  onReviewForRecording: () => void | Promise<unknown>;
+  onCompletePreflightReview: () => void | Promise<unknown>;
+  onHandlePreflightFinding: (findingId: string, action: "acknowledge" | "resolve") => void | Promise<unknown>;
+  preflightAuthority: HearthPreflightAuthority | null;
+  preflightError: string | null;
+  isReviewingPreflight: boolean;
+  onMarkReady: () => void | Promise<unknown>;
+  isMarkingReady: boolean;
   hasScript: boolean;
   isAiProcessing: boolean;
   isApprovingScript: boolean;
@@ -88,6 +100,14 @@ export default function HearthDraftScriptHeader({
   openRevisionModal,
   openRevisionPanel,
   onApproveScript,
+  onReviewForRecording,
+  onCompletePreflightReview,
+  onHandlePreflightFinding,
+  preflightAuthority,
+  preflightError,
+  isReviewingPreflight,
+  onMarkReady,
+  isMarkingReady,
   hasScript,
   isAiProcessing,
   isApprovingScript,
@@ -177,10 +197,24 @@ export default function HearthDraftScriptHeader({
         </button>
         <button
           type="button"
-          onClick={() => void onApproveScript()}
-          disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
+          onClick={() => void onReviewForRecording()}
+          disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isReviewingPreflight}
         >
-          {isApprovingScript ? "Approving..." : "Approve & Replace Script"}
+          {isReviewingPreflight ? "Reviewing..." : "Review for recording"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onApproveScript()}
+          disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked || !preflightAuthority?.reviewed || preflightAuthority.stale}
+        >
+          {isApprovingScript ? "Approving..." : "Approve Script"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onMarkReady()}
+          disabled={!hasApprovedScript || isMarkingReady || !preflightAuthority?.reviewed || preflightAuthority.stale}
+        >
+          {isMarkingReady ? "Marking Ready..." : "Mark Ready"}
         </button>
         <label className="hs-tone-control">
           <span>Tone</span>
@@ -219,6 +253,13 @@ export default function HearthDraftScriptHeader({
       {error ? (
         <div className="hs-error-text">{error}</div>
       ) : null}
+
+      {preflightAuthority ? (
+        <Suspense fallback={<div className="hs-muted-text-subtle">Loading producer review…</div>}>
+          <HearthPreflightPanel authority={preflightAuthority} onComplete={onCompletePreflightReview} onFinding={onHandlePreflightFinding} />
+        </Suspense>
+      ) : null}
+      {preflightError ? <div className="hs-error-text">{preflightError}</div> : null}
 
       {draftConflictState ? (
         <section className="hs-script-validation" aria-label="Draft conflict">
