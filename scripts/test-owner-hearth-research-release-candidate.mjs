@@ -35,8 +35,14 @@ for (const authorityFlag of [
   "credentials_authorized",
   "budget_authorized",
   "paid_canary_authorized",
-  "deployment_authorized",
 ]) assert.equal(manifest[authorityFlag], false);
+assert.equal(manifest.deployment_authorized, true);
+assert.equal(manifest.deployment_scope, "inactive_git_backed_release_only");
+assert.equal(
+  manifest.release_correction.authorized_parent_candidate,
+  "7d66632143fd157917464d7807ab41c6bc1ce3c1",
+);
+assert.equal(manifest.release_correction.scope, "register_certified_tests_in_package_manifests");
 assert.equal(manifest.owner_chat_authorization_changed, false);
 assert.equal(manifest.eleven_route_enforcement_changed, false);
 

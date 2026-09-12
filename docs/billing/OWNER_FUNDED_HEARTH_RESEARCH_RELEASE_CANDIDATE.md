@@ -1,6 +1,6 @@
 # Owner-funded Hearth research release candidate
 
-Status: inactive release candidate. It is not merged, deployed, migrated, funded, credentialed, canary-tested, or activated.
+Status: inactive release candidate approved for dormant migration application and Git-backed production release. It is not yet merged, deployed, migrated, funded, credentialed, canary-tested, or activated.
 
 ## Provenance
 
@@ -11,6 +11,7 @@ Status: inactive release candidate. It is not merged, deployed, migrated, funded
 - Dormant research implementation commit: `5fff5d05`.
 - Inactive release preparation commit: `70b337ff`.
 - Fail-closed integration correction commit: `150b9dce`.
+- Narrow release correction: register the certified Tongs preflight and nonbillable Nursery browser tests in their package manifests; parent candidate `7d66632143fd157917464d7807ab41c6bc1ce3c1`.
 - Migration identifier: `20261010120000_tongs_owner_funded_hearth_research.sql` (present but not applied).
 - Original tested implementation snapshot: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\work`.
 - Isolated Git release-candidate worktree: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\release-worktree`.
@@ -53,6 +54,7 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `A apps/nursery/playwright/fixtures/hearth-authority-offline-harness.tsx`
 - `A apps/nursery/playwright/fixtures/hearth-authority-offline.html`
 - `A apps/nursery/playwright/hearth.nonbillable-authority.spec.ts`
+- `M apps/nursery/package.json`
 - `M apps/nursery/server/billing/paid-json-openai-route.ts`
 - `M apps/nursery/server/hearth/create-hearth-ai-handler.ts`
 - `M apps/nursery/server/hearth/hearth-creator-research-ingest.ts`
@@ -76,6 +78,7 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `A docs/billing/proposals/owner-hearth-research-v1.release-manifest.json`
 - `M package.json`
 - `M packages/tongs/src/customer-spending-confirmation.ts`
+- `M packages/tongs/package.json`
 - `M packages/tongs/src/workpiece-commit-api.ts`
 - `A packages/tongs/tests/hearth-research-preflight-authority.test.mjs`
 - `M packages/tongs/tests/workpiece-commit-api.test.mjs`
@@ -113,7 +116,7 @@ The ten-action session is dormant until a reconciled canary. Its maximum executi
 
 ## Activation boundary
 
-The checksum-bound SQL proposal under `docs/billing/proposals` is outside the migration chain, contains an unconditional fail-closed guard, and ends with `rollback`. A later approval must separately authorize: migration promotion/application, verified rates and hosting/storage evidence, the exact budget and shared ceiling, dedicated server credentials, the paid Astra canary, and transaction-two session creation. Search or extraction without that pricing and execution authority remains unavailable.
+The checksum-bound SQL proposal under `docs/billing/proposals` is outside the migration chain, contains an unconditional fail-closed guard, and ends with `rollback`. The current approval authorizes only dormant migration promotion/application and Git-backed production release. A later approval must separately authorize verified rates and hosting/storage evidence, the exact budget and shared ceiling, dedicated server credentials, the paid Astra canary, and transaction-two session creation. Search or extraction without that pricing and execution authority remains unavailable.
 
 ## Unpaid release-candidate certification
 
