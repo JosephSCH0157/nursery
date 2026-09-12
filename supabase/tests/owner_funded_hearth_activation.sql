@@ -228,6 +228,13 @@ select tongs.release_operation(
  '91000000-0000-4000-8000-000000000095','owner-hearth-isolated-terra-aggregate-denied',
  'aggregate_concurrency_exhausted',
  '{"reason":"aggregate_concurrency_exhausted","transmitted":false,"provider_submission_count":0}'::jsonb);
+insert into tongs.owner_hearth_operation_recovery_authorizations(
+ id,operation_authorization_id,reservation_id,event_key,authorized_by,reason,expires_at,evidence_json,created_at
+) values(
+ '91000000-0000-4000-8000-000000000096','91000000-0000-4000-8000-000000000092',
+ '91000000-0000-4000-8000-000000000095','owner-hearth-isolated-terra-expired-recovery',
+ '91000000-0000-4000-8000-000000000001','expired isolated recovery fixture',now()-interval '10 minutes',
+ '{"test_only":true}'::jsonb,now()-interval '20 minutes');
 select tongs.rearm_owner_hearth_preprovider_release(
  '91000000-0000-4000-8000-000000000095','91000000-0000-4000-8000-000000000001',
  'owner-hearth-isolated-terra-rearm');
@@ -247,6 +254,9 @@ do $$ begin
  if not exists(select 1 from tongs.owner_hearth_operation_recovery_authorizations
    where reservation_id='91000000-0000-4000-8000-000000000095' and expires_at>now()) then
   raise exception 'pre-provider recovery did not receive a bounded append-only quote-recovery window'; end if;
+ if (select count(*) from tongs.owner_hearth_operation_recovery_authorizations
+   where reservation_id='91000000-0000-4000-8000-000000000095')<>2 then
+  raise exception 'expired append-only recovery authority was not renewed exactly once'; end if;
 end $$;
 
 do $$ declare latest_state text; begin
