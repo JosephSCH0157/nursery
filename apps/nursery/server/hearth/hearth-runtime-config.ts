@@ -59,8 +59,12 @@ export type HearthRuntimeConfig = {
   textApiKey?: string | null;
   /** Restricted server-only credential for the coordinated private owner Hearth path. */
   ownerTextApiKey?: string | null;
+  /** Restricted server-only OpenAI credential for owner-funded research only. */
+  ownerResearchTextApiKey?: string | null;
   imageApiKey?: string | null;
   researchApiKey?: string | null;
+  /** Restricted server-only Brave credential for owner-funded research only. */
+  ownerResearchApiKey?: string | null;
   apiKey?: string | null;
   model: string;
   sttModel: string;
@@ -116,6 +120,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY") || null;
   const textApiKey = readEnv("OPENAI_TEXT_API_KEY") || readEnv("OPENAI_API_KEY") || null;
   const ownerTextApiKey = readEnv("OPENAI_HEARTH_OWNER_API_KEY") || null;
+  const ownerResearchTextApiKey = readEnv("OPENAI_HEARTH_RESEARCH_OWNER_API_KEY") || null;
   const imageApiKey = resolveOpenAiImageApiKey();
   const researchApiKey = (
     readEnv("HEARTH_RESEARCH_API_KEY")
@@ -124,6 +129,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
     || readEnv("BRAVE_API_KEY")
     || null
   );
+  const ownerResearchApiKey = readEnv("HEARTH_OWNER_RESEARCH_BRAVE_API_KEY") || null;
   const supabaseRpcKey = (
     readEnv("TONGS_SUPABASE_ANON_KEY")
     || readEnv("SUPABASE_ANON_KEY")
@@ -135,8 +141,10 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   return {
     textApiKey,
     ownerTextApiKey,
+    ownerResearchTextApiKey,
     imageApiKey,
     researchApiKey,
+    ownerResearchApiKey,
     apiKey: textApiKey,
     model: resolveAllowedChatModel(readEnv("HEARTH_AI_MODEL")),
     sttModel: readEnv("HEARTH_STT_MODEL") || DEFAULT_STT_MODEL,

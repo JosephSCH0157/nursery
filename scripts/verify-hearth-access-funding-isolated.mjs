@@ -45,6 +45,7 @@ const migrations = [
   "20261008210000_tongs_owner_hearth_recovery_renewal.sql",
   "20261008220000_tongs_owner_hearth_model_choice_view.sql",
   "20261009120000_tongs_openai_coordinated_cutover.sql",
+  "20261010120000_tongs_owner_funded_hearth_research.sql",
 ];
 
 function docker(args, input) {
@@ -79,6 +80,13 @@ try {
       workspace_id uuid references tongs.workspaces(id),user_id uuid references auth.users(id),
       role text not null default 'member',primary key(workspace_id,user_id));
     create table tongs.workpiece_jobs(id uuid primary key,job_type text not null,status text not null);
+    create table tongs.episodes(
+      id uuid primary key,workspace_id uuid not null references tongs.workspaces(id),unique(id,workspace_id));
+    create table tongs.hearth_research_synthesis_results(
+      id uuid primary key default gen_random_uuid(),operation_id text not null unique,reservation_id uuid not null unique,
+      user_id uuid not null references auth.users(id),workspace_id uuid not null references tongs.workspaces(id),
+      workpiece_id uuid not null references tongs.episodes(id),request_fingerprint text not null,provider_request_id text,
+      input_units bigint not null,output_units bigint not null,result_json jsonb not null,created_at timestamptz not null default now());
   `, "organization compatibility baseline");
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
   for (const migration of migrations) psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
@@ -89,6 +97,7 @@ try {
   psql(readFileSync("supabase/tests/hearth_access_funding.sql", "utf8")
     .replace("begin;", "begin; alter table tongs.funding_reservations disable trigger funding_reservations_customer_test_scope;"), "Hearth access and funding proof");
   psql(readFileSync("supabase/tests/non_spending_financial_repairs.sql", "utf8"), "non-spending financial repair proof");
+  psql(readFileSync("supabase/tests/owner_funded_hearth_research.sql", "utf8"), "dormant owner-funded Hearth research proof");
   psql(readFileSync("supabase/tests/owner_funded_hearth_activation.sql", "utf8")
     .replace(/rollback;\s*$/, () => readFileSync("supabase/tests/openai_coordinated_cutover.sql", "utf8") + "\nrollback;"), "owner-funded Hearth activation and cutover proof");
   // Two concurrent transactions, two exact models/policy revisions, one
@@ -136,6 +145,8 @@ try {
     non_overlapping_owner_tail: "passed",
     cross_model_concurrent_shared_ceiling: "passed_one_admitted_one_rejected",
     revoked_result_access_and_job_halt: "passed",
+    owner_research_proposal_dormant: "passed",
+    owner_research_customer_failure_charge_zero: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

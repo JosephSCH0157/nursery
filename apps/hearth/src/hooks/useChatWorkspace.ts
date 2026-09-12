@@ -726,6 +726,11 @@ export function useChatWorkspaceRuntime<
           model_tradeoff_summary: quote.modelTradeoffSummary,
           catalog_revision: quote.catalogRevision,
           estimated_customer_charge_micros: quote.estimatedCustomerChargeMicros,
+          ...(quote.maximumOwnerCommitmentMicros == null ? {} : {
+            maximum_owner_commitment_micros: quote.maximumOwnerCommitmentMicros,
+          }),
+          ...(quote.costComponents ? { cost_components: quote.costComponents } : {}),
+          ...(quote.limits ? { limits: quote.limits } : {}),
           expires_at: quote.expiresAt,
         });
         if (!acceptance) {

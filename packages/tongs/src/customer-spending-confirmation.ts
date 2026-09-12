@@ -15,6 +15,9 @@ export type CustomerSpendingQuote = {
   model_tradeoff_summary: string | null;
   catalog_revision: number | null;
   estimated_customer_charge_micros: number;
+  maximum_owner_commitment_micros?: number;
+  cost_components?: Record<string, number>;
+  limits?: Record<string, number>;
   expires_at: string;
 };
 
@@ -65,6 +68,19 @@ export function readCustomerSpendingQuote(payload: unknown): CustomerSpendingQuo
     catalog_revision: Number.isSafeInteger(Number(row.catalog_revision)) ? Number(row.catalog_revision) : null,
     estimated_customer_charge_micros: Number.isSafeInteger(Number(row.estimated_customer_charge_micros))
       ? Number(row.estimated_customer_charge_micros) : maximum,
+    ...(Number.isSafeInteger(Number(row.maximum_owner_commitment_micros)) && Number(row.maximum_owner_commitment_micros) >= 0
+      ? { maximum_owner_commitment_micros: Number(row.maximum_owner_commitment_micros) }
+      : {}),
+    ...(object(row.cost_components)
+      ? { cost_components: Object.fromEntries(Object.entries(object(row.cost_components)!).flatMap(([key, value]) => (
+          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
+        ))) }
+      : {}),
+    ...(object(row.limits)
+      ? { limits: Object.fromEntries(Object.entries(object(row.limits)!).flatMap(([key, value]) => (
+          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
+        ))) }
+      : {}),
     expires_at: expiresAt,
   };
 }
@@ -89,11 +105,24 @@ export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): bool
   const estimate = (quote.estimated_customer_charge_micros / 1_000_000).toLocaleString("en-US", {
     style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
   });
+  const ownerMaximum = quote.maximum_owner_commitment_micros == null ? null
+    : (quote.maximum_owner_commitment_micros / 1_000_000).toLocaleString("en-US", {
+        style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
+      });
+  const componentLines = quote.cost_components
+    ? Object.entries(quote.cost_components).map(([key, micros]) => (
+        `${key === "aggregate_risk_micros" ? "shared aggregate risk exposure (not an owner expense)" : key.replaceAll("_", " ")}: ${(micros / 1_000_000).toLocaleString("en-US", {
+          style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
+        })}`
+      ))
+    : [];
   return globalThis.confirm([
     quote.model_display_name ? `Model: ${quote.model_display_name}` : null,
     quote.model_tradeoff_summary || null,
     `Conservative estimate: ${estimate}`,
     `Maximum charge: ${maximum}`,
+    ownerMaximum ? `Maximum owner research commitment: ${ownerMaximum}` : null,
+    ...componentLines,
     `Funding: ${quote.funding_label}`,
     quote.failure_terms,
     `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,
