@@ -9,8 +9,8 @@
   "release_preparation_commit": "70b337ffd322976ec383ebb7fde8eded667abb2f",
   "fail_closed_integration_commit": "150b9dce15ad260a6dc37cf2d40373497c868b04",
   "release_correction": {
-    "authorized_parent_candidate": "7d66632143fd157917464d7807ab41c6bc1ce3c1",
-    "scope": "register_certified_tests_in_package_manifests"
+    "authorized_parent_candidate": "5dd4b7bcdd931d91de6b5b107abb78559e90d9fb",
+    "scope": "repair_five_identified_lint_defects"
   },
   "snapshot_location": "C:\\Users\\Iam11\\Documents\\Codex\\2026-09-12\\next-bounded-owner-funded-hearth-research\\work",
   "release_candidate_worktree": "C:\\Users\\Iam11\\Documents\\Codex\\2026-09-12\\next-bounded-owner-funded-hearth-research\\release-worktree",

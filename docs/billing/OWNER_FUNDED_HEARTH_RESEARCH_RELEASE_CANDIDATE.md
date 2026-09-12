@@ -12,6 +12,7 @@ Status: inactive release candidate approved for dormant migration application an
 - Inactive release preparation commit: `70b337ff`.
 - Fail-closed integration correction commit: `150b9dce`.
 - Narrow release correction: register the certified Tongs preflight and nonbillable Nursery browser tests in their package manifests; parent candidate `7d66632143fd157917464d7807ab41c6bc1ce3c1`.
+- Lint correction: minimally repair the five identified candidate and baseline lint defects without suppressions or behavior changes; parent candidate `5dd4b7bcdd931d91de6b5b107abb78559e90d9fb`.
 - Migration identifier: `20261010120000_tongs_owner_funded_hearth_research.sql` (present but not applied).
 - Original tested implementation snapshot: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\work`.
 - Isolated Git release-candidate worktree: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\release-worktree`.
@@ -55,6 +56,7 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `A apps/nursery/playwright/fixtures/hearth-authority-offline.html`
 - `A apps/nursery/playwright/hearth.nonbillable-authority.spec.ts`
 - `M apps/nursery/package.json`
+- `M apps/nursery/netlify/functions/openai-unavailable.ts`
 - `M apps/nursery/server/billing/paid-json-openai-route.ts`
 - `M apps/nursery/server/hearth/create-hearth-ai-handler.ts`
 - `M apps/nursery/server/hearth/hearth-creator-research-ingest.ts`
@@ -63,6 +65,8 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `A apps/nursery/server/hearth/hearth-source-evidence-policy.ts`
 - `M apps/nursery/server/hearth/hearth-turn-decision.ts`
 - `A apps/nursery/server/hearth/owner-hearth-research-execution.ts`
+- `M apps/nursery/src/routes/Quench.tsx`
+- `M apps/nursery/src/routes/ResetPassword.tsx`
 - `M apps/nursery/tests/hearth-ai-runtime.test.mts`
 - `A apps/nursery/tests/hearth-episode-creation-certification-corpus.test.mts`
 - `A apps/nursery/tests/hearth-episode-creation-sealed-canary.test.mts`

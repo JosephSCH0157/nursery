@@ -33,8 +33,8 @@ const BUSINESS_LEAD_RE = /\b(?:chophouse|restaurant|pizza|bar|bao|coffee|cafe|bi
 const GENERIC_BUSINESS_HEADING_RE = /^(?:open|closed|active|current|adjacent|local|downtown)?\s*(?:business(?:es)?|restaurant(?:s)?|storefront(?:s)?|open doors?|leads?|sources?)\s*:?\s*[-–—]?\s*$/i;
 const BUSINESS_LIST_LINE_RE = /^\s*(?:\p{Extended_Pictographic}\uFE0F?\s*)?(?:(?:[-*•]|\d+[.)])\s+|\*\*|#{1,6}\s+)/u;
 const DENSE_BUSINESS_HEADING_BOUNDARY_RE = /(?:[Rr]estaurants?\s*,\s*[Cc]afes?\s*&\s*[Bb]ars?|[Rr]estaurants?\s*&\s*[Bb]ars?|[Oo]pen [Bb]usinesses|[Bb]usiness [Ll]eads|[Cc]orporate\s*&\s*[Pp]rofessional\s+[Hh]ubs?|[Aa]ttractions?\s*&\s*[Ee]ntertainment)(?=[A-Z0-9])/g;
-const DENSE_BUSINESS_RECORD_RE = /([A-Z0-9][A-Za-z0-9'’&+.\-]*(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*|&|\+)){0,7})[ \t]*\(([^()\r\n]{2,180})\)/g;
-const DENSE_PLACE_RESULT_RE = /([A-Z][A-Za-z0-9'’&+.\-]*?(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*?|&|\+)){0,7}?)(\d\.\d)\(([\d.]+K?)\)(Business center|Corporate office|Corporate campus|Arena|Tour agency)(?=[A-Z]|$)/g;
+const DENSE_BUSINESS_RECORD_RE = /([A-Z0-9][A-Za-z0-9'’&+.-]*(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.-]*|&|\+)){0,7})[ \t]*\(([^()\r\n]{2,180})\)/g;
+const DENSE_PLACE_RESULT_RE = /([A-Z][A-Za-z0-9'’&+.-]*?(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.-]*?|&|\+)){0,7}?)(\d\.\d)\(([\d.]+K?)\)(Business center|Corporate office|Corporate campus|Arena|Tour agency)(?=[A-Z]|$)/g;
 const DENSE_BUSINESS_DESCRIPTOR_RE = /\b(?:\d{1,6}\s+[NSEW]\b|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|downtown|corridor|storefront|office|venue|operator|restaurant|cafe|bar)\b/i;
 const CREATOR_BUSINESS_OBSERVATION_RE = /\b(?:(?:empty|vacant)\s+storefronts?|storefront\s+vacanc(?:y|ies)|available\s+business\s+spaces?)[^.!?\r\n]{0,240}[.!?]?/gi;
 

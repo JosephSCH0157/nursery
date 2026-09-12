@@ -40,7 +40,7 @@ const initialAuthority: HearthPreflightAuthority = {
   staleReasons: [],
 };
 
-function Harness() {
+export function Harness() {
   const [authority, setAuthority] = useState(initialAuthority);
   const [approved, setApproved] = useState(false);
   const [ready, setReady] = useState(false);

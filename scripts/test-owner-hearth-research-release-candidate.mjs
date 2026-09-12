@@ -40,9 +40,9 @@ assert.equal(manifest.deployment_authorized, true);
 assert.equal(manifest.deployment_scope, "inactive_git_backed_release_only");
 assert.equal(
   manifest.release_correction.authorized_parent_candidate,
-  "7d66632143fd157917464d7807ab41c6bc1ce3c1",
+  "5dd4b7bcdd931d91de6b5b107abb78559e90d9fb",
 );
-assert.equal(manifest.release_correction.scope, "register_certified_tests_in_package_manifests");
+assert.equal(manifest.release_correction.scope, "repair_five_identified_lint_defects");
 assert.equal(manifest.owner_chat_authorization_changed, false);
 assert.equal(manifest.eleven_route_enforcement_changed, false);
 
