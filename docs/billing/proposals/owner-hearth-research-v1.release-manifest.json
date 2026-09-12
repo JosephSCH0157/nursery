@@ -6,6 +6,8 @@
   "paid_admission_source": "c78593f834e985fec7d4bb7ddfe02c30b5169e13",
   "baseline_integration_commit": "8c1219c72d77e15147b5a9c5db29965e3d494a88",
   "implementation_commit": "5fff5d056e56b90b20725e6611c780a722ffe7d6",
+  "release_preparation_commit": "70b337ffd322976ec383ebb7fde8eded667abb2f",
+  "fail_closed_integration_commit": "150b9dce15ad260a6dc37cf2d40373497c868b04",
   "snapshot_location": "C:\\Users\\Iam11\\Documents\\Codex\\2026-09-12\\next-bounded-owner-funded-hearth-research\\work",
   "release_candidate_worktree": "C:\\Users\\Iam11\\Documents\\Codex\\2026-09-12\\next-bounded-owner-funded-hearth-research\\release-worktree",
   "migration": {
