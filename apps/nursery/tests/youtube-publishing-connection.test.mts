@@ -32,10 +32,10 @@ function fakeAuthority() {
   return { rpc, calls, generation: () => generation };
 }
 
-function googleFetch(): typeof fetch {
+function googleFetch(includePublishingScope = true): typeof fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    if (url.includes("oauth2.googleapis.com/token")) return Response.json({ access_token: "access-secret", refresh_token: init?.body?.toString().includes("authorization_code") ? "refresh-secret" : undefined, expires_in: 3600, scope: "openid email https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload" });
+    if (url.includes("oauth2.googleapis.com/token")) return Response.json({ access_token: "access-secret", refresh_token: init?.body?.toString().includes("authorization_code") ? "refresh-secret" : undefined, expires_in: 3600, scope: "openid email https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.upload" + (includePublishingScope ? " https://www.googleapis.com/auth/youtube.force-ssl" : "") });
     if (url.includes("openidconnect.googleapis.com")) return Response.json({ sub: "google-subject-1", email: "creator@example.test" });
     if (url.includes("youtube/v3/channels")) return Response.json({ items: [{ id: "UC_A", snippet: { title: "Channel A" } }, { id: "UC_B", snippet: { title: "Channel B" } }] });
     return new Response("not found", { status: 404 });
@@ -72,6 +72,16 @@ test("callback persists two stable destinations and capabilities but never grant
   const refreshed = await refreshYoutubeConnection({ rpc: authority.rpc, ownerUserId: "user-1", connectionId: "connection-1", config });
   assert.deepEqual(refreshed.destinationIds, result.destinationIds);
   assert.equal(authority.generation(), 2);
+});
+
+test("callback rejects a token missing the required publishing scope without persisting credentials", async () => {
+  const authority = fakeAuthority();
+  const opened = await initiateYoutubeConnection({ rpc: authority.rpc, ownerUserId: "user-1", config });
+  await assert.rejects(() => completeYoutubeConnection({ rpc: authority.rpc, code: "one-time-code",
+    state: new URL(opened.authorizationUrl).searchParams.get("state")!,
+    config: { ...config, fetchImpl: googleFetch(false) } }), /youtube_scope_insufficient/);
+  assert.equal(authority.generation(), 0);
+  assert.equal(authority.calls.some((call) => call.fn === "commit_publishing_credential_generation"), false);
 });
 
 test("provider revocation preserves the prior credential generation and disables the connection", async () => {

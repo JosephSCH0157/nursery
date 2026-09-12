@@ -28,15 +28,22 @@ test("ordinary magic-link callbacks are not promoted to password recovery", () =
   assert.equal(readAuthCallbackType(location("/auth/callback", "?type=invite")), "invite");
 });
 
-test("all password-reset issuers use the dedicated recovery callback", () => {
+test("password-reset issuers use the current session-establishing recovery form and retain legacy callbacks", () => {
   const login = readFileSync(new URL("../src/routes/Login.tsx", import.meta.url), "utf8");
   const anvilLogin = readFileSync(new URL("../src/components/AnvilLoginPanel.tsx", import.meta.url), "utf8");
   const callback = readFileSync(new URL("../src/routes/AuthCallback.tsx", import.meta.url), "utf8");
   const routes = readFileSync(new URL("../src/main.tsx", import.meta.url), "utf8");
   const redirects = readFileSync(new URL("../public/_redirects", import.meta.url), "utf8");
+  const reset = readFileSync(new URL("../src/routes/ResetPassword.tsx", import.meta.url), "utf8");
 
-  assert.match(login, /auth\/callback\/recovery/);
-  assert.match(anvilLogin, /auth\/callback\/recovery/);
+  assert.match(login, /redirectTo = `\$\{window\.location\.origin\}\/reset-password\?type=recovery`/);
+  assert.match(anvilLogin, /redirectTo: `\$\{window\.location\.origin\}\/reset-password\?type=recovery`/);
+  assert.match(routes, /path="\/reset-password"/);
+  assert.match(reset, /supabase\.auth\.exchangeCodeForSession\(code\)/);
+  assert.match(reset, /supabase\.auth\.setSession\(\{ access_token: accessToken, refresh_token: refreshToken \}\)/);
+  assert.match(reset, /if \(!data\.session\) throw new Error\("This password reset link is invalid or has expired\."\)/);
+  assert.match(reset, /disabled=\{busy \|\| !sessionReady\}/);
+  assert.match(reset, /event === "PASSWORD_RECOVERY"/);
   assert.match(routes, /path="\/auth\/callback\/recovery"/);
   assert.match(redirects, /^\/auth\/callback\/\*\s+\/index\.html\s+200$/m);
   assert.ok(

@@ -10,7 +10,9 @@ test("account panel exposes a Supabase-backed password change form", async () =>
   assert.match(source, /"Change password"/);
   assert.match(source, /autoComplete="new-password"/);
   assert.match(source, /minLength=\{8\}/);
-  assert.match(source, /supabase\.auth\.updateUser\(\{ password: nextPassword \}\)/);
+  assert.match(source, /supabase\.auth\.updateUser\(\{\s*password: nextPassword,\s*\.\.\.\(nonce \? \{ nonce \} : \{\}\),\s*\}\)/);
+  assert.match(source, /const nonce = passwordReauthCode\.trim\(\)/);
+  assert.match(source, /supabase\.auth\.getSession\(\)/);
   assert.match(source, /Passwords do not match\./);
   assert.match(source, /role="status"/);
   assert.match(source, /role="alert"/);

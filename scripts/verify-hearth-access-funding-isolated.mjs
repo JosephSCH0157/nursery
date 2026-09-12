@@ -46,6 +46,7 @@ const migrations = [
   "20261008220000_tongs_owner_hearth_model_choice_view.sql",
   "20261009120000_tongs_openai_coordinated_cutover.sql",
   "20261010120000_tongs_owner_funded_hearth_research.sql",
+  "20261010130000_tongs_owner_hearth_research_permissions.sql",
 ];
 
 function docker(args, input) {
@@ -89,7 +90,60 @@ try {
       input_units bigint not null,output_units bigint not null,result_json jsonb not null,created_at timestamptz not null default now());
   `, "organization compatibility baseline");
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
-  for (const migration of migrations) psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
+  const guarded = process.env.HEARTH_RESEARCH_ACL_SEQUENCE === "guarded";
+  for (const migration of migrations) {
+    if (migration.startsWith("20261010120000")) {
+      psql(`alter default privileges for role postgres in schema tongs grant execute on functions to authenticated,service_role;
+        create function tongs._existing_release_acl_sentinel() returns integer language sql as 'select 1';`, "production-equivalent function ownership/default grants");
+      if (guarded) {
+        psql(`create schema supabase_migrations; create table supabase_migrations.schema_migrations(version text primary key);`, "synthetic migration ledger");
+        psql(readFileSync("docs/billing/proposals/owner-hearth-research-v1.permissions-guard.sql", "utf8"), "pre-creation permission guard");
+      }
+    }
+    psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
+    if (migration.startsWith("20261010120000")) {
+      psql(`do $$ declare sig text; begin
+        foreach sig in array array['tongs._owner_hearth_research_latest_authorization(uuid,uuid)',
+          'tongs._finish_owner_hearth_research_stage(uuid,text,text,bigint,jsonb,jsonb)'] loop
+          if has_function_privilege('authenticated',sig,'EXECUTE')<>${!guarded}
+            or has_function_privilege('anon',sig,'EXECUTE')<>${!guarded} then
+            raise exception 'inter-migration inherited privilege proof failed: %',sig; end if;
+        end loop;
+        if not has_function_privilege('authenticated','tongs._existing_release_acl_sentinel()','EXECUTE') then
+          raise exception 'guard modified existing application function privileges'; end if;
+        end $$;`, "independent-connection proof after original COMMIT, before correction");
+      if (guarded) {
+        psql(`insert into supabase_migrations.schema_migrations values('20261010120000');`, "synthetic original migration COMMIT ledger");
+        const prematureRestore = docker(["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database],
+          readFileSync("docs/billing/proposals/owner-hearth-research-v1.permissions-restore.sql", "utf8"));
+        if (prematureRestore.status === 0 || !prematureRestore.stderr.includes("both research migrations must be recorded exactly once")) {
+          throw new Error("Incomplete migration sequence did not block default restoration");
+        }
+        psql(`set role authenticated; do $$ begin
+        begin perform tongs._owner_hearth_research_latest_authorization(null,null); raise exception 'inter-migration helper access allowed';
+        exception when insufficient_privilege then if sqlerrm not like 'permission denied for function %' then raise; end if; end;
+        begin perform tongs._finish_owner_hearth_research_stage(null,'missing','captured',0,'{}','{}'); raise exception 'inter-migration stage helper access allowed';
+        exception when insufficient_privilege then if sqlerrm not like 'permission denied for function %' then raise; end if; end;
+        end $$; reset role;`, "inter-migration execution denied after attempted premature restoration");
+      }
+      else psql(`alter default privileges for role postgres in schema tongs grant execute on functions to anon;
+        grant execute on function tongs._owner_hearth_research_latest_authorization(uuid,uuid),
+        tongs._finish_owner_hearth_research_stage(uuid,text,text,bigint,jsonb,jsonb) to anon;`, "additional anonymous inherited-grant stress fixture");
+    }
+  }
+  if (guarded) {
+    psql(`insert into supabase_migrations.schema_migrations values('20261010130000');`, "synthetic correction migration COMMIT ledger");
+    psql(readFileSync("docs/billing/proposals/owner-hearth-research-v1.permissions-restore.sql", "utf8"), "verified default-ACL restoration");
+    psql(`do $$ begin
+      if exists(select 1 from pg_default_acl where defaclrole='postgres'::regrole and defaclobjtype='f' and defaclnamespace=0)
+        or has_function_privilege('authenticated','tongs._owner_hearth_research_latest_authorization(uuid,uuid)','EXECUTE') then
+        raise exception 'restoration altered helper ACL or global defaults'; end if;
+      if (select array_agg(r.rolname::text order by r.rolname) from pg_default_acl d
+        cross join lateral aclexplode(d.defaclacl) a join pg_roles r on r.oid=a.grantee
+        where d.defaclrole='postgres'::regrole and d.defaclobjtype='f' and d.defaclnamespace='tongs'::regnamespace)
+        is distinct from array['authenticated','service_role']::text[] then raise exception 'tongs defaults not restored exactly'; end if;
+      end $$;`, "restoration retains private helper ACLs");
+  }
   // The older accounting-only fixture reserves synthetic organization funds;
   // it predates the separately approved customer rollout scope. Disable only
   // that rollout trigger inside its rollback transaction, never for execution
@@ -99,7 +153,8 @@ try {
   psql(readFileSync("supabase/tests/non_spending_financial_repairs.sql", "utf8"), "non-spending financial repair proof");
   psql(readFileSync("supabase/tests/owner_funded_hearth_research.sql", "utf8"), "dormant owner-funded Hearth research proof");
   psql(readFileSync("supabase/tests/owner_funded_hearth_activation.sql", "utf8")
-    .replace(/rollback;\s*$/, () => readFileSync("supabase/tests/openai_coordinated_cutover.sql", "utf8") + "\nrollback;"), "owner-funded Hearth activation and cutover proof");
+    .replace(/rollback;\s*$/, () => readFileSync("supabase/tests/owner_hearth_research_permissions.sql", "utf8")
+      + "\n" + readFileSync("supabase/tests/openai_coordinated_cutover.sql", "utf8") + "\nrollback;"), "owner-funded Hearth activation, complete permissions, and cutover proof");
   // Two concurrent transactions, two exact models/policy revisions, one
   // environment ceiling. This database is disposable; no production fixture.
   const seed = readFileSync("supabase/tests/restricted_beta_financial_policy.sql", "utf8").split("do $$ declare r jsonb;")[0];
@@ -147,6 +202,11 @@ try {
     revoked_result_access_and_job_halt: "passed",
     owner_research_proposal_dormant: "passed",
     owner_research_customer_failure_charge_zero: "passed",
+    all_21_research_function_acl_ownership_and_search_paths: "passed",
+    unauthorized_helper_execution_denied: "passed",
+    legitimate_service_helper_execution_and_replay: "passed",
+    creator_reads_reviews_and_current_access_replay: "passed",
+    migration_sequence: guarded ? "guarded_separate_commits_no_exposure" : "unsafe_interval_reproduced_forward_repair_verified",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

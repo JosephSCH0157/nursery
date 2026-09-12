@@ -1,6 +1,6 @@
 # Owner-funded Hearth research release candidate
 
-Status: inactive release candidate approved for dormant migration application and Git-backed production release. It is not yet merged, deployed, migrated, funded, credentialed, canary-tested, or activated.
+Status: inactive release candidate under isolated integration/permission repair approval. The previous single-migration production approval is superseded. Production migrations, merge, and deployment await explicit approval of the safe sequence. It is not merged, deployed, migrated, funded, credentialed, canary-tested, or activated.
 
 ## Provenance
 
@@ -14,6 +14,8 @@ Status: inactive release candidate approved for dormant migration application an
 - Narrow release correction: register the certified Tongs preflight and nonbillable Nursery browser tests in their package manifests; parent candidate `7d66632143fd157917464d7807ab41c6bc1ce3c1`.
 - Lint correction: minimally repair the five identified candidate and baseline lint defects without suppressions or behavior changes; parent candidate `5dd4b7bcdd931d91de6b5b107abb78559e90d9fb`.
 - Test isolation correction: add `export {}` to the three identified Anvil test files to prevent global TypeScript declaration collisions, preserving all assertions and application behavior; parent candidate `a29881e37532abd1fdd32bbe887668ce3ddbb48d`.
+- Integration and forward permission correction: parent candidate `985cbfc3b77ff3f198ea892d941430485e6402ca`; see `OWNER_FUNDED_HEARTH_RESEARCH_PERMISSION_CERTIFICATION.md` for all six fixture causes, creator-access fixes, and the proposed guarded sequence.
+- Forward permission migration: `20261010130000_tongs_owner_hearth_research_permissions.sql` (not applied).
 - Migration identifier: `20261010120000_tongs_owner_funded_hearth_research.sql` (present but not applied).
 - Original tested implementation snapshot: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\work`.
 - Isolated Git release-candidate worktree: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\release-worktree`.
@@ -72,6 +74,12 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `M apps/nursery/src/routes/Quench.tsx`
 - `M apps/nursery/src/routes/ResetPassword.tsx`
 - `M apps/nursery/tests/hearth-ai-runtime.test.mts`
+- `M apps/nursery/tests/account-password-change.test.mts`
+- `M apps/nursery/tests/auth-recovery-routing.test.mts`
+- `M apps/nursery/tests/forge-money-path-matrix.test.mts`
+- `M apps/nursery/tests/hammer-audio-polish-route.test.mts`
+- `M apps/nursery/tests/hearth-paid-chat-execution.test.mts`
+- `M apps/nursery/tests/youtube-publishing-connection.test.mts`
 - `A apps/nursery/tests/hearth-episode-creation-certification-corpus.test.mts`
 - `A apps/nursery/tests/hearth-episode-creation-sealed-canary.test.mts`
 - `M apps/nursery/tests/hearth-paid-chat-handler.test.mts`
@@ -81,9 +89,12 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `M apps/nursery/tests/hearth-turn-decision.test.mts`
 - `A apps/nursery/tests/owner-hearth-research-execution.test.mts`
 - `A docs/billing/OWNER_FUNDED_HEARTH_RESEARCH_IMPLEMENTATION.md`
+- `A docs/billing/OWNER_FUNDED_HEARTH_RESEARCH_PERMISSION_CERTIFICATION.md`
 - `A docs/billing/OWNER_FUNDED_HEARTH_RESEARCH_RELEASE_CANDIDATE.md`
 - `A docs/billing/proposals/owner-hearth-research-v1.activation.sql`
 - `A docs/billing/proposals/owner-hearth-research-v1.release-manifest.json`
+- `A docs/billing/proposals/owner-hearth-research-v1.permissions-guard.sql`
+- `A docs/billing/proposals/owner-hearth-research-v1.permissions-restore.sql`
 - `M package.json`
 - `M packages/tongs/src/customer-spending-confirmation.ts`
 - `M packages/tongs/package.json`
@@ -93,7 +104,9 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 - `A scripts/test-owner-hearth-research-release-candidate.mjs`
 - `M scripts/verify-hearth-access-funding-isolated.mjs`
 - `A supabase/migrations/20261010120000_tongs_owner_funded_hearth_research.sql`
+- `A supabase/migrations/20261010130000_tongs_owner_hearth_research_permissions.sql`
 - `A supabase/tests/owner_funded_hearth_research.sql`
+- `A supabase/tests/owner_hearth_research_permissions.sql`
 
 ## Corrected owner limits
 
@@ -124,7 +137,7 @@ The ten-action session is dormant until a reconciled canary. Its maximum executi
 
 ## Activation boundary
 
-The checksum-bound SQL proposal under `docs/billing/proposals` is outside the migration chain, contains an unconditional fail-closed guard, and ends with `rollback`. The current approval authorizes only dormant migration promotion/application and Git-backed production release. A later approval must separately authorize verified rates and hosting/storage evidence, the exact budget and shared ceiling, dedicated server credentials, the paid Astra canary, and transaction-two session creation. Search or extraction without that pricing and execution authority remains unavailable.
+The checksum-bound activation SQL proposal under `docs/billing/proposals` is outside the migration chain, contains an unconditional fail-closed guard, and ends with `rollback`. The current approval authorizes isolated repairs, certification, commit, and push only. Production use of the separate permission guard/restore proposals and the two migrations requires explicit approval. A later activation approval must separately authorize verified rates and hosting/storage evidence, the exact budget and shared ceiling, dedicated server credentials, the paid Astra canary, and transaction-two session creation. Search or extraction without that pricing and execution authority remains unavailable.
 
 ## Unpaid release-candidate certification
 

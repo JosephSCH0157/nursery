@@ -33,7 +33,7 @@ function resolvedContext(state = "reserved") {
   };
 }
 
-function buildGate(state = "reserved") {
+function buildGate(state = "reserved", aggregateAuthorized = true) {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   return {
     calls,
@@ -44,6 +44,11 @@ function buildGate(state = "reserved") {
       }
       if (name === "bind_bounded_provider_request") {
         return { data: { replay: false }, error: null };
+      }
+      if (name === "acquire_openai_text_aggregate_admission" || name === "begin_paid_operation_aggregate_attempt") {
+        return { data: { enforcement_enabled: true, authorized: aggregateAuthorized,
+          hold_id: aggregateAuthorized ? "55555555-5555-4555-8555-555555555555" : null,
+          reason: aggregateAuthorized ? "admitted" : "aggregate_exposure_exhausted" }, error: null };
       }
       if (name === "authorize_openai_text_provider_attempt" || name === "authorize_openai_text_provider_attempt_with_aggregate") {
         return { data: { provider_execution_authorized: true }, error: null };
@@ -105,7 +110,9 @@ test("hearth.chat_completion crosses funding, fake provider, canonical persisten
   assert.equal(outcome.customerChargeMicros, 0);
   assert.equal(outcome.result.assistantText, "A neutral bounded reply.");
   const names = gate.calls.map((call) => call.name);
-  assert.ok(names.indexOf("authorize_openai_text_provider_attempt") < names.indexOf("persist_hearth_chat_paid_result"));
+  assert.ok(names.indexOf("acquire_openai_text_aggregate_admission") < names.indexOf("authorize_openai_text_provider_attempt_with_aggregate"));
+  assert.ok(names.indexOf("authorize_openai_text_provider_attempt_with_aggregate") >= 0);
+  assert.ok(names.indexOf("authorize_openai_text_provider_attempt_with_aggregate") < names.indexOf("persist_hearth_chat_paid_result"));
   assert.ok(names.indexOf("persist_hearth_chat_paid_result") < names.indexOf("settle_owner_operation"));
   assert.equal(names.includes("reserve_operation"), false);
   const expense = gate.calls.find((call) => call.name === "record_openai_text_supplier_attempt_expense");
@@ -225,6 +232,19 @@ test("a settled duplicate reads the persisted result and makes no second provide
   assert.equal(outcome.state, "settled_replay");
   assert.equal(providerCalls, 0);
   assert.equal(outcome.result.assistantText, "Persisted reply");
+});
+
+test("aggregate denial never authorizes or submits a provider request", async () => {
+  const gate = buildGate("reserved", false);
+  let providerCalls = 0;
+  await assert.rejects(() => executePaidHearthChatCompletion({
+    gate, handle, userId: "44444444-4444-4444-8444-444444444444", workspaceId: null,
+    workpieceId: "episode-1", credentialSource: "forge_managed", apiKey: "fake-key",
+    messages: [{ role: "user", content: "Bounded reply." }], signal: new AbortController().signal,
+    providerFetch: async () => { providerCalls += 1; return new Response(); }, validateAndNormalize: validResult,
+  }), /funding_context_required/);
+  assert.equal(providerCalls, 0);
+  assert.equal(gate.calls.some((call) => call.name.startsWith("authorize_openai_text_provider_attempt")), false);
 });
 
 test("an uncertain fake-provider submission remains reserved and is never resubmitted", async () => {
