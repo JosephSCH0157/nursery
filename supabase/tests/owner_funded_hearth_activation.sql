@@ -273,4 +273,21 @@ do $$ declare latest_state text; begin
   raise exception 'retry created the conditional owner session before compatibility passed'; end if;
 end $$;
 
+reset role;
+set local request.jwt.claim.role='authenticated';
+set local request.jwt.claim.sub='91000000-0000-4000-8000-000000000001';
+set local role authenticated;
+do $$ declare snapshot jsonb; begin
+ snapshot:=tongs.read_openai_text_model_choices(null);
+ if jsonb_array_length(snapshot->'eligible_choices')<>5
+    or snapshot->>'funding_label'<>'Private owner testing'
+    or snapshot::text~'cost_policy_revision_id|pricing_revision_id|maximum_exposure|markup' then
+  raise exception 'owner-safe five-model UI view is incomplete or leaked private pricing: %',snapshot; end if;
+end $$;
+
+reset role;
+set local request.jwt.claim.role='service_role';
+set local request.jwt.claim.sub='91000000-0000-4000-8000-000000000001';
+set local role service_role;
+
 rollback;
