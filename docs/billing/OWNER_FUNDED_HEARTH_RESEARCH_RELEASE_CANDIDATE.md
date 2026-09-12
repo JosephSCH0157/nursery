@@ -13,6 +13,7 @@ Status: inactive release candidate approved for dormant migration application an
 - Fail-closed integration correction commit: `150b9dce`.
 - Narrow release correction: register the certified Tongs preflight and nonbillable Nursery browser tests in their package manifests; parent candidate `7d66632143fd157917464d7807ab41c6bc1ce3c1`.
 - Lint correction: minimally repair the five identified candidate and baseline lint defects without suppressions or behavior changes; parent candidate `5dd4b7bcdd931d91de6b5b107abb78559e90d9fb`.
+- Test isolation correction: add `export {}` to the three identified Anvil test files to prevent global TypeScript declaration collisions, preserving all assertions and application behavior; parent candidate `a29881e37532abd1fdd32bbe887668ce3ddbb48d`.
 - Migration identifier: `20261010120000_tongs_owner_funded_hearth_research.sql` (present but not applied).
 - Original tested implementation snapshot: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\work`.
 - Isolated Git release-candidate worktree: `C:\Users\Iam11\Documents\Codex\2026-09-12\next-bounded-owner-funded-hearth-research\release-worktree`.
@@ -21,6 +22,9 @@ The eight existing cutover migrations `20260908180000` through `20260908180700` 
 
 ## Exact changed-file list from origin/main
 
+- `M apps/anvil/tests/recording/new-recording-workpiece.test.ts`
+- `M apps/anvil/tests/ui/authenticated-canonical-handoff.test.ts`
+- `M apps/anvil/tests/ui/authenticated-performance-entrypoints.test.ts`
 - `M apps/hearth/src/hooks/useApprovalFlow.ts`
 - `M apps/hearth/src/hooks/useChatWorkspace.ts`
 - `A apps/hearth/src/lib/hearth-ai-admission.ts`

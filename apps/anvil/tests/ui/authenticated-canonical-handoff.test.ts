@@ -1,3 +1,5 @@
+export {};
+
 const fetchAuthenticatedTongs = jest.fn();
 
 jest.mock('../../src/forge/tongs-user-auth', () => {

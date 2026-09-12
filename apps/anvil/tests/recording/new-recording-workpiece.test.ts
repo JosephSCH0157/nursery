@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+export {};
+
 const fetchAuthenticatedTongs = jest.fn();
 jest.mock('../../src/forge/tongs-user-auth', () => ({ fetchAuthenticatedTongs: (...args: unknown[]) => fetchAuthenticatedTongs(...args) }));
 

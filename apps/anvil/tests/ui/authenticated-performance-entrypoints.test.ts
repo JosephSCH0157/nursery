@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+export {};
+
 const dispatchAuthenticatedCanonicalScript: jest.Mock = jest.fn(async () => ({ outcome: 'legacy-applied' }));
 const applyScript = jest.fn();
 const getScript = jest.fn();
