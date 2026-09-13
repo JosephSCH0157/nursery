@@ -30,6 +30,21 @@ deployment triggered from `main`.
 Release records and runbooks must reference this section instead of defining a
 different production deployment path.
 
+## Single-checkout workflow (Canonical)
+
+- Use only `D:\nursery\nursery` for Forge source work. Do not create additional
+  clones, worktrees, runnable source snapshots, or full-source backup archives.
+- Preserve unfinished work in named Git branches within this repository before
+  integration. Preservation does not authorize merging old or unfinished work.
+- Coordinate shared-file writers and localhost watcher/HMR effects before a
+  checkout or source transition. Do not restart user-owned servers implicitly.
+- Store necessary private evidence/configuration in access-restricted local
+  storage excluded from Git, serving, and deployment. Never overwrite canonical
+  environment files with another checkout's configuration.
+- Removing historical copies requires an exact-path preservation manifest and
+  explicit approval. Unresolved files, archives, and active dependencies stay on
+  hold. Creator media and Supabase data are not duplicate-source cleanup targets.
+
 ---
 
 ## SSOT / Persistence Policy (Canonical)
@@ -175,4 +190,31 @@ Canonical storage contract: `TONGS_PATH_CHARTER.md`.
 
 ---
 
-*Last updated: 2026-03-02*
+## Docker Desktop ownership
+
+Docker Desktop is user-owned infrastructure.
+
+Agents MUST NOT:
+
+- launch Docker Desktop
+- restart Docker Desktop
+- quit Docker Desktop
+- kill Docker Desktop processes
+- reset Docker Desktop
+- alter Docker Desktop configuration
+
+Before performing Docker-dependent work, check availability with:
+
+```
+docker info
+```
+
+If Docker is unavailable, STOP and tell the user that Docker Desktop must be
+started manually. Do not attempt to start or repair Docker Desktop yourself.
+
+The agent may use `docker`, `docker compose`, and related CLI commands only
+after the Docker engine is already available.
+
+---
+
+*Last updated: 2026-09-10*

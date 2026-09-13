@@ -139,7 +139,12 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
 type ChatHistoryStore = {
   getChatHistory: (draftId: string, workpieceId?: string | null) => Promise<unknown>;
   saveChatHistory: (draftId: string, messages: HearthChatMessage[], workpieceId?: string | null) => Promise<unknown> | void;
+  clearChatHistory?: (draftId: string, workpieceId: string) => Promise<void>;
 };
+
+function conversationFingerprint(messages: HearthChatMessage[]): string {
+  return JSON.stringify(messages.map(({ role, content }) => ({ role, content })));
+}
 
 export type HearthChatPersistenceTarget = {
   historyKey: string;
@@ -199,6 +204,7 @@ type UseChatWorkspaceHistoryArgs<TPendingAiProposal> = {
   setLastTurnPersistence?: (value: HearthTurnResult["persistence"]) => void;
   readChatHistoryFromCache: (historyKey: string | null) => HearthChatMessage[];
   writeChatHistoryCache: (historyKey: string | null, messages: HearthChatMessage[]) => void;
+  clearChatHistoryCache?: (historyKey: string) => void;
   sanitizeChatMessagesForStorage: (messages: ReadonlyArray<unknown>) => HearthChatMessage[];
   chatHistoryWriteDebounceMs: number;
 };
@@ -213,12 +219,16 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     messages?: HearthChatMessage[];
   }) => void;
   retryChatHydration: () => void;
+  clearChatHistoryNow: () => Promise<boolean>;
 } {
   const [chatHydrationRetry, setChatHydrationRetry] = useState(0);
   const hydrationStatusRef = useRef<HearthChatHydrationStatus>("idle");
   const hydrationMessagesRef = useRef<HearthChatMessage[] | null>(null);
   const setChatHydrationStatusRef = useRef(args.setChatHydrationStatus);
   const setLastTurnPersistenceRef = useRef(args.setLastTurnPersistence);
+  const acknowledgedConversationRef = useRef<{ historyKey: string | null; fingerprint: string } | null>(null);
+  const pendingPersistsRef = useRef(new Map<string, Promise<void>>());
+  const clearingRef = useRef(false);
 
   useEffect(() => {
     setChatHydrationStatusRef.current = args.setChatHydrationStatus;
@@ -234,7 +244,13 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
   }, []);
 
   const persistChatHistory = useCallback((draftId: string, messages: HearthChatMessage[], workpieceId: string | null) => {
-    void Promise.resolve(args.store.saveChatHistory(draftId, messages, workpieceId)).then(() => {
+    if (!messages.some((message) => (message.role === "user" || message.role === "assistant") && message.content.trim())) return;
+    const historyKey = args.latestChatHistoryKeyRef.current;
+    const fingerprint = conversationFingerprint(messages);
+    const pendingKey = JSON.stringify([historyKey, draftId, workpieceId, fingerprint]);
+    if (pendingPersistsRef.current.has(pendingKey)) return;
+    const request = Promise.resolve().then(() => args.store.saveChatHistory(draftId, messages, workpieceId)).then(() => {
+      if (args.latestChatHistoryKeyRef.current === historyKey) acknowledgedConversationRef.current = { historyKey, fingerprint };
       setLastTurnPersistenceRef.current?.("saved");
     }).catch((error: unknown) => {
       setLastTurnPersistenceRef.current?.("failed");
@@ -242,8 +258,9 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
       args.setChatError(/(?:401|authentication|unauthorized)/i.test(detail)
         ? "This conversation could not be saved because your session has expired. Sign in again before continuing."
         : "This conversation could not be saved to Tongs. Your visible chat is still available in this browser.");
-    });
-  }, [args.setChatError, args.store]);
+    }).finally(() => { pendingPersistsRef.current.delete(pendingKey); });
+    pendingPersistsRef.current.set(pendingKey, request);
+  }, [args.setChatError, args.store, args.latestChatHistoryKeyRef]);
 
   const flushChatHistoryNow = useCallback((options?: {
     historyKey?: string | null;
@@ -260,6 +277,9 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
       args.chatPersistTimerRef.current = null;
     }
     const messages = options?.messages ?? args.chatMessagesRef.current;
+    if (clearingRef.current || !messages.some((message) => (message.role === "user" || message.role === "assistant") && message.content.trim())) return;
+    if (acknowledgedConversationRef.current?.historyKey === historyKey
+      && acknowledgedConversationRef.current.fingerprint === conversationFingerprint(messages)) return;
     args.writeChatHistoryCache(historyKey, messages);
     if (draftId && hydrationStatusRef.current === "ready") {
       persistChatHistory(draftId, messages, workpieceId);
@@ -307,6 +327,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     args.latestChatHistoryKeyRef.current = args.chatHistoryKey;
     args.latestChatDraftIdRef.current = nextDraftId;
     args.latestChatWorkpieceIdRef.current = args.activeWorkpieceId;
+    acknowledgedConversationRef.current = null;
     args.setHydratedChatHistoryKey(null);
     const hydrationSeq = args.chatHydrationSeqRef.current + 1;
     args.chatHydrationSeqRef.current = hydrationSeq;
@@ -381,6 +402,9 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
 
       if (args.chatHydrationSeqRef.current !== hydrationSeq) return;
       args.pendingChatHydrationKeyRef.current = null;
+      if (loadedFromStore || hydratedMessages.length === 0) {
+        acknowledgedConversationRef.current = { historyKey: args.chatHistoryKey, fingerprint: conversationFingerprint(hydratedMessages) };
+      }
       hydrationMessagesRef.current = hydratedMessages;
       args.setHydratedChatHistoryKey(args.chatHistoryKey);
       args.setChatMessages(hydratedMessages);
@@ -414,6 +438,9 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
 
   useEffect(() => {
     if (!args.chatHistoryKey) return;
+    if (clearingRef.current || !args.chatMessages.some((message) => (message.role === "user" || message.role === "assistant") && message.content.trim())) return;
+    if (acknowledgedConversationRef.current?.historyKey === args.chatHistoryKey
+      && acknowledgedConversationRef.current.fingerprint === conversationFingerprint(args.chatMessages)) return;
     if (hydrationStatusRef.current !== "ready") return;
     if (hydrationMessagesRef.current === args.chatMessages) {
       hydrationMessagesRef.current = null;
@@ -458,7 +485,42 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     setChatHydrationRetry((current) => current + 1);
   }, []);
 
-  return { flushChatHistoryNow, retryChatHydration };
+  const clearChatHistoryNow = useCallback(async (): Promise<boolean> => {
+    const historyKey = args.latestChatHistoryKeyRef.current;
+    const draftId = args.latestChatDraftIdRef.current;
+    const workpieceId = args.latestChatWorkpieceIdRef.current;
+    if (clearingRef.current || hydrationStatusRef.current !== "ready" || !historyKey || !draftId || !workpieceId || !args.store.clearChatHistory) return false;
+    const seq = args.chatHydrationSeqRef.current;
+    clearingRef.current = true;
+    reportHydrationStatus("loading");
+    if (args.chatPersistTimerRef.current) {
+      window.clearTimeout(args.chatPersistTimerRef.current);
+      args.chatPersistTimerRef.current = null;
+    }
+    try {
+      await Promise.all(pendingPersistsRef.current.values());
+      await args.store.clearChatHistory(draftId, workpieceId);
+      if (args.chatHydrationSeqRef.current !== seq || args.latestChatHistoryKeyRef.current !== historyKey) return true;
+      const emptyMessages: HearthChatMessage[] = [];
+      acknowledgedConversationRef.current = { historyKey, fingerprint: conversationFingerprint(emptyMessages) };
+      hydrationMessagesRef.current = emptyMessages;
+      args.chatMessagesRef.current = emptyMessages;
+      if (args.clearChatHistoryCache) args.clearChatHistoryCache(historyKey);
+      else args.writeChatHistoryCache(historyKey, emptyMessages);
+      args.setChatMessages(emptyMessages);
+      args.setChatError(null);
+      args.setPendingAiProposal(null);
+      return true;
+    } catch {
+      if (args.chatHydrationSeqRef.current === seq) args.setChatError("The conversation was not cleared by Tongs. Your messages and recovery copy have been preserved. Reload or retry only after checking the current conversation state.");
+      return false;
+    } finally {
+      clearingRef.current = false;
+      if (args.chatHydrationSeqRef.current === seq) reportHydrationStatus("ready");
+    }
+  }, [args.store, args.latestChatHistoryKeyRef, args.latestChatDraftIdRef, args.latestChatWorkpieceIdRef, args.chatHydrationSeqRef, args.chatPersistTimerRef, args.chatMessagesRef, args.clearChatHistoryCache, args.writeChatHistoryCache, args.setChatMessages, args.setChatError, args.setPendingAiProposal, reportHydrationStatus]);
+
+  return { flushChatHistoryNow, retryChatHydration, clearChatHistoryNow };
 }
 
 type SendChatMessageArgs = {

@@ -87,6 +87,8 @@ export interface HearthStore {
   deleteDraft(id: DraftId): Promise<void>;
   getChatHistory(draftId: DraftId, workpieceId?: string | null): Promise<HearthChatMessage[]>;
   saveChatHistory(draftId: DraftId, messages: HearthChatMessage[], workpieceId?: string | null): Promise<void>;
+  /** Deliberate creator action; resolves only after canonical clear acknowledgement. */
+  clearChatHistory(draftId: DraftId, workpieceId: string): Promise<void>;
   getChatHistoryCompleteness?(workpieceId: string | null): HearthChatHistoryCompleteness;
   readCanonicalRevisions(workpieceId: string, draftId?: DraftId | null): Promise<HearthCanonicalRevisionsResult>;
   listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]>;

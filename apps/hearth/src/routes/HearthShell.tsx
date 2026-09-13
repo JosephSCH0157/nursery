@@ -801,13 +801,17 @@ function writeChatHistoryCache(historyKey: string | null, messages: HearthChatMe
   const sanitized = sanitizeChatMessagesForStorage(messages);
   try {
     if (sanitized.length === 0) {
-      window.localStorage.removeItem(historyKey);
       return;
     }
     window.localStorage.setItem(historyKey, JSON.stringify(sanitized));
   } catch {
     // ignore storage failures
   }
+}
+
+function clearChatHistoryCache(historyKey: string): void {
+  if (typeof window === "undefined") return;
+  try { window.localStorage.removeItem(historyKey); } catch { /* best-effort cache cleanup after canonical acknowledgement */ }
 }
 
 function writeScriptApprovalRecoveryEvidence(workpieceId: string | null, value: ScriptApprovalState): void {
@@ -2757,7 +2761,7 @@ export default function HearthShell({
     setDrafts,
     setChatMessages,
   });
-  const { flushChatHistoryNow, retryChatHydration } = useHearthConversationHistory<PendingAiProposal>({
+  const { flushChatHistoryNow, retryChatHydration, clearChatHistoryNow } = useHearthConversationHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
     activeWorkpieceId: workpieceId,
@@ -2791,6 +2795,7 @@ export default function HearthShell({
     } : current),
     readChatHistoryFromCache,
     writeChatHistoryCache,
+    clearChatHistoryCache,
     sanitizeChatMessagesForStorage,
     chatHistoryWriteDebounceMs: CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   });
@@ -3284,9 +3289,7 @@ export default function HearthShell({
       chatInputRef,
       listeningIndicator: <OscilloscopeFill stream={mediaStreamRef.current} active />,
       onClearChat: () => {
-        setChatMessages([]);
-        setChatError(null);
-        setPendingAiProposal(null);
+        void clearChatHistoryNow();
       },
       onRetryChatHydration: retryChatHydration,
       onCopyChat: () => {
