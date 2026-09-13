@@ -1,5 +1,40 @@
 # Forge consolidation: preservation and reconciliation report
 
+## Local checkout handoff completed — 2026-09-13, 04:15–04:23 America/New_York
+
+**5173 now serves the reconciled canonical checkout.** This completed, explicitly authorized handoff supersedes the earlier adoption blocker and historical process observations below.
+
+- Directory: **`D:\nursery\nursery`**; application source **`D:\nursery\nursery\apps\nursery`**.
+- Adopted branch: **`codex/consolidation-reviewed-20260913`**.
+- Adopted source commit: **`d6369e9c0d02ded1ceeef7adf7fd6efa8c6df465`**, a child of `c668cffc`, which is the documentation-only child of `035dc746`. The final report-only commit follows this source commit on the same branch.
+- All six Hearth files preserved at `35e5d9a3` are included and were compared after Git's normal text normalization.
+- Latest pre-transition changes, including the updated reports and generated nav value, were preserved at **`bebe4c2afd5914b6fb6ce93508c3f9b26ee65a45`** on `codex/preserve/20260913/pre-checkout-handoff`. Exact original bytes were additionally anchored at **`e4bbb0bcad140e4d9f27206dec5e218477189120`** on `codex/preserve/20260913/pre-checkout-handoff-raw` using an isolated index.
+- Original staging was empty and its index was retained privately. Staging remained empty after the source transition; no preexisting staged edits were lost.
+- Latest reports and Docker ownership instructions were carried forward. Four private environment/configuration files were verified unchanged by hash; no canonical environment file was replaced.
+
+### Controlled restart and checks
+
+The old listener was revalidated as Node **252492**, with necessary esbuild child **12256**. Only those server processes were stopped. No terminal, Docker, Supabase, or unrelated process was stopped. The branch switch used ordinary Git operations, without destructive reset, force checkout, or clean.
+
+The first `pnpm dev` startup stopped in predev because this checkout lacked the already-locked `js-tiktoken@1.0.21` dependency. `pnpm install --frozen-lockfile --ignore-scripts --offline` installed one cached package: **zero downloads, no lockfile/package-manifest changes, no install scripts**. Retrying the established **`pnpm dev`** command from the canonical directory succeeded.
+
+- Running listener: **`127.0.0.1:5173`**, Node PID **272572**, started **04:20:16 EDT**; esbuild child **273400** resolves inside the canonical repository.
+- HTTP checks: `/`, `/src/main.tsx`, and the reviewed Hearth hook module each returned **200**. Served entry identifies the canonical source path; the hook contains `clearChatHistoryNow` and `acknowledgedConversationRef`.
+- Focused mocked Hearth regressions on the adopted checkout: **19 passed, zero failed**.
+- Hearth TypeScript check: **passed** (`tsc -p tsconfig.json --noEmit`).
+- Maintenance-script syntax checks and `git diff --check`: **passed**.
+- Port **5199 remains without a listener**. The Hearth task is idle. No external path was removed.
+
+The HTTP/module checks do not constitute a paid or authenticated creator-operation test. No research-readiness endpoint, provider generation, database change, push, or deployment was invoked.
+
+### Remaining local state and removal decisions
+
+The normal dev preflight regenerated `apps/nursery/public/forge-nav.json`; its timestamp change remains uncommitted. The preexisting literal `%SystemDrive%/` cache directory remains untracked and untouched. Report updates are recorded separately; no cleanup was used to hide these items.
+
+**All 55 removal candidates still await explicit approval, and all 24 held targets remain HOLD.** For T018, the source-adoption blocker is resolved and its server is already stopped, but task/path retirement, historical test-artifact inspection, and exact removal approval are still required. Creator media, Supabase data, Docker, and production remain unchanged.
+
+---
+
 ## Handoff verification — 2026-09-13, 04:10–04:14 America/New_York
 
 **5173 serves the canonical directory, but not the reconciled source.** The user's restart did not change the checked-out branch. This section supersedes the older process observations below; the preservation record remains historical evidence.

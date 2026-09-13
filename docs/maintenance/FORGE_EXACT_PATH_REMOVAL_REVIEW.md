@@ -1,5 +1,15 @@
 # Exact-path Forge removal review
 
+## Checkout adoption completed — 2026-09-13, 04:15–04:23 America/New_York
+
+The authorized local source transition and controlled 5173 restart are complete. The canonical directory now runs `codex/consolidation-reviewed-20260913`, source commit `d6369e9c0d02ded1ceeef7adf7fd6efa8c6df465`, containing `035dc746`, `c668cffc`, and all six preserved Hearth edits. The latest report-only commit follows that source commit. Listener **5173/PID272572** serves the canonical application; **5199 remains stopped**. Mocked regressions passed **19/19**, Hearth typechecking passed, and HTTP page/module checks returned200.
+
+No external directory was deleted or reclassified. **55 candidates remain pending approval; all 24 holds remain protected.** T018 no longer awaits canonical source adoption, but still requires task/path retirement, historical test-artifact review, and explicit exact-path removal approval. Other held archives, logs/dumps, reparse points, metadata remnants, and nested targets are unchanged.
+
+Newest pre-handoff material is preserved in commits `bebe4c2a` and byte-exact `e4bbb0bc`. Existing private environment files were not overwritten. See the preservation report for the startup dependency repair and final local working-tree details. Earlier updates below are historical.
+
+---
+
 ## Handoff update — 2026-09-13, 04:10–04:14 America/New_York
 
 No deletion is authorized or performed. The original **55 candidate / 24 HOLD** classifications are retained unchanged.
@@ -282,8 +292,8 @@ History: 31 worktree heads, 49 reflog-only commits, 2 stashes, and 164 clone ref
 - Preservation: `refs/heads/codex/preserve/20260913/c-users-iam11-documents-codex-2026-09-12-next-bounded-owner-funded-hearth-research-release-worktree-working-edits` → `35e5d9a30d48a840fce532953da299f11ec0cb52`
 - File disposition: {"git_tracked_clean":3449,"git_exact_content":6,"private_evidence_preserved":1}
 - Private evidence: verified retained blobs indexed under this target ID in the protected manifest.
-- Dependencies: Rechecked 2026-09-13 04:10–04:14 EDT: no port5199 listener; former Node149724/esbuild100072 absent. Hearth task idle; future task/path handoff still required before checkout removal.
-- Holds: Canonical reconciled source not adopted; task/path handoff and exact removal approval required; Uninspected historical test artifacts: apps/nursery/test-results
+- Dependencies: Rechecked 2026-09-13 04:21 EDT: no port5199 listener; Hearth task idle. Canonical reviewed source is adopted and verified on5173. Future task/path retirement remains required before external checkout removal.
+- Holds: Task/path retirement and exact removal approval required; Uninspected historical test artifacts: apps/nursery/test-results. Status deliberately remains HOLD.
 - Nested targets: none
 - Method: git worktree remove exact path after approval; never force unresolved work
 - Recoverability: Git refs/blobs and verified private evidence listed here; rebuildable dependency/output directories excluded

@@ -1,5 +1,7 @@
 # Forge single-root consolidation — review only
 
+Latest completed handoff (2026-09-13, 04:15–04:23 EDT): the canonical directory now runs `codex/consolidation-reviewed-20260913` at adopted source commit `d6369e9c`, including reviewed `035dc746`, document-only `c668cffc`, and all six Hearth changes. Port5173/PID272572 serves that source after the approved restart; port5199 remains stopped. Mocked regressions19/19 and Hearth typechecking passed. Newest pre-handoff changes are preserved at `bebe4c2a` and exact-byte `e4bbb0bc`. No external removals occurred; all55 candidates still await approval and all24 holds remain protected. Current details are in the preservation report and exact-path removal review; earlier inventory and handoff entries below are historical.
+
 Latest handoff verification (2026-09-13, 04:10–04:14 EDT): 5173 now serves the canonical directory under PID 252492, but the checkout remains `6f439d69`, not reconciled `035dc746`. Port5199 is stopped; the Hearth task is idle and its six files remain byte-identical to preserved `35e5d9a3`. No holds were cleared. See `FORGE_CONSOLIDATION_PRESERVATION_REPORT.md` and `FORGE_EXACT_PATH_REMOVAL_REVIEW.md` for current evidence. The inventory and process observations below are historical.
 
 Checked: 2026-09-13, approximately 03:00–03:25 America/New_York.
