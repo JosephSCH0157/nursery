@@ -1,5 +1,19 @@
 # Exact-path Forge removal review
 
+## Handoff update — 2026-09-13, 04:10–04:14 America/New_York
+
+No deletion is authorized or performed. The original **55 candidate / 24 HOLD** classifications are retained unchanged.
+
+- 5173 now listens under PID **252492**, using `D:\nursery\nursery\apps\nursery` in the canonical repository. Its checked-out branch remains `codex/hearth-research-workflow-repair`, HEAD `6f439d69d841fab64379c618a5005db928381fdd`, not the reviewed `035dc746` source.
+- All six canonical Hearth files still differ from the reviewed edits. Commit `c668cffc` is a document-only child of `035dc746`, not evidence of checkout adoption.
+- 5199 no longer listens; its former PIDs are absent. The Hearth task is idle and its six external files match preservation commit `35e5d9a3` byte-for-byte. No late edits were detected in those files.
+- T018 remains HOLD for source adoption, task/path handoff, uninspected historical test artifacts, and explicit removal approval. Its previously active listener is no longer a current dependency; other holds are not cleared by that fact.
+- A future canonical checkout transition can still trigger Vite reload/restart. It was not performed during this verification, and current changes/report updates must be preserved before it occurs.
+
+See `FORGE_CONSOLIDATION_PRESERVATION_REPORT.md` for full process/source evidence and the remaining transition. Earlier timestamps and preservation mappings below remain historical, not a claim that every path was freshly inventoried in this verification.
+
+---
+
 Generated 2026-09-13T07:55:09.106Z. **Nothing removed.** All entries require explicit approval and a final dependency/source recheck. HOLD entries are excluded from any removal approval until resolved.
 
 Canonical root: `D:/nursery/nursery`. Private evidence is ACL-restricted inside `.git/forge-consolidation-private`; full per-file paths and verification hashes are retained there, not committed. No existing environment file was overwritten.
@@ -268,8 +282,8 @@ History: 31 worktree heads, 49 reflog-only commits, 2 stashes, and 164 clone ref
 - Preservation: `refs/heads/codex/preserve/20260913/c-users-iam11-documents-codex-2026-09-12-next-bounded-owner-funded-hearth-research-release-worktree-working-edits` → `35e5d9a30d48a840fce532953da299f11ec0cb52`
 - File disposition: {"git_tracked_clean":3449,"git_exact_content":6,"private_evidence_preserved":1}
 - Private evidence: verified retained blobs indexed under this target ID in the protected manifest.
-- Dependencies: Live port5199: Node149724/esbuild100072; task handoff before retirement
-- Holds: Active server and task path; final shutdown approval required; Uninspected historical test artifacts: apps/nursery/test-results
+- Dependencies: Rechecked 2026-09-13 04:10–04:14 EDT: no port5199 listener; former Node149724/esbuild100072 absent. Hearth task idle; future task/path handoff still required before checkout removal.
+- Holds: Canonical reconciled source not adopted; task/path handoff and exact removal approval required; Uninspected historical test artifacts: apps/nursery/test-results
 - Nested targets: none
 - Method: git worktree remove exact path after approval; never force unresolved work
 - Recoverability: Git refs/blobs and verified private evidence listed here; rebuildable dependency/output directories excluded
@@ -1177,4 +1191,4 @@ History: 31 worktree heads, 49 reflog-only commits, 2 stashes, and 164 clone ref
 
 ## Exclusions
 
-Creator media on F:, Supabase containers/volumes, Docker Desktop, cloud/inaccessible locations, and uninspected archive contents are not removal targets. Ports5173 and5199 remain running. No full-source backup was created.
+Creator media on F:, Supabase containers/volumes, Docker Desktop, cloud/inaccessible locations, and uninspected archive contents are not removal targets. At the latest handoff check, 5173 is running and 5199 is not listening; neither was restarted or stopped by this verification. No full-source backup was created.

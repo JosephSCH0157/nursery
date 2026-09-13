@@ -1,5 +1,31 @@
 # Forge consolidation: preservation and reconciliation report
 
+## Handoff verification — 2026-09-13, 04:10–04:14 America/New_York
+
+**5173 serves the canonical directory, but not the reconciled source.** The user's restart did not change the checked-out branch. This section supersedes the older process observations below; the preservation record remains historical evidence.
+
+- Listener: `127.0.0.1:5173`, Node PID **252492**, started **04:06:30 EDT**. Its esbuild child is PID **12256**, loaded from the canonical repository's `node_modules`.
+- Launch ancestry includes Windows Terminal with `-d "D:\nursery\nursery"`. The served JavaScript entry returns HTTP 200 and identifies `D:/nursery/nursery/apps/nursery/src/main.tsx`. Thus the repository source is **`D:\nursery\nursery`**, and the application source is **`D:\nursery\nursery\apps\nursery`**.
+- Current branch: **`codex/hearth-research-workflow-repair`**.
+- Current HEAD: **`6f439d69d841fab64379c618a5005db928381fdd`**.
+- Working tree at the start of verification: modified `AGENTS.md` and `apps/nursery/public/forge-nav.json`; untracked `%SystemDrive%/` and `docs/maintenance/`. Nothing was switched, reset, staged, or overwritten. This verification updates only the existing consolidation reports.
+- Reviewed branch still points to **`035dc7462d45037b9594db76eb8637515afba3a2`**. All six canonical Hearth working files differ from the reviewed versions; the edits in preservation commit **`35e5d9a30d48a840fce532953da299f11ec0cb52`** have **not** been adopted in the running checkout.
+- **`c668cffcafe7c3fd33ccfae0f89c5f82b72eab92`** is a direct child of `035dc746`. Its sole change is adding this preservation report. It adds no application changes and does not mean the running checkout was switched. It remains on `codex/preserve/20260913/consolidation-completion-record`.
+- Port **5199 has no listener**. Former Node PID 149724 and esbuild PID 100072 are absent. This verification did not stop them.
+- The Hearth task **“Investigate Hearth episode context”** is idle; its latest coordination turn is completed. No ongoing writer is observed. The external release worktree remains at `b5f285196802f5ce86fcd3fd6b5f40a53a6078b2` with exactly the same six modified files. Each matches the preserved SHA-256 byte-for-byte and matches the reviewed version after normalizing line endings. **No late edits detected in those six files.** Idle status does not prevent the task from being resumed later.
+
+### Remaining transition and approval boundary
+
+The future source transition is to adopt `codex/consolidation-reviewed-20260913` at `035dc746` in this existing canonical directory and carry forward its document-only descendant `c668cffc`. First preserve the current generated nav change and newer report edits; do not overwrite them with the older committed reports. The older branch/history stays preserved separately. This is not authorization to execute the transition.
+
+The transition changes `apps/nursery/vite.config.ts` and other application files. Even though the user already restarted 5173, a later checkout change can still trigger HMR/full reload and a Vite automatic restart. A coordinated source/watcher transition is still required. Since reconciliation is not adopted, the prior **19/19 mocked regression result** is carried forward as candidate evidence, not misreported as a test of the current 5173 checkout. This turn performed source/process/HTTP-entry verification only.
+
+No shutdown remains necessary for the already-stopped 5199 listener. Before removing its checkout: adopt and validate the canonical source, ensure the Hearth task/terminal will not resume from the external path, inspect its held historical test artifacts, and obtain exact-path deletion approval. **T018 remains HOLD**, and all other held targets remain protected: **55 candidates await approval; all 24 holds remain holds**.
+
+No server restart/shutdown, branch switch, additional checkout, commit, push, deployment, database change, or paid call occurred in this verification. The Brave-capable research readiness endpoint was not invoked.
+
+---
+
 Checked: 2026-09-13 03:56–04:00 America/New_York.
 
 ## Outcome

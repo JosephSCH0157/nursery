@@ -1,5 +1,7 @@
 # Forge single-root consolidation — review only
 
+Latest handoff verification (2026-09-13, 04:10–04:14 EDT): 5173 now serves the canonical directory under PID 252492, but the checkout remains `6f439d69`, not reconciled `035dc746`. Port5199 is stopped; the Hearth task is idle and its six files remain byte-identical to preserved `35e5d9a3`. No holds were cleared. See `FORGE_CONSOLIDATION_PRESERVATION_REPORT.md` and `FORGE_EXACT_PATH_REMOVAL_REVIEW.md` for current evidence. The inventory and process observations below are historical.
+
 Checked: 2026-09-13, approximately 03:00–03:25 America/New_York.
 
 Destination: **`D:\nursery\nursery` only**. This inventory does not authorize removal, server shutdown, source integration, or deployment. No new worktrees, clones, source snapshots, or archives were created. Only this review document was added.
