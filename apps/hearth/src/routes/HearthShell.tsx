@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
@@ -26,12 +26,14 @@ import {
   resolveDefaultVisualProviderFromStorage,
   uploadHearthSttAudio,
   type HearthChatMessage,
+  type HearthExplicitUiAction,
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import {
   serializeHearthConversation,
 } from "../lib/hearth-conversation-export";
+import { resolveHearthChatPanelMeta } from "../lib/hearth-chat-readiness";
 import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
   commitHearthPrimaryScript,
@@ -58,6 +60,7 @@ import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWork
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
 import { deriveHearthMediaWorkflow } from "../lib/hearth-media-workflow-view-model";
 import { subscribeToForgeUserAccessToken } from "../lib/tongs-fetch";
+import type { HearthPreflightAuthority } from "../lib/hearth-research-preflight-authority";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -122,6 +125,7 @@ import {
   writeLastHearthWritingFormat,
   type HearthWritingFormat,
 } from "../lib/hearth-writing-format";
+import { resolveHearthAiActionAvailability } from "../lib/hearth-ai-admission";
 import { inferSpeakersFromScript } from "../lib/compose-content-validation";
 import { buildComposePrompt } from "../lib/compose-prompt";
 import HearthReadyMode from "../views/modes/HearthReadyMode";
@@ -132,7 +136,6 @@ import HearthRevisionsMode from "../views/modes/HearthRevisionsMode";
 import HearthSparksMode from "../views/modes/HearthSparksMode";
 import HearthSparkBootstrapMode from "../views/modes/HearthSparkBootstrapMode";
 import HearthFocusMode from "../views/modes/HearthFocusMode";
-import HearthDraftScriptHeader from "../views/modes/HearthDraftScriptHeader";
 import HearthDraftMode from "../views/modes/HearthDraftMode";
 import HearthShellModals from "../views/modes/HearthShellModals";
 import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
@@ -288,7 +291,6 @@ import {
   createPlanningSessionForEpisode,
   deriveIntentFromOrigin,
   detectAiAutosaveReasonCode,
-  detectChatIntentSignals,
   evaluateScriptValidation,
   isLegacyDraftScriptPlaceholder,
   isPlanningSessionEmpty,
@@ -915,6 +917,8 @@ function resolveAiSttMimeType(): string | null {
   return null;
 }
 
+const HearthDraftScriptHeader = lazy(() => import("../views/modes/HearthDraftScriptHeader"));
+
 export default function HearthShell({
   onEpisodeReadModelChange,
   onEpisodeContextLoadingChange,
@@ -1069,6 +1073,10 @@ export default function HearthShell({
     setIsAiProcessing,
     hydratedChatHistoryKey,
     setHydratedChatHistoryKey,
+    chatHydrationStatus,
+    setChatHydrationStatus,
+    lastTurnResult,
+    setLastTurnResult,
     chatInputRef,
     aiRequestControllerRef,
     speechRecognitionRef,
@@ -1093,6 +1101,9 @@ export default function HearthShell({
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
   } = useHearthConversationState<PendingAiProposal>();
+  const aiActionAvailability = resolveHearthAiActionAvailability(
+    lastTurnResult?.validation.failureKind ?? null,
+  );
   const {
     state: {
       attachments: chatAttachments,
@@ -1115,6 +1126,9 @@ export default function HearthShell({
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
   const [scriptApprovalState, setScriptApprovalState] = useHearthCanonicalScriptApprovalState();
+  const [preflightAuthority, setPreflightAuthority] = useState<HearthPreflightAuthority | null>(null);
+  const [isReviewingPreflight, setIsReviewingPreflight] = useState(false);
+  const [preflightError, setPreflightError] = useState<string | null>(null);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const productionActionInFlightRef = useRef(false);
@@ -1186,6 +1200,7 @@ export default function HearthShell({
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+  const pendingExplicitActionRef = useRef<HearthExplicitUiAction | null>(null);
   const thumbnailWorkspace = useHearthThumbnailWorkspaceState();
   const {
     selectedThumbnailTitleId,
@@ -1667,6 +1682,44 @@ export default function HearthShell({
   const sourceIndexById = sourcesController.state.sources.indexById;
   const missingSourcesCount = sourcesController.state.sources.missingCitedCount;
   const unusedSourcesCount = sourcesController.state.sources.unusedRefsCount;
+  const canonicalResearchContentHash = sourcesController.state.provenance.canonicalContentHash;
+  useEffect(() => {
+    if (!workspaceId || !workpieceId) {
+      setPreflightAuthority(null);
+      setPreflightError(null);
+      return;
+    }
+    let cancelled = false;
+    setPreflightError(null);
+    void import("../lib/hearth-research-preflight-authority")
+      .then(({ readCurrentHearthPreflight }) => readCurrentHearthPreflight({ workspaceId, workpieceId }))
+      .then((value) => {
+      if (!cancelled) setPreflightAuthority(value);
+    }).catch((error: unknown) => {
+      if (!cancelled) setPreflightError(error instanceof Error ? error.message : "Producer review could not be loaded.");
+    });
+    return () => { cancelled = true; };
+  }, [workspaceId, workpieceId]);
+  useEffect(() => {
+    if (!activeDraft || !preflightAuthority || preflightAuthority.stale) return;
+    let cancelled = false;
+    void import("../lib/hearth-research-preflight-authority")
+      .then(({ hashHearthScriptContent }) => hashHearthScriptContent(activeDraft.body))
+      .then((contentHash) => {
+      if (cancelled || contentHash === preflightAuthority.scriptHash) return;
+      setPreflightAuthority((current) => current?.id === preflightAuthority.id
+        ? { ...current, stale: true, staleReasons: Array.from(new Set([...current.staleReasons, "script_changed"])) }
+        : current);
+    });
+    return () => { cancelled = true; };
+  }, [activeDraft?.body, preflightAuthority?.id, preflightAuthority?.scriptHash, preflightAuthority?.stale]);
+  useEffect(() => {
+    if (!preflightAuthority || preflightAuthority.stale || sourcesController.state.provenance.canonicalPersistence !== "saved") return;
+    if (preflightAuthority.researchArtifactHash === canonicalResearchContentHash) return;
+    setPreflightAuthority((current) => current?.id === preflightAuthority.id
+      ? { ...current, stale: true, staleReasons: Array.from(new Set([...current.staleReasons, "research_changed"])) }
+      : current);
+  }, [canonicalResearchContentHash, preflightAuthority?.id, preflightAuthority?.researchArtifactHash, preflightAuthority?.stale, sourcesController.state.provenance.canonicalPersistence]);
   const preferredDraftIdsByWorkpiece = useMemo(() => {
     const next = new Map<string, string | null>();
     if (workpieceId && activeDraft?.id) {
@@ -2103,9 +2156,6 @@ export default function HearthShell({
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
     source: candidate.source ?? selectedImageMapEntry?.source_type ?? null,
   }));
-  const chatPanelMeta = chatMessages.length > 0
-    ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
-    : "Ready";
   const [canonicalReferenceClipState, setCanonicalReferenceClipState] = useState<ReferenceClipState | null>(null);
   const [canonicalReferenceVisualState, setCanonicalReferenceVisualState] = useState<ReferenceVisualState | null>(null);
   const [canonicalReferenceClipAuthorityState, setCanonicalReferenceClipAuthorityState] = useState<"available"|"loading"|"error">("loading");
@@ -2509,6 +2559,14 @@ export default function HearthShell({
     draftId: activeDraft?.id ?? null,
     canonicalDraftId: canonicalActiveDraftId,
   });
+  const chatReadinessStatus = !aiEpisodeReady
+    ? "idle" as const
+    : chatContextHydrated
+      ? "ready" as const
+      : chatHydrationStatus === "error"
+        ? "error" as const
+        : "loading" as const;
+  const chatPanelMeta = resolveHearthChatPanelMeta(chatReadinessStatus, chatMessages.length);
   const buildActiveEpisodeContext = useCallback((): EpisodeContext | null => {
     const episodeId = workpieceId?.trim();
     if (!episodeId) return null;
@@ -2699,7 +2757,7 @@ export default function HearthShell({
     setDrafts,
     setChatMessages,
   });
-  const { flushChatHistoryNow } = useHearthConversationHistory<PendingAiProposal>({
+  const { flushChatHistoryNow, retryChatHydration } = useHearthConversationHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
     activeWorkpieceId: workpieceId,
@@ -2717,6 +2775,20 @@ export default function HearthShell({
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
     setHydratedChatHistoryKey,
+    setChatHydrationStatus,
+    setLastTurnPersistence: (persistence) => setLastTurnResult((current) => current ? {
+      ...current,
+      persistence,
+      validation: persistence === "failed"
+        ? {
+          ok: false,
+          failureKind: "persistence_failure" as const,
+          message: "The conversation is still visible, but this turn has not been saved to Tongs.",
+        }
+        : current.validation.failureKind === "persistence_failure"
+          ? { ok: true, failureKind: "none" as const, message: null }
+          : current.validation,
+    } : current),
     readChatHistoryFromCache,
     writeChatHistoryCache,
     sanitizeChatMessagesForStorage,
@@ -2738,12 +2810,14 @@ export default function HearthShell({
     setPendingAiProposal,
     setAiRuntimeWarning,
     setIsAiProcessing,
+    setLastTurnResult,
     setAiBillingMode,
     setAiTokenBalance,
     chatMessagesRef,
     aiRequestControllerRef,
     gateAwaitingAnswersRef,
     pendingShortcutIntentRef,
+    pendingExplicitActionRef,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
     getSelectedWritingFormat: () => selectedWritingFormat,
     resolveChatRequestWritingFormat: ({ requestContent, pendingShortcutIntent, selectedFormat }) => (
@@ -3183,11 +3257,12 @@ export default function HearthShell({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
       chatPanelMeta,
-      chatMessages: chatContextHydrated ? chatMessages : [],
+      chatMessages: chatContextHydrated || chatReadinessStatus === "error" ? chatMessages : [],
       chatDraft,
-      chatError: chatAttachmentError ?? chatError,
+      chatError: chatReadinessStatus === "error" ? chatError : chatAttachmentError ?? chatError,
       aiRuntimeWarning,
       aiCreditsDepleted,
+      aiAdmissionBlocked: !aiActionAvailability.showArtifactActions,
       hasApprovedScript,
       approvedScriptVersion,
       approvedAtText,
@@ -3197,6 +3272,7 @@ export default function HearthShell({
       isApplyingAiOps,
       isAiProcessing,
       aiEpisodeReady: aiEpisodeReady && chatContextHydrated,
+      chatHydrationStatus: chatReadinessStatus,
       sttLane,
       sttTarget,
       sttState,
@@ -3212,6 +3288,7 @@ export default function HearthShell({
         setChatError(null);
         setPendingAiProposal(null);
       },
+      onRetryChatHydration: retryChatHydration,
       onCopyChat: () => {
         const completeness = store.getChatHistoryCompleteness?.(workpieceId) ?? "legacy_completeness_unknown";
         if (completeness !== "complete") {
@@ -3252,9 +3329,16 @@ export default function HearthShell({
       writingFormat: selectedWritingFormat,
       writingFormatOptions,
       onSelectWritingFormat: rememberWritingFormat,
-      onUseChatShortcutDraft: () => onUseChatShortcut(buildWritingFormatShortcutPrompt(selectedWritingFormat)),
+      onUseChatShortcutDraft: () => onUseChatShortcut(
+        buildWritingFormatShortcutPrompt(selectedWritingFormat),
+        selectedWritingFormat === "bullet_outline"
+          ? { kind: "generate_outline" }
+          : selectedWritingFormat === "full_script"
+            ? { kind: "generate_script" }
+            : { kind: "conversation" },
+      ),
       draftShortcutLabel,
-      onUseChatShortcutSources: () => onUseChatShortcut("Find strong sources I should cite for this Episode."),
+      onUseChatShortcutSources: () => onUseChatShortcut("Find strong sources I should cite for this Episode.", { kind: "research" }),
       onOpenComposeScript,
       onSetSttLane: (lane) => setSttLane(lane),
       onToggleMic: () => onToggleMic("chat"),
@@ -3482,7 +3566,7 @@ export default function HearthShell({
     return {
       tone: "pending" as const,
       label: "Not Ready",
-      detail: "Approve Script to move this episode into Ready.",
+      detail: "Review for recording, approve the exact reviewed script, then explicitly Mark Ready.",
     };
   }, [
     activeReadyScript,
@@ -3585,10 +3669,12 @@ export default function HearthShell({
     void syncAiRuntime();
 
     const onAiSettingsChange = () => {
+      setLastTurnResult((current) => current?.validation.failureKind === "admission_failure" ? null : current);
       void syncAiRuntime();
     };
     const onStorage = (event: StorageEvent) => {
       if (event.key && event.key !== "forge:hearth:aiSettings:v1") return;
+      setLastTurnResult((current) => current?.validation.failureKind === "admission_failure" ? null : current);
       void syncAiRuntime();
     };
 
@@ -3822,9 +3908,59 @@ export default function HearthShell({
     saveRevision: (episodeId, revision) => store.saveRevision(episodeId, revision),
     refreshRevisions,
   });
+  const onReviewForRecording = useCallback(async () => {
+    if (!workspaceId || !workpieceId || !activeDraft || isReviewingPreflight || isSaving || isAiProcessing) return false;
+    if (!activeDraft.body.trim()) { setError("Add script content before producer review."); return false; }
+    setIsReviewingPreflight(true);
+    setPreflightError(null);
+    try {
+      const { commitHearthPreflight, readCanonicalHearthResearch } = await import("../lib/hearth-research-preflight-authority");
+      const published = await publishApprovedScript({ episodeId: workpieceId, scriptText: activeDraft.body });
+      if (!published) throw new Error("The working script could not be saved to canonical Tongs storage for review.");
+      const research = await readCanonicalHearthResearch({ workspaceId, workpieceId });
+      const authority = await commitHearthPreflight({ workspaceId, workpieceId, scriptText: activeDraft.body, research });
+      setPreflightAuthority(authority);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Producer review failed.";
+      setPreflightError(message);
+      setError(message);
+      return false;
+    } finally {
+      setIsReviewingPreflight(false);
+    }
+  }, [activeDraft, isAiProcessing, isReviewingPreflight, isSaving, publishApprovedScript, workpieceId, workspaceId]);
+
+  const onHandlePreflightFinding = useCallback(async (findingId: string, action: "acknowledge" | "resolve") => {
+    if (!workspaceId || !workpieceId || !preflightAuthority) return;
+    const finding = preflightAuthority.findings.find((entry) => entry.id === findingId);
+    if (!finding) return;
+    setPreflightError(null);
+    try {
+      const { decideHearthPreflightFinding, readCurrentHearthPreflight } = await import("../lib/hearth-research-preflight-authority");
+      await decideHearthPreflightFinding({ workspaceId, workpieceId, reportId: preflightAuthority.id, finding, action });
+      setPreflightAuthority(await readCurrentHearthPreflight({ workspaceId, workpieceId }));
+    } catch (error) {
+      setPreflightError(error instanceof Error ? error.message : "The producer-review decision was not saved.");
+    }
+  }, [preflightAuthority, workpieceId, workspaceId]);
+
+  const onCompletePreflightReview = useCallback(async () => {
+    if (!workspaceId || !workpieceId || !preflightAuthority) return;
+    setPreflightError(null);
+    try {
+      const { completeHearthPreflightReview, readCurrentHearthPreflight } = await import("../lib/hearth-research-preflight-authority");
+      await completeHearthPreflightReview({ workspaceId, workpieceId, reportId: preflightAuthority.id });
+      setPreflightAuthority(await readCurrentHearthPreflight({ workspaceId, workpieceId }));
+    } catch (error) {
+      setPreflightError(error instanceof Error ? error.message : "Producer review was not completed.");
+    }
+  }, [preflightAuthority, workpieceId, workspaceId]);
   const {
     isApprovingScript,
+    isMarkingReady,
     onApproveScript,
+    onMarkReady,
   } = useHearthScriptApprovalFlow({
     operationAuthority,
     activeDraft,
@@ -3858,6 +3994,9 @@ export default function HearthShell({
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
+    preflight: preflightAuthority,
+    approvedScriptVersion,
+    approvedAt: scriptApprovalState.approvedAt,
   });
   approveScriptActionRef.current = onApproveScript;
   useHearthBrollCoreCommands({
@@ -5229,6 +5368,7 @@ export default function HearthShell({
     pendingDraftEditorPanelRef.current = null;
     gateAwaitingAnswersRef.current = false;
     pendingShortcutIntentRef.current = null;
+    pendingExplicitActionRef.current = null;
   }, [activeDraft?.id]);
 
   useEffect(() => {
@@ -5722,21 +5862,16 @@ export default function HearthShell({
     return parseHearthReferenceClipValues(referenceClipValuesDraft);
   }
 
-  function onUseChatShortcut(prompt: string) {
-    const signals = detectChatIntentSignals(prompt);
-    if (signals.requestedOutline) {
+  function onUseChatShortcut(prompt: string, explicitAction?: HearthExplicitUiAction) {
+    pendingExplicitActionRef.current = explicitAction ?? null;
+    if (explicitAction?.kind === "generate_outline") {
       pendingShortcutIntentRef.current = "outline";
       recordInteractionEvent("user_requested_outline", {
         source: "shortcut_chip",
       });
-    } else if (signals.requestedScript) {
+    } else if (explicitAction?.kind === "generate_script") {
       pendingShortcutIntentRef.current = "script";
       recordInteractionEvent("user_requested_script", {
-        source: "shortcut_chip",
-      });
-    }
-    if (signals.explicitDraftNow) {
-      recordInteractionEvent("user_explicit_draft_now", {
         source: "shortcut_chip",
       });
     }
@@ -6613,7 +6748,8 @@ export default function HearthShell({
     return (
       <HearthDraftMode
         scriptHeader={(
-          <HearthDraftScriptHeader
+          <Suspense fallback={<div className="hs-muted-text-subtle">Loading script controls…</div>}>
+            <HearthDraftScriptHeader
             isScriptWorkspaceTab={isScriptWorkspaceTab}
             activeDraft={activeDraft}
             formatUpdatedAt={formatUpdatedAt}
@@ -6630,6 +6766,14 @@ export default function HearthShell({
             openRevisionModal={openRevisionModal}
             openRevisionPanel={openRevisionPanel}
             onApproveScript={onApproveScript}
+            onReviewForRecording={onReviewForRecording}
+            onCompletePreflightReview={onCompletePreflightReview}
+            onHandlePreflightFinding={onHandlePreflightFinding}
+            preflightAuthority={preflightAuthority}
+            preflightError={preflightError}
+            isReviewingPreflight={isReviewingPreflight}
+            onMarkReady={onMarkReady}
+            isMarkingReady={isMarkingReady}
             hasScript={hasScript}
             isAiProcessing={isAiProcessing}
             isApprovingScript={isApprovingScript}
@@ -6676,7 +6820,8 @@ export default function HearthShell({
                 : "Approved for Production"}
             isVisualScriptMode={isVisualScriptMode}
             onToggleVisualScriptMode={onToggleVisualScriptMode}
-          />
+            />
+          </Suspense>
         )}
         workpieceTabProps={{
           activeTab: activeWorkpieceTab,

@@ -61,13 +61,16 @@ export type HearthCustomerBillingQuote = {
   failureCustomerChargeMicros: 0;
   failureTerms: string;
   fundingEligible: boolean;
-  fundingSource: "customer_deposit" | "paid_allowance" | "none";
+  fundingSource: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
   fundingLabel: string;
   modelDisplayName: string | null;
   providerModelId: string | null;
   modelTradeoffSummary: string | null;
   catalogRevision: number | null;
   estimatedCustomerChargeMicros: number;
+  maximumOwnerCommitmentMicros: number | null;
+  costComponents: Record<string, number> | null;
+  limits: Record<string, number> | null;
   expiresAt: string;
 };
 
@@ -117,7 +120,7 @@ function normalizeCustomerBillingQuote(payload: unknown): HearthCustomerBillingQ
   if (!/^[0-9a-f-]{36}$/i.test(quoteId) || operationId.length < 8
     || !/^[0-9a-f]{64}$/i.test(quoteHash) || !/^[0-9a-f]{64}$/i.test(requestFingerprint)
     || quote.currency !== "USD" || !Number.isSafeInteger(maximum) || maximum < 0
-    || failure !== 0 || !["customer_deposit", "paid_allowance", "none"].includes(String(fundingSource))
+    || failure !== 0 || !["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(String(fundingSource))
     || !expiresAt) return undefined;
   return {
     quoteId,
@@ -137,6 +140,16 @@ function normalizeCustomerBillingQuote(payload: unknown): HearthCustomerBillingQ
     catalogRevision: Number.isSafeInteger(Number(quote.catalog_revision)) ? Number(quote.catalog_revision) : null,
     estimatedCustomerChargeMicros: Number.isSafeInteger(Number(quote.estimated_customer_charge_micros))
       ? Number(quote.estimated_customer_charge_micros) : maximum,
+    maximumOwnerCommitmentMicros: Number.isSafeInteger(Number(quote.maximum_owner_commitment_micros)) && Number(quote.maximum_owner_commitment_micros) >= 0
+      ? Number(quote.maximum_owner_commitment_micros) : null,
+    costComponents: quote.cost_components && typeof quote.cost_components === "object" && !Array.isArray(quote.cost_components)
+      ? Object.fromEntries(Object.entries(quote.cost_components as Record<string, unknown>).flatMap(([key, value]) => (
+          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
+        ))) : null,
+    limits: quote.limits && typeof quote.limits === "object" && !Array.isArray(quote.limits)
+      ? Object.fromEntries(Object.entries(quote.limits as Record<string, unknown>).flatMap(([key, value]) => (
+          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
+        ))) : null,
     expiresAt,
   };
 }

@@ -3,6 +3,10 @@ import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel"
 import { resolveHearthChatScrollAffordance } from "../../lib/hearth-chat-scroll-affordance";
 import type { HearthWritingFormat } from "../../lib/hearth-writing-format";
 import { linkifyHearthText } from "../../lib/hearth-conversation-export";
+import {
+  resolveHearthChatComposerPlaceholder,
+  type HearthChatHydrationStatus,
+} from "../../lib/hearth-chat-readiness";
 
 type ChatAttachmentView = {
   id: string;
@@ -36,6 +40,7 @@ export type ChatSurfaceProps = {
   chatError: string | null;
   aiRuntimeWarning: string | null;
   aiCreditsDepleted: boolean;
+  aiAdmissionBlocked: boolean;
   hasApprovedScript: boolean;
   approvedScriptVersion: number | null;
   approvedAtText: string;
@@ -50,6 +55,7 @@ export type ChatSurfaceProps = {
   isApplyingAiOps: boolean;
   isAiProcessing: boolean;
   aiEpisodeReady: boolean;
+  chatHydrationStatus: HearthChatHydrationStatus;
   sttLane: "browser" | "ai";
   sttTarget: "chat" | "script";
   sttState: "idle" | "listening" | "transcribing";
@@ -61,6 +67,7 @@ export type ChatSurfaceProps = {
   chatInputRef: RefObject<HTMLTextAreaElement | null>;
   listeningIndicator: ReactNode;
   onClearChat: () => void;
+  onRetryChatHydration: () => void;
   onCopyChat: () => void;
   onExportChatPdf: () => void;
   onToggleAiProposalOp: (index: number) => void;
@@ -405,7 +412,12 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         ) : null}
 
         {props.chatError ? (
-          <div className="hs-error-text-small">{props.chatError}</div>
+          <div className="hs-error-text-small">
+            {props.chatError}
+            {props.chatHydrationStatus === "error" ? (
+              <button type="button" onClick={props.onRetryChatHydration}>Retry conversation</button>
+            ) : null}
+          </div>
         ) : null}
 
         {props.aiRuntimeWarning ? (
@@ -431,7 +443,13 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           </div>
         ) : null}
 
-        <div className="hs-ai-format-row" role="group" aria-label="Chat mode">
+        {props.aiAdmissionBlocked ? (
+          <div className="hs-field-label-muted" role="status">
+            Hearth's AI actions are paused until an authorized AI funding method is available. No OpenAI generation was submitted for this turn.
+          </div>
+        ) : null}
+
+        {!props.aiAdmissionBlocked ? <div className="hs-ai-format-row" role="group" aria-label="Chat mode">
           <div className="hs-ai-format-copy">
             <strong>Start by exploring and expanding the content, or jump straight to a draft.</strong>
             <span>Hearth starts in exploration mode and waits to write until you ask.</span>
@@ -449,9 +467,9 @@ export default function ChatSurface(props: ChatSurfaceProps) {
               </button>
             ))}
           </div>
-        </div>
+        </div> : null}
 
-        <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
+        {!props.aiAdmissionBlocked ? <div className="hs-ai-shortcut-row" role="group" aria-label="Chat shortcuts">
           <button type="button" onClick={props.onUseChatShortcutDraft}>
             {props.draftShortcutLabel}
           </button>
@@ -461,7 +479,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button type="button" onClick={props.onOpenComposeScript}>
             Compose
           </button>
-        </div>
+        </div> : null}
 
         <div className="hs-ai-chat-compose">
           <input
@@ -534,13 +552,10 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 ref={props.chatInputRef}
                 value={props.chatDraft}
                 onChange={(event) => props.onChatDraftChange(event.target.value)}
-                placeholder={props.aiEpisodeReady
-                  ? props.writingFormat === "explore_expand"
-                    ? "Talk it through... paste links... explore and expand the content..."
-                    : props.writingFormat === "full_script"
-                      ? "Talk it through... paste links... ask for a full script..."
-                      : "Talk it through... paste links... keep it to bullet points..."
-                  : "Select an Episode or Spark to start."}
+                placeholder={resolveHearthChatComposerPlaceholder({
+                  status: props.chatHydrationStatus,
+                  writingFormat: props.writingFormat,
+                })}
                 className="hs-ai-chat-input"
                 rows={2}
                 onKeyDown={(event) => {
@@ -548,7 +563,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                   event.preventDefault();
                   props.onSendChat();
                 }}
-                disabled={props.isAiProcessing || props.aiCreditsDepleted || !props.aiEpisodeReady}
+                disabled={props.isAiProcessing || props.aiCreditsDepleted || props.aiAdmissionBlocked || !props.aiEpisodeReady}
               />
             )}
           </div>
@@ -560,7 +575,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button
             type="button"
             onClick={props.onSendChat}
-            disabled={props.isAiProcessing || props.aiCreditsDepleted || !props.aiEpisodeReady || !props.chatDraft.trim()}
+            disabled={props.isAiProcessing || props.aiCreditsDepleted || props.aiAdmissionBlocked || !props.aiEpisodeReady || !props.chatDraft.trim()}
           >
             {props.isAiProcessing ? "Sending..." : "Send"}
           </button>

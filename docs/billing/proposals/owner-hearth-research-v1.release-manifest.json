@@ -1,0 +1,63 @@
+{
+  "schema": "forge.owner-hearth-research-release-candidate.v1",
+  "status": "inactive_release_candidate",
+  "upstream_baseline": "55ac90d2ac6d6604771b14952418b5c5e7b3ed46",
+  "complete_hearth_baseline_source": "5a08fbbda9e78958efdd8507c7e23502c78f30bc",
+  "paid_admission_source": "c78593f834e985fec7d4bb7ddfe02c30b5169e13",
+  "baseline_integration_commit": "8c1219c72d77e15147b5a9c5db29965e3d494a88",
+  "implementation_commit": "5fff5d056e56b90b20725e6611c780a722ffe7d6",
+  "release_preparation_commit": "70b337ffd322976ec383ebb7fde8eded667abb2f",
+  "fail_closed_integration_commit": "150b9dce15ad260a6dc37cf2d40373497c868b04",
+  "release_correction": {
+    "authorized_parent_candidate": "985cbfc3b77ff3f198ea892d941430485e6402ca",
+    "scope": "six_nursery_integration_fixtures_and_forward_research_permissions"
+  },
+  "snapshot_location": "C:\\Users\\Iam11\\Documents\\Codex\\2026-09-12\\next-bounded-owner-funded-hearth-research\\work",
+  "release_candidate_worktree": "C:\\Users\\Iam11\\Documents\\Codex\\2026-09-12\\next-bounded-owner-funded-hearth-research\\release-worktree",
+  "migration": {
+    "identifier": "20261010120000_tongs_owner_funded_hearth_research.sql",
+    "sha256": "a53c65232c4dbc44cb1f3c46ac5022d877fec2ad4d8e290dbe0653daaf75d809",
+    "applied": false
+  },
+  "activation_proposal": {
+    "path": "docs/billing/proposals/owner-hearth-research-v1.activation.sql",
+    "sha256": "a427286e186d9d36a33f9aa6e229cabba97b5b7045209c040aaaa54117bbbab8",
+    "outside_migration_chain": true,
+    "unconditional_fail_closed_guards": 2,
+    "transactions_end_in_rollback": 2
+  },
+  "permission_migration": {
+    "identifier": "20261010130000_tongs_owner_hearth_research_permissions.sql",
+    "sha256": "35b9a2575594f17151feb02531876ae8841ad641a25b531cdeb4907c38d9f741",
+    "applied": false,
+    "function_inventory": 21
+  },
+  "safe_sequence_proposal": {
+    "status": "requires_explicit_production_approval",
+    "separate_cli_migrations_without_guard_safe": false,
+    "guard_path": "docs/billing/proposals/owner-hearth-research-v1.permissions-guard.sql",
+    "guard_sha256": "b1988cf80f35b09f763a6b09011562fef5e3c645e9d4d3cad304eb01d3e3aa3d",
+    "restore_path": "docs/billing/proposals/owner-hearth-research-v1.permissions-restore.sql",
+    "restore_sha256": "77b0a4dda3c174c4aa43e56658ac1fa95ea19be51931af2ec32a9c7467986fa0"
+  },
+  "limits_micros": {
+    "additional_owner_authorization": 21526788,
+    "existing_shared_exposure": 10840000,
+    "aggregate_risk": 33,
+    "proposed_shared_aggregate_ceiling": 32366821,
+    "canary_quote": 144072,
+    "canary_aggregate_admission": 144075,
+    "creator_session": 21382716,
+    "storage_and_recovery": 83772
+  },
+  "activation_authorized": false,
+  "credentials_authorized": false,
+  "budget_authorized": false,
+  "paid_canary_authorized": false,
+  "deployment_authorized": false,
+  "deployment_scope": "inactive_release_preparation_pending_safe_sequence_approval",
+  "production_migrations_authorized": false,
+  "merge_authorized": false,
+  "owner_chat_authorization_changed": false,
+  "eleven_route_enforcement_changed": false
+}

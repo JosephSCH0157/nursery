@@ -49,7 +49,9 @@ export default function ResetPassword() {
           const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError && !(await supabase.auth.getSession()).data.session) throw exchangeError;
         }
-        let { data, error: sessionError } = await supabase.auth.getSession();
+        const sessionResult = await supabase.auth.getSession();
+        let { data } = sessionResult;
+        const { error: sessionError } = sessionResult;
         if (sessionError) throw sessionError;
         if (!data.session) {
           const accessToken = hash.get("access_token");

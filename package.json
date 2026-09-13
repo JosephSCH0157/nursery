@@ -23,6 +23,8 @@
     "test:db:openai-transcription": "node scripts/verify-openai-transcription-financial-coordination-isolated.mjs",
     "test:db:customer-funding": "node scripts/verify-customer-funding-flow-isolated.mjs",
     "test:db:hearth-access-funding": "node scripts/verify-hearth-access-funding-isolated.mjs",
+    "test:db:owner-hearth-research": "node scripts/verify-hearth-access-funding-isolated.mjs",
+    "test:release:owner-hearth-research": "node scripts/test-owner-hearth-research-release-candidate.mjs",
     "test:openai-cutover-handlers": "pnpm --filter nursery exec tsx --test tests/openai-cutover-handlers.test.mts tests/hearth-paid-chat-handler.test.mts tests/anvil-whisper-runtime.test.mts",
     "test:openai-reconciliation": "node --test scripts/test-openai-organization-reconciliation.mjs scripts/test-openai-model-visibility.mjs",
     "verify:openai-model-availability": "node scripts/verify-openai-model-availability.mjs",

@@ -384,64 +384,38 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
     assert.equal(payload.ok, true);
     assert.match(capturedSystemPrompt, /smart producer \+ trusted writing partner \+ calm friend in the room/i);
     assert.match(capturedSystemPrompt, /Avoid assistant filler and stale lead-ins/i);
-    assert.match(capturedSystemPrompt, /Ask fewer follow-up questions/i);
-    assert.match(capturedSystemPrompt, /Voice examples \(style calibration\)/i);
+    assert.match(capturedSystemPrompt, /Ask a follow-up only when it materially helps/i);
+    assert.doesNotMatch(capturedSystemPrompt, /Voice examples \(style calibration\)/i);
     assert.match(capturedSystemPrompt, /Agreement is not the default/i);
     assert.match(capturedSystemPrompt, /Critique style: firm, calm, constructive/i);
     assert.match(capturedSystemPrompt, /Attack the work, never the person/i);
     assert.match(capturedSystemPrompt, /strategic pushback/i);
     assert.match(capturedSystemPrompt, /Use calibrated bluntness/i);
-    assert.match(capturedSystemPrompt, /Momentum bias \(default\)/i);
-    assert.match(capturedSystemPrompt, /one concrete best next move/i);
-    assert.match(capturedSystemPrompt, /Prefer one high-confidence direction over multiple options/i);
-    assert.match(capturedSystemPrompt, /Unless user explicitly asks for analysis-only/i);
-    assert.match(capturedSystemPrompt, /Fastest upgrade:/i);
+    assert.match(capturedSystemPrompt, /creator asks for direction, prefer one high-confidence direction/i);
+    assert.doesNotMatch(capturedSystemPrompt, /Fastest upgrade:/i);
     assert.match(capturedSystemPrompt, /HEARTH COLLABORATOR IDENTITY/i);
     assert.match(capturedSystemPrompt, /seasoned creative producer and editor/i);
     assert.match(capturedSystemPrompt, /trusted collaborator in the room/i);
     assert.match(capturedSystemPrompt, /Never open with filler phrases such as/i);
     assert.match(capturedSystemPrompt, /sound like speaking, not formatting/i);
     assert.match(capturedSystemPrompt, /Emotional intelligence adaptation/i);
-    assert.match(capturedSystemPrompt, /Closing behavior: prefer endings that move the work forward/i);
     assert.match(capturedSystemPrompt, /PROJECT KNOWLEDGE ACCESS/i);
     assert.match(capturedSystemPrompt, /Do not default to documentation mode/i);
     assert.match(capturedSystemPrompt, /Base recommendations on project reality/i);
     assert.match(capturedSystemPrompt, /If a precise answer needs specific files\/modules, provide a where-to-look hint/i);
-    assert.match(capturedSystemPrompt, /PERFORMANCE & RELEASE AWARENESS/i);
-    assert.match(capturedSystemPrompt, /Assume most creative work is intended for real audiences/i);
-    assert.match(capturedSystemPrompt, /Scripts do not exist in isolation; they may become episodes/i);
-    assert.match(capturedSystemPrompt, /Optimization moment triggers/i);
-    assert.match(capturedSystemPrompt, /Creator Optimization Pass, Release Prep Pack, or Performance Upgrade/i);
-    assert.match(capturedSystemPrompt, /Prefer one high-impact suggestion over large option dumps/i);
-    assert.match(capturedSystemPrompt, /Never block or override creator style/i);
-    assert.match(capturedSystemPrompt, /EXECUTIVE PRODUCER BEHAVIOR/i);
-    assert.match(capturedSystemPrompt, /showrunner-minded collaborator/i);
-    assert.match(capturedSystemPrompt, /Offer upgrades as optional suggestions, not requirements/i);
-    assert.match(capturedSystemPrompt, /Do not moralize about style/i);
-    assert.match(capturedSystemPrompt, /Trigger conditions for executive-producer behavior/i);
-    assert.match(capturedSystemPrompt, /Offer first, do not auto-dump optimization lists/i);
-    assert.match(capturedSystemPrompt, /Want a performance pass before recording/i);
-    assert.match(capturedSystemPrompt, /RELEASE PREP PACK/i);
-    assert.match(capturedSystemPrompt, /generate a named Release Prep Pack/i);
-    assert.match(capturedSystemPrompt, /Title set: 3-7 click-optimized but honest options/i);
-    assert.match(capturedSystemPrompt, /Short-form hook \(<=20s\)/i);
-    assert.match(capturedSystemPrompt, /Do not overwrite primary script by default/i);
-    assert.match(capturedSystemPrompt, /suggest real screen captures over synthetic visuals/i);
     assert.match(capturedSystemPrompt, /CONTINUITY & PRESENCE/i);
     assert.match(capturedSystemPrompt, /Assume you have been present throughout the session/i);
     assert.match(capturedSystemPrompt, /Do NOT fabricate history/i);
     assert.match(capturedSystemPrompt, /Anti-restart rule/i);
     assert.match(capturedSystemPrompt, /Do not behave as if each message is a new conversation/i);
     assert.match(capturedSystemPrompt, /Occasionally acknowledge progress or effort when meaningful/i);
-    assert.match(capturedSystemPrompt, /HEARTH OUTPUT CONTRACT FOR ANVIL SCRIPT GENERATION/i);
-    assert.match(capturedSystemPrompt, /Formatting is NOT optional/i);
-    assert.match(capturedSystemPrompt, /If you produce a blob, the output is invalid and must be regenerated/i);
-    assert.match(capturedSystemPrompt, /Maximum 3 lines per speaker block/i);
-    assert.match(capturedSystemPrompt, /No paragraph-style writing/i);
-    assert.match(capturedSystemPrompt, /If ANY of these fail, you must regenerate the output/i);
-    assert.match(capturedSystemPrompt, /Rebuild the script\. Do NOT preserve paragraph structure/i);
-    assert.match(capturedSystemPrompt, /Artifact presence invariant \(hard rule\)/i);
-    assert.match(capturedSystemPrompt, /An introductory sentence alone is invalid/i);
+    assert.match(capturedSystemPrompt, /Authoritative turn mode:\s*conversation/i);
+    assert.match(capturedSystemPrompt, /Conversation mode \(hard rule\)/i);
+    assert.doesNotMatch(capturedSystemPrompt, /HEARTH OUTPUT CONTRACT FOR ANVIL SCRIPT GENERATION/i);
+    assert.doesNotMatch(capturedSystemPrompt, /Momentum bias \(default\)/i);
+    assert.doesNotMatch(capturedSystemPrompt, /RELEASE PREP PACK/i);
+    assert.doesNotMatch(capturedSystemPrompt, /Artifact presence invariant/i);
+    assert.doesNotMatch(capturedSystemPrompt, /An introductory sentence alone is invalid/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -966,7 +940,7 @@ test("createHearthAiHandler pressure-tests episode framing without workspace loo
   }
 });
 
-test("createHearthAiHandler still allows explicit current draft requests", async () => {
+test("createHearthAiHandler keeps title-tightening discussion conversational", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
   let openAiCalled = false;
@@ -1014,7 +988,8 @@ test("createHearthAiHandler still allows explicit current draft requests", async
     assert.equal(payload.ok, true);
     assert.equal(openAiCalled, true);
     assertNoHearthInternalLeakage(String(payload.assistant_text ?? ""));
-    assert.equal(payload.ops?.[0]?.op, "set_title");
+    assert.equal(payload.turn_result?.decision?.mode, "conversation");
+    assert.deepEqual(payload.ops, []);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2109,7 +2084,7 @@ test("creator-pasted business leads survive an emoji URL boundary and inaccessib
     assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
     assert.match(String(payload.assistant_text ?? ""), /Still unverified/i);
     assert.match(String(payload.assistant_text ?? ""), /Kres Chophouse[\s\S]*Cucina Pizza & Bar[\s\S]*The Bao Spot[\s\S]*Coffee For The Soul[\s\S]*Birria1983[\s\S]*Crepe Delicious[\s\S]*The District GastroBar/i);
-    assert.match(String(payload.assistant_text ?? ""), /Adjacent or not a customer-facing Church Street business/i);
+    assert.match(String(payload.assistant_text ?? ""), /Adjacent or not customer-facing/i);
     assert.doesNotMatch(String(payload.assistant_text ?? ""), /project budget|Bizjournals and Bungalower/i);
     assert.doesNotMatch(String(payload.assistant_text ?? ""), /redevelopment argument/i);
     assert.doesNotMatch(String(payload.assistant_text ?? ""), /operating status of Kres Chophouse/i);
@@ -2236,8 +2211,8 @@ test("collapsed creator business records survive ingestion, evidence reconciliat
     assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
     assert.match(String(payload.assistant_text ?? ""), /Appears active, but current status is not fully confirmed/i);
     assert.match(String(payload.assistant_text ?? ""), /Still unverified/i);
-    assert.match(String(payload.assistant_text ?? ""), /Adjacent or not a customer-facing Church Street business/i);
-    assert.match(String(payload.assistant_text ?? ""), /Downtown Orlando[^\n]*primary institutional/i);
+    assert.match(String(payload.assistant_text ?? ""), /Adjacent or not customer-facing/i);
+    assert.match(String(payload.assistant_text ?? ""), /Downtown Orlando[^\n]*reputable secondary/i);
     assert.match(String(payload.assistant_text ?? ""), /Empty storefronts and available business spaces remain numerous/i);
     assert.match(String(payload.assistant_text ?? ""), /Sources supporting a validated claim: 1/i);
     assert.doesNotMatch(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);

@@ -10,18 +10,11 @@ import {
 const runtimeSource = readFileSync(new URL("../src/hooks/useChatWorkspace.ts", import.meta.url), "utf8");
 const surfaceSource = readFileSync(new URL("../src/views/surfaces/ChatSurface.tsx", import.meta.url), "utf8");
 
-test("format-only routing returns before AI dispatch and credit enforcement", () => {
-  const formatBranch = runtimeSource.indexOf('scriptMutationIntent.kind === "format_only"');
-  const localProposal = runtimeSource.indexOf("createPendingFormatOnlyProposal", formatBranch);
-  const creditCheck = runtimeSource.indexOf("aiTokenBalance", localProposal);
-  const aiDispatch = runtimeSource.indexOf("requestHearthChatReply(requestMessages", localProposal);
-
-  assert.ok(formatBranch >= 0);
-  assert.ok(localProposal > formatBranch);
-  assert.ok(creditCheck > localProposal);
-  assert.ok(aiDispatch > creditCheck);
-  assert.match(runtimeSource.slice(localProposal, creditCheck), /return;/);
-  assert.match(runtimeSource.slice(localProposal, creditCheck), /ai_called:\s*false/);
+test("format-only wording no longer creates competing client-owned turn routing", () => {
+  assert.doesNotMatch(runtimeSource, /scriptMutationIntent\.kind === ["']format_only["']/);
+  assert.doesNotMatch(runtimeSource, /createPendingFormatOnlyProposal/);
+  assert.match(runtimeSource, /turnResult\.decision/);
+  assert.match(runtimeSource, /explicitAction/);
 });
 
 test("format-only proposal ownership preserves source and requires confirmation after editorial edits", () => {

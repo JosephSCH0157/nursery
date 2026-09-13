@@ -11,6 +11,8 @@ type SourcesViewProps = {
   workpieceId: string | null;
   draftId: string | null;
   researchResult?: HearthResearchResult | null;
+  canonicalPersistence?: "idle" | "loading" | "saving" | "saved" | "failed";
+  canonicalPersistenceError?: string | null;
 };
 
 const SOURCE_TYPES = [
@@ -48,7 +50,7 @@ function buildResearchRuntimeMessage(result: HearthResearchResult): string {
   return "Retrieval completed with usable sources.";
 }
 
-export default function SourcesView({ state, workspaceId, workpieceId, draftId, researchResult = null }: SourcesViewProps) {
+export default function SourcesView({ state, workspaceId, workpieceId, draftId, researchResult = null, canonicalPersistence = "idle", canonicalPersistenceError = null }: SourcesViewProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [form, setForm] = useState<NewSourceInput>({
@@ -180,6 +182,14 @@ export default function SourcesView({ state, workspaceId, workpieceId, draftId, 
 
       {researchResult ? (
         <section className="hs-sources-section">
+          {canonicalPersistence !== "idle" ? (
+            <div className="hs-sources-muted" role={canonicalPersistence === "failed" ? "alert" : undefined}>
+              {canonicalPersistence === "saving" ? "Saving canonical Episode evidence…"
+                : canonicalPersistence === "saved" ? "Canonical Episode evidence saved."
+                  : canonicalPersistence === "failed" ? canonicalPersistenceError ?? "Canonical Episode evidence is not saved."
+                    : "Loading canonical Episode evidence…"}
+            </div>
+          ) : null}
           <div className="hs-sources-section-title">
             Research Runtime: {researchResult.mode} · {researchResult.runtimeStatus}
           </div>

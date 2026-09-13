@@ -13,6 +13,7 @@ import type { AggregateAdmissionCallerClass } from "../../../../packages/tongs/s
 import {
   boundedProviderRequestEvidence,
   buildBoundedOpenAiProviderRequest,
+  type BoundedProviderRequest,
 } from "../../../../packages/tongs/src/providers/bounded-provider-request";
 import { openAiProviderHeaders } from "../../../../packages/tongs/src/providers/openai-forge-project";
 
@@ -98,6 +99,8 @@ export async function executePaidJsonOpenAiRoute<
   apiKey: string;
   requestFingerprintPayload: unknown;
   providerRequestBody: (model: string) => JsonObject;
+  /** Exact payload durably frozen after supporting work and before submission. */
+  frozenRequest?: BoundedProviderRequest;
   providerUrl?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -138,13 +141,25 @@ export async function executePaidJsonOpenAiRoute<
     credentialSource: args.credentialSource,
     callerClass: args.callerClass,
     requestFingerprintPayload: args.requestFingerprintPayload,
-    prepareBoundedRequest: (context) => buildBoundedPaidJsonOpenAiRequest({
-      body: args.providerRequestBody(context.model),
-      providerUrl,
-      model: context.model,
-      maximumOutputTokens: context.maximumOutputUnits,
-      maximumAttempts: context.maximumAttempts,
-    }),
+    prepareBoundedRequest: async (context) => {
+      if (args.frozenRequest) {
+        if (args.frozenRequest.model !== context.model
+          || args.frozenRequest.maximumOutputTokens !== context.maximumOutputUnits
+          || args.frozenRequest.maximumAttempts !== context.maximumAttempts) {
+          throw new OpenAiTextProviderError("Frozen OpenAI request does not match accepted authority", false, 0, {
+            reason: "frozen_provider_request_authority_mismatch",
+          });
+        }
+        return args.frozenRequest;
+      }
+      return buildBoundedPaidJsonOpenAiRequest({
+        body: args.providerRequestBody(context.model),
+        providerUrl,
+        model: context.model,
+        maximumOutputTokens: context.maximumOutputUnits,
+        maximumAttempts: context.maximumAttempts,
+      });
+    },
     executeProvider: async (context, _attemptNumber, boundedRequest) => {
       if (!boundedRequest) throw new OpenAiTextProviderError(
         "The exact OpenAI request was not bound before submission",

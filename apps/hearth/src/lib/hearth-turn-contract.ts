@@ -47,6 +47,7 @@ export type HearthValidatedArtifact =
 
 export type HearthTurnFailureKind =
   | "none"
+  | "admission_failure"
   | "provider_failure"
   | "invalid_model_output"
   | "identity_mismatch"

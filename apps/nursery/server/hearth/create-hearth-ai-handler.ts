@@ -95,9 +95,9 @@ import {
 } from "../../../hearth/src/lib/hearth-composition-output";
 import {
   createHearthResearchRuntime,
-  classifyResearchSourceAuthority,
   extractUrlToResearchSource,
 } from "./hearth-research-runtime";
+import { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
 import {
   buildMalformedCreatorCitationSource,
   isSubstantiveResearchFinding,
@@ -121,6 +121,23 @@ import {
   readOwnerHearthExecutionRequirement,
   recordOwnerCompatibilityOutcome,
 } from "./owner-hearth-paid-execution";
+import {
+  OwnerResearchSubmissionUnknownError,
+  OWNER_RESEARCH_DEADLINE_MS,
+  acceptOwnerHearthResearchOperation,
+  acquireOwnerHearthResearchAdmission,
+  buildOwnerResearchPlan,
+  createOwnerHearthResearchFetch,
+  fingerprintOwnerResearchPlan,
+  freezeOwnerHearthResearchSynthesis,
+  ownerHearthResearchExecutionGate,
+  quoteOwnerHearthResearchOperation,
+  readOwnerHearthResearchExecutionRequirement,
+  settleOwnerHearthResearchBeforeSynthesis,
+  sha256Canonical,
+  type OwnerResearchModel,
+  type OwnerResearchPlan,
+} from "./owner-hearth-research-execution";
 import {
   applyAiTokenDelta as applyAiTokenDeltaShared,
   buildTranscriptionAccounting,
@@ -705,6 +722,7 @@ function buildLinkOnlyResearchResult(args: {
   sources: HearthResearchSource[];
   brief: HearthResearchBrief;
   creatorClaims: NonNullable<HearthResearchResult["creatorClaims"]>;
+  creatorEntities: NonNullable<HearthResearchResult["creatorEntities"]>;
   creatorInputTruncated: boolean;
 }): HearthResearchResult {
   const extracted = args.sources.filter((source) => source.extractionStatus === "extracted").length;
@@ -728,6 +746,7 @@ function buildLinkOnlyResearchResult(args: {
         : "partial",
     brief: args.brief,
     creatorClaims: args.creatorClaims,
+    creatorEntities: args.creatorEntities,
     creatorInputTruncated: args.creatorInputTruncated,
     evidence: args.sources.map((source, index) => ({
       evidenceId: `evidence-${index + 1}`,
@@ -1216,6 +1235,7 @@ function buildProfileStyleSnippet(
   writingProfile: WritingProfile,
   requestText: string,
   contextTonePreset: string | null,
+  decision: HearthTurnDecision,
 ): string {
   const lines = ["Creator Profile Guidance (soft):"];
 
@@ -1231,25 +1251,25 @@ function buildProfileStyleSnippet(
     lines.push("- Lower risk sensitivity: still accurate, but you may use a stronger voice.");
   }
 
-  if (profile.outlineFirstBias >= 0.6 && !/\bscript\b/i.test(requestText)) {
+  if (decision.requiresArtifact && profile.outlineFirstBias >= 0.6 && !/\bscript\b/i.test(requestText)) {
     lines.push("- Workflow preference leans outline-first when the user does not explicitly ask for full script.");
-  } else if (profile.scriptFirstBias >= 0.6) {
+  } else if (decision.requiresArtifact && profile.scriptFirstBias >= 0.6) {
     lines.push("- Workflow preference leans script-first when request is explicit.");
   }
 
-  if (profile.clarifyFirstBias <= 0.4) {
+  if (decision.requiresArtifact && profile.clarifyFirstBias <= 0.4) {
     lines.push("- User often prefers direct drafting when the request is clear.");
   }
 
-  if (writingProfile.defaultAudience) {
+  if (decision.requiresArtifact && writingProfile.defaultAudience) {
     lines.push(`- Audience default: ${writingProfile.defaultAudience}.`);
-  } else {
+  } else if (decision.requiresArtifact) {
     lines.push("- Audience default: general podcast listeners.");
   }
 
-  if (writingProfile.defaultStructure) {
+  if (decision.requiresArtifact && writingProfile.defaultStructure) {
     lines.push(`- Structure default: ${writingProfile.defaultStructure}.`);
-  } else {
+  } else if (decision.requiresArtifact) {
     lines.push("- Structure default: neutral flow (hook, context, points, close).");
   }
 
@@ -1257,7 +1277,11 @@ function buildProfileStyleSnippet(
     lines.push(`- Style notes: ${writingProfile.styleNotes}.`);
   }
 
-  lines.push("- Do not ask follow-up questions about audience, structure, or tone. Use these defaults and generate immediately.");
+  if (decision.requiresArtifact) {
+    lines.push("- Apply these preferences only to the requested artifact; do not use them to change turn intent.");
+  } else {
+    lines.push("- These preferences must not trigger drafting, research, workflow advancement, or a forced next step.");
+  }
 
   return lines.join("\n");
 }
@@ -1353,7 +1377,7 @@ function buildAttachmentContextSnippet(attachments: Array<{
   return lines.join("\n");
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
   options?: {
@@ -1443,7 +1467,7 @@ function buildSystemPrompt(
     "- Do not narrate internal process unless it materially helps the user decide.",
     "- Ask a follow-up only when it materially helps the creator's current intent.",
     "- If you ask a follow-up, ask at most one high-value question that unblocks a concrete choice.",
-    "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and keep moving.",
+    "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and respond to the request they actually made.",
     "- Avoid assistant filler and stale lead-ins. Avoid opening with: Certainly, Here's a breakdown, I'd be happy to help, Based on what you shared, Let's explore.",
     "- Never open with filler phrases such as: Certainly, Of course, I'd be happy to, Here's a breakdown, Let's explore.",
     "- Avoid robotic framing or formal tone unless the user explicitly requests it.",
@@ -1457,10 +1481,10 @@ function buildSystemPrompt(
     "- Flag common failure modes when present: rambling, overexplaining, safe-but-bland framing, emotional drift, missing hook/payoff.",
     "- Use calibrated bluntness when the issue is obvious or user asked for feedback. Example style: This is muddy. This section is not earning its time.",
     "- Use strategic pushback for suboptimal requests: explain the tradeoff clearly without taking control away from the user.",
-    "- Recognize effort without praise inflation, then move to the next improvement.",
-    "- Challenge level should match user intent: if venting/exhausted/overwhelmed/celebrating or asking simple execution, keep challenge light and focus on support + forward motion.",
-    "- Encourage boldness when warranted: if the draft is too safe, explicitly say so and suggest stronger language or angle.",
-    "- Prefer one high-confidence direction over multiple options. Avoid decision overload.",
+    "- Recognize effort without praise inflation, then respond at the creator's current stage.",
+    "- Challenge level should match user intent: if venting/exhausted/overwhelmed/celebrating or asking simple execution, keep challenge light and focus on the present request.",
+    "- When critique is requested and the draft is too safe, say so and suggest a stronger language or angle.",
+    "- When the creator asks for direction, prefer one high-confidence direction over decision overload.",
     "- Do not end with optional brainstorming prompts like: Would you like me to... unless user explicitly asks for options.",
     "- Emotional intelligence adaptation:",
     "- If user is excited, match energy but stay grounded.",
@@ -1472,31 +1496,8 @@ function buildSystemPrompt(
     "- If the user only asks a question, return ops as [].",
     "- Conversation-versus-mutation rule: questions about how, what, or whether to change a script are editorial discussion. Answer with analysis and suggestions in assistantText and return no set_body op. Only produce set_body when the creator affirmatively asks you to apply, update, revise, rewrite, or create a script version.",
     "- Explicit no-edit language such as 'do not edit it yet' or 'I did not ask you to update it' always remains discussion, even when the same message mentions possible script changes.",
-    "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
-    "Artifact presence invariant (hard rule): Never claim that you produced an outline, script, draft, or composed material unless substantive requested content is present in this same response.",
-    "- For a creator-authored outline or bullet-points request, return either a non-empty set_outline op containing actual bullets/sections or put the actual bullets/sections in assistantText. An introductory sentence alone is invalid.",
-    "- For a creator-authored full-script or Compose request, return substantive script_text/set_body content in canonical Anvil form. An introductory sentence alone is invalid.",
-    "- If you cannot produce the requested artifact, state that generation failed or remained incomplete. Never substitute a preamble describing a nonexistent artifact.",
     "- Do not invent source ids for update/remove ops.",
-    "- When proposing or returning a script body, include script_text and tag_audit.",
-    "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
-    "- Do not ask the user to choose audience, structure, or tone during generation.",
     "- Keep output strictly JSON (no code fences).",
-    "Voice examples (style calibration):",
-    "- Desired: User says \"This script feels stiff and I'm starting to hate it.\" Assistant tone: \"Yeah, it feels tight in the wrong places. The stronger pass is simpler and more spoken. Here's a cleaner version.\"",
-    "- Undesired: \"I understand your frustration. Here's a structured breakdown with three strategic pillars.\"",
-    "- Desired: User says \"Okay, now we're onto something.\" Assistant tone: \"Yep, this lands. Let's tighten the middle so the punchline hits faster.\"",
-    "- Undesired: \"Excellent progress! Would you like me to provide a comprehensive optimization framework?\"",
-    "- Desired: User says \"I've got too many directions.\" Assistant tone: \"Makes sense. Let's collapse to one core claim, then build around it.\"",
-    "- Undesired: \"Please select one of the following pathways before we proceed.\"",
-    "- Desired: User says \"I'm thinking of productivity tips everyone already knows.\" Assistant tone: \"Viable topic, weak novelty. Keep the premise, but pick a contrarian angle or a lived-experiment frame so it actually lands.\"",
-    "- Undesired: \"Great idea, let's run with it as-is.\"",
-    "- Desired: User says \"I like it the way it is.\" Assistant tone: \"Totally your call. Tradeoff is pace: this version keeps detail but loses momentum in the middle. If we keep it, I'd still trim these two lines.\"",
-    "- Undesired: \"You're wrong, this needs a full rewrite.\"",
-    "- Desired: User says \"This intro is too long.\" Assistant tone: \"Fastest upgrade: cut everything before the first tension point. Start here instead: <rewritten opening>.\"",
-    "- Undesired: \"You could try a few different approaches if you want.\"",
-    "- Desired: User says \"I have too many directions.\" Assistant tone: \"The move I'd try next: pick one claim and draft a 4-line opening around it. Use this as your base: <draft seed>.\"",
-    "- Undesired: \"Here are five possible paths to consider.\"",
     "## PROJECT KNOWLEDGE ACCESS",
     "You have read access to project knowledge when available, including architecture manifests, design docs, tool contracts, roadmaps/plans, canonical memory/context files, and relevant code summaries.",
     "Use project knowledge to answer how systems work, what exists vs not implemented, next logical steps, feature ownership, and integration points.",
@@ -1529,6 +1530,7 @@ function buildSystemPrompt(
   if (mode === "outline_generate") {
     baseLines.push(
       "Outline generation mode (hard rule):",
+      "- Artifact presence invariant: never claim an outline exists unless substantive outline content is present in this response.",
       "- Produce a substantive outline with at least one actual bullet or labeled section.",
       "- Return the outline in assistantText or set_outline. An announcement-only preamble is invalid.",
       "- Do not produce or mutate a full script.",
@@ -1537,6 +1539,7 @@ function buildSystemPrompt(
   if (mode === "script_generate" || mode === "script_mutate") {
     baseLines.push(
       "ANVIL SCRIPT ARTIFACT CONTRACT:",
+      "- Artifact presence invariant: never claim a script exists unless substantive script content is present in this response.",
       mode === "script_mutate"
         ? "- Propose a substantive revision of the current script; do not claim it was applied."
         : "- Produce a substantive new script artifact; do not claim it was applied.",
@@ -1546,6 +1549,7 @@ function buildSystemPrompt(
       "- Allowed pacing tokens are [pause], [beat], and [reflective pause].",
       "- Do not use Markdown speaker labels or unrecognized control markup.",
       "- Validate tag closure and standalone placement before returning.",
+      "- Include tag_audit confirming closure, standalone tags, and absence of random markup.",
       "- An introductory sentence without substantive script content is invalid.",
     );
   }
@@ -2112,7 +2116,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
     const citations = finding.sourceIds.map((id) => `[${id}]`).join(" ");
     return `- ${finding.text}${citations ? ` ${citations}` : ""}`;
   };
-  const isBusinessFinding = (finding: HearthResearchArtifact["findings"][number]) => Boolean(finding.businessStatus);
+  const isBusinessFinding = (finding: HearthResearchArtifact["findings"][number]) => Boolean(finding.businessStatus || finding.entityRole);
   const verifiedOpenBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "verified_currently_operating"
     && (finding.provenanceStatus === "verified_by_current_run" || finding.provenanceStatus === "reported_by_accessible_secondary")
@@ -2122,6 +2126,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   )).map(renderFinding);
   const unverifiedBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "creator_supplied_unverified"
+    && (finding.entityRole === "customer_facing" || finding.entityRole === "unknown" || !finding.entityRole)
   )).map(renderFinding);
   const closedBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "closed_inactive"
@@ -2129,6 +2134,8 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   )).map(renderFinding);
   const nonStorefrontBusinessLines = artifact.findings.filter((finding) => (
     finding.businessStatus === "non_customer_facing" || finding.businessStatus === "adjacent_location"
+    || finding.entityRole === "office" || finding.entityRole === "venue"
+    || finding.entityRole === "operator" || finding.entityRole === "institution"
   )).map(renderFinding);
   const validatedFindingLines = artifact.findings.filter((finding) => (
     !isBusinessFinding(finding)
@@ -2173,7 +2180,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
     ...(appearsActiveBusinessLines.length ? ["Appears active, but current status is not fully confirmed", appearsActiveBusinessLines.join("\n")] : []),
     ...(unverifiedBusinessLines.length ? ["Still unverified", unverifiedBusinessLines.join("\n")] : []),
     ...(closedBusinessLines.length ? ["Closed or inactive", closedBusinessLines.join("\n")] : []),
-    ...(nonStorefrontBusinessLines.length ? ["Adjacent or not a customer-facing Church Street business", nonStorefrontBusinessLines.join("\n")] : []),
+    ...(nonStorefrontBusinessLines.length ? ["Adjacent or not customer-facing", nonStorefrontBusinessLines.join("\n")] : []),
     ...(validatedFindingLines.length ? [artifact.status === "complete" ? "Validated findings" : "Validated partial findings", validatedFindingLines.join("\n")] : []),
     ...(creatorLeadLines.length ? ["Creator-supplied leads still unverified", creatorLeadLines.join("\n")] : []),
     ...(unresolvedFindingLines.length ? ["Conflicting, unsupported, or inaccessible-source-only claims", unresolvedFindingLines.join("\n")] : []),
@@ -2395,10 +2402,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
   );
   const researchRuntime = config.researchRuntime
     ?? createHearthResearchRuntime({ braveApiKey: researchApiKey });
+  const ownerResearchApiKey = config.ownerResearchApiKey ?? null;
+  const ownerResearchRuntime = config.researchRuntime
+    ?? createHearthResearchRuntime({ braveApiKey: ownerResearchApiKey });
   const researchSourceExtractor = config.researchSourceExtractor
     ?? extractUrlToResearchSource;
   const textApiKey = config.textApiKey ?? config.apiKey ?? null;
   const ownerTextApiKey = config.ownerTextApiKey ?? null;
+  const ownerResearchTextApiKey = config.ownerResearchTextApiKey ?? null;
   const {
     model: configuredModel,
     sttModel,
@@ -3929,7 +3940,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         assistantMessage: string;
         artifact?: HearthValidatedArtifact | null;
         operations?: HearthOp[];
-        failureKind?: "none" | "provider_failure" | "invalid_model_output" | "identity_mismatch";
+        failureKind?: "none" | "admission_failure" | "provider_failure" | "invalid_model_output" | "identity_mismatch";
         failureMessage?: string | null;
       }) => buildHearthTurnResult({
         decision: turnDecision,
@@ -3938,6 +3949,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         operations: args.operations,
         failureKind: args.failureKind,
         failureMessage: args.failureMessage,
+        persistence: args.failureKind && args.failureKind !== "none" ? "not_attempted" : "pending",
+      });
+      const admissionFailureResponse = (args: {
+        status: number;
+        error: string;
+        code: string;
+        extra?: Record<string, unknown>;
+      }) => jsonResponse(args.status, {
+        ok: false,
+        error: args.error,
+        code: args.code,
+        turn_result: buildTurnResult({
+          assistantMessage: "",
+          failureKind: "admission_failure",
+          failureMessage: args.error,
+        }),
+        ...(args.extra ?? {}),
+        ...buildBillingSnapshot(lane),
       });
       const compositionProviderFailureResponse = (providerStatus: number | null): Response | null => {
         if (!compositionRequestKind) return null;
@@ -3966,6 +3995,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).model)
         : null;
       let ownerHearthRequirement: Record<string, unknown> | null = null;
+      let ownerResearchRequirement: Record<string, unknown> | null = null;
       if (lane === AI_USAGE_LANE.FORGE && turnDecision.mode !== "research"
         && openAiTextGate && userId && isUuid(episodeContext.workspaceId)) {
         try {
@@ -3980,6 +4010,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ok: false,
             error: "Private owner execution controls are unavailable.",
             code: "owner_hearth_control_unavailable",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+      }
+      if (lane === AI_USAGE_LANE.FORGE && turnDecision.mode === "research"
+        && openAiTextGate && userId && isUuid(episodeContext.workspaceId)) {
+        try {
+          const requirement = await readOwnerHearthResearchExecutionRequirement({
+            gate: openAiTextGate,
+            userId,
+            workspaceId: episodeContext.workspaceId,
+          });
+          if (requirement.owner_testing_effective === true) ownerResearchRequirement = requirement;
+        } catch {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Private owner research controls are unavailable.",
+            code: "owner_hearth_research_control_unavailable",
             ...buildBillingSnapshot(lane),
           });
         }
@@ -4010,7 +4058,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         resolvedCredentials = await resolveEffectiveAiCredentials({
           requestedLane: lane,
           provider: "openai",
-          forgeManagedApiKey: ownerHearthRequirement ? ownerTextApiKey : textApiKey,
+          forgeManagedApiKey: ownerResearchRequirement
+            ? ownerResearchTextApiKey
+            : ownerHearthRequirement ? ownerTextApiKey : textApiKey,
           userId,
           supabaseService,
           disableUserKeys,
@@ -4020,7 +4070,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (error instanceof MissingForgeKeyError) {
           return jsonResponse(500, {
             ok: false,
-            error: ownerHearthRequirement
+            error: ownerResearchRequirement
+              ? "Private owner research requires the isolated OPENAI_HEARTH_RESEARCH_OWNER_API_KEY credential."
+              : ownerHearthRequirement
               ? "Private owner testing requires the isolated OPENAI_HEARTH_OWNER_API_KEY credential."
               : MISSING_OPENAI_TEXT_API_KEY_ERROR,
             ...buildBillingSnapshot(lane),
@@ -4184,7 +4236,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      if (effectiveLane === AI_USAGE_LANE.FORGE && !ownerHearthRequirement && !paidExecutionHandle && tokenBalance != null && tokenBalance <= 0) {
+      if (effectiveLane === AI_USAGE_LANE.FORGE && !ownerHearthRequirement && !ownerResearchRequirement
+        && !paidExecutionHandle && tokenBalance != null && tokenBalance <= 0) {
         return jsonResponse(402, {
           ok: false,
           error: "No AI credits remaining.",
@@ -4262,7 +4315,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // Recovery consumes only the original canonical result. Never repeat
       // search/extraction to reconstruct an expired synthesis request.
       const researchExecutionRequirement = researchModeRequested && openAiTextGate
-        ? await openAiTextGate.rpc("read_openai_execution_requirement", {
+        ? ownerResearchRequirement
+          ? { data: ownerResearchRequirement, error: null }
+          : await openAiTextGate.rpc("read_openai_execution_requirement", {
             p_route_code: "hearth.research_synthesis",
             p_credential_funding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
           }) : null;
@@ -4270,7 +4325,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       if (researchModeRequested && researchExecutionMode === "halt_new" && paidExecutionHandle && openAiTextGate && userId) {
         try {
           const recovered = await executePaidOpenAiTextRoute({
-            recoveryOnly: true, gate: openAiTextGate, routeCode: "hearth.research_synthesis",
+            recoveryOnly: true, gate: ownerResearchRequirement
+              ? ownerHearthResearchExecutionGate(openAiTextGate)
+              : openAiTextGate, routeCode: "hearth.research_synthesis",
             handle: paidExecutionHandle, userId, workspaceId: episodeContext.workspaceId,
             workpieceId: episodeContext.episodeId, credentialSource: resolvedCredentials.keySource,
             requestFingerprintPayload: null,
@@ -4278,7 +4335,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             validateResult: () => { throw new Error("recovery_cannot_generate"); },
             persistCanonical: async () => { throw new Error("recovery_cannot_generate"); },
             recoverCanonical: async () => {
-              const row = await openAiTextGate.rpc("read_hearth_research_synthesis_result", {
+              const row = await openAiTextGate.rpc(ownerResearchRequirement
+                ? "read_owner_hearth_research_result"
+                : "read_hearth_research_synthesis_result", {
                 p_operation_id: paidExecutionHandle!.operationId, p_reservation_id: paidExecutionHandle!.reservationId,
               });
               if (row.error || !isRecord(row.data)) return null;
@@ -4303,22 +4362,29 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           error: "Research execution controls are unavailable." });
       }
       // Search/extraction is a distinct supporting service. An accepted text
-      // quote never authorizes it implicitly. When synthesis enforcement is
-      // active, only creator-supplied links may reach this adapter until a
-      // separately priced search policy is published.
-      if (researchModeRequested && openAiTextGate) {
+      // quote never authorizes it implicitly. No research adapter may run
+      // without the complete owner-research pricing and execution authority.
+      if (researchModeRequested && openAiTextGate && !ownerResearchRequirement) {
         const earlyRequirement = researchExecutionRequirement!;
         const earlyRow = isRecord(earlyRequirement.data)
           ? earlyRequirement.data
           : {};
-        if (earlyRequirement.error || earlyRow.funding_context_required === true) {
-          return jsonResponse(422, {
-            ok: false,
-            error: "Research search and extraction are not included in this text authorization.",
-            code: "supporting_service_not_priced",
-            ...buildBillingSnapshot(lane),
-          });
-        }
+        const unavailableReason = earlyRequirement.error
+          ? "Research pricing and execution authority could not be verified."
+          : earlyRow.funding_context_required === true
+            ? "Research search and extraction are not included in this text authorization."
+            : "Research search and extraction have no active pricing and execution authority.";
+        return jsonResponse(422, {
+          ok: false,
+          error: `${unavailableReason} No provider request was sent.`,
+          code: "supporting_service_not_priced",
+          turn_result: buildTurnResult({
+            assistantMessage: "",
+            failureKind: "admission_failure",
+            failureMessage: `${unavailableReason} No provider request was sent.`,
+          }),
+          ...buildBillingSnapshot(lane),
+        });
       }
       const researchBrief = researchModeRequested
         ? buildHearthResearchBrief({
@@ -4331,6 +4397,102 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const researchRequest = researchModeRequested && researchQuery
         ? buildHearthResearchRequest({ query: researchQuery })
         : null;
+      let ownerResearchPlan: OwnerResearchPlan | null = null;
+      let ownerResearchDeadlineAt: number | null = null;
+      let ownerResearchMaximumOutputTokens: number | null = null;
+      let ownerResearchFetch: typeof fetch | undefined;
+      if (researchModeRequested && ownerResearchRequirement) {
+        if (!ownerResearchApiKey) {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Owner-funded research search is unavailable because its isolated Brave credential is not configured.",
+            code: "owner_research_search_unavailable",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        if (!researchBrief || !researchRequest || !userId || !openAiTextGate || !isUuid(episodeContext.workspaceId)) {
+          return jsonResponse(422, {
+            ok: false,
+            error: "Owner-funded research requires a complete workspace-bound research plan.",
+            code: "owner_research_plan_incomplete",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        ownerResearchPlan = buildOwnerResearchPlan({
+          workspaceId: episodeContext.workspaceId,
+          workpieceId: episodeContext.episodeId,
+          userAuthoredText: requestText,
+          query: researchRequest.query,
+          briefFingerprint: researchBrief.briefFingerprint,
+          requestedModel,
+          limitProfile: ownerResearchRequirement.authorization_kind === "canary"
+            ? "canary"
+            : "creator_session",
+        });
+        const planFingerprint = fingerprintOwnerResearchPlan(ownerResearchPlan);
+        if (!paidExecutionHandle) {
+          if (!spendingAcceptance) {
+            const quote = await quoteOwnerHearthResearchOperation({
+              gate: openAiTextGate,
+              userId,
+              plan: ownerResearchPlan,
+              requestFingerprint: planFingerprint,
+            });
+            return jsonResponse(quote.funding_eligible ? 409 : 402, {
+              ok: false,
+              error: quote.funding_eligible
+                ? "Review and accept this bounded owner research commitment before search begins."
+                : "The owner research budget cannot admit this quote.",
+              code: quote.funding_eligible
+                ? "hearth_spending_confirmation_required"
+                : "hearth_owner_research_budget_required",
+              billing_quote: {
+                ...quote,
+                failure_terms: "Customer charge is $0. Incurred supplier expenses remain owner obligations; uncertain submissions are never retried automatically.",
+                estimated_customer_charge_micros: 0,
+              },
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (spendingAcceptance.requestFingerprint !== planFingerprint) {
+            return jsonResponse(409, {
+              ok: false,
+              error: "The research plan no longer matches the accepted quote.",
+              code: "paid_request_fingerprint_mismatch",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const accepted = await acceptOwnerHearthResearchOperation({
+            gate: openAiTextGate,
+            userId,
+            plan: ownerResearchPlan,
+            acceptance: spendingAcceptance,
+          });
+          paidExecutionHandle = accepted.handle;
+          model = accepted.model;
+          ownerResearchMaximumOutputTokens = accepted.maximumOutputTokens;
+          ownerResearchDeadlineAt = accepted.deadlineAt;
+          await acquireOwnerHearthResearchAdmission({ gate: openAiTextGate, reservationId: accepted.handle.reservationId });
+        } else {
+          if (paidExecutionHandle.requestFingerprint !== planFingerprint) {
+            return jsonResponse(409, {
+              ok: false,
+              error: "The research plan no longer matches the accepted operation.",
+              code: "paid_request_fingerprint_mismatch",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          model = String(ownerResearchRequirement.provider_model_id ?? model);
+          ownerResearchMaximumOutputTokens = ownerResearchPlan.maximum_output_tokens;
+          ownerResearchDeadlineAt = Date.now() + OWNER_RESEARCH_DEADLINE_MS;
+        }
+        ownerResearchFetch = createOwnerHearthResearchFetch({
+          gate: openAiTextGate,
+          handle: paidExecutionHandle,
+          deadlineAt: ownerResearchDeadlineAt,
+          plan: ownerResearchPlan,
+        });
+      }
       let researchResult: HearthResearchResult | null = null;
       if (linkModeRequested) {
         const linkSources = await Promise.all(
@@ -4341,6 +4503,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   sourceId: `link-${index + 1}`,
                   brief: researchBrief!,
                   signal: request.signal,
+                  fetchImpl: ownerResearchFetch,
                 })
               : Promise.resolve(buildMalformedCreatorCitationSource({
                   citation,
@@ -4353,16 +4516,26 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           sources: linkSources,
           brief: researchBrief!,
           creatorClaims: creatorResearchInput.claims,
+          creatorEntities: creatorResearchInput.entities,
           creatorInputTruncated: creatorResearchInput.appearsTruncated,
         });
       } else if (researchRequest && researchBrief) {
         try {
-          researchResult = await researchRuntime.run({
+          researchResult = await (ownerResearchRequirement ? ownerResearchRuntime : researchRuntime).run({
             request: researchRequest,
             brief: researchBrief,
             signal: request.signal,
+            fetchImpl: ownerResearchFetch,
           });
-        } catch {
+        } catch (error) {
+          if (error instanceof OwnerResearchSubmissionUnknownError) {
+            return jsonResponse(409, {
+              ok: false,
+              error: "A research supplier submission is unresolved. No request was repeated.",
+              code: "operation_reconciliation_required",
+              ...buildBillingSnapshot(lane),
+            });
+          }
           researchResult = {
             ...buildEmptyHearthResearchResult({
               mode: "knowledge_first",
@@ -4475,6 +4648,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             writingProfile,
             requestText,
             episodeContext.tonePreset,
+            turnDecision,
           ),
         ];
 
@@ -4671,7 +4845,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           && !readinessCheckRequested
           && !crossProjectReference.detected
           && (paidRouteCode === "hearth.chat_completion"
-            || (paidRouteCode === "hearth.research_synthesis" && linkModeRequested && Boolean(researchResult)));
+            || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
+              && (Boolean(ownerResearchRequirement) || linkModeRequested)));
         const paidFingerprintPayload = paidRouteCode === "hearth.chat_completion"
           ? {
               schema: "forge.hearth.paid-chat-request.v1",
@@ -4683,7 +4858,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               user_authored_text: requestText,
               behavior: bodyRaw.behavior ?? null,
             }
-          : {
+          : ownerResearchPlan ?? {
               schema: "forge.hearth.research-synthesis.paid.v1",
               route_code: "hearth.research_synthesis",
               workspace_id: episodeContext.workspaceId,
@@ -4706,7 +4881,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
         let paidRequirementRow: Record<string, unknown> = {};
         if (openAiTextGate) {
-          if (ownerHearthRequirement && paidRouteCode === "hearth.chat_completion") {
+          if (ownerResearchRequirement && paidRouteCode === "hearth.research_synthesis") {
+            paidRequirementRow = ownerResearchRequirement;
+          } else if (ownerHearthRequirement && paidRouteCode === "hearth.chat_completion") {
             paidRequirementRow = ownerHearthRequirement;
           } else {
             const requirement = await openAiTextGate.rpc("read_openai_execution_requirement", {
@@ -4714,47 +4891,42 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               p_credential_funding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
             });
             if (requirement.error) {
-              return jsonResponse(503, {
-                ok: false,
+              return admissionFailureResponse({
+                status: 503,
                 error: "Paid execution controls are unavailable.",
                 code: "paid_execution_control_unavailable",
-                ...buildBillingSnapshot(lane),
               });
             }
             paidRequirementRow = isRecord(requirement.data) ? requirement.data : {};
           }
           if (paidRequirementRow.mode === "halt_new" && !paidExecutionHandle) {
-            return jsonResponse(503, {
-              ok: false,
+            return admissionFailureResponse({
+              status: 503,
               error: "New paid submissions are halted while existing operations remain available for reconciliation.",
               code: "paid_submissions_halted",
-              ...buildBillingSnapshot(lane),
             });
           }
         } else if (paidExecutionHandle || spendingAcceptance) {
-          return jsonResponse(503, {
-            ok: false,
+          return admissionFailureResponse({
+            status: 503,
             error: "Paid execution controls are unavailable.",
             code: "paid_execution_control_unavailable",
-            ...buildBillingSnapshot(lane),
           });
         }
 
         if (paidRequirementRow.funding_context_required === true && !paidExecutionHandle) {
           if (!paidScopeEligible || !actualRequestFingerprint) {
-            return jsonResponse(422, {
-              ok: false,
+            return admissionFailureResponse({
+              status: 422,
               error: "The published customer price covers only a bounded ordinary Hearth chat completion.",
               code: "paid_quote_scope_mismatch",
-              ...buildBillingSnapshot(lane),
             });
           }
           if (!openAiTextGate || !userId || !bearerToken || !isUuid(episodeContext.workspaceId)) {
-            return jsonResponse(401, {
-              ok: false,
+            return admissionFailureResponse({
+              status: 401,
               error: "Authentication and paid execution controls are required.",
               code: "paid_execution_auth_required",
-              ...buildBillingSnapshot(lane),
             });
           }
           if (paidRouteCode === "hearth.research_synthesis" || paidRouteCode === "hearth.chat_completion") {
@@ -4893,13 +5065,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
             if (quoted.error || !isRecord(quoted.data)) {
               const unavailable = /not active|not configured|operation limit|expired/i.test(quoted.error?.message ?? "");
-              return jsonResponse(unavailable ? 409 : 503, {
-                ok: false,
-                error: unavailable
-                  ? "Customer-funded Hearth testing is not currently available for this account and workspace."
-                  : "A customer-safe Hearth quote could not be created.",
+              const error = unavailable
+                ? "Hearth cannot run this turn because no authorized funding source is available for this account and workspace. No provider request was sent and no charge was made."
+                : "Hearth could not verify an authorized funding source for this turn. No provider request was sent and no charge was made.";
+              return admissionFailureResponse({
+                status: unavailable ? 409 : 503,
+                error,
                 code: unavailable ? "hearth_customer_test_not_authorized" : "hearth_quote_unavailable",
-                ...buildBillingSnapshot(lane),
               });
             }
             const quote = quoted.data;
@@ -4921,12 +5093,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               provider_funding_summary: quote.provider_funding_summary,
             };
             if (funding.eligible !== true) {
-              return jsonResponse(402, {
-                ok: false,
-                error: "This account has no verified Live deposit or economically backed allowance eligible for this operation.",
+              const error = "This account has no verified Live deposit or economically backed allowance eligible for this operation. No provider request was sent and no charge was made.";
+              return admissionFailureResponse({
+                status: 402,
+                error,
                 code: "hearth_insufficient_verified_funds",
-                billing_quote: billingQuote,
-                ...buildBillingSnapshot(lane),
+                extra: { billing_quote: billingQuote },
               });
             }
             return jsonResponse(409, {
@@ -5020,8 +5192,80 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
           try {
             if (paidRouteCode === "hearth.research_synthesis") {
-              const paidResearch = await executePaidJsonOpenAiRoute({
-                gate: openAiTextGate,
+              let frozenResearchRequest: Awaited<ReturnType<typeof freezeOwnerHearthResearchSynthesis>> | undefined;
+              let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+              if (ownerResearchRequirement) {
+                if (!ownerResearchDeadlineAt || !ownerResearchMaximumOutputTokens || !ownerResearchPlan) {
+                  throw new Error("Owner research accepted authority is incomplete.");
+                }
+                const researchBytes = new TextEncoder().encode(JSON.stringify(researchResult ?? {})).byteLength;
+                if (researchBytes > 768 * 1024) {
+                  await settleOwnerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "research_package_size_exceeded",
+                    evidence: { research_bytes: researchBytes, maximum_research_bytes: 768 * 1024 },
+                  });
+                  return jsonResponse(422, {
+                    ok: false,
+                    error: "The retrieved research package exceeded its accepted persistence bound. OpenAI was not called.",
+                    code: "owner_research_package_size_exceeded",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                try {
+                  frozenResearchRequest = await freezeOwnerHearthResearchSynthesis({
+                    gate: openAiTextGate,
+                    handle: paidExecutionHandle,
+                    model: model as OwnerResearchModel,
+                    messages: completionMessages,
+                    maximumOutputTokens: ownerResearchMaximumOutputTokens,
+                    deadlineAt: ownerResearchDeadlineAt,
+                    sourceRevisionFingerprint: sha256Canonical((researchResult?.sources ?? []).map((source) => ({
+                      source_id: source.sourceId,
+                      canonical_url: source.canonicalUrl ?? source.url,
+                      extracted_text: source.extractedText,
+                      transcript: source.transcript,
+                      extraction_status: source.extractionStatus,
+                    }))),
+                    plan: ownerResearchPlan,
+                  });
+                } catch (error) {
+                  await settleOwnerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "frozen_synthesis_request_rejected",
+                    evidence: { error: error instanceof Error ? error.message : String(error) },
+                  });
+                  return jsonResponse(422, {
+                    ok: false,
+                    error: "The final synthesis request did not fit the accepted model and cost authority. OpenAI was not called.",
+                    code: "owner_research_frozen_request_rejected",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                const remainingMs = ownerResearchDeadlineAt - Date.now();
+                if (remainingMs <= 0) {
+                  await settleOwnerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "research_deadline_exhausted",
+                  });
+                  return jsonResponse(408, {
+                    ok: false,
+                    error: "The bounded research deadline expired before OpenAI submission.",
+                    code: "owner_research_deadline_exhausted",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                deadlineTimer = setTimeout(() => upstreamAbort.abort(), remainingMs);
+              }
+              let paidResearch;
+              try {
+                paidResearch = await executePaidJsonOpenAiRoute({
+                gate: ownerResearchRequirement
+                  ? ownerHearthResearchExecutionGate(openAiTextGate)
+                  : openAiTextGate,
                 routeCode: "hearth.research_synthesis",
                 handle: paidExecutionHandle,
                 userId,
@@ -5034,6 +5278,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   model: acceptedModel,
                   messages: completionMessages,
                 }),
+                frozenRequest: frozenResearchRequest,
                 signal: upstreamAbort.signal,
                 fetchImpl: config.openAiProviderFetch,
                 persist: async (value, providerPayload) => {
@@ -5041,7 +5286,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   const usage = isRecord(providerPayload.usage) ? providerPayload.usage : {};
                   const persisted = await (supabaseService.schema("tongs") as unknown as {
                     rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
-                  }).rpc("persist_hearth_research_synthesis_result", {
+                  }).rpc(ownerResearchRequirement
+                    ? "persist_owner_hearth_research_result"
+                    : "persist_hearth_research_synthesis_result", {
                     p_operation_id: paidExecutionHandle!.operationId,
                     p_reservation_id: paidExecutionHandle!.reservationId,
                     p_user_id: userId,
@@ -5052,6 +5299,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     p_input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
                     p_output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
                     p_result_json: value,
+                    ...(ownerResearchRequirement ? {
+                      p_research_result_json: researchResult,
+                      p_review_state: "ready_for_review",
+                    } : {}),
                   });
                   if (persisted.error || !isRecord(persisted.data)) throw new Error(persisted.error?.message ?? "Research synthesis persistence failed.");
                   return persisted.data;
@@ -5060,7 +5311,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   if (!supabaseService) return null;
                   const recovered = await (supabaseService.schema("tongs") as unknown as {
                     rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
-                  }).rpc("read_hearth_research_synthesis_result", {
+                  }).rpc(ownerResearchRequirement
+                    ? "read_owner_hearth_research_result"
+                    : "read_hearth_research_synthesis_result", {
                     p_operation_id: paidExecutionHandle!.operationId,
                     p_reservation_id: paidExecutionHandle!.reservationId,
                   });
@@ -5094,7 +5347,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     research_result: researchResult as unknown as Record<string, unknown>,
                   };
                 },
-              });
+                });
+              } finally {
+                if (deadlineTimer) clearTimeout(deadlineTimer);
+              }
               return jsonResponse(200, {
                 ok: true,
                 ...paidResearch.result,

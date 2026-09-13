@@ -13,6 +13,7 @@ import type { HearthOp } from "../../../hearth/src/lib/hearth-ai-ops";
 
 const LISTENING_RE = /\b(?:are you with me(?: so far)?|do you follow(?: me)?|tracking(?: with me)?|you with me)\b/i;
 const NO_EDIT_RE = /\b(?:do not|don't|dont|not asking (?:you )?to|didn't ask (?:you )?to|did not ask (?:you )?to|without)\b[^.!?\n]{0,80}\b(?:edit|change|rewrite|revise|update|apply|touch|modify|mutate)\b|\b(?:talk|discussion|discuss|conversation|explore)\b[^.!?\n]{0,80}\b(?:before|instead of|not)\b[^.!?\n]{0,40}\b(?:edit|change|rewrite|revise|update|apply)/i;
+const NO_ARTIFACT_RE = /\b(?:do not|don't|dont|not asking (?:you )?to|didn't ask (?:you )?to|did not ask (?:you )?to)\b[^.!?\n]{0,80}\b(?:write|draft|generate|create|outline)\b/i;
 const DISCUSSION_RE = /\b(?:how|what|where|whether|should|could|would)\b[^.!?\n]{0,100}\b(?:change|changes|update|revise|rewrite|move|frame|strengthen|get .* across)\b/i;
 const READINESS_RE = /\b(?:are we ready|ready to record|record now|can i record|good to record|ready for anvil|ship this|go live)\b/i;
 const RESEARCH_RE = /\b(?:browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|news|reports?|reporting|sources?|citations?|evidence|verify|fact[- ]?check|corroborat)\b/i;
@@ -21,6 +22,8 @@ const FACT_QUESTION_RE = /\b(?:who|what|when|where|why|how (?:much|many|long|oft
 const NON_RESEARCH_QUESTION_RE = /\b(?:what do you think|how does this (?:sound|read|feel)|should (?:i|we)|can (?:i|we)|help me (?:write|draft|revise|rewrite)|are you with me|do you follow)\b/i;
 const CROSS_EPISODE_RE = /\b(?:other|another|previous|prior|earlier|last)\b[^.!?\n]{0,80}\b(?:episode|project|draft|script|conversation)\b|\b(?:episode|project|draft|script|conversation)\b[^.!?\n]{0,80}\b(?:other|another|previous|prior|earlier|last)\b|\b(?:workspace)\b[^.!?\n]{0,100}\b(?:compare|reference|use|pull|find|load|open)\b|\b(?:compare|reference|use|pull|find|load|open)\b[^.!?\n]{0,100}\bworkspace\b/i;
 const NEW_SCRIPT_RE = /\b(?:write|create|make|build|give me|draft)\b[^.!?\n]{0,80}\b(?:full )?script\b|\b(?:turn|shape|make)\b[^.!?\n]{0,40}\b(?:this|that|it)\b[^.!?\n]{0,30}\binto\b[^.!?\n]{0,20}\bscript\b/i;
+const DIRECT_SCRIPT_FIX_RE = /\b(?:fix|repair|polish|tighten)\b[^.!?\n]{0,50}\b(?:this|the|my|our)?\s*script\b/i;
+const EDITORIAL_METADATA_DISCUSSION_RE = /\b(?:help me|how|what|could|should|would)\b[^.!?\n]{0,80}\b(?:tighten|improve|change|revise|shape)\b[^.!?\n]{0,40}\b(?:title|description|hook|framing)\b/i;
 
 function normalize(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -84,15 +87,15 @@ export function resolveHearthTurnDecision(args: {
     reasons.push("creator_requested_acknowledgement");
   } else {
     const explicitMode = actionMode(args.explicitAction);
-    const explicitNoEdit = NO_EDIT_RE.test(creatorText);
+    const explicitNoEdit = NO_EDIT_RE.test(creatorText) || NO_ARTIFACT_RE.test(creatorText);
     const discussion = DISCUSSION_RE.test(creatorText);
-    if (explicitMode === "script_mutate" && explicitNoEdit) {
+    if ((explicitMode === "script_mutate" || explicitMode === "script_generate" || explicitMode === "outline_generate") && explicitNoEdit) {
       mode = "conversation";
       reasons.push("creator_negated_script_mutation");
     } else if (explicitMode) {
       mode = explicitMode;
       reasons.push("explicit_ui_action");
-    } else if (explicitNoEdit || discussion) {
+    } else if (explicitNoEdit || discussion || EDITORIAL_METADATA_DISCUSSION_RE.test(creatorText)) {
       mode = "conversation";
       reasons.push(explicitNoEdit ? "creator_negated_script_mutation" : "editorial_discussion");
     } else if (READINESS_RE.test(creatorText)) {
@@ -106,7 +109,7 @@ export function resolveHearthTurnDecision(args: {
       } else if (isExplicitHearthFullScriptRequest(creatorText) && NEW_SCRIPT_RE.test(creatorText)) {
         mode = "script_generate";
         reasons.push("creator_requested_script");
-      } else if (mutation.targetsScriptBody) {
+      } else if (mutation.targetsScriptBody || DIRECT_SCRIPT_FIX_RE.test(creatorText)) {
         mode = "script_mutate";
         reasons.push("affirmative_script_mutation");
       } else if (URL_RE.test(creatorText) || RESEARCH_RE.test(creatorText)

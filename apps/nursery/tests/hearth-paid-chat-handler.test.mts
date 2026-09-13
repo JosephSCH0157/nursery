@@ -195,6 +195,95 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
   assert.equal(providerCalls, 0);
 });
 
+test("research without pricing and execution authority is explicitly unavailable before retrieval", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const routeReads: string[] = [];
+  const gateCalls: string[] = [];
+  let providerCalls = 0;
+  const config = {
+    textApiKey: "fake-forge-key",
+    imageApiKey: null,
+    researchApiKey: null,
+    apiKey: "fake-forge-key",
+    model: "gpt-5.3",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge" as const,
+    initialTokenBalance: 42,
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: null,
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: {
+      async rpc(name: string, args: Record<string, unknown>) {
+        gateCalls.push(name);
+        if (name === "read_openai_text_route_execution_requirement") {
+          const route = String(args.p_route_code ?? "");
+          routeReads.push(route);
+          return {
+            data: route === "hearth.chat_completion"
+              ? { mode: "enforce", funding_context_required: true }
+              : { mode: "inactive", funding_context_required: false },
+            error: null,
+          };
+        }
+        if (name === "create_customer_hearth_chat_quote") {
+          return {
+            data: null,
+            error: { message: "customer Hearth paid test authorization is not active" },
+          };
+        }
+        return { data: {}, error: null };
+      },
+    },
+    resolveUserIdForAccessToken: async () => USER_ID,
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      return new Response();
+    },
+  } satisfies HearthRuntimeConfig;
+  const handler = createHearthAiHandler(config);
+  const episodeContext = {
+    episodeId: "episode-1",
+    workspaceId,
+    title: "Unfamiliar certification subject",
+    titleVariants: { A: "", B: "", C: "" },
+    outline: "",
+    body: "",
+    sources: [],
+    sparks: [],
+  };
+
+  const researchResponse = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge",
+      messages: [{ role: "user", content: "check https://example.com/creator-source" }],
+      user_authored_text: "check https://example.com/creator-source",
+      explicit_action: { kind: "research" },
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: episodeContext,
+    }),
+  }));
+  const researchPayload = await researchResponse.json() as Record<string, any>;
+  assert.equal(researchResponse.status, 422, JSON.stringify(researchPayload));
+  assert.equal(researchPayload.code, "supporting_service_not_priced");
+  assert.equal(researchPayload.turn_result.decision.mode, "research");
+  assert.equal(researchPayload.turn_result.artifact, null);
+  assert.deepEqual(researchPayload.turn_result.operations, []);
+  assert.equal(researchPayload.turn_result.validation.failureKind, "admission_failure");
+  assert.match(researchPayload.turn_result.validation.message, /no active pricing and execution authority/i);
+  assert.match(researchPayload.turn_result.validation.message, /no provider request was sent/i);
+  assert.deepEqual(routeReads, []);
+  assert.equal(gateCalls.includes("quote_owner_hearth_research_operation"), false);
+  assert.equal(gateCalls.includes("authorize_owner_hearth_research_openai_attempt"), false);
+  assert.equal(providerCalls, 0);
+});
+
 test("customer quote acceptance reserves, executes, settles, closes, and replays without a second charge or provider call", async () => {
   const workspaceId = "55555555-5555-4555-8555-555555555555";
   const depositId = "66666666-6666-4666-8666-666666666666";

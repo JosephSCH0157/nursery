@@ -77,6 +77,7 @@ export type HearthResearchFinding = {
   scope?: "current_subject" | "adjacent_context";
   businessName?: string;
   businessStatus?: HearthBusinessOperatingStatus;
+  entityRole?: HearthCreatorEntityLead["entityRole"];
 };
 
 export type HearthResearchClaimProvenanceStatus =
@@ -96,6 +97,16 @@ export type HearthCreatorResearchClaim = {
   claimKind?: "budget" | "business_status";
   businessName?: string;
   businessStatus?: HearthBusinessOperatingStatus;
+  entityLead?: HearthCreatorEntityLead;
+};
+
+export type HearthCreatorEntityLead = {
+  name: string;
+  address: string | null;
+  entityRole: "customer_facing" | "office" | "venue" | "operator" | "institution" | "unknown";
+  claimedStatus: "operating" | "closed" | "unknown";
+  scope: "current_subject" | "adjacent_context";
+  sourceSpan: { start: number; end: number };
 };
 
 export type HearthBusinessOperatingStatus =
@@ -190,6 +201,7 @@ export type HearthResearchResult = {
   evidence?: HearthResearchEvidence[];
   artifact?: HearthResearchArtifact | null;
   creatorClaims?: HearthCreatorResearchClaim[];
+  creatorEntities?: HearthCreatorEntityLead[];
   creatorInputTruncated?: boolean;
   sources: HearthResearchSource[];
   synthesis: HearthResearchSynthesis;
@@ -244,6 +256,11 @@ function normalizeBusinessStatus(value: unknown): HearthBusinessOperatingStatus 
     : undefined;
 }
 
+function normalizeEntityRole(value: unknown): HearthCreatorEntityLead["entityRole"] | undefined {
+  return value === "customer_facing" || value === "office" || value === "venue"
+    || value === "operator" || value === "institution" || value === "unknown" ? value : undefined;
+}
+
 export function normalizeHearthResearchBrief(value: unknown): HearthResearchBrief | null {
   if (!isRecord(value) || value.schema !== "forge.hearth.research-brief.v1") return null;
   const workpieceId = typeof value.workpieceId === "string" ? value.workpieceId.trim() : "";
@@ -275,6 +292,7 @@ export function normalizeHearthResearchArtifact(value: unknown): HearthResearchA
     const findingStatus = entry.status;
     if (!text || (findingStatus !== "verified_fact" && findingStatus !== "reported_claim" && findingStatus !== "uncertain" && findingStatus !== "editorial_interpretation")) return [];
     const businessStatus = normalizeBusinessStatus(entry.businessStatus);
+    const entityRole = normalizeEntityRole(entry.entityRole);
     return [{
       text,
       status: findingStatus,
@@ -292,6 +310,7 @@ export function normalizeHearthResearchArtifact(value: unknown): HearthResearchA
         ? { businessName: entry.businessName.trim().slice(0, 160) }
         : {}),
       ...(businessStatus ? { businessStatus } : {}),
+      ...(entityRole ? { entityRole } : {}),
     } satisfies HearthResearchFinding];
   }).slice(0, 24) : [];
   return {
@@ -551,6 +570,30 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
   };
   const brief = normalizeHearthResearchBrief(value.brief);
   const normalizedArtifact = normalizeHearthResearchArtifact(value.artifact);
+  const normalizeCreatorEntity = (entry: unknown): HearthCreatorEntityLead | null => {
+    if (!isRecord(entry)) return null;
+    const name = typeof entry.name === "string" ? entry.name.trim().slice(0, 160) : "";
+    const role = entry.entityRole;
+    const claimedStatus = entry.claimedStatus;
+    const sourceSpan = isRecord(entry.sourceSpan) ? entry.sourceSpan : null;
+    if (!name || !(role === "customer_facing" || role === "office" || role === "venue"
+      || role === "operator" || role === "institution" || role === "unknown")) return null;
+    if (!(claimedStatus === "operating" || claimedStatus === "closed" || claimedStatus === "unknown")) return null;
+    const start = typeof sourceSpan?.start === "number" && Number.isInteger(sourceSpan.start) && sourceSpan.start >= 0
+      ? sourceSpan.start
+      : 0;
+    const end = typeof sourceSpan?.end === "number" && Number.isInteger(sourceSpan.end) && sourceSpan.end >= start
+      ? sourceSpan.end
+      : start;
+    return {
+      name,
+      address: typeof entry.address === "string" && entry.address.trim() ? entry.address.trim().slice(0, 240) : null,
+      entityRole: role,
+      claimedStatus,
+      scope: entry.scope === "adjacent_context" ? "adjacent_context" : "current_subject",
+      sourceSpan: { start, end },
+    };
+  };
   const creatorClaims: HearthCreatorResearchClaim[] = Array.isArray(value.creatorClaims)
     ? value.creatorClaims.flatMap((entry) => {
         if (!isRecord(entry)) return [];
@@ -561,6 +604,7 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
           ? entry.claimKind
           : undefined;
         const businessStatus = normalizeBusinessStatus(entry.businessStatus);
+        const entityLead = normalizeCreatorEntity(entry.entityLead);
         return [{
           claimId,
           text,
@@ -572,9 +616,13 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
             ? { businessName: entry.businessName.trim().slice(0, 160) }
             : {}),
           ...(businessStatus ? { businessStatus } : {}),
+          ...(entityLead ? { entityLead } : {}),
         } satisfies HearthCreatorResearchClaim];
       }).slice(0, 24)
     : [];
+  const creatorEntities = Array.isArray(value.creatorEntities)
+    ? value.creatorEntities.map(normalizeCreatorEntity).filter((entry): entry is HearthCreatorEntityLead => !!entry).slice(0, 48)
+    : creatorClaims.flatMap((claim) => claim.entityLead ? [claim.entityLead] : []);
   const normalizedEvidence: HearthResearchEvidence[] = Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => {
     if (!isRecord(entry)) return [];
     const evidenceId = typeof entry.evidenceId === "string" ? entry.evidenceId.trim() : "";
@@ -612,6 +660,7 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
     ...(evidence.length ? { evidence } : {}),
     ...(artifact ? { artifact } : {}),
     ...(creatorClaims.length ? { creatorClaims } : {}),
+    ...(creatorEntities.length ? { creatorEntities } : {}),
     ...(value.creatorInputTruncated === true ? { creatorInputTruncated: true } : {}),
     sources: normalizedSources,
     synthesis: normalizedSynthesis,

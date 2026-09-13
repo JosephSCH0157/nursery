@@ -55,7 +55,7 @@ export type HearthChatRequest = {
   action_id?: string;
   messages: HearthChatMessage[];
   episode_context: EpisodeContext;
-  /** Creator-authored text before UI format/tone instructions are appended. */
+  /** Exact creator-authored text. UI instructions and preferences are never appended here. */
   user_authored_text?: string;
   explicit_action?: HearthExplicitUiAction;
   output_preference?: HearthOutputPreference;
@@ -281,7 +281,8 @@ export function normalizeHearthTurnResult(value: unknown): HearthTurnResult | nu
   const validationRaw = isRecord(value.validation) ? value.validation : null;
   const failureKind = validationRaw ? readTrimmedString(validationRaw.failureKind) : null;
   const persistence = readTrimmedString(value.persistence);
-  if (!decision || !(failureKind === "none" || failureKind === "provider_failure"
+  if (!decision || !(failureKind === "none" || failureKind === "admission_failure"
+    || failureKind === "provider_failure"
     || failureKind === "invalid_model_output" || failureKind === "identity_mismatch"
     || failureKind === "persistence_failure")) return null;
   if (!(persistence === "not_attempted" || persistence === "pending" || persistence === "saved" || persistence === "failed")) return null;

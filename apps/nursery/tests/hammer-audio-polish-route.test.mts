@@ -381,6 +381,8 @@ async function main(): Promise<void> {
   process.env.HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT = "test-worker-service-token-0000000000000001";
 
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-audio-polish-route-test-"));
+  const originalFetch = globalThis.fetch;
+  let fixtureTranscodes = 0;
 
   try {
     for (const testCase of FORMAT_CASES) {
@@ -388,6 +390,28 @@ async function main(): Promise<void> {
     }
 
     const commitServer = await startCommitServer();
+    // Exercise the real remote-client path without invoking a hosted service.
+    // Only the private loopback commit server is allowed through to the network.
+    globalThis.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === "https://forge-ffmpeg.fly.dev/transcode/wav") {
+        assert.equal(init?.method, "POST");
+        assert.equal(new Headers(init?.headers).get("authorization"), "Bearer test-worker-service-token-0000000000000001");
+        assert.ok(init?.body instanceof Uint8Array);
+        fixtureTranscodes += 1;
+        const source = path.join(tempRoot, `service-input-${fixtureTranscodes}.bin`);
+        const output = path.join(tempRoot, `service-output-${fixtureTranscodes}.wav`);
+        await fsPromises.writeFile(source, init.body);
+        runCommand("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", source,
+          "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", output]);
+        return new Response(new Uint8Array(await fsPromises.readFile(output)), { headers: {
+          "content-type": "audio/wav", "x-forge-request-id": `fixture-${fixtureTranscodes}`,
+          "x-forge-output-format": "wav_pcm_s16le", "x-forge-output-sample-rate": "48000", "x-forge-output-channels": "1",
+        } });
+      }
+      if (new URL(url).origin === commitServer.origin) return originalFetch(input, init);
+      throw new Error(`Unexpected network request in isolated audio fixture: ${url}`);
+    };
     const context: HammerAudioPolishRequestContext = {
       origin: commitServer.origin,
       authorization: "Bearer test_token",
@@ -815,12 +839,15 @@ async function main(): Promise<void> {
         "wave_long.wav waveform should have nonzero peaks for audio-present input",
       );
     } finally {
+      globalThis.fetch = originalFetch;
       await commitServer.close();
     }
   } finally {
+    globalThis.fetch = originalFetch;
     await fsPromises.rm(tempRoot, { recursive: true, force: true });
   }
 
+  assert.ok(fixtureTranscodes > 0, "the remote-service fixture must actually execute");
   console.log("Hammer audio polish route tests passed.");
 }
 

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useMemo,
+  useRef,
   useState,
   type Dispatch,
   type MutableRefObject,
@@ -163,13 +164,21 @@ export function useHearthWorkpieceCollectionLoader(args: {
   setIsWorkpiecesLoading: Dispatch<SetStateAction<boolean>>;
   setWorkpiecesError: Dispatch<SetStateAction<string | null>>;
 }) {
+  const requestSequenceRef = useRef(0);
   return useCallback(async (
     overrideWorkspaceId?: string | null,
     options?: { includeArchived?: boolean },
   ): Promise<HearthWorkpieceSummary[]> => {
     const requestedWorkspace = normalizeUuid(overrideWorkspaceId ?? args.workspaceId);
-    const token = args.operationAuthority.begin("collection:workpieces");
     const activeWorkpieceId = normalizeUuid(args.workpieceId);
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
+    const isCurrentCollectionRequest = () => {
+      if (requestSequenceRef.current !== requestSequence) return false;
+      const currentScope = args.operationAuthority.readScope();
+      return normalizeUuid(currentScope.workspaceId) === requestedWorkspace
+        && normalizeUuid(currentScope.workpieceId) === activeWorkpieceId;
+    };
     const includeArchived = options?.includeArchived ?? (
       args.showArchived || Boolean(
         activeWorkpieceId
@@ -190,20 +199,18 @@ export function useHearthWorkpieceCollectionLoader(args: {
     args.setWorkpiecesError(null);
     try {
       const list = await listHearthWorkpieces(requestedWorkspace, { includeArchived });
-      if (!args.operationAuthority.commit(token, () => {
-        args.workpieceSummariesRef.current = list;
-        args.setWorkpieceSummaries(list);
-      })) return [];
+      if (!isCurrentCollectionRequest()) return [];
+      args.workpieceSummariesRef.current = list;
+      args.setWorkpieceSummaries(list);
       return list;
     } catch {
-      if (!args.operationAuthority.commit(token, () => {
-        args.workpieceSummariesRef.current = [];
-        args.setWorkpieceSummaries([]);
-        args.setWorkpiecesError("Failed to load Episodes.");
-      })) return [];
+      if (!isCurrentCollectionRequest()) return [];
+      args.workpieceSummariesRef.current = [];
+      args.setWorkpieceSummaries([]);
+      args.setWorkpiecesError("Failed to load Episodes.");
       return [];
     } finally {
-      if (args.operationAuthority.isCurrent(token)) {
+      if (isCurrentCollectionRequest()) {
         args.setIsWorkpiecesLoading(false);
       }
     }

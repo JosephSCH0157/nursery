@@ -26,6 +26,9 @@ export type HearthSourcesController = {
       hasWorkspaceIndex: boolean;
       citedSourceIds: Set<string>;
       researchResult: HearthResearchResult | null;
+      canonicalPersistence: "idle" | "loading" | "saving" | "saved" | "failed";
+      canonicalPersistenceError: string | null;
+      canonicalContentHash: string | null;
     };
   };
   commands: {

@@ -66,6 +66,7 @@
     "test:playwright:hearth-phase4": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase4.*.spec.ts",
     "test:playwright:hearth-phase5-slice1": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase5.image-map.spec.ts",
     "test:playwright:hearth-research": "playwright test -c playwright.config.ts playwright/hearth.research-isolation.spec.ts --workers=1",
+    "test:playwright:hearth-nonbillable-authority": "playwright test -c playwright.config.ts playwright/hearth.nonbillable-authority.spec.ts --workers=1",
     "test:playwright:openai-billing-evidence": "playwright test -c playwright.config.ts playwright/openai.billing-evidence-isolation.spec.ts --workers=1",
     "test:playwright:openai-seven-browser-certification": "playwright test -c playwright.config.ts playwright/openai.seven-creator-browser-certification.spec.ts --workers=1",
     "test:playwright:thumbnail-v3": "playwright test -c playwright.config.ts playwright/hearth.thumbnail-v3.spec.ts --workers=1",

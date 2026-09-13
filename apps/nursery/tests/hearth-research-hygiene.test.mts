@@ -222,7 +222,7 @@ test("authority is domain-neutral and duplicate URLs collapse", () => {
     publisher: "X",
     domain: "x.com",
     url: "https://x.com/dwntwn_orlando/status/1",
-    extractedText: "Downtown Orlando shared a current Church Street construction and business update.",
+    extractedText: "Official account managed by the Downtown Development Board shared a current construction update.",
   }), "primary_institutional");
   assert.equal(classifyResearchSourceAuthority({
     ...base,
@@ -230,7 +230,7 @@ test("authority is domain-neutral and duplicate URLs collapse", () => {
     domain: "instagram.com",
     url: "https://www.instagram.com/dwntwn_orlando/",
     extractedText: "Downtown Orlando shared a current Church Street construction and business update.",
-  }), "primary_institutional");
+  }), "reputable_secondary");
 });
 
 test("adjacent projects are visibly labeled instead of blended into the queried project", () => {

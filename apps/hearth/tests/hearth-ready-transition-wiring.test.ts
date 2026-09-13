@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
 import { commitHearthPrimaryScript } from "../src/lib/hearth-script-repo";
-import { commitPublishedScriptApprovalAuthority } from "../src/lib/hearth-script-approval-authority";
+import { commitPublishedScriptApprovalAuthority, markApprovedScriptReady } from "../src/lib/hearth-script-approval-authority";
 
 const WORKPIECE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const APPROVAL_ID = "33333333-3333-4333-8333-333333333333";
 const TRANSITION_ID = "22222222-2222-4222-8222-222222222222";
+const PREFLIGHT_ID = "44444444-4444-4444-8444-444444444444";
 const VALID_SCRIPT = "[s1]\nCanonical script.\n[/s1]\n";
 
 function response(body: unknown, status = 200): Response { return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }); }
@@ -38,7 +39,7 @@ test("working-document commit does not independently publish Ready", async () =>
   } finally { globalThis.fetch = originalFetch; restoreWindow(); }
 });
 
-test("Ready publishes the explicit immutable approval identity", async () => {
+test("approval and explicit Ready are separate and preserve preflight identity", async () => {
   const originalFetch = globalThis.fetch;
   const restoreWindow = installWindow();
   const originalCrypto = globalThis.crypto;
@@ -54,11 +55,16 @@ test("Ready publishes the explicit immutable approval identity", async () => {
     return response({ ok: true, data: { outcome: "saved", ready: { transition_id: TRANSITION_ID } } });
   }) as typeof fetch;
   try {
-    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT });
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID });
     assert.equal(result.ok, true);
+    assert.equal(requests.some((entry) => entry.url.endsWith("/ready-transition")), false);
+    if (!result.ok) return;
+    const readyResult = await markApprovedScriptReady({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, authority: result.authority, preflightReportId: PREFLIGHT_ID });
+    assert.equal(readyResult.ok, true);
     const ready = requests.find((entry) => entry.url.endsWith("/ready-transition"));
     assert.equal(ready?.body.script_approval_id, APPROVAL_ID);
-    assert.deepEqual(ready?.body.publish_evidence, { transition: "hearth.approved-script.ready.v2", script_approval_id: APPROVAL_ID, script_approval_revision: 1, script_approval_hash: scriptHash });
+    assert.equal(ready?.body.preflight_report_id, PREFLIGHT_ID);
+    assert.deepEqual(ready?.body.publish_evidence, { transition: "hearth.preflighted-script.ready.v3", script_approval_id: APPROVAL_ID, script_approval_revision: 1, script_approval_hash: scriptHash, preflight_report_id: PREFLIGHT_ID });
   } finally {
     globalThis.fetch = originalFetch;
     restoreWindow();
@@ -73,7 +79,7 @@ test("approval CAS rejects source bytes different from the creator-visible draft
     ? response({ ok: true, file_row: { revision: 21, hash_value: "a".repeat(64) } })
     : response({ ok: true, data: { current_revision: 2 } })) as typeof fetch;
   try {
-    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 3, scriptText: VALID_SCRIPT });
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 3, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID });
     assert.deepEqual(result, { ok: false, error: "The working draft changed before approval. Reload the current script and approve it deliberately." });
   } finally { globalThis.fetch = originalFetch; restoreWindow(); Object.defineProperty(globalThis, "crypto", { configurable: true, value: originalCrypto }); }
 });

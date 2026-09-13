@@ -8,19 +8,22 @@ import {
   type HearthResearchSource,
   type HearthResearchBrief,
   type HearthResearchEvidence,
-  type HearthResearchSourceAuthority,
   type HearthResearchAccessFailureReason,
   type HearthResearchSourceProvenance,
   type HearthResearchSourceType,
   type HearthTranscriptMeta,
   type HearthTranscriptSegment,
 } from "../../../hearth/src/lib/hearth-research-contract";
+import { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
+export { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
 
 export type HearthResearchRuntimeRunArgs = {
   request: HearthResearchRequest;
   brief: HearthResearchBrief;
   sourceOrigin?: "search" | "creator_url";
   signal?: AbortSignal;
+  /** Request-scoped fetch boundary used for financial admission and replay. */
+  fetchImpl?: typeof fetch;
 };
 
 export type HearthResearchRuntime = {
@@ -32,6 +35,7 @@ export type HearthExtractedUrlSourceArgs = {
   sourceId: string;
   brief: HearthResearchBrief;
   signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
 };
 
 type HearthResearchRuntimeConfig = {
@@ -71,6 +75,7 @@ const BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search";
 const MAX_FETCH_CHARS = 9_000;
 const MAX_SNIPPET_CHARS = 320;
 const FETCH_TIMEOUT_MS = 8_000;
+const MAX_FETCH_BYTES = 256 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YOUTUBE_OEMBED_URL = "https://www.youtube.com/oembed";
 const YOUTUBE_TIMEDTEXT_URL = "https://www.youtube.com/api/timedtext";
@@ -85,6 +90,43 @@ function readText(value: unknown): string | null {
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+async function readBoundedBytes(response: Response, maximumBytes = MAX_FETCH_BYTES): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel("research_response_size_exceeded").catch(() => undefined);
+        throw new Error("Research response exceeded the 256 KiB extraction limit");
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged;
+}
+
+async function readBoundedText(response: Response): Promise<string> {
+  return new TextDecoder().decode(await readBoundedBytes(response));
+}
+
+async function readBoundedJson(response: Response): Promise<unknown> {
+  const text = await readBoundedText(response);
+  return JSON.parse(text);
 }
 
 function compactWhitespace(value: string): string {
@@ -541,6 +583,7 @@ function pickYouTubeCaptionTrack(tracks: YouTubeCaptionTrack[]): YouTubeCaptionT
 async function fetchYouTubeCaptionTrackList(args: {
   url: string;
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<{ tracks: YouTubeCaptionTrack[] | null; error: string | null }> {
   const videoId = extractYouTubeVideoId(args.url);
   if (!videoId) return { tracks: [], error: null };
@@ -549,16 +592,17 @@ async function fetchYouTubeCaptionTrackList(args: {
   listUrl.searchParams.set("type", "list");
 
   try {
-    const response = await fetch(listUrl.toString(), {
+    const response = await args.fetchImpl(listUrl.toString(), {
       redirect: "follow",
       signal: args.signal,
       headers: buildBrowserLikeHeaders(),
     });
     if (!response.ok) return { tracks: null, error: `Track list returned ${response.status}` };
-    const raw = await response.text();
+    const raw = await readBoundedText(response);
     const parsed = parseYouTubeCaptionTracks(raw);
     return { tracks: parsed, error: null };
   } catch (error) {
+    rethrowFinancialBoundary(error);
     return { tracks: null, error: error instanceof Error ? error.message : "Unknown track list error" };
   }
 }
@@ -567,6 +611,7 @@ async function fetchYouTubeTranscriptVtt(args: {
   url: string;
   track: YouTubeCaptionTrack;
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<{ vtt: string | null; error: string | null }> {
   const videoId = extractYouTubeVideoId(args.url);
   if (!videoId) return { vtt: null, error: "Missing video id" };
@@ -578,17 +623,18 @@ async function fetchYouTubeTranscriptVtt(args: {
   if (args.track.name) timedText.searchParams.set("name", args.track.name);
 
   try {
-    const response = await fetch(timedText.toString(), {
+    const response = await args.fetchImpl(timedText.toString(), {
       redirect: "follow",
       signal: args.signal,
       headers: buildBrowserLikeHeaders(),
     });
     if (!response.ok) return { vtt: null, error: `Transcript returned ${response.status}` };
-    const raw = await response.text();
+    const raw = await readBoundedText(response);
     const trimmed = raw.trim();
     if (!trimmed) return { vtt: null, error: "Transcript body was empty" };
     return { vtt: trimmed, error: null };
   } catch (error) {
+    rethrowFinancialBoundary(error);
     return { vtt: null, error: error instanceof Error ? error.message : "Unknown transcript error" };
   }
 }
@@ -596,18 +642,19 @@ async function fetchYouTubeTranscriptVtt(args: {
 async function fetchYouTubeOEmbed(args: {
   url: string;
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<{ title: string | null; author: string | null; publisher: string | null } | null> {
   try {
     const oembed = new URL(YOUTUBE_OEMBED_URL);
     oembed.searchParams.set("url", args.url);
     oembed.searchParams.set("format", "json");
-    const response = await fetch(oembed.toString(), {
+    const response = await args.fetchImpl(oembed.toString(), {
       redirect: "follow",
       signal: args.signal,
       headers: buildBrowserLikeHeaders(),
     });
     if (!response.ok) return null;
-    const payload = (await response.json()) as unknown;
+    const payload = await readBoundedJson(response);
     if (!payload || typeof payload !== "object") return null;
     const record = payload as Record<string, unknown>;
     return {
@@ -615,7 +662,8 @@ async function fetchYouTubeOEmbed(args: {
       author: typeof record.author_name === "string" ? readText(record.author_name) : null,
       publisher: typeof record.provider_name === "string" ? readText(record.provider_name) : null,
     };
-  } catch {
+  } catch (error) {
+    rethrowFinancialBoundary(error);
     return null;
   }
 }
@@ -623,15 +671,16 @@ async function fetchYouTubeOEmbed(args: {
 async function fetchTweetOEmbed(args: {
   url: string;
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<{ author: string | null; publisher: string | null; extractedText: string | null } | null> {
   for (const base of TWEET_OEMBED_URLS) {
     try {
       const endpoint = new URL(base);
       endpoint.searchParams.set("url", args.url);
       endpoint.searchParams.set("omit_script", "1");
-      const response = await fetch(endpoint.toString(), { redirect: "follow", signal: args.signal });
+      const response = await args.fetchImpl(endpoint.toString(), { redirect: "follow", signal: args.signal });
       if (!response.ok) continue;
-      const payload = (await response.json()) as unknown;
+      const payload = await readBoundedJson(response);
       if (!payload || typeof payload !== "object") continue;
       const record = payload as Record<string, unknown>;
       const author = typeof record.author_name === "string" ? readText(record.author_name) : null;
@@ -643,7 +692,8 @@ async function fetchTweetOEmbed(args: {
         publisher: "X",
         extractedText,
       };
-    } catch {
+    } catch (error) {
+      rethrowFinancialBoundary(error);
       // try next provider
     }
   }
@@ -679,6 +729,13 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+function rethrowFinancialBoundary(error: unknown): void {
+  if (error instanceof Error
+    && (error.name === "OwnerResearchSubmissionUnknownError" || error.message.startsWith("owner_research_"))) {
+    throw error;
+  }
+}
+
 function classifyAccessFailure(error: string | null): HearthResearchAccessFailureReason | null {
   const value = String(error ?? "").toLowerCase();
   if (!value) return null;
@@ -706,10 +763,11 @@ async function searchWithBrave(args: {
   apiKey: string;
   request: HearthResearchRequest;
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<BraveSearchResult[]> {
   const count = Math.max(3, Math.min(12, args.request.maxSources + 2));
   const url = `${BRAVE_SEARCH_URL}?q=${encodeURIComponent(args.request.query)}&count=${count}&result_filter=web`;
-  const response = await fetch(url, {
+  const response = await args.fetchImpl(url, {
     method: "GET",
     headers: {
       Accept: "application/json",
@@ -721,7 +779,7 @@ async function searchWithBrave(args: {
   if (!response.ok) {
     throw new BraveSearchError(response.status);
   }
-  const payload = (await response.json()) as Record<string, unknown>;
+  const payload = (await readBoundedJson(response)) as Record<string, unknown>;
   const web = payload.web as Record<string, unknown> | undefined;
   const resultsRaw = Array.isArray(web?.results) ? web?.results : [];
   const normalized: BraveSearchResult[] = [];
@@ -754,6 +812,7 @@ async function searchWithBrave(args: {
 async function fetchReadableSource(args: {
   candidate: BraveSearchResult;
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<FetchOutcome> {
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => timeoutController.abort(), FETCH_TIMEOUT_MS);
@@ -789,7 +848,7 @@ async function fetchReadableSource(args: {
 
   try {
     if (sourceType === "tweet") {
-      const oembed = await fetchTweetOEmbed({ url: args.candidate.url, signal: timeoutController.signal });
+      const oembed = await fetchTweetOEmbed({ url: args.candidate.url, signal: timeoutController.signal, fetchImpl: args.fetchImpl });
       if (oembed?.extractedText) {
         return {
           ...base,
@@ -805,7 +864,7 @@ async function fetchReadableSource(args: {
       addWarning("X extraction was partial or blocked.");
     }
 
-    const response = await fetch(args.candidate.url, {
+    const response = await args.fetchImpl(args.candidate.url, {
       method: "GET",
       headers: {
         Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
@@ -826,7 +885,7 @@ async function fetchReadableSource(args: {
       };
     }
 
-    const rawText = await response.text();
+    const rawText = await readBoundedText(response);
     if (!rawText.trim()) {
       return {
         ...base,
@@ -851,7 +910,7 @@ async function fetchReadableSource(args: {
         const description = extractYouTubeDescriptionFromHtml(rawText);
         if (!description) addWarning("Description extraction unavailable.");
 
-        const oembed = await fetchYouTubeOEmbed({ url: resolvedUrl, signal: timeoutController.signal });
+        const oembed = await fetchYouTubeOEmbed({ url: resolvedUrl, signal: timeoutController.signal, fetchImpl: args.fetchImpl });
         const channelName = (oembed && oembed.author) || jsonLd.author || metaAuthor || null;
         const title = (oembed && oembed.title) || extractHtmlTitle(rawText) || base.title;
 
@@ -861,7 +920,7 @@ async function fetchReadableSource(args: {
         let transcriptAvailable = false;
         let ingestMode: FetchOutcome["ingestMode"] = "metadata_only";
 
-        const listResult = await fetchYouTubeCaptionTrackList({ url: resolvedUrl, signal: timeoutController.signal });
+        const listResult = await fetchYouTubeCaptionTrackList({ url: resolvedUrl, signal: timeoutController.signal, fetchImpl: args.fetchImpl });
         if (listResult.error) {
           addWarning("Transcript retrieval failed.");
           transcriptMeta = { language: null, isAutoGenerated: null, source: "unknown" };
@@ -878,7 +937,7 @@ async function fetchReadableSource(args: {
             ingestMode = "metadata_only";
           } else {
             if (track.isAutoGenerated) addWarning("Captions appear auto-generated.");
-            const vttResult = await fetchYouTubeTranscriptVtt({ url: resolvedUrl, track, signal: timeoutController.signal });
+            const vttResult = await fetchYouTubeTranscriptVtt({ url: resolvedUrl, track, signal: timeoutController.signal, fetchImpl: args.fetchImpl });
             if (vttResult.error || !vttResult.vtt) {
               addWarning("Transcript retrieval failed.");
               transcriptMeta = { language: track.lang, isAutoGenerated: track.isAutoGenerated, source: "unknown" };
@@ -989,6 +1048,7 @@ async function fetchReadableSource(args: {
       extractionError: `Unsupported content type: ${contentType || "unknown"}`,
     };
   } catch (error) {
+    rethrowFinancialBoundary(error);
     if (isAbortError(error)) {
       return {
         ...base,
@@ -1021,7 +1081,7 @@ export async function extractUrlToResearchSource(
     publishedAt: null,
   };
 
-  const outcome = await fetchReadableSource({ candidate, signal: args.signal });
+  const outcome = await fetchReadableSource({ candidate, signal: args.signal, fetchImpl: args.fetchImpl ?? fetch });
   const bestUrl = outcome.canonicalUrl || outcome.resolvedUrl || candidate.url;
   const domain = parseDomain(bestUrl) || candidate.domain;
 
@@ -1063,27 +1123,6 @@ export async function extractUrlToResearchSource(
   };
 }
 
-export function classifyResearchSourceAuthority(source: HearthResearchSource): HearthResearchSourceAuthority {
-  const identity = `${source.domain ?? ""} ${source.publisher ?? ""} ${source.title ?? ""}`.toLowerCase();
-  const inspectedContent = [source.extractedText, source.transcript, source.snippet]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (
-    source.extractionStatus !== "extracted"
-    || !inspectedContent
-    || /^(?:place viewer|search viewer|map viewer|google maps|view larger map|loading)[.!]?$/i.test(inspectedContent)
-  ) return "unassessed";
-  const identityAndEvidence = `${identity} ${inspectedContent.slice(0, 600).toLowerCase()}`;
-  if (/\b(?:wikipedia|wikimedia|wikiquote|britannica|encyclop(?:a)?edia)\b/.test(identity)) return "general_reference";
-  if (/\.gov\b|\b(city of|county of|state of|department of|agency|commission|authority|public records?)\b/.test(identity)) return "primary_government";
-  if (/\.edu\b|\b(university|college|journal|doi|peer.review|research institute)\b/.test(identity)) return "scholarly_technical";
-  if (/(?:^|[^a-z0-9_])@?dwntwn_orlando\b|\bdowntown development board\b|\bofficial downtown orlando\b/.test(identityAndEvidence)) return "primary_institutional";
-  if (/\b(official|corporation|company|foundation|association|board|operator|developer)\b/.test(identity)) return "primary_institutional";
-  if (/\b(visit|tourism|lifestyle|promotion|sponsored|advertorial|generic facts)\b/.test(identity)) return "promotional_general";
-  return "reputable_secondary";
-}
 
 async function inspectResearchCandidate(args: {
   candidate: BraveSearchResult;
@@ -1091,9 +1130,10 @@ async function inspectResearchCandidate(args: {
   brief: HearthResearchBrief;
   sourceOrigin: HearthResearchSourceProvenance["origin"];
   signal?: AbortSignal;
+  fetchImpl: typeof fetch;
 }): Promise<HearthResearchSource> {
   const retrievedAt = new Date().toISOString();
-  const outcome = await fetchReadableSource({ candidate: args.candidate, signal: args.signal });
+  const outcome = await fetchReadableSource({ candidate: args.candidate, signal: args.signal, fetchImpl: args.fetchImpl });
   const bestUrl = outcome.canonicalUrl || outcome.resolvedUrl || args.candidate.url;
   const domain = parseDomain(bestUrl) || args.candidate.domain;
   return {
@@ -1330,11 +1370,13 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
             apiKey: braveApiKey,
             request: { ...args.request, query, maxSources: args.request.maxSources },
             signal: args.signal,
+            fetchImpl: args.fetchImpl ?? fetch,
           });
           candidates.push(...queryCandidates);
           if (candidates.length >= args.request.maxSources * 2) break;
         }
       } catch (error) {
+        rethrowFinancialBoundary(error);
         providerError = error;
         if (isAbortError(error)) {
           return withBrief(buildEmptyHearthResearchResult({
@@ -1397,6 +1439,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           brief: args.brief,
           sourceOrigin: args.sourceOrigin ?? "search",
           signal: args.signal,
+          fetchImpl: args.fetchImpl ?? fetch,
         }));
       }
 
@@ -1428,6 +1471,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
             apiKey: braveApiKey,
             request: { ...args.request, query: refinementQueries[index], maxSources: Math.min(args.request.maxSources, 3) },
             signal: args.signal,
+            fetchImpl: args.fetchImpl ?? fetch,
           });
           const candidate = refinementCandidates.find((item) => !knownUrls.has(canonicalizeResearchUrl(item.url)));
           if (!candidate) continue;
@@ -1438,8 +1482,10 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
             brief: args.brief,
             sourceOrigin: args.sourceOrigin ?? "search",
             signal: args.signal,
+            fetchImpl: args.fetchImpl ?? fetch,
           }));
         } catch (error) {
+          rethrowFinancialBoundary(error);
           if (isAbortError(error)) break;
         }
       }

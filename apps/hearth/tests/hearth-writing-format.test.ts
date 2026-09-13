@@ -61,7 +61,7 @@ test("hearthWritingFormat: remembered default roundtrips through local storage",
   });
 });
 
-test("hearthWritingFormat: explore-and-expand is the default request lane", () => {
+test("hearthWritingFormat: explore-and-expand preference never augments creator text", () => {
   const resolved = resolveHearthWritingFormatRequest({
     requestContent: "Help me shape this opening.",
     selectedFormat: "explore_expand",
@@ -70,11 +70,10 @@ test("hearthWritingFormat: explore-and-expand is the default request lane", () =
 
   assert.equal(resolved.appliedFormat, "explore_expand");
   assert.equal(resolved.source, "default");
-  assert.match(resolved.requestContent, /explore and expand the content before drafting/i);
-  assert.match(resolved.requestContent, /do not write a full script or bullet outline unless the user explicitly asks/i);
+  assert.equal(resolved.requestContent, "Help me shape this opening.");
 });
 
-test("hearthWritingFormat: default requests add tone and selected format guidance", () => {
+test("hearthWritingFormat: output preferences remain separate from creator text", () => {
   const resolved = resolveHearthWritingFormatRequest({
     requestContent: "Help me shape this opening.",
     selectedFormat: "bullet_outline",
@@ -83,12 +82,10 @@ test("hearthWritingFormat: default requests add tone and selected format guidanc
 
   assert.equal(resolved.appliedFormat, "bullet_outline");
   assert.equal(resolved.source, "default");
-  assert.match(resolved.requestContent, /creative operations partner/i);
-  assert.match(resolved.requestContent, /concise bullet outline/i);
-  assert.match(resolved.requestContent, /do not write the full script unless the user explicitly asks/i);
+  assert.equal(resolved.requestContent, "Help me shape this opening.");
 });
 
-test("hearthWritingFormat: full-script preference stays planning-first until asked", () => {
+test("hearthWritingFormat: full-script preference does not create drafting intent", () => {
   const resolved = resolveHearthWritingFormatRequest({
     requestContent: "Help me shape this opening.",
     selectedFormat: "full_script",
@@ -97,9 +94,7 @@ test("hearthWritingFormat: full-script preference stays planning-first until ask
 
   assert.equal(resolved.appliedFormat, "full_script");
   assert.equal(resolved.source, "default");
-  assert.match(resolved.requestContent, /do not draft the script preemptively/i);
-  assert.match(resolved.requestContent, /ask whether they want you to turn the current thinking into a full script/i);
-  assert.doesNotMatch(resolved.requestContent, /smooth spoken prose/i);
+  assert.equal(resolved.requestContent, "Help me shape this opening.");
 });
 
 test("hearthWritingFormat: explicit or shortcut requests do not force extra format instructions", () => {
@@ -110,7 +105,7 @@ test("hearthWritingFormat: explicit or shortcut requests do not force extra form
   });
   assert.equal(explicit.appliedFormat, "full_script");
   assert.equal(explicit.source, "message");
-  assert.doesNotMatch(explicit.requestContent, /concise bullet outline/i);
+  assert.equal(explicit.requestContent, "Turn this into a full script.");
 
   const shortcut = resolveHearthWritingFormatRequest({
     requestContent: buildWritingFormatShortcutPrompt("bullet_outline"),
@@ -119,8 +114,7 @@ test("hearthWritingFormat: explicit or shortcut requests do not force extra form
   });
   assert.equal(shortcut.appliedFormat, "bullet_outline");
   assert.equal(shortcut.source, "message");
-  assert.match(shortcut.requestContent, /creative operations partner/i);
-  assert.doesNotMatch(shortcut.requestContent, /smooth spoken prose/i);
+  assert.equal(shortcut.requestContent, buildWritingFormatShortcutPrompt("bullet_outline"));
 });
 
 test("hearthWritingFormat: explicit script detection requires a real drafting ask", () => {
@@ -130,7 +124,7 @@ test("hearthWritingFormat: explicit script detection requires a real drafting as
   assert.equal(isExplicitHearthFullScriptRequest("The script feels too stiff."), false);
 });
 
-test("hearthWritingFormat: single-person requests inject true narrative rewrite guidance", () => {
+test("hearthWritingFormat: single-person wording is preserved for server-owned intent", () => {
   const resolved = resolveHearthWritingFormatRequest({
     requestContent: "Make this a single-person Anvil-readable script.",
     selectedFormat: "full_script",
@@ -138,7 +132,5 @@ test("hearthWritingFormat: single-person requests inject true narrative rewrite 
   });
 
   assert.equal(resolved.appliedFormat, "full_script");
-  assert.match(resolved.requestContent, /single-person rewrite requirement/i);
-  assert.match(resolved.requestContent, /one host voice/i);
-  assert.match(resolved.requestContent, /do not satisfy this by only changing speaker tags/i);
+  assert.equal(resolved.requestContent, "Make this a single-person Anvil-readable script.");
 });

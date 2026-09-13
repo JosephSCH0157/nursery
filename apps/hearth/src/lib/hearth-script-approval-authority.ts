@@ -13,9 +13,24 @@ export type PublishedScriptApprovalAuthority = Readonly<{
   disposition: "committed" | "no_change";
 }>;
 
+export async function readPublishedScriptApprovalAuthority(workpieceId: string): Promise<PublishedScriptApprovalAuthority | null> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/script-approval`, { method: "GET" });
+  const body = await json(response);
+  const root = record(body) && body.ok === true && record(body.data) ? body.data : null;
+  const approval = root && record(root.current_approval) ? root.current_approval : null;
+  if (!response.ok || !approval) return null;
+  const approvalId = typeof approval.id === "string" ? approval.id : "";
+  const approvalRevision = Number(approval.approval_revision);
+  const contentHash = typeof approval.script_content_hash === "string" ? approval.script_content_hash : "";
+  const sourceFileRevision = Number(approval.source_file_revision);
+  return approvalId && Number.isInteger(approvalRevision) && Number.isInteger(sourceFileRevision) && /^[a-f0-9]{64}$/.test(contentHash)
+    ? { approvalId, approvalRevision, contentHash, sourceFileRevision, disposition: "no_change" }
+    : null;
+}
+
 export async function commitPublishedScriptApprovalAuthority(args: {
-  workpieceId: string; workspaceId: string; creatorVersion: number; scriptText: string; operationId?: string;
-}): Promise<{ ok: true; authority: PublishedScriptApprovalAuthority; readyTransitionId: string } | { ok: false; error: string }> {
+  workpieceId: string; workspaceId: string; creatorVersion: number; scriptText: string; preflightReportId: string; operationId?: string;
+}): Promise<{ ok: true; authority: PublishedScriptApprovalAuthority } | { ok: false; error: string }> {
   const projectionResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/script-approval`, { method: "GET" });
   const projectionBody = await json(projectionResponse);
   if (!projectionResponse.ok || !record(projectionBody) || projectionBody.ok !== true || !record(projectionBody.data)) return { ok: false, error: "Canonical script approval state could not be read." };
@@ -32,7 +47,7 @@ export async function commitPublishedScriptApprovalAuthority(args: {
 
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/script-approval`, {
     method: "POST",
-    json: { workspace_id: args.workspaceId, expected_current_revision: expectedApprovalRevision, expected_source_file_revision: expectedSourceRevision, expected_source_content_hash: expectedSourceHash, creator_version_label: `v${args.creatorVersion}`, operation_id: args.operationId ?? `forge:script-approval:hearth:${args.workpieceId}:${expectedSourceRevision}:${expectedSourceHash.slice(0, 24)}` },
+    json: { workspace_id: args.workspaceId, expected_current_revision: expectedApprovalRevision, expected_source_file_revision: expectedSourceRevision, expected_source_content_hash: expectedSourceHash, creator_version_label: `v${args.creatorVersion}`, preflight_report_id: args.preflightReportId, operation_id: args.operationId ?? `forge:script-approval:hearth:${args.workpieceId}:${expectedSourceRevision}:${expectedSourceHash.slice(0, 24)}` },
   });
   const body = await json(response);
   if (!response.ok || !record(body) || body.ok !== true || !record(body.data)) {
@@ -50,15 +65,24 @@ export async function commitPublishedScriptApprovalAuthority(args: {
     return { ok: false, error };
   }
 
+  return { ok: true, authority: { approvalId, approvalRevision, contentHash, sourceFileRevision, disposition } };
+}
+
+export async function markApprovedScriptReady(args: {
+  workpieceId: string;
+  workspaceId: string;
+  authority: PublishedScriptApprovalAuthority;
+  preflightReportId: string;
+}): Promise<{ ok: true; readyTransitionId: string } | { ok: false; error: string }> {
   const readyResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/ready-transition`, {
     method: "POST",
-    json: { workspace_id: args.workspaceId, script_approval_id: approvalId, idempotency_key: `hearth-approved-ready:${args.workpieceId}:${approvalId}`, publish_evidence: { transition: "hearth.approved-script.ready.v2", script_approval_id: approvalId, script_approval_revision: approvalRevision, script_approval_hash: contentHash } },
+    json: { workspace_id: args.workspaceId, script_approval_id: args.authority.approvalId, preflight_report_id: args.preflightReportId, idempotency_key: `hearth-preflighted-ready:${args.workpieceId}:${args.authority.approvalId}`, publish_evidence: { transition: "hearth.preflighted-script.ready.v3", script_approval_id: args.authority.approvalId, script_approval_revision: args.authority.approvalRevision, script_approval_hash: args.authority.contentHash, preflight_report_id: args.preflightReportId } },
   });
   const readyBody = await json(readyResponse);
   const readyData = record(readyBody) && record(readyBody.data) ? readyBody.data : null;
   const ready = readyData && record(readyData.ready) ? readyData.ready : null;
   const readyOutcome = typeof readyData?.outcome === "string" ? readyData.outcome : "";
   const readyTransitionId = typeof ready?.transition_id === "string" ? ready.transition_id : "";
-  if (!readyResponse.ok || (readyOutcome !== "saved" && readyOutcome !== "duplicate") || !readyTransitionId) return { ok: false, error: "The script was approved, but it could not enter Ready. Retry publishing this approved version." };
-  return { ok: true, authority: { approvalId, approvalRevision, contentHash, sourceFileRevision, disposition }, readyTransitionId };
+  if (!readyResponse.ok || (readyOutcome !== "saved" && readyOutcome !== "duplicate") || !readyTransitionId) return { ok: false, error: "The approved script could not enter Ready because its reviewed preflight is stale or incomplete." };
+  return { ok: true, readyTransitionId };
 }

@@ -48,6 +48,7 @@ class MockMatrixBackend {
   public failDeduction = false;
   public chatTemperature400Once = false;
   public policyReply: PolicyReply = "allow";
+  public scriptReply: string | null = null;
 
   private readonly originalFetch: typeof fetch;
   private chatTemperature400Used = false;
@@ -78,8 +79,8 @@ class MockMatrixBackend {
               message: {
                 content: JSON.stringify({
                   assistantText: "Money-path matrix response.",
-                  ops: [],
-                  scriptText: null,
+                  ops: this.scriptReply ? [{ op: "set_body", value: this.scriptReply }] : [],
+                  scriptText: this.scriptReply,
                   tagAudit: null,
                 }),
               },
@@ -553,6 +554,7 @@ async function runTest6DuplicateActionRetryNoDoubleCharge(): Promise<void> {
 
 async function runTest7CurrentGpt5RequestShape(): Promise<void> {
   const backend = new MockMatrixBackend();
+  backend.scriptReply = "Welcome to the Forge. Today we will verify our runtime contracts before recording, so each step has a clear input, a reliable output, and a recovery path when something goes wrong.";
   backend.install();
   try {
     const handler = createHearthAiHandler(buildHearthConfig({ model: "gpt-5.3" }));
@@ -575,6 +577,9 @@ async function runTest7CurrentGpt5RequestShape(): Promise<void> {
     const payload = await response.json() as Record<string, unknown>;
     assert.equal(payload.ok, true);
     assert.equal(backend.chatCalls, 1);
+    const bodyOp = (payload.ops as Array<{ op: string; value: string }>).find((op) => op.op === "set_body");
+    assert.ok(bodyOp, "the substantive provider fixture must produce a validated script operation");
+    assert.equal(bodyOp.value.replace(/^\[\/?s\d+\]$/gm, "").replace(/\s+/g, " ").trim(), backend.scriptReply);
   } finally {
     backend.restore();
   }
