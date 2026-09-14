@@ -4659,21 +4659,9 @@ export default function HearthShell({
     activeWorkpieceIsArchived,
     workspaceId,
     workpieceId,
-    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
+    isSaving,
     setError,
-    setScriptValidation,
-    evaluateScriptValidation,
-    buildValidationReport,
-    buildPersistedValidationMeta,
     buildOpenInAnvilHref: () => openInAnvilHref,
-    persistDraft,
-    publishPrimaryScript: async ({ episodeId, scriptText, validatorVersion }) => {
-      const published = await commitHearthPrimaryScript(episodeId, scriptText, { validatorVersion });
-      return {
-        ok: published.ok,
-        status: "status" in published ? published.status : undefined,
-      };
-    },
     flushChatHistoryNow,
     operationAuthority,
   });
