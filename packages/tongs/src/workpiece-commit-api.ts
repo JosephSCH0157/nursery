@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { coordinateCleanupReview, CleanupReviewError } from "./hammer-cleanup-review-coordinator.js";
+import type { CleanupGenerator } from "./hammer-cleanup-review-contract.js";
 import type { Database, Json } from "./db.types.js";
 import {
   unzlibSync as fflateUnzlibSync,
@@ -2453,6 +2455,7 @@ export type DeleteReadyScriptResult = {
 };
 
 export type TongsCommitApiOptions = {
+  cleanupReviewGenerator?: CleanupGenerator;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   bucket?: string;
@@ -2944,6 +2947,7 @@ function asRunwayTransportError(error: unknown): {
 }
 
 export type TongsCommitApiService = {
+  cleanupReview?: TongsCommitService["cleanupReview"];
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(
     workpieceId: string,
@@ -9356,6 +9360,7 @@ export class TongsCommitService {
   readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
   readonly unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null;
   readonly openAiTextGate: OpenAiTextGateClient;
+  readonly cleanupReviewGenerator: CleanupGenerator | undefined;
 
   readonly userClientFactory:
     | ((accessToken: string) => SupabaseClient<Database>)
@@ -9375,8 +9380,10 @@ export class TongsCommitService {
     unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null = null,
     runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null = null,
     openAiTextGate?: OpenAiTextGateClient,
+    cleanupReviewGenerator?: CleanupGenerator,
   ) {
     this.supabase = supabase;
+    this.cleanupReviewGenerator = cleanupReviewGenerator;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
@@ -9401,6 +9408,35 @@ export class TongsCommitService {
         return candidate.schema("tongs").rpc(name, args);
       },
     };
+  }
+
+  async cleanupReview(workspace: string, workpiece: string, revision: string, action: "read" | "discard", input: Record<string, unknown>, token: string) {
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspace, action === "read" ? "viewer" : "editor", token);
+    if (!this.cleanupReviewGenerator) throw new HttpError(503, "cleanup_review_unavailable", "Cleanup review verification is unavailable.");
+    const schema = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    try {
+      return await coordinateCleanupReview({ actor: auth.userId, workspace, workpiece, revision, action, input, generate: this.cleanupReviewGenerator, store: {
+        rpc: async (name, args) => {
+          const result = await schema.rpc(name, args);
+          if (result.error) throw new HttpError(result.error.code === "42501" ? 403 : 409, "cleanup_review_authority_rejected", result.error.message);
+          return result.data;
+        },
+        download: async (bucket, key) => {
+          const result = await this.supabase.storage.from(bucket).download(key);
+          if (result.error || !result.data) throw new HttpError(409,"cleanup_review_material_unavailable","Canonical transcript is unavailable.");
+          return new Uint8Array(await result.data.arrayBuffer());
+        },
+        decisions: async (w,p,r,basis) => {
+          const result = await schema.from("hammer_cleanup_review_decisions").select("decision,contract_version,basis_fingerprint,candidate_fingerprint")
+            .eq("workspace_id",w).eq("workpiece_id",p).eq("recording_revision_id",r).eq("basis_fingerprint",basis);
+          if (result.error) throw new HttpError(409,"cleanup_review_read_failed","Cleanup decisions could not be loaded.");
+          return (result.data ?? []) as Record<string, unknown>[];
+        },
+      }});
+    } catch (error) {
+      if (error instanceof CleanupReviewError) throw new HttpError(error.status,error.code,error.message);
+      throw error;
+    }
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -35194,6 +35230,7 @@ export function createTongsCommitService(
         supabase.schema("tongs") as unknown as UntypedTongsSchemaClient,
       ),
     options.openAiTextGate,
+    options.cleanupReviewGenerator,
   );
 }
 
@@ -41962,6 +41999,15 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: { truth: result } });
       }
 
+      if (parts.length === 10 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces" && parts[5] === "hammer" && parts[6] === "revisions" && parts[8] === "cleanup-review" && (parts[9] === "read" || parts[9] === "discard")) {
+        requireMethod(request, "POST");
+        const token = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        if (JSON.stringify(body).length > 16384) throw new HttpError(413,"cleanup_review_request_too_large","Cleanup request is too large.");
+        if (!service.cleanupReview) throw new HttpError(503,"cleanup_review_unavailable","Cleanup review authority is unavailable.");
+        const data = await service.cleanupReview(normalizeUuid(parts[2],"workspace_id"), normalizeUuid(parts[4],"workpiece_id"), normalizeUuid(parts[7],"revision_id"), parts[9], body, token);
+        return jsonResponse(200, { ok: true, data });
+      }
       throw new HttpError(404, "not_found", "Endpoint not found");
     } catch (error) {
       const httpLike = toHttpLikeError(error);

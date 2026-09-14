@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createClient } from "@supabase/supabase-js";
+import { generateCanonicalCleanupCandidates } from "../server/tongs/hammer-cleanup-review-generator";
 import type { Database } from "../../../packages/tongs/src/db.types.ts";
 import { handleHammerShortsAuthorityRequest } from "../../../packages/tongs/src/hammer-shorts-authority.ts";
 // Use the workspace source in dev so new Tongs routes are available after a Vite restart
@@ -102,6 +103,7 @@ export function resolveNurseryTongsProviderBoundary(
   };
   const options: TongsCommitApiOptions = {
     ...config.options,
+    cleanupReviewGenerator: generateCanonicalCleanupCandidates,
     // Nursery owns provider construction. Removing the key from the downstream
     // options makes the Vite-sensitive lazy fallback impossible in this process.
     runwayApiKey: undefined,
