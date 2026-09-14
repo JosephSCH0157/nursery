@@ -10,14 +10,19 @@ export type HearthFocusHandoff = {
 };
 
 export class HearthDiscoveryError extends HearthDependencyError {
+  readonly reason: "transport" | "timeout" | "temporary_service" | "terminal";
+  readonly code?: string;
+
   constructor(
     message: string,
-    readonly reason: "transport" | "timeout" | "temporary_service" | "terminal",
+    reason: "transport" | "timeout" | "temporary_service" | "terminal",
     status?: number,
-    readonly code?: string,
+    code?: string,
     cause?: unknown,
   ) {
     super({ dependency: "workpieces", kind: reason === "temporary_service" ? "unavailable" : "failed", message, status, cause });
+    this.reason = reason;
+    this.code = code;
   }
 }
 
