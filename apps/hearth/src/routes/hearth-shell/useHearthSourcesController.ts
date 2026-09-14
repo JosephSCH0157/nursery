@@ -2,7 +2,7 @@ import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import { useSourcesState } from "../../hooks/useSourcesState";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import { selectActiveHearthResearchResult, type ScopedHearthResearchResult } from "../../lib/hearth-research-scope";
-import SourcesView from "../../views/SourcesView";
+import HearthSourcesPresentation from "./HearthSourcesPresentation";
 import {
   buildHearthSourceNotes,
   deriveHearthSourcesLoadStatus,
@@ -134,7 +134,7 @@ export function useHearthSourcesController({
       render: () => createElement(
         "section",
         { className: "hs-sources-view" },
-        createElement(SourcesView, {
+        createElement(HearthSourcesPresentation, {
           state: sources,
           workspaceId,
           workpieceId,
