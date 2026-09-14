@@ -10,6 +10,291 @@ import { deflateSync } from "node:zlib";
 
 const registryJsonSha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+// Real HTTP routing and lifecycle service, with deterministic canonical file IO
+// and conditional database writes. No provider, live database or wall-clock races.
+function thumbnailReconciliationFixture({ pointer = null, acknowledged = false, attached = false, stored = Buffer.from("thumbnail"), kind = "thumbnail_image" } = {}) {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const assetId = "55555555-5555-4555-8555-555555555555";
+  const referencePointer = "/episode/thumbnail/base_versions/0/asset_id";
+  const document = { episode: { thumbnail: { base_versions: [{ asset_id: assetId }] } } };
+  let revision = 1;
+  const timestamp = () => `2026-09-13T00:00:${String(revision++).padStart(2, "0")}.000Z`;
+  const row = {
+    id: assetId, workspace_id: workspaceId, workpiece_id: workpieceId,
+    asset_kind: kind, status: "pending", operation_id: "66666666-6666-4666-8666-666666666666",
+    operation_fingerprint: "a".repeat(64), content_hash: registryJsonSha256(Buffer.from("thumbnail")),
+    path: "assets/thumbnails/fixture.png", mime_type: "image/png", bytes: 9,
+    storage_bucket: "forge-workpieces", storage_key: "fixture", updated_at: timestamp(),
+    created_at: "2000-01-01T00:00:00.000Z", reference_committed_at: acknowledged ? timestamp() : null,
+    ready_at: null, failed_at: null, failure_code: null, failure_message: null,
+    metadata_json: { reference_pointer: pointer, provenance: { immutable: "fixture" } },
+  };
+  const state = { row, metadata: attached ? structuredClone(document) : {}, metadataRevision: timestamp(), writes: [], commits: [], settlements: [], downloads: [], beforeWrite: null, afterCommit: null, failWrite: false };
+  const supabase = {
+    schema(name) {
+      assert.equal(name, "tongs");
+      return { from(table) {
+        if (table === "workpiece_files") return {
+          select() { return this; }, eq() { return this; },
+          async maybeSingle() { return { data: { updated_at: state.metadataRevision }, error: null }; },
+        };
+        assert.equal(table, "assets");
+        const filters = []; let patch;
+        const query = {
+          select() { return this; },
+          eq(key, value) { filters.push((candidate) => candidate[key] === value); return this; },
+          in(key, values) { filters.push((candidate) => values.includes(candidate[key])); return this; },
+          update(value) { patch = value; return this; },
+          async execute(single) {
+            if (patch && state.beforeWrite) await state.beforeWrite(patch);
+            if (patch && state.failWrite) return { data: null, error: { message: "fixture write unavailable" } };
+            const matches = filters.every((filter) => filter(row));
+            if (matches && patch) {
+              state.writes.push(structuredClone(patch));
+              Object.assign(row, structuredClone(patch), { updated_at: timestamp() });
+            }
+            return { data: single ? (matches ? structuredClone(row) : null) : (matches ? [structuredClone(row)] : []), error: null };
+          },
+          maybeSingle() { return this.execute(true); },
+          single() { return this.execute(true); },
+          then(resolve, reject) { return this.execute(false).then(resolve, reject); },
+        };
+        return query;
+      } };
+    },
+    storage: { from() { return { async download(key) {
+      state.downloads.push(key);
+      return stored === null ? { data: null, error: { message: "not found", statusCode: 404 } } : { data: new Blob([stored]), error: null };
+    } }; } },
+  };
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getCradleOrThrow = async () => ({ id: workpieceId, workspace_id: workspaceId });
+  service.resolveUserIdFromAccessToken = async (token) => token === "authorized" ? "fixture-editor" : null;
+  service.resolveWorkspaceRoleForUser = async () => "editor";
+  service.readWorkpieceJson = async () => ({ found: state.metadata !== null, data: structuredClone(state.metadata), file_row: { updated_at: state.metadataRevision } });
+  service.commitFile = async (_workpieceId, input) => {
+    assert.equal(input.expected_previous_updated_at, state.metadataRevision, "metadata CAS must be retained");
+    state.commits.push(structuredClone(input));
+    state.metadata = structuredClone(input.json);
+    state.metadataRevision = timestamp();
+    if (state.afterCommit) await state.afterCommit();
+    return { file_row: { updated_at: state.metadataRevision } };
+  };
+  service.recoverPaidImageSettlement = async (id, receipt) => state.settlements.push({ id, receipt });
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const post = async (action, body = {}, token = "authorized") => {
+    const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/${action}`, {
+      method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": `Bearer ${token}` },
+      body: JSON.stringify({ workspace_id: workspaceId, ...body }),
+    }));
+    return { status: response.status, body: await response.json() };
+  };
+  const attach = () => post("commit-reference", { asset_id: assetId, reference_pointer: referencePointer, metadata_document: document, expected_metadata_updated_at: state.metadataRevision });
+  return { state, service, post, attach, document, referencePointer, assetId, workspaceId, workpieceId };
+}
+
+function thumbnailBarrier() {
+  let enter, release;
+  const entered = new Promise((resolve) => { enter = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  return { entered, release, async wait() { enter(); await held; } };
+}
+
+test("thumbnail reconciliation leaves ancient unacknowledged staging pending, with or without intended pointers", async () => {
+  for (const pointer of [null, "/episode/thumbnail/base_versions/0/asset_id"]) {
+    for (const metadata of [null, {}, { episode: { thumbnail: { base_versions: [{ asset_id: "another-asset" }] } } }]) {
+      const f = thumbnailReconciliationFixture({ pointer });
+      f.state.metadata = metadata;
+      const before = structuredClone(f.state.row);
+      const result = await f.post("reconcile");
+      assert.equal(result.status, 200);
+      assert.equal(result.body.data.reconciled_count, 0);
+      assert.deepEqual(f.state.row, before);
+      assert.equal(f.state.writes.length + f.state.settlements.length + f.state.downloads.length, 0);
+    }
+  }
+});
+
+test("thumbnail reconciliation recovers lost attachment acknowledgements and settles exactly once", async () => {
+  for (const pointer of [null, "/episode/thumbnail/base_versions/0/asset_id"]) {
+    const f = thumbnailReconciliationFixture({ pointer, attached: true });
+    assert.equal((await f.post("reconcile")).status, 200);
+    assert.equal(f.state.row.status, "ready");
+    assert.equal(f.state.row.reference_committed_at, f.state.metadataRevision);
+    assert.equal(f.state.row.metadata_json.reference_pointer, f.referencePointer);
+    assert.deepEqual(f.state.row.metadata_json.provenance, { immutable: "fixture" });
+    assert.equal(f.state.writes.length, 2);
+    assert.equal(f.state.settlements.length, 1);
+    assert.equal((await f.post("reconcile")).body.data.reconciled_count, 0);
+    assert.equal((await f.attach()).status, 200);
+    assert.equal(f.state.commits.length, 0);
+    assert.equal(f.state.writes.length, 2);
+    assert.equal(f.state.settlements.length, 1);
+  }
+});
+
+test("thumbnail reconciliation preserves authoritative integrity failures and never settles them", async () => {
+  const cases = [
+    { metadata: null, code: "package_reference_missing" },
+    { metadata: {}, code: "package_reference_missing" },
+    { metadata: { episode: { thumbnail: { base_versions: [{ asset_id: "other" }] } } }, code: "package_reference_missing" },
+    { stored: null, code: "asset_bytes_missing" },
+    { stored: Buffer.from("corrupt"), code: "asset_hash_mismatch" },
+  ];
+  for (const scenario of cases) {
+    const f = thumbnailReconciliationFixture({ pointer: "/episode/thumbnail/base_versions/0/asset_id", acknowledged: true, attached: true, ...scenario });
+    if ("metadata" in scenario) f.state.metadata = scenario.metadata;
+    const evidence = [f.state.row.content_hash, f.state.row.operation_fingerprint, f.state.row.metadata_json];
+    assert.equal((await f.post("reconcile")).status, 200);
+    assert.equal(f.state.row.status, "failed");
+    assert.equal(f.state.row.failure_code, scenario.code);
+    assert.equal(f.state.settlements.length, 0);
+    assert.deepEqual([f.state.row.content_hash, f.state.row.operation_fingerprint, f.state.row.metadata_json], evidence);
+    await f.post("reconcile");
+    assert.equal(f.state.writes.length, 1);
+  }
+  const unacknowledged = thumbnailReconciliationFixture({ attached: true, stored: Buffer.from("bad") });
+  await unacknowledged.post("reconcile");
+  assert.equal(unacknowledged.state.row.failure_code, "asset_hash_mismatch");
+  assert.equal(unacknowledged.state.row.reference_committed_at, null);
+});
+
+test("thumbnail reconciliation and attachment converge whichever acknowledgement wins", async () => {
+  for (const winner of ["attachment", "reconciliation"]) {
+    const f = thumbnailReconciliationFixture({ pointer: "/episode/thumbnail/base_versions/0/asset_id", attached: winner === "attachment" });
+    const barrier = thumbnailBarrier();
+    if (winner === "attachment") {
+      let first = true;
+      f.state.beforeWrite = async () => { if (first) { first = false; await barrier.wait(); } };
+      const reconciliation = f.post("reconcile");
+      await barrier.entered;
+      assert.equal((await f.attach()).status, 200);
+      barrier.release();
+      assert.equal((await reconciliation).status, 200);
+    } else {
+      f.state.afterCommit = () => barrier.wait();
+      const attachment = f.attach();
+      await barrier.entered;
+      assert.equal((await f.post("reconcile")).status, 200);
+      barrier.release();
+      assert.equal((await attachment).status, 200);
+    }
+    assert.equal(f.state.row.status, "ready");
+    assert.equal(f.state.writes.filter((patch) => patch.status === "ready").length, 1);
+    assert.equal(f.state.writes.filter((patch) => patch.status === "failed").length, 0);
+    assert.equal(f.state.settlements.length, 1);
+  }
+});
+
+test("thumbnail reconciliation concurrent replay cannot duplicate lifecycle writes or settlement", async () => {
+  const f = thumbnailReconciliationFixture({ pointer: "/episode/thumbnail/base_versions/0/asset_id", acknowledged: true, attached: true });
+  const barrier = thumbnailBarrier(); let first = true;
+  f.state.beforeWrite = async () => { if (first) { first = false; await barrier.wait(); } };
+  const firstRun = f.post("reconcile");
+  await barrier.entered;
+  assert.equal((await f.post("reconcile")).status, 200);
+  barrier.release();
+  assert.equal((await firstRun).status, 200);
+  assert.equal(f.state.writes.length, 1);
+  assert.equal(f.state.settlements.length, 1);
+});
+
+test("thumbnail reconciliation cannot overwrite a newer terminal state after CAS loss", async () => {
+  const f = thumbnailReconciliationFixture({ pointer: "/episode/thumbnail/base_versions/0/asset_id", acknowledged: true, attached: true });
+  const barrier = thumbnailBarrier(); let first = true;
+  f.state.beforeWrite = async () => { if (first) { first = false; await barrier.wait(); } };
+  const run = f.post("reconcile");
+  await barrier.entered;
+  assert.equal((await f.post("transition", { asset_id: f.assetId, target_status: "superseded" })).status, 200);
+  barrier.release();
+  assert.equal((await run).status, 200);
+  assert.equal(f.state.row.status, "superseded");
+  assert.equal(f.state.writes.length, 1);
+  assert.equal(f.state.settlements.length, 0);
+});
+
+test("thumbnail reconciliation excludes non-thumbnail rows, wrong authority and speculative metadata IDs", async () => {
+  for (const kind of ["image_map_json", "image_map_candidate_image"]) {
+    const f = thumbnailReconciliationFixture({ kind });
+    assert.equal((await f.post("reconcile")).body.data.reconciled_count, 0);
+    assert.equal(f.state.writes.length, 0);
+  }
+  const f = thumbnailReconciliationFixture();
+  assert.equal((await f.post("reconcile", {}, "invalid")).status, 401);
+  assert.equal((await f.post("reconcile", { workspace_id: "77777777-7777-4777-8777-777777777777" })).status, 400);
+  f.state.metadata = { notes: { asset_id: f.assetId } };
+  await f.post("reconcile");
+  f.state.metadata = structuredClone(f.document);
+  f.state.metadata.episode.thumbnail.base_versions.push({ asset_id: f.assetId });
+  await f.post("reconcile");
+  assert.equal(f.state.writes.length + f.state.settlements.length, 0);
+});
+
+test("thumbnail reconciliation persistence errors leave pending evidence recoverable", async () => {
+  const f = thumbnailReconciliationFixture({ attached: true });
+  f.state.failWrite = true;
+  assert.equal((await f.post("reconcile")).status, 502);
+  assert.equal(f.state.row.status, "pending");
+  assert.equal(f.state.settlements.length, 0);
+  f.state.failWrite = false;
+  assert.equal((await f.post("reconcile")).status, 200);
+  assert.equal(f.state.row.status, "ready");
+  assert.equal(f.state.settlements.length, 1);
+});
+
+test("thumbnail reconciliation staging completes later without a failed intermediate transition", async () => {
+  const f = thumbnailReconciliationFixture();
+  await f.post("reconcile");
+  assert.equal(f.state.writes.length, 0);
+  await f.attach();
+  await f.post("reconcile");
+  assert.equal(f.state.row.status, "ready");
+  assert.deepEqual(f.state.writes.map((patch) => patch.status).filter(Boolean), ["ready"]);
+});
+
+test("thumbnail reconciliation supports composites without retargeting stale acknowledged pointers", async () => {
+  const f = thumbnailReconciliationFixture({ kind: "thumbnail_composite", attached: true });
+  await f.post("reconcile");
+  assert.equal(f.state.row.status, "ready");
+  const stale = thumbnailReconciliationFixture({ acknowledged: true, pointer: "/episode/thumbnail/base_versions/9/asset_id", attached: true });
+  await stale.post("reconcile");
+  assert.equal(stale.state.row.failure_code, "package_reference_missing");
+  assert.equal(stale.state.row.metadata_json.reference_pointer, "/episode/thumbnail/base_versions/9/asset_id");
+});
+
+test("thumbnail reconciliation remains bounded under repeated revision contention", async () => {
+  const f = thumbnailReconciliationFixture({ attached: true });
+  let changes = 0;
+  f.state.beforeWrite = async () => { f.state.row.updated_at = `concurrent-${++changes}`; };
+  const result = await f.post("reconcile");
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error.code, "thumbnail_asset_changed");
+  assert.equal(changes, 3);
+  assert.equal(f.state.row.status, "pending");
+  assert.equal(f.state.writes.length + f.state.settlements.length, 0);
+});
+
+test("thumbnail reconciliation does not acknowledge failed metadata CAS or caller-supplied authority", async () => {
+  const f = thumbnailReconciliationFixture();
+  // Exercise the real commitFile pre-write CAS, not the fixture's successful IO.
+  f.service.commitFile = TongsCommitService.prototype.commitFile;
+  const result = await f.post("commit-reference", {
+    asset_id: f.assetId, reference_pointer: f.referencePointer,
+    metadata_document: f.document, expected_metadata_updated_at: "2000-01-01T00:00:00.000Z",
+  });
+  assert.equal(result.status, 409);
+  assert.equal(result.body.error.code, "file_conflict");
+  await f.post("reconcile", { reference_committed_at: "2026-09-13T00:00:00Z", attachment_complete: true });
+  assert.equal(f.state.row.status, "pending");
+  assert.equal(f.state.row.reference_committed_at, null);
+  f.service.resolveWorkspaceRoleForUser = async () => null;
+  assert.equal((await f.post("reconcile")).status, 403);
+  f.service.resolveWorkspaceRoleForUser = async () => "viewer";
+  assert.equal((await f.post("reconcile")).status, 403);
+  assert.equal(f.state.writes.length + f.state.settlements.length, 0);
+});
+
 test("recovered ready image-map candidates are never superseded by idempotent cleanup", () => {
   assert.deepEqual(
     resolvePriorCandidateAssetIdsToSupersede(["recovered-a", "recovered-b", "old-c"], ["recovered-a", "recovered-b"]),
