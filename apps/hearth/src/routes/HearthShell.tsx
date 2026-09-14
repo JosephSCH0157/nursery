@@ -36,7 +36,6 @@ import {
 import { resolveHearthChatPanelMeta } from "../lib/hearth-chat-readiness";
 import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
-  commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
 } from "../lib/hearth-script-repo";
 import { isCanonicalThumbnailSetComplete } from "./hearth-shell/buildHearthThumbnailViewModel";
