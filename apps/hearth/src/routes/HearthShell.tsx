@@ -48,6 +48,7 @@ import type { HearthReadyScript } from "../lib/hearth-ready-scripts";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
+import type { HearthLoadGuard } from "../lib/hearth-discovery-retry";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
@@ -3786,8 +3787,10 @@ export default function HearthShell({
     setWorkpiecesError,
   });
 
-  const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
-    const list = dedupeDraftListById(await store.listDrafts());
+  const refreshDrafts = useCallback(async (loadGuard?: HearthLoadGuard): Promise<Draft[]> => {
+    loadGuard?.assertCurrent();
+    const list = dedupeDraftListById(await store.listDrafts(loadGuard));
+    loadGuard?.assertCurrent();
     draftsRef.current = list;
     setDrafts(list);
     return list;
@@ -4479,7 +4482,8 @@ export default function HearthShell({
     void onSetReadyScriptCategory(entry, category);
   }, [onSetReadyScriptCategory]);
 
-  const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string) => {
+  const persistSession = useCallback(async (draftId: string | null, uiSelectedTab?: string, loadGuard?: HearthLoadGuard) => {
+    loadGuard?.assertCurrent();
     const now = Date.now();
     const base: HearthSession = session ?? {
       id: "default",
@@ -4505,8 +4509,9 @@ export default function HearthShell({
 
   const selectDraft = useCallback(async (
     draft: Draft | null,
-    options?: { revisionWorkpieceId?: string | null },
+    options?: { revisionWorkpieceId?: string | null; loadGuard?: HearthLoadGuard },
   ) => {
+    options?.loadGuard?.assertCurrent();
     setDraftConflictState(null);
     if (!draft) {
       restoredCursorDraftIdRef.current = null;
@@ -4519,8 +4524,9 @@ export default function HearthShell({
     restoredCursorDraftIdRef.current = null;
     setActiveDraft(draft);
     setDraftSnapshot({ title: draft.title, body: draft.body, updatedAt: draft.updatedAt });
-    await refreshRevisions(resolveRevisionWorkpieceId(options?.revisionWorkpieceId), draft.id);
-    await persistSession(draft.id, "draft");
+    await refreshRevisions(resolveRevisionWorkpieceId(options?.revisionWorkpieceId), draft.id, options?.loadGuard);
+    options?.loadGuard?.assertCurrent();
+    await persistSession(draft.id, "draft", options?.loadGuard);
   }, [persistSession, refreshRevisions, resolveRevisionWorkpieceId]);
 
   const updatePlanningSession = useCallback((
@@ -4726,7 +4732,9 @@ export default function HearthShell({
   const {
     openWorkpieceInFocus,
     createDraftAndOpen,
+    focusHandoffRef,
   } = useHearthFocusOpenActions({
+    initialLoadKey,
     normalizeUuid,
     workspaceId,
     isMobile,
@@ -5008,6 +5016,8 @@ export default function HearthShell({
 
   useHearthInitialLoader({
     initialLoadKey,
+    requestedWorkpieceId: workpieceId,
+    focusHandoffRef,
     incomingBarStockIntakeRoute,
     workspaceId,
     routeProjectId,
@@ -5389,6 +5399,9 @@ export default function HearthShell({
   });
 
   useHearthScriptRevisionLoader({
+    loadScope: initialLoadKey,
+    enabled: !isLoading,
+    onError: (error) => setError(error instanceof Error ? error.message : "Failed to load revisions."),
     activeDraftId: activeDraft?.id ?? null,
     revisionWorkpieceId,
     refreshRevisions,

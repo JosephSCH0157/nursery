@@ -9,6 +9,12 @@ export type SaveDraftOptions = {
   reason?: string;
 };
 
+/** Optional read cancellation, never canonical write/identity authority. */
+export type HearthDraftReadOptions = {
+  assertCurrent?: () => void;
+  canonicalWorkpieceIds?: ReadonlySet<string>;
+};
+
 export type HearthDraftSaveAcknowledgement =
   | Readonly<{
       ok: true;
@@ -80,8 +86,8 @@ export function isCanonicalHearthRevisionSave(
 }
 
 export interface HearthStore {
-  listDrafts(): Promise<Draft[]>;
-  listWorkpieceDrafts(workpieceId: string): Promise<Draft[]>;
+  listDrafts(options?: HearthDraftReadOptions): Promise<Draft[]>;
+  listWorkpieceDrafts(workpieceId: string, options?: HearthDraftReadOptions): Promise<Draft[]>;
   getDraft(id: DraftId): Promise<Draft | null>;
   saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<HearthDraftSaveAcknowledgement>;
   deleteDraft(id: DraftId): Promise<void>;

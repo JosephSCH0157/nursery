@@ -1,5 +1,6 @@
 import { tongsFetch } from "./tongs-fetch";
 import { classifyHttpDependencyFailure, HearthDependencyError } from "./hearth-dependency-state";
+import { HearthDiscoveryError } from "./hearth-discovery-retry";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -31,6 +32,7 @@ export type HearthWorkpieceSummary = {
 
 export type ListHearthWorkpiecesOptions = {
   includeArchived?: boolean;
+  signal?: AbortSignal;
 };
 
 export type ArchiveHearthWorkpieceInput = {
@@ -177,42 +179,66 @@ function parseWorkpieceSummaryFromMutationPayload(
   return parseWorkpieceSummaryRow(item as HearthWorkpieceSummaryApiRow, normalizedWorkspaceId);
 }
 
+function isDiscoveryTransportFailure(error: unknown): boolean {
+  return error instanceof TypeError &&
+    ["Failed to fetch", "fetch failed", "Load failed", "NetworkError when attempting to fetch resource."].includes(error.message);
+}
+
 export async function listHearthWorkpieces(
   workspaceId: string,
   options?: ListHearthWorkpiecesOptions,
 ): Promise<HearthWorkpieceSummary[]> {
   const normalizedWorkspaceId = normalizeUuid(workspaceId);
-  if (!normalizedWorkspaceId) return [];
+  if (!normalizedWorkspaceId) throw new HearthDiscoveryError("Invalid Episode workspace identity.", "terminal", undefined, "invalid_workspace");
 
+  options?.signal?.throwIfAborted();
   const search = options?.includeArchived ? "?include_archived=1" : "";
   let response: Response;
   try {
     response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/episodes${search}`, {
       method: "GET",
+      signal: options?.signal,
     });
   } catch (error) {
-    throw new HearthDependencyError({
-      dependency: "workpieces",
-      kind: "failed",
-      message: "Failed to load Episodes.",
-      cause: error,
-    });
+    options?.signal?.throwIfAborted();
+    const networkFailure = isDiscoveryTransportFailure(error);
+    throw new HearthDiscoveryError("Failed to load Episodes.", networkFailure ? "transport" : "terminal", undefined, undefined, error);
   }
+  options?.signal?.throwIfAborted();
   if (!response.ok) {
-    throw new HearthDependencyError({
-      dependency: "workpieces",
-      kind: classifyHttpDependencyFailure(response.status),
-      status: response.status,
-      message: response.status === 404 || response.status === 501 || response.status === 503
-        ? "Episode discovery is currently unavailable."
-        : "Failed to load Episodes.",
-    });
+    // A definitive terminal status cannot turn into a retryable timeout merely
+    // because consuming its optional diagnostic body stalls.
+    if (![502, 503, 504].includes(response.status)) {
+      throw new HearthDiscoveryError("Failed to load Episodes.", "terminal", response.status);
+    }
+    let body: { error?: { code?: unknown } | string } | null = null;
+    try {
+      body = await response.json();
+    } catch (error) {
+      options?.signal?.throwIfAborted();
+      // Gateways may return HTML instead of JSON. Other unknown exceptions
+      // cannot acquire transient authority from the HTTP status alone.
+      if (!(error instanceof SyntaxError) && !isDiscoveryTransportFailure(error)) {
+        throw new HearthDiscoveryError("Failed to read Episode discovery response.", "terminal", response.status, undefined, error);
+      }
+    }
+    options?.signal?.throwIfAborted();
+    const code = typeof body?.error === "string" ? body.error : typeof body?.error?.code === "string" ? body.error.code : undefined;
+    const temporary = code === undefined || ["temporarily_unavailable", "service_unavailable", "bad_gateway", "gateway_timeout", "upstream_timeout"].includes(code);
+    throw new HearthDiscoveryError(
+      classifyHttpDependencyFailure(response.status) === "unavailable" ? "Episode discovery is currently unavailable." : "Failed to load Episodes.",
+      temporary ? "temporary_service" : "terminal", response.status, code,
+    );
   }
 
   let body: unknown;
   try {
     body = await response.json();
   } catch (error) {
+    options?.signal?.throwIfAborted();
+    if (isDiscoveryTransportFailure(error)) {
+      throw new HearthDiscoveryError("Failed to consume Episode discovery response.", "transport", response.status, undefined, error);
+    }
     throw new HearthDependencyError({
       dependency: "workpieces",
       kind: "failed",
@@ -221,6 +247,7 @@ export async function listHearthWorkpieces(
       cause: error,
     });
   }
+  options?.signal?.throwIfAborted();
   const episodes = (
     body
     && typeof body === "object"
@@ -237,6 +264,17 @@ export async function listHearthWorkpieces(
       status: response.status,
       message: "Episode discovery returned a malformed response.",
     });
+  }
+  // This read boundary must not repair identity from request scope or silently
+  // discard malformed rows. Mutation parsers retain their separate contracts.
+  for (const row of episodes) {
+    if (!row || typeof row !== "object" || Array.isArray(row) ||
+      !normalizeUuid(row.id) || !normalizeUuid(row.workspace_id)) {
+      throw new HearthDiscoveryError("Episode discovery returned malformed canonical identity.", "terminal", response.status, "invalid_canonical_identity");
+    }
+    if (normalizeUuid(row.workspace_id) !== normalizedWorkspaceId) {
+      throw new HearthDiscoveryError("Episode discovery returned a different workspace.", "terminal", response.status, "workspace_mismatch");
+    }
   }
   const parsed = parseHearthWorkpiecesPayload(normalizedWorkspaceId, body);
   if (episodes.length > 0 && parsed.length === 0) {

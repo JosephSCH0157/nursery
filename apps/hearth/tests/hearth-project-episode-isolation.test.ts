@@ -19,7 +19,7 @@ assert.match(intake, /setWorkpieceId\(null\)/);
 assert.doesNotMatch(intake, /context\.workpieceId/);
 assert.match(workpiece, /create_hearth_project_episode/);
 assert.doesNotMatch(workpiece, /get_or_create_hearth_project_workpiece/);
-assert.match(loader, /explicitWorkpieceId && args\.routeProjectId/);
+assert.match(loader, /resolvedWorkpieceId && args\.routeProjectId/);
 assert.match(loader, /validateBarstockProjectEpisode/);
 
 console.log("Hearth project/episode identity isolation tests passed.");

@@ -164,6 +164,9 @@ test("revision loader reads only when an active draft identity exists", async ()
   };
   function Harness(props: { draftId: string | null }) {
     useHearthScriptRevisionLoader({
+      loadScope: "fixture-workspace",
+      enabled: true,
+      onError: (error) => { throw error; },
       activeDraftId: props.draftId,
       revisionWorkpieceId: "workpiece-a",
       refreshRevisions,

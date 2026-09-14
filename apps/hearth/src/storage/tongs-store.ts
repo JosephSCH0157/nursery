@@ -28,6 +28,7 @@ import {
 import type {
   HearthCanonicalRevisionsResult,
   HearthDraftSaveAcknowledgement,
+  HearthDraftReadOptions,
   HearthRevisionSaveAcknowledgement,
   HearthStore,
   SaveDraftOptions,
@@ -983,25 +984,29 @@ function createDraftConflictError(details?: CommitConflictDetails): Error {
 }
 
 export class TongsHearthStore implements HearthStore {
-  async listDrafts(): Promise<Draft[]> {
+  async listDrafts(options?: HearthDraftReadOptions): Promise<Draft[]> {
+    options?.assertCurrent?.();
     const cache = readCache();
     const workspaceId = resolveWorkspaceId();
     if (workspaceId) {
-      await this.hydrateWorkspaceDrafts(cache, workspaceId);
+      await this.hydrateWorkspaceDrafts(cache, workspaceId, options);
     }
+    options?.assertCurrent?.();
     if (workspaceId && migrateLegacyDraftWorkspaceIds(cache, workspaceId)) {
       writeCache(cache);
     }
     return readDrafts(cache, workspaceId);
   }
 
-  async listWorkpieceDrafts(workpieceId: string): Promise<Draft[]> {
+  async listWorkpieceDrafts(workpieceId: string, options?: HearthDraftReadOptions): Promise<Draft[]> {
+    options?.assertCurrent?.();
     const normalizedWorkpieceId = normalizeUuid(workpieceId);
     if (!normalizedWorkpieceId) return [];
 
     const cache = readCache();
     const workspaceId = resolveWorkspaceId();
     const remote = await readDraftSnapshot(normalizedWorkpieceId);
+    options?.assertCurrent?.();
     if (remote) {
       if (workspaceId) {
         persistWorkpieceId(workspaceId, normalizedWorkpieceId, cache);
@@ -1485,10 +1490,13 @@ export class TongsHearthStore implements HearthStore {
     };
   }
 
-  private async hydrateWorkspaceDrafts(cache: TongsCacheV1, workspaceId: string): Promise<void> {
+  private async hydrateWorkspaceDrafts(cache: TongsCacheV1, workspaceId: string, options?: HearthDraftReadOptions): Promise<void> {
+    options?.assertCurrent?.();
     const workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
     if (!workpieceId) return;
+    if (options?.canonicalWorkpieceIds && !options.canonicalWorkpieceIds.has(workpieceId)) return;
     const remote = await readDraftSnapshot(workpieceId);
+    options?.assertCurrent?.();
     if (remote == null) return;
     writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.fileUpdatedAt ?? remote.updatedAt);
     for (const draft of remote.drafts) {
