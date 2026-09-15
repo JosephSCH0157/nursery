@@ -547,10 +547,11 @@
 }
 .topic-discovery{display:grid;gap:1rem;margin:0 0 1.25rem;padding:1rem;border:1px solid rgba(244,169,0,.32);border-radius:14px;background:rgba(18,27,43,.82)}
 .topic-discovery>header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}.topic-discovery h2,.topic-discovery h3,.topic-discovery p{margin:0}.topic-discovery>header div{display:grid;gap:.3rem}.topic-discovery small{color:#aab4c6}
+.topic-discovery__basis{align-self:center;margin-left:auto;color:#d9e2f1;font-size:.9rem}.topic-discovery__basis span{color:#aab4c6}
 .topic-discovery__setup{display:grid;gap:.65rem}.topic-discovery__setup label{display:grid;gap:.35rem}.topic-discovery__setup input{width:100%;box-sizing:border-box}
 .topic-discovery__setup-row{display:grid;grid-template-columns:1fr 1fr;gap:.65rem}
 .topic-discovery__cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.7rem}.topic-discovery__cards article{display:grid;grid-template-rows:auto auto auto auto auto;align-content:start;min-width:0;gap:.6rem;padding:.8rem;border:1px solid rgba(148,163,184,.25);border-radius:12px;background:#0c1525}.topic-discovery__cards h3{font-size:1rem;line-height:1.35;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}.topic-discovery__cards article>p:first-of-type{font-size:.9rem;line-height:1.45;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;overflow:hidden}.topic-discovery__cards article>p:nth-of-type(2){font-size:.88rem;line-height:1.4}.topic-discovery__cards details ul{padding-left:1.1rem}.topic-discovery__cards a{color:#8bc8ff;overflow-wrap:anywhere}
 .topic-discovery__actions{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:auto}.topic-discovery__notice{padding:.65rem;border-radius:8px;background:rgba(148,163,184,.1)}.topic-discovery__notice.is-error{color:#ffd0d0;background:rgba(180,40,40,.16)}
 @media(max-width:1500px){.topic-discovery__cards{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:1100px){.topic-discovery__cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){.topic-discovery{margin:0}.topic-discovery>header{display:grid}.topic-discovery__cards,.topic-discovery__setup-row{grid-template-columns:1fr}.topic-discovery__actions button{min-height:44px;flex:1 1 auto}}
+@media(max-width:760px){.topic-discovery{margin:0}.topic-discovery>header{display:grid}.topic-discovery__basis{margin-left:0}.topic-discovery__cards,.topic-discovery__setup-row{grid-template-columns:1fr}.topic-discovery__actions button{min-height:44px;flex:1 1 auto}}
