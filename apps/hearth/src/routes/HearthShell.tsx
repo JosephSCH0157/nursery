@@ -1147,12 +1147,15 @@ export default function HearthShell({
     state: {
       tokenBalance: aiTokenBalance,
       billingMode: aiBillingMode,
+      ownerChatCapability,
     },
     bindings: {
       setTokenBalance: setAiTokenBalance,
       setBillingMode: setAiBillingMode,
+      setOwnerChatCapability,
     },
   } = useHearthConversationRuntimeState(resolveAiLaneFromStorage());
+  const [aiStatusRefreshNonce, setAiStatusRefreshNonce] = useState(0);
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [episodePackageState, setEpisodePackageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
@@ -1786,6 +1789,9 @@ export default function HearthShell({
     scriptText: activeDraft?.body ?? "",
   });
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
+  const ownerChatBlocked = ownerChatCapability.status === "checking"
+    || ownerChatCapability.status === "unavailable"
+    || ownerChatCapability.status === "unknown";
   const aiEpisodeReady = Boolean(workpieceId?.trim());
   const thumbnailConcepts = useMemo(
     () => episodePackage?.thumbnail?.concepts ?? [],
@@ -2737,6 +2743,7 @@ export default function HearthShell({
     isRepairingScript,
     isAiProcessing,
     aiTokenBalance,
+    ownerChatCapability,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
     aiRequestControllerRef,
     draftEditVersionRef,
@@ -2808,6 +2815,7 @@ export default function HearthShell({
     isChatContextReady: chatContextHydrated,
     isAiProcessing,
     aiTokenBalance,
+    ownerChatCapability,
     chatDraft,
     setChatDraft,
     setChatMessages,
@@ -3268,6 +3276,7 @@ export default function HearthShell({
       aiRuntimeWarning,
       aiCreditsDepleted,
       aiAdmissionBlocked: !aiActionAvailability.showArtifactActions,
+      ownerChatCapability,
       hasApprovedScript,
       approvedScriptVersion,
       approvedAtText,
@@ -3292,6 +3301,7 @@ export default function HearthShell({
         void clearChatHistoryNow();
       },
       onRetryChatHydration: retryChatHydration,
+      onRetryOwnerChatCapability: () => setAiStatusRefreshNonce((current) => current + 1),
       onCopyChat: () => {
         const completeness = store.getChatHistoryCompleteness?.(workpieceId) ?? "legacy_completeness_unknown";
         if (completeness !== "complete") {
@@ -3379,7 +3389,7 @@ export default function HearthShell({
       runtime: {
         billingMode: aiBillingMode,
         tokenBalance: aiTokenBalance,
-        aiEnabled: !aiCreditsDepleted,
+        aiEnabled: !aiCreditsDepleted && !ownerChatBlocked,
       },
     },
     commands: {
@@ -3399,7 +3409,7 @@ export default function HearthShell({
         await onApplyAiProposal("selected");
       },
       rejectProposal: onDiscardAiProposal,
-      confirmAiCreditUse: () => !aiCreditsDepleted,
+      confirmAiCreditUse: () => !aiCreditsDepleted && !ownerChatBlocked,
     },
     status: {
       history: chatError
@@ -3647,21 +3657,28 @@ export default function HearthShell({
   useEffect(() => {
     if (typeof window === "undefined") return;
     let cancelled = false;
+    let requestSequence = 0;
 
     const syncAiRuntime = async () => {
+      const sequence = ++requestSequence;
       const lane = resolveAiLaneFromStorage();
       const visualProvider = resolveDefaultVisualProviderFromStorage();
       if (!cancelled) {
         setAiBillingMode(lane);
         setDefaultVisualProvider(visualProvider);
+        setOwnerChatCapability({ status: "checking", reasonCode: null });
         if (lane === "byo") {
           setAiTokenBalance(null);
         }
       }
 
-      const status = await fetchHearthAiStatus();
-      if (cancelled) return;
+      const status = await fetchHearthAiStatus(workspaceId);
+      if (cancelled || sequence !== requestSequence) return;
       if (!status.runtime) return;
+      setOwnerChatCapability(status.runtime.ownerChatCapability ?? {
+        status: "unknown",
+        reasonCode: "owner_controls_unavailable",
+      });
       if (lane === "byo") {
         setAiTokenBalance(null);
       } else {
@@ -3676,19 +3693,26 @@ export default function HearthShell({
       void syncAiRuntime();
     };
     const onStorage = (event: StorageEvent) => {
-      if (event.key && event.key !== "forge:hearth:aiSettings:v1") return;
+      if (
+        event.key
+        && event.key !== "forge:hearth:aiSettings:v1"
+        && event.key !== FORGE_AUTH_STORAGE_KEY
+        && !SUPABASE_AUTH_KEY_RE.test(event.key)
+      ) return;
       setLastTurnResult((current) => current?.validation.failureKind === "admission_failure" ? null : current);
       void syncAiRuntime();
     };
 
+    const unsubscribeFromAuth = subscribeToForgeUserAccessToken(() => void syncAiRuntime());
     window.addEventListener("forge:ai:settings", onAiSettingsChange as EventListener);
     window.addEventListener("storage", onStorage);
     return () => {
       cancelled = true;
+      unsubscribeFromAuth();
       window.removeEventListener("forge:ai:settings", onAiSettingsChange as EventListener);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [aiStatusRefreshNonce, workspaceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3753,8 +3777,9 @@ export default function HearthShell({
       isAiProcessing: aiRuntimeBusy,
       tokenBalance: aiTokenBalance,
       billingMode: aiBillingMode,
+      ownerChatCapability,
     });
-  }, [aiBillingMode, aiRuntimeBusy, aiTokenBalance]);
+  }, [aiBillingMode, aiRuntimeBusy, aiTokenBalance, ownerChatCapability]);
 
   useEffect(() => {
     return () => {
@@ -6808,6 +6833,7 @@ export default function HearthShell({
             onAskAiRepairScript={onAskAiRepairScript}
             aiEpisodeReady={aiEpisodeReady}
             aiCreditsDepleted={aiCreditsDepleted}
+            ownerChatBlocked={ownerChatBlocked}
             isRepairingScript={isRepairingScript}
             onDismissValidation={() => setScriptValidation(null)}
             showManualDraft={showManualDraft}

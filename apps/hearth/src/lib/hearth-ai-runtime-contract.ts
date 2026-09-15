@@ -40,6 +40,23 @@ export type HearthAiLane = "forge" | "byo";
 export type HearthAiBehavior = "fast" | "careful" | "deterministic" | "creative";
 export type HearthChatRole = "system" | "user" | "assistant";
 
+export type HearthOwnerChatCapabilityStatus =
+  | "checking"
+  | "not_required"
+  | "available"
+  | "unavailable"
+  | "unknown";
+
+export type HearthOwnerChatCapabilityReasonCode =
+  | "owner_runtime_unavailable"
+  | "owner_controls_unavailable"
+  | null;
+
+export type HearthOwnerChatCapability = {
+  status: HearthOwnerChatCapabilityStatus;
+  reasonCode: HearthOwnerChatCapabilityReasonCode;
+};
+
 export type HearthChatMessage = {
   role: HearthChatRole;
   content: string;
@@ -89,11 +106,16 @@ export type HearthSttRequest = {
 export type HearthAiRuntimeSnapshot = {
   tokenBalance: number | null;
   billingMode: HearthAiLane;
+  ownerChatCapability?: HearthOwnerChatCapability;
 };
 
 export type HearthAiStatusResponse = {
   billing_mode: HearthAiLane;
   token_balance: number | null;
+  owner_chat_capability?: {
+    status: Exclude<HearthOwnerChatCapabilityStatus, "checking">;
+    reason_code: HearthOwnerChatCapabilityReasonCode;
+  };
 };
 
 export type HearthChatResponse = {
@@ -554,9 +576,31 @@ export function readHearthAiRuntimeSnapshot(
   const billingMode = isHearthAiLane(billingModeRaw) ? billingModeRaw : fallbackLane;
   const tokenBalanceRaw = readNumberField(payload, "token_balance");
   const tokenBalance = billingMode === "forge" ? tokenBalanceRaw : null;
+  const ownerChatCapabilityRaw = readUnknownField(payload, "owner_chat_capability");
+  const ownerChatCapabilityRecord = isRecord(ownerChatCapabilityRaw) ? ownerChatCapabilityRaw : null;
+  const ownerChatStatus = ownerChatCapabilityRecord
+    ? readTrimmedField(ownerChatCapabilityRecord, "status")
+    : null;
+  const ownerChatReasonCode = ownerChatCapabilityRecord
+    ? readTrimmedField(ownerChatCapabilityRecord, "reason_code")
+    : null;
+  const ownerChatCapability = (
+    ownerChatStatus === "not_required"
+    || ownerChatStatus === "available"
+    || ownerChatStatus === "unavailable"
+    || ownerChatStatus === "unknown"
+  ) ? {
+      status: ownerChatStatus,
+      reasonCode: ownerChatReasonCode === "owner_runtime_unavailable"
+        || ownerChatReasonCode === "owner_controls_unavailable"
+        ? ownerChatReasonCode
+        : null,
+    } satisfies HearthOwnerChatCapability : undefined;
+
   return {
     tokenBalance,
     billingMode,
+    ...(ownerChatCapability ? { ownerChatCapability } : {}),
   };
 }
 
@@ -573,6 +617,12 @@ export function parseHearthAiStatusResponse(
   return {
     billing_mode: runtime.billingMode,
     token_balance: runtime.tokenBalance,
+    ...(runtime.ownerChatCapability ? {
+      owner_chat_capability: {
+        status: runtime.ownerChatCapability.status as Exclude<HearthOwnerChatCapabilityStatus, "checking">,
+        reason_code: runtime.ownerChatCapability.reasonCode,
+      },
+    } : {}),
   };
 }
 

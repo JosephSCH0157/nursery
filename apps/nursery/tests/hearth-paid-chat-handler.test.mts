@@ -482,6 +482,62 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
   }
 });
 
+test("explicit owner Hearth authority fails closed without exposing or falling back from its isolated credential", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  let providerCalls = 0;
+  const handler = createHearthAiHandler({
+    textApiKey: "legacy-key-must-not-be-used",
+    ownerTextApiKey: null,
+    imageApiKey: null,
+    researchApiKey: null,
+    apiKey: "legacy-key-must-not-be-used",
+    model: "gpt-5.3",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge",
+    initialTokenBalance: 0,
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: null,
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: {
+      async rpc(name: string) {
+        if (name === "read_owner_hearth_execution_requirement") return { data: {
+          mode: "enforce",
+          funding_context_required: true,
+          owner_testing_effective: true,
+        }, error: null };
+        return { data: {}, error: null };
+      },
+    },
+    resolveUserIdForAccessToken: async () => USER_ID,
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      return new Response(null, { status: 500 });
+    },
+  });
+  const response = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer owner-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge",
+      messages: [{ role: "user", content: USER_MESSAGE }],
+      user_authored_text: USER_MESSAGE,
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: { episodeId: "owner-workpiece", workspaceId, title: "", titleVariants: { A: "", B: "", C: "" }, outline: "", body: "", sources: [], sparks: [] },
+    }),
+  }));
+  const payload = await response.json() as Record<string, unknown>;
+  assert.equal(response.status, 500, JSON.stringify(payload));
+  assert.equal(payload.code, "owner_hearth_runtime_unavailable");
+  assert.equal(payload.error, "Private owner AI is unavailable in this runtime.");
+  assert.equal(JSON.stringify(payload).includes("OPENAI_HEARTH_OWNER_API_KEY"), false);
+  assert.equal(providerCalls, 0);
+});
+
 test("explicit owner Hearth authority uses only the isolated credential and bypasses neither coordinator nor persistence", async (t) => {
   const prior = process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE;
   process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE = "enforce";

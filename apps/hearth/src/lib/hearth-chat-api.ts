@@ -40,6 +40,7 @@ export type {
   HearthAiBehavior,
   HearthAiLane,
   HearthAiRuntimeSnapshot,
+  HearthOwnerChatCapability,
   HearthChatMessage,
   HearthChatRole,
   HearthExplicitUiAction,
@@ -737,10 +738,20 @@ function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): Hear
 function runtimeFromResponse(payload: {
   billing_mode: HearthAiLane;
   token_balance: number | null;
+  owner_chat_capability?: {
+    status: "not_required" | "available" | "unavailable" | "unknown";
+    reason_code: "owner_runtime_unavailable" | "owner_controls_unavailable" | null;
+  };
 }): HearthAiRuntimeSnapshot {
   return {
     billingMode: payload.billing_mode,
     tokenBalance: payload.token_balance,
+    ...(payload.owner_chat_capability ? {
+      ownerChatCapability: {
+        status: payload.owner_chat_capability.status,
+        reasonCode: payload.owner_chat_capability.reason_code,
+      },
+    } : {}),
   };
 }
 
@@ -994,14 +1005,12 @@ export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
   };
 }
 
-export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
-  const credits = await refreshMyAiCredits();
-  if (credits.ok) {
-    return credits;
-  }
-
+export async function fetchHearthAiStatus(workspaceId: string | null): Promise<HearthAiStatusResult> {
   const lane = resolveAiLaneFromStorage();
   const query = new URLSearchParams({ lane });
+  const normalizedWorkspaceId = workspaceId?.trim() ?? "";
+  if (normalizedWorkspaceId) query.set("workspace_id", normalizedWorkspaceId);
+  const creditsPromise = refreshMyAiCredits();
   let response: Response;
 
   try {
@@ -1010,12 +1019,20 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
       headers: await buildAuthHeaders({ includeJson: true }),
     });
   } catch (error) {
+    const credits = await creditsPromise;
     const message = error instanceof Error ? error.message : "Network error";
     return {
       ok: false,
       status: 0,
       error: message,
-      runtime: { tokenBalance: null, billingMode: lane },
+      runtime: {
+        tokenBalance: credits.ok ? credits.runtime.tokenBalance : null,
+        billingMode: lane,
+        ownerChatCapability: {
+          status: normalizedWorkspaceId ? "unknown" : "not_required",
+          reasonCode: normalizedWorkspaceId ? "owner_controls_unavailable" : null,
+        },
+      },
     };
   }
 
@@ -1026,7 +1043,16 @@ export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
     payload = null;
   }
 
-  const runtime = runtimeFromResponse(parseHearthAiStatusResponse(payload, lane));
+  const credits = await creditsPromise;
+  const statusRuntime = runtimeFromResponse(parseHearthAiStatusResponse(payload, lane));
+  const runtime: HearthAiRuntimeSnapshot = {
+    billingMode: statusRuntime.billingMode,
+    tokenBalance: credits.ok ? credits.runtime.tokenBalance : null,
+    ownerChatCapability: statusRuntime.ownerChatCapability ?? {
+      status: normalizedWorkspaceId ? "unknown" : "not_required",
+      reasonCode: normalizedWorkspaceId ? "owner_controls_unavailable" : null,
+    },
+  };
 
   if (!response.ok) {
     return {

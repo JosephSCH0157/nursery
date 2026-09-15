@@ -70,6 +70,7 @@ type HearthDraftScriptHeaderProps = {
   onAskAiRepairScript: () => void | Promise<void>;
   aiEpisodeReady: boolean;
   aiCreditsDepleted: boolean;
+  ownerChatBlocked: boolean;
   isRepairingScript: boolean;
   onDismissValidation: () => void;
   showManualDraft: boolean;
@@ -139,6 +140,7 @@ export default function HearthDraftScriptHeader({
   onAskAiRepairScript,
   aiEpisodeReady,
   aiCreditsDepleted,
+  ownerChatBlocked,
   isRepairingScript,
   onDismissValidation,
   showManualDraft,
@@ -320,7 +322,7 @@ export default function HearthDraftScriptHeader({
             <button
               type="button"
               onClick={() => void onAskAiRepairScript()}
-              disabled={!activeDraft || !aiEpisodeReady || aiCreditsDepleted || isAiProcessing || isRepairingScript}
+              disabled={!activeDraft || !aiEpisodeReady || aiCreditsDepleted || ownerChatBlocked || isAiProcessing || isRepairingScript}
             >
               {isRepairingScript ? "Repairing..." : "Ask AI to repair"}
             </button>

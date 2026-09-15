@@ -7,6 +7,7 @@ import {
   resolveHearthChatComposerPlaceholder,
   type HearthChatHydrationStatus,
 } from "../../lib/hearth-chat-readiness";
+import type { HearthOwnerChatCapability } from "../../lib/hearth-chat-api";
 
 type ChatAttachmentView = {
   id: string;
@@ -32,6 +33,12 @@ export function resolveHearthAttachmentStatusLabel(status: ChatAttachmentView["s
   }
 }
 
+export function isOwnerChatCapabilityBlocked(capability: HearthOwnerChatCapability): boolean {
+  return capability.status === "checking"
+    || capability.status === "unavailable"
+    || capability.status === "unknown";
+}
+
 export type ChatSurfaceProps = {
   visible: boolean;
   chatPanelMeta: string;
@@ -41,6 +48,7 @@ export type ChatSurfaceProps = {
   aiRuntimeWarning: string | null;
   aiCreditsDepleted: boolean;
   aiAdmissionBlocked: boolean;
+  ownerChatCapability: HearthOwnerChatCapability;
   hasApprovedScript: boolean;
   approvedScriptVersion: number | null;
   approvedAtText: string;
@@ -68,6 +76,7 @@ export type ChatSurfaceProps = {
   listeningIndicator: ReactNode;
   onClearChat: () => void;
   onRetryChatHydration: () => void;
+  onRetryOwnerChatCapability: () => void;
   onCopyChat: () => void;
   onExportChatPdf: () => void;
   onToggleAiProposalOp: (index: number) => void;
@@ -107,6 +116,7 @@ export type ChatSurfaceProps = {
 };
 
 export default function ChatSurface(props: ChatSurfaceProps) {
+  const ownerChatBlocked = isOwnerChatCapabilityBlocked(props.ownerChatCapability);
   const chatSurfaceRef = useRef<HTMLElement | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const chatTopRef = useRef<HTMLDivElement | null>(null);
@@ -449,6 +459,25 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           </div>
         ) : null}
 
+        {props.ownerChatCapability.status === "checking" ? (
+          <div className="hs-owner-ai-readiness" role="status">
+            Checking private owner AI availability…
+          </div>
+        ) : null}
+
+        {props.ownerChatCapability.status === "unavailable" ? (
+          <div className="hs-owner-ai-readiness is-unavailable" role="status">
+            Private owner AI is unavailable in this runtime. Saved Hearth content and non-AI tools remain available.
+          </div>
+        ) : null}
+
+        {props.ownerChatCapability.status === "unknown" ? (
+          <div className="hs-owner-ai-readiness is-unknown" role="status">
+            <span>Hearth couldn’t verify private owner AI availability. Saved content and non-AI tools remain available.</span>
+            <button type="button" onClick={props.onRetryOwnerChatCapability}>Retry</button>
+          </div>
+        ) : null}
+
         {!props.aiAdmissionBlocked ? <div className="hs-ai-format-row" role="group" aria-label="Chat mode">
           <div className="hs-ai-format-copy">
             <strong>Start by exploring and expanding the content, or jump straight to a draft.</strong>
@@ -560,6 +589,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 rows={2}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" || event.shiftKey) return;
+                  if (ownerChatBlocked) return;
                   event.preventDefault();
                   props.onSendChat();
                 }}
@@ -575,7 +605,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button
             type="button"
             onClick={props.onSendChat}
-            disabled={props.isAiProcessing || props.aiCreditsDepleted || props.aiAdmissionBlocked || !props.aiEpisodeReady || !props.chatDraft.trim()}
+            disabled={props.isAiProcessing || props.aiCreditsDepleted || props.aiAdmissionBlocked || ownerChatBlocked || !props.aiEpisodeReady || !props.chatDraft.trim()}
           >
             {props.isAiProcessing ? "Sending..." : "Send"}
           </button>

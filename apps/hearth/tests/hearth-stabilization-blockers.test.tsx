@@ -187,6 +187,7 @@ test("stabilization contract: a late AI result from workpiece A cannot mutate wo
     isChatContextReady: true,
     isAiProcessing: false,
     aiTokenBalance: 100,
+    ownerChatCapability: { status: "available", reasonCode: null },
     chatDraft: "",
     setChatDraft: () => undefined,
     setChatMessages: (next) => {

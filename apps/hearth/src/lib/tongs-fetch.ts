@@ -213,10 +213,8 @@ export function subscribeToForgeUserAccessToken(
   const subscribe = auth?.onAuthStateChange;
   if (typeof subscribe !== "function") return () => undefined;
 
-  const result = subscribe.call(auth, (_event, session) => {
-    if (sanitizeAccessToken(extractAccessTokenFromAuthPayload(session))) {
-      listener();
-    }
+  const result = subscribe.call(auth, () => {
+    listener();
   });
   return () => result?.data?.subscription?.unsubscribe?.();
 }

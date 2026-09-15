@@ -236,11 +236,22 @@ export default function HearthStandalone() {
     : aiStatus.tokenBalance == null
       ? "AI Credits: --"
       : `AI Credits: ${aiStatus.tokenBalance.toLocaleString()}`;
-  const aiPillText = aiStatus.billingMode === "byo"
-    ? "AI: BYO Mode"
-    : aiStatus.isAiProcessing
-      ? "AI: Active"
-      : "AI: Idle";
+  const aiPillText = aiStatus.ownerChatCapability.status === "checking"
+    ? "AI: Checking"
+    : aiStatus.ownerChatCapability.status === "unavailable"
+      ? "AI: Unavailable"
+      : aiStatus.ownerChatCapability.status === "unknown"
+        ? "AI: Status unknown"
+        : aiStatus.billingMode === "byo"
+          ? "AI: BYO Mode"
+          : aiStatus.isAiProcessing
+            ? "AI: Active"
+            : "AI: Idle";
+  const aiCapabilityClass = aiStatus.ownerChatCapability.status === "checking"
+    || aiStatus.ownerChatCapability.status === "unavailable"
+    || aiStatus.ownerChatCapability.status === "unknown"
+      ? ` is-${aiStatus.ownerChatCapability.status}`
+      : "";
   const navExtraItems = useMemo(
     () => [
       { id: "ai-controls", label: "AI Controls", actionId: FORGE_NAV_ACTION_AI_CONTROLS },
@@ -327,7 +338,7 @@ export default function HearthStandalone() {
           <span
             className={`hearth-standalone__pill hearth-standalone__pill--activity${
               aiStatus.isAiProcessing ? " is-active" : ""
-            }`}
+            }${aiCapabilityClass}`}
           >
             {aiPillText}
           </span>

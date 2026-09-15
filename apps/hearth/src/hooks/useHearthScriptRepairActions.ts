@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { Draft } from "../domain/draft";
 import type { EpisodeContext, HearthOp } from "../lib/hearth-ai-ops";
-import type { HearthAiLane, HearthChatMessage } from "../lib/hearth-chat-api";
+import type { HearthAiLane, HearthChatMessage, HearthOwnerChatCapability } from "../lib/hearth-chat-api";
 import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import { normalizeScriptTags, repairScriptTags, type ScriptValidationResult } from "@forge/shared/script-tags";
@@ -56,6 +56,7 @@ type UseHearthScriptRepairActionsArgs = {
   isRepairingScript: boolean;
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
+  ownerChatCapability: HearthOwnerChatCapability;
   chatHistoryMaxMessages: number;
   aiRequestControllerRef: { current: AbortController | null };
   draftEditVersionRef: { current: number };
@@ -130,6 +131,18 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
   const onAskAiRepairScript = useCallback(async () => {
     if (args.isRepairingScript || args.isAiProcessing) return;
     if (!args.activeDraft) return;
+    if (args.ownerChatCapability.status === "checking") {
+      args.setChatError("Hearth is checking private owner AI availability.");
+      return;
+    }
+    if (args.ownerChatCapability.status === "unavailable") {
+      args.setChatError("Private owner AI is unavailable in this runtime. Saved Hearth content and non-AI tools remain available.");
+      return;
+    }
+    if (args.ownerChatCapability.status === "unknown") {
+      args.setChatError("Hearth couldn’t verify private owner AI availability. Saved content and non-AI tools remain available.");
+      return;
+    }
 
     const episodeContext = args.buildActiveEpisodeContext();
     if (!episodeContext) {

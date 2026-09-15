@@ -2917,9 +2917,56 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         }
         const laneParam = url.searchParams.get("lane");
         const lane: BillingMode = isBillingMode(laneParam) ? laneParam : configuredBillingMode;
+        const workspaceId = url.searchParams.get("workspace_id")?.trim() ?? "";
+        if (!workspaceId) {
+          return jsonResponse(200, {
+            ok: true,
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        if (!isUuid(workspaceId)) {
+          return jsonResponse(400, { ok: false, error: "A valid workspace is required." });
+        }
+        const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          return jsonResponse(401, { ok: false, error: "Authentication required." });
+        }
+
+        let ownerChatCapability: {
+          status: "not_required" | "available" | "unavailable" | "unknown";
+          reason_code: "owner_runtime_unavailable" | "owner_controls_unavailable" | null;
+        } = { status: "not_required", reason_code: null };
+        if (lane === AI_USAGE_LANE.FORGE) {
+          if (!openAiTextGate) {
+            ownerChatCapability = {
+              status: "unknown",
+              reason_code: "owner_controls_unavailable",
+            };
+          } else {
+            try {
+              const requirement = await readOwnerHearthExecutionRequirement({
+                gate: openAiTextGate,
+                userId,
+                workspaceId,
+              });
+              if (requirement.owner_testing_effective === true) {
+                ownerChatCapability = ownerTextApiKey
+                  ? { status: "available", reason_code: null }
+                  : { status: "unavailable", reason_code: "owner_runtime_unavailable" };
+              }
+            } catch {
+              ownerChatCapability = {
+                status: "unknown",
+                reason_code: "owner_controls_unavailable",
+              };
+            }
+          }
+        }
         return jsonResponse(200, {
           ok: true,
           ...buildBillingSnapshot(lane),
+          owner_chat_capability: ownerChatCapability,
         });
       }
 
@@ -4073,8 +4120,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             error: ownerResearchRequirement
               ? "Private owner research requires the isolated OPENAI_HEARTH_RESEARCH_OWNER_API_KEY credential."
               : ownerHearthRequirement
-              ? "Private owner testing requires the isolated OPENAI_HEARTH_OWNER_API_KEY credential."
+              ? "Private owner AI is unavailable in this runtime."
               : MISSING_OPENAI_TEXT_API_KEY_ERROR,
+            ...(ownerHearthRequirement ? { code: "owner_hearth_runtime_unavailable" } : {}),
             ...buildBillingSnapshot(lane),
           });
         }

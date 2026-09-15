@@ -12,6 +12,7 @@ import type {
   HearthExplicitUiAction,
   HearthCustomerBillingQuote,
   HearthOutputPreference,
+  HearthOwnerChatCapability,
   HearthTurnResult,
 } from "../lib/hearth-chat-api";
 import {
@@ -533,11 +534,27 @@ type SendChatMessageArgs = {
 
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
 
+export function resolveOwnerChatCapabilityMessage(
+  capability: HearthOwnerChatCapability,
+): string | null {
+  if (capability.status === "checking") {
+    return "Hearth is checking private owner AI availability.";
+  }
+  if (capability.status === "unavailable") {
+    return "Private owner AI is unavailable in this runtime. Saved Hearth content and non-AI tools remain available.";
+  }
+  if (capability.status === "unknown") {
+    return "Hearth couldn’t verify private owner AI availability. Saved content and non-AI tools remain available.";
+  }
+  return null;
+}
+
 type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp extends { op: string }> = {
   operationAuthority: HearthOperationAuthority;
   isChatContextReady: boolean;
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
+  ownerChatCapability: HearthOwnerChatCapability;
   chatDraft: string;
   setChatDraft: (value: string) => void;
   setChatMessages: (value: HearthChatMessage[] | ((prev: HearthChatMessage[]) => HearthChatMessage[])) => void;
@@ -665,6 +682,11 @@ export function useChatWorkspaceRuntime<
 
   const sendChatMessage = useCallback(async (params: SendChatMessageArgs) => {
     if (args.isAiProcessing) return;
+    const capabilityMessage = resolveOwnerChatCapabilityMessage(args.ownerChatCapability);
+    if (capabilityMessage) {
+      args.setChatError(capabilityMessage);
+      return;
+    }
     if (!args.isChatContextReady) {
       args.setChatError("Hearth is still loading this Episode's canonical conversation. Try again in a moment.");
       return;

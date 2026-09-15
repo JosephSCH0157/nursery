@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateScriptTags } from "@forge/shared/script-tags";
 import { coalesceScriptTextIntoOps, requestHearthChatReply, resolveForgeUserAccessToken, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
-import type { HearthOp } from "../src/lib/hearth-ai-runtime-contract";
-import { resolveHearthAttachmentStatusLabel } from "../src/views/surfaces/ChatSurface";
+import { parseHearthAiStatusResponse, type HearthOp } from "../src/lib/hearth-ai-runtime-contract";
+import { resolveOwnerChatCapabilityMessage } from "../src/hooks/useChatWorkspace";
+import { isOwnerChatCapabilityBlocked, resolveHearthAttachmentStatusLabel } from "../src/views/surfaces/ChatSurface";
 
 function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
   let insideSpeaker = false;
@@ -111,6 +112,33 @@ test("coalesceScriptTextIntoOps shapes set_body proposals before review display"
   assert.equal(validateScriptTags(body).ok, true);
   assert.ok((body.match(/\[s1\]/g) ?? []).length >= 1);
   assertMaxSpeakerSpokenLines(body, 8);
+});
+
+test("owner chat readiness preserves distinct unavailable and unknown states", () => {
+  const unavailable = parseHearthAiStatusResponse({
+    billing_mode: "forge",
+    token_balance: 99,
+    owner_chat_capability: {
+      status: "unavailable",
+      reason_code: "owner_runtime_unavailable",
+    },
+  }, "forge");
+  assert.deepEqual(unavailable.owner_chat_capability, {
+    status: "unavailable",
+    reason_code: "owner_runtime_unavailable",
+  });
+  assert.equal(isOwnerChatCapabilityBlocked({ status: "unavailable", reasonCode: "owner_runtime_unavailable" }), true);
+  assert.equal(isOwnerChatCapabilityBlocked({ status: "unknown", reasonCode: "owner_controls_unavailable" }), true);
+  assert.equal(isOwnerChatCapabilityBlocked({ status: "available", reasonCode: null }), false);
+  assert.equal(isOwnerChatCapabilityBlocked({ status: "not_required", reasonCode: null }), false);
+  assert.equal(
+    resolveOwnerChatCapabilityMessage({ status: "unavailable", reasonCode: "owner_runtime_unavailable" }),
+    "Private owner AI is unavailable in this runtime. Saved Hearth content and non-AI tools remain available.",
+  );
+  assert.equal(
+    resolveOwnerChatCapabilityMessage({ status: "unknown", reasonCode: "owner_controls_unavailable" }),
+    "Hearth couldn’t verify private owner AI availability. Saved content and non-AI tools remain available.",
+  );
 });
 
 test("request authentication never borrows another Supabase environment's token", async () => {

@@ -141,6 +141,17 @@
   color: #b9f3d2;
 }
 
+.hearth-standalone__pill--activity.is-checking,
+.hearth-standalone__pill--activity.is-unknown {
+  background: rgba(237, 180, 82, 0.18);
+  color: #fbe3a8;
+}
+
+.hearth-standalone__pill--activity.is-unavailable {
+  background: rgba(239, 104, 104, 0.18);
+  color: #ffd0d0;
+}
+
 .hearth-standalone__pill--cloud {
   background: rgba(255, 255, 255, 0.08);
   font-weight: 600;

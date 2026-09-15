@@ -78,6 +78,9 @@ test("shell session hydration retries the canonical Reference Material loader", 
 
     assert.equal(retries, 1);
     assert.equal(await resolveTongsUserAccessToken(), token);
+    session = null;
+    authListener("SIGNED_OUT", session);
+    assert.equal(retries, 2);
     unsubscribe();
     assert.equal(unsubscribed, true);
   } finally {

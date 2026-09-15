@@ -769,6 +769,23 @@
   opacity: 0.7;
 }
 
+.hs-owner-ai-readiness {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(237, 180, 82, 0.35);
+  border-radius: 8px;
+  background: rgba(237, 180, 82, 0.1);
+}
+
+.hs-owner-ai-readiness button {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
 .hs-textarea-body {
   min-height: 320px;
   resize: vertical;

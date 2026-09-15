@@ -212,6 +212,71 @@ test("createHearthAiHandler returns cheap status snapshots", async () => {
   });
 });
 
+test("workspace-scoped status reports owner chat capability from the executing runtime", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const userId = "44444444-4444-4444-8444-444444444444";
+  const observed: Array<{ userId: unknown; workspaceId: unknown }> = [];
+  const makeHandler = (ownerTestingEffective: boolean, ownerTextApiKey: string | null) => createHearthAiHandler(buildConfig({
+    ownerTextApiKey,
+    openAiTextGate: {
+      async rpc(name, args) {
+        assert.equal(name, "read_owner_hearth_execution_requirement");
+        observed.push({ userId: args.p_owner_user_id, workspaceId: args.p_workspace_id });
+        return { data: { owner_testing_effective: ownerTestingEffective }, error: null };
+      },
+    },
+    resolveUserIdForAccessToken: async () => userId,
+  }));
+  const request = () => new Request(
+    `http://localhost${HEARTH_AI_ROUTES.chatStatus}?lane=forge&workspace_id=${workspaceId}`,
+    { headers: { authorization: "Bearer owner-token" } },
+  );
+
+  const inactive = await makeHandler(false, null)(request());
+  assert.deepEqual((await inactive.json()).owner_chat_capability, {
+    status: "not_required",
+    reason_code: null,
+  });
+
+  const unavailable = await makeHandler(true, null)(request());
+  assert.deepEqual((await unavailable.json()).owner_chat_capability, {
+    status: "unavailable",
+    reason_code: "owner_runtime_unavailable",
+  });
+
+  const available = await makeHandler(true, "isolated-owner-key")(request());
+  assert.deepEqual((await available.json()).owner_chat_capability, {
+    status: "available",
+    reason_code: null,
+  });
+  assert.deepEqual(observed, Array.from({ length: 3 }, () => ({ userId, workspaceId })));
+});
+
+test("workspace-scoped status distinguishes unknown owner controls and requires authentication", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const unknownHandler = createHearthAiHandler(buildConfig({
+    openAiTextGate: {
+      async rpc() {
+        return { data: null, error: { message: "control lookup failed" } };
+      },
+    },
+    resolveUserIdForAccessToken: async () => "44444444-4444-4444-8444-444444444444",
+  }));
+  const unknown = await unknownHandler(new Request(
+    `http://localhost${HEARTH_AI_ROUTES.chatStatus}?lane=forge&workspace_id=${workspaceId}`,
+    { headers: { authorization: "Bearer owner-token" } },
+  ));
+  assert.deepEqual((await unknown.json()).owner_chat_capability, {
+    status: "unknown",
+    reason_code: "owner_controls_unavailable",
+  });
+
+  const unauthenticated = await unknownHandler(new Request(
+    `http://localhost${HEARTH_AI_ROUTES.chatStatus}?lane=forge&workspace_id=${workspaceId}`,
+  ));
+  assert.equal(unauthenticated.status, 401);
+});
+
 test("createHearthAiHandler keeps chat error semantics when text api key is missing", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: null, apiKey: null }));
   const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
