@@ -96,3 +96,12 @@ export function formatNextEligibleAt(
     minute: "2-digit",
   });
 }
+
+export function getBudgetAvailabilityMessage(
+  visibleStoryCount: number,
+  nextCheck: string,
+): string {
+  return visibleStoryCount > 0
+    ? `Current suggestions remain available. Next check available at ${nextCheck}.`
+    : `Next topic check available at ${nextCheck}.`;
+}

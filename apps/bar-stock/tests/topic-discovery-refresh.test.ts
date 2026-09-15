@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatNextEligibleAt, getCollapsedTopicBasis, getDailyRefreshOperation, isPreviousResultSet, localCalendarDateKey, TopicDiscoveryRequestError } from "../src/lib/topic-discovery-refresh";
+import { formatNextEligibleAt, getBudgetAvailabilityMessage, getCollapsedTopicBasis, getDailyRefreshOperation, isPreviousResultSet, localCalendarDateKey, TopicDiscoveryRequestError } from "../src/lib/topic-discovery-refresh";
 
 const workspaceId = "workspace-1";
 const preference = { revision: 7, enabled: true, auto_refresh_authorized: true };
@@ -51,6 +51,17 @@ test("budget errors preserve structured eligibility metadata", () => {
 
   assert.equal(error.outcome, "budget_blocked");
   assert.equal(error.nextEligibleAt, "2026-09-15T23:17:00Z");
+});
+
+test("budget availability copy only claims suggestions remain when cards are visible", () => {
+  assert.equal(
+    getBudgetAvailabilityMessage(5, "7:17 PM"),
+    "Current suggestions remain available. Next check available at 7:17 PM.",
+  );
+  assert.equal(
+    getBudgetAvailabilityMessage(0, "7:17 PM"),
+    "Next topic check available at 7:17 PM.",
+  );
 });
 
 test("a saved configuration refreshes once per local calendar day", () => {
