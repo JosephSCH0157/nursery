@@ -69,8 +69,25 @@ export function allowedDisposableTarget(raw: string, config: DisposableBrowserCo
 export async function startDisposableProxy(config: DisposableBrowserConfig, port = 58625) {
   const denied: string[] = [];
   const forwarded = { http: 0, tunnels: 0, upgrades: 0 };
+  const transportErrors: { code: string }[] = [];
+  const transportClosures = { ECONNRESET: 0, EPIPE: 0 };
+  const seenErrors = new WeakSet<Error>();
   const sockets = new Set<Duplex>();
-  function track(socket: Duplex) { sockets.add(socket); socket.on("close", () => sockets.delete(socket)); }
+  function recordTransportError(error: Error) {
+    // A socket and its HTTP request may emit the same error. Record it once,
+    // without retaining error messages that could contain URLs or credentials.
+    if (seenErrors.has(error)) return;
+    seenErrors.add(error);
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ECONNRESET" || code === "EPIPE") { transportClosures[code]++; return; }
+    transportErrors.push({ code: code && /^[A-Z0-9_]+$/.test(code) ? code : "UNKNOWN" });
+  }
+  function track(socket: Duplex) {
+    if (sockets.has(socket)) return;
+    sockets.add(socket);
+    socket.on("error", (error: Error) => { recordTransportError(error); socket.destroy(); });
+    socket.on("close", () => sockets.delete(socket));
+  }
   function reject(raw: string) {
     try { const u = new URL(raw); denied.push(u.protocol + "//" + u.host + u.pathname); }
     catch { denied.push("malformed destination"); }
@@ -83,7 +100,8 @@ export async function startDisposableProxy(config: DisposableBrowserConfig, port
       hostname: target.hostname, port: target.port, path: target.pathname + target.search,
       method: req.method, headers: { ...req.headers, host: target.host },
     }, response => { res.writeHead(response.statusCode ?? 502, response.headers); response.pipe(res); });
-    upstream.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    upstream.on("socket", track);
+    upstream.on("error", (error: Error) => { recordTransportError(error); if (!res.headersSent) res.writeHead(502); res.end(); });
     req.pipe(upstream);
   });
   server.on("connection", track);
@@ -122,10 +140,13 @@ export async function startDisposableProxy(config: DisposableBrowserConfig, port
   });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", resolve); });
   return {
-    denied, forwarded, address: server.address(),
+    denied, forwarded, transportErrors, transportClosures, address: server.address(),
     async close() {
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      // Global browser teardown awaits close(), so unexpected transport errors
+      // fail certification even when the browser itself handled the failed call.
+      assert.deepEqual(transportErrors, [], "Unexpected disposable proxy transport errors");
     },
   };
 }

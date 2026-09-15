@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
+import net from "node:net";
+import { once } from "node:events";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { test } from "node:test";
@@ -36,6 +38,72 @@ test("runtime globals use only disposable authority; DOCX is explicitly excluded
 test("only exact loopback origins are authorized, including WebSockets", () => {
   for (const url of [config.appOrigin + "/x", config.apiOrigin + "/auth/v1/user", "ws://127.0.0.1:5173/hmr"]) assert(allowedDisposableTarget(url, config));
   for (const url of ["https://example.invalid", "http://localhost:5173", "http://127.0.0.1:12345", "http://user:password@127.0.0.1:5173", "file:///x", "wss://127.0.0.1:5173", "invalid"]) assert.equal(allowedDisposableTarget(url, config), null);
+});
+
+test("allowed CONNECT client reset closes cleanly and the proxy remains usable", { timeout: 10_000 }, async () => {
+  const server = http.createServer((_req, res) => res.end("still healthy"));
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const local = { ...config, appOrigin: `http://127.0.0.1:${address.port}` };
+  const proxy = await startDisposableProxy(local, 0);
+  assert(proxy.address && typeof proxy.address !== "string");
+  const proxyPort = proxy.address.port;
+  const client = net.connect(proxyPort, "127.0.0.1");
+  try {
+    const upstreamConnected = once(server, "connection");
+    await once(client, "connect");
+    const response = once(client, "data");
+    client.write(`CONNECT 127.0.0.1:${address.port} HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\n\r\n`);
+    assert.match(String((await response)[0]), /200 Connection Established/);
+    const [upstream] = await upstreamConnected as [net.Socket];
+    const upstreamClosed = new Promise<void>(resolve => upstream.once("close", () => resolve()));
+    client.resetAndDestroy();
+    await upstreamClosed;
+    assert(proxy.transportClosures.ECONNRESET > 0, "The real accepted socket must observe the reset");
+    assert.deepEqual(proxy.transportErrors, []);
+    assert.deepEqual(proxy.denied, []);
+    const body = await new Promise<string>((resolve, reject) => {
+      http.get({ hostname: "127.0.0.1", port: proxyPort, path: local.appOrigin + "/healthy" }, res => {
+        let text = "";
+        res.setEncoding("utf8"); res.on("data", chunk => { text += chunk; });
+        res.on("error", reject); res.on("end", () => resolve(text));
+      }).on("error", reject);
+    });
+    assert.equal(body, "still healthy");
+    assert.deepEqual(proxy.transportErrors, []);
+    assert.deepEqual(proxy.denied, []);
+  } finally {
+    client.destroy();
+    try { await proxy.close(); }
+    finally {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  }
+});
+
+test("unexpected allowed-upstream socket errors are observable and fail teardown", { timeout: 10_000 }, async () => {
+  const unavailable = net.createServer();
+  await new Promise<void>(resolve => unavailable.listen(0, "127.0.0.1", resolve));
+  const address = unavailable.address();
+  assert(address && typeof address !== "string");
+  await new Promise<void>(resolve => unavailable.close(() => resolve()));
+  const local = { ...config, appOrigin: `http://127.0.0.1:${address.port}` };
+  const proxy = await startDisposableProxy(local, 0);
+  assert(proxy.address && typeof proxy.address !== "string");
+  const client = net.connect(proxy.address.port, "127.0.0.1");
+  try {
+    await once(client, "connect");
+    const closed = once(client, "close");
+    client.write(`CONNECT 127.0.0.1:${address.port} HTTP/1.1\r\nHost: 127.0.0.1:${address.port}\r\n\r\n`);
+    await closed;
+    assert.deepEqual(proxy.transportErrors, [{ code: "ECONNREFUSED" }]);
+    assert.deepEqual(proxy.denied, [], "An allowed but unavailable destination is not a policy violation");
+  } finally {
+    client.destroy();
+    await assert.rejects(proxy.close(), /Unexpected disposable proxy transport errors/);
+  }
 });
 
 test("Chromium uses disposable globals and proxy blocks remote redirects, requests, sockets and HTTPS", async () => {
