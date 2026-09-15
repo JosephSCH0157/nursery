@@ -380,6 +380,9 @@ type ReanchorPendingState = {
 };
 
 type ReanchorLandingState = {
+  backwardEvidenceRevision: number;
+  revision: number;
+  authority: ReanchorLandingAuthority;
   startedAtMs: number;
   reason: string;
   anchorLineIdx: number;
@@ -392,6 +395,32 @@ type ReanchorLandingState = {
   lastExposedTargetScrollTop: number;
   lastAppliedScrollTop: number;
   stuckSinceMs: number;
+};
+
+type ReanchorLandingAuthority = {
+  runKey: string;
+  runGeneration: number | null;
+  driverRunKey: string;
+  driverRunGeneration: number | null;
+  responseEpoch: number;
+  focusGeneration: number;
+  viewerRole: ReturnType<typeof resolveViewerRole>;
+  scroller: HTMLElement | null;
+  scriptRoot: ReturnType<typeof getScriptRoot>;
+  scriptHash: string;
+  readyScriptIdentity: string;
+  captureSessionId: unknown;
+};
+
+type ReanchorLandingFrame = {
+  handle: number | null;
+  consumed: boolean;
+  landing: ReanchorLandingState;
+  revision: number;
+  semanticEpoch: number;
+  targetLine: number;
+  targetTop: number;
+  targetElement: HTMLElement | null;
 };
 
 type ShortLinePreReanchorGraceState = {
@@ -4903,6 +4932,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const applyBoundedVisualRecenterPullback = (input: {
+    completion?: PostCommitCompletion;
+    backwardDecision?: BackwardVisualDecision;
+    candidateLineIdx?: number;
     scroller: HTMLElement;
     currentTop: number;
     targetScrollTop: number;
@@ -4942,6 +4974,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         tolerancePx,
         overshootPx,
       };
+    }
+    const candidateLine = input.candidateLineIdx ?? input.committedLineIdx;
+    const backwardIdentity = { writerPath: 'visual_recenter_pullback' as const,
+      source: input.authority, candidateLine, targetTop: targetScrollTop };
+    const backwardDecision = input.backwardDecision ?? issueBackwardVisualDecision(backwardIdentity);
+    if (!validateBackwardVisualDecision(backwardDecision, backwardIdentity)) {
+      return { applied: false, blocked: true, blockedReason: lastAsrBackwardRecenterBlockReason,
+        beforeTop, afterTop: beforeTop, pullbackPx: 0, tolerancePx, overshootPx };
     }
     const backwardRecenterGuard = evaluateBackwardRecenterBlock({
       scroller: input.scroller,
@@ -5041,8 +5081,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const pullbackPx = Math.min(overshootPx, maxPullbackPx);
     const proposedTop = Math.max(targetScrollTop, beforeTop - pullbackPx);
     const afterTop = applyScrollWithHybridGuard(proposedTop, {
+      completion: input.completion,
       scroller: input.scroller,
       reason: 'asr-visual-recenter-pullback',
+      backwardWriteStillCurrent: () => validateBackwardVisualDecision(backwardDecision, backwardIdentity, true),
+      backwardWriteStillOwned: () => backwardWriteStillOwned(backwardDecision),
       source: 'asr-follow',
       targetScrollTop,
       currentLineIdx: input.currentLineIdx,
@@ -5051,11 +5094,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       allowedTargetIdx: input.committedLineIdx,
       selectedAuthority: input.authority,
       authorityReason: 'marker_error_line_too_high',
-      candidateLineIdx: input.committedLineIdx,
+      candidateLineIdx: candidateLine,
       sourceAuthority: input.authority,
       terminalClampActive: input.terminalClampActive,
     });
     const actualPullbackPx = Math.max(0, beforeTop - afterTop);
+    if (actualPullbackPx === 0 && lastAsrBackwardRecenterBlockReason !== 'none') {
+      return { applied: false, blocked: true, blockedReason: lastAsrBackwardRecenterBlockReason,
+        beforeTop, afterTop, pullbackPx: 0, tolerancePx, overshootPx };
+    }
     emitDevDiagnostic(
       'ASR_VISUAL_RECENTER_PULLBACK_APPLIED',
       'warn',
@@ -5082,7 +5129,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ].join('|'),
       },
     );
-    if (actualPullbackPx > 0) {
+    if (actualPullbackPx > 0 && backwardWriteStillOwned(backwardDecision)) {
       armOvershootSettleLock({
         lineIdx: input.nextSpeakableLineIdx,
         targetScrollTop,
@@ -5104,7 +5151,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
 
-  const applyVisualActuatorTargetStep = (input: {
+  const applyVisualActuatorTargetStepCore = (input: {
+    packetContinuity?: PendingPacketContinuity;
+    completion?: PostCommitCompletion;
+    ownershipPending?: boolean;
+    backwardDecision?: BackwardVisualDecision;
+    candidateLineIdx?: number;
     scroller: HTMLElement;
     currentTop: number;
     targetScrollTop?: number | null;
@@ -5133,6 +5185,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
     const targetFinite = Number.isFinite(input.targetScrollTop as number);
     const targetTop = targetFinite ? Number(input.targetScrollTop) : currentTop;
+    if (input.backwardDecision && !validateBackwardVisualDecision(input.backwardDecision, {
+      writerPath: 'visual_recenter_pullback', source: input.authority,
+      candidateLine: input.candidateLineIdx ?? input.committedLineIdx, targetTop,
+    })) {
+      return { afterTop: currentTop, appliedDeltaPx: 0, clampReason: lastAsrBackwardRecenterBlockReason,
+        tolerancePx: getVisualTargetTolerancePx(input.lineHeightPx), usedPullback: false,
+        blockedPullback: true, zeroingReason: lastAsrBackwardRecenterBlockReason };
+    }
     const remainingForwardDebtPx =
       targetFinite && targetTop >= currentTop
         ? Math.max(0, targetTop - currentTop)
@@ -5168,6 +5228,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     });
     if (targetBounding.overshootActive) {
       const pullbackResult = applyBoundedVisualRecenterPullback({
+        completion: input.completion,
+        backwardDecision: input.backwardDecision,
+        candidateLineIdx: input.candidateLineIdx,
         scroller: input.scroller,
         currentTop,
         targetScrollTop: targetTop,
@@ -5227,6 +5290,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
     }
     const afterTop = applyScrollWithHybridGuard(boundedTop, {
+      packetContinuity: input.packetContinuity,
+      completion: input.completion,
       scroller: input.scroller,
       reason: 'asr-tick',
       source: 'asr-follow',
@@ -5240,7 +5305,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       candidateLineIdx: input.allowedTargetIdx >= 0 ? input.allowedTargetIdx : input.committedLineIdx,
       sourceAuthority: input.authority,
       terminalClampActive: input.terminalClampActive,
-      allowPostSemanticCommitVisualRelease: true,
+      allowPostSemanticCommitVisualRelease: !input.packetContinuity,
     });
     return {
       afterTop,
@@ -5270,6 +5335,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   function applyScrollWithHybridGuard(
     targetTop: number,
     opts: {
+      packetContinuity?: PendingPacketContinuity;
+      completion?: PostCommitCompletion;
       scroller?: HTMLElement | null;
       reason?: string;
       source?: string;
@@ -5288,6 +5355,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       terminalClampActive?: boolean;
       allowPostSemanticCommitVisualRelease?: boolean;
       bypassAsrVisualGuardrails?: boolean;
+      landingWriteStillCurrent?: () => boolean;
+      backwardWriteStillCurrent?: () => boolean;
+      backwardWriteStillOwned?: () => boolean;
     },
   ): number {
     const scroller = opts.scroller ?? getScroller();
@@ -5318,7 +5388,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       });
       return currentTop;
     }
-    if (!canApplyAsrMovement(`scroll-write:${reason}`, Date.now())) {
+    if (!canApplyAsrMovement(`scroll-write:${reason}`, Date.now(), { packetContinuity: opts.packetContinuity })) {
       logAsrScrollAttempt('denied', {
         targetTop,
         currentTop,
@@ -5335,7 +5405,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       isSessionAsrArmed();
     if (liveAsrMode && liveAsrVisualGovernorHardHold) {
       if (opts.bypassAsrVisualGuardrails === true) {
-        const appliedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+        if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return currentTop;
+        if (targetTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX && opts.backwardWriteStillCurrent && !opts.backwardWriteStillCurrent()) return currentTop;
+        const reportedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+        const appliedTop = opts.landingWriteStillCurrent ? Number(scroller.scrollTop) : reportedTop;
+        if (opts.backwardWriteStillOwned && !opts.backwardWriteStillOwned()) return appliedTop;
+        if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return appliedTop;
         scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
         noteVisualWrite(
           String(opts.selectedAuthority || opts.sourceAuthority || reason || 'asr'),
@@ -5352,7 +5427,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return currentTop;
     }
     if (opts.bypassAsrVisualGuardrails === true) {
-      const appliedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+      if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return currentTop;
+      if (targetTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX && opts.backwardWriteStillCurrent && !opts.backwardWriteStillCurrent()) return currentTop;
+      const reportedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+      const appliedTop = opts.landingWriteStillCurrent ? Number(scroller.scrollTop) : reportedTop;
+      if (opts.backwardWriteStillOwned && !opts.backwardWriteStillOwned()) return appliedTop;
+      if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return appliedTop;
       scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
       noteVisualWrite(
         String(opts.selectedAuthority || opts.sourceAuthority || reason || 'asr'),
@@ -5414,20 +5494,31 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       sourceBranch: opts.sourceBranch,
       forceReason: opts.forceReason,
       terminalClampActive: opts.terminalClampActive === true,
-      releaseFreshVerifiedForwardCommit: releaseDecision?.accepted === true,
-      releaseAuthoritativeLineIdx: releaseDecision?.accepted === true ? releaseDecision.authoritativeLineIdx : null,
-      releaseBoundedTargetTop: releaseDecision?.accepted === true ? releaseDecision.boundedTargetScrollTop : null,
+      releaseFreshVerifiedForwardCommit: releaseDecision?.accepted === true || (!!opts.completion && completionWriteCurrent(opts.completion)),
+      releaseAuthoritativeLineIdx: opts.completion?.line ?? (releaseDecision?.accepted === true ? releaseDecision.authoritativeLineIdx : null),
+      releaseBoundedTargetTop: opts.completion ? targetTop : (releaseDecision?.accepted === true ? releaseDecision.boundedTargetScrollTop : null),
     });
     const payload = { ...opts, scroller };
-    const appliedTop = applyCanonicalScrollTop(pocketWall.effectiveTop, { ...payload, source });
+    if (pocketWall.effectiveTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX &&
+      opts.backwardWriteStillCurrent && !opts.backwardWriteStillCurrent()) return currentTop;
+    if (opts.completion && !completionWriteCurrent(opts.completion)) return currentTop;
+    if (opts.packetContinuity && (!pendingPacketCurrent(opts.packetContinuity) ||
+      currentTop !== opts.packetContinuity.beforeTop ||
+      pocketWall.effectiveTop < currentTop ||
+      pocketWall.effectiveTop > opts.packetContinuity.stepTop)) return currentTop;
+    applyCanonicalScrollTop(pocketWall.effectiveTop, { ...payload, source });
+    const appliedTop = Number(scroller.scrollTop);
+    if (opts.packetContinuity && !pendingPacketCurrent(opts.packetContinuity)) return appliedTop;
+    if (opts.completion && !completionWriteCurrent(opts.completion)) return appliedTop;
+    if (opts.backwardWriteStillOwned && !opts.backwardWriteStillOwned()) return appliedTop;
     if (releaseDecision) {
-      if (releaseDecision.accepted) {
+      if (releaseDecision.accepted && !opts.completion && appliedTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
         armPostReleaseProtectedFollow({
           nowMs: Date.now(),
           releaseLineIdx: releaseDecision.newSemanticLineIdx,
           protectedTargetScrollTop: releaseDecision.releaseDesiredTargetScrollTop,
         });
-      } else {
+      } else if (!releaseDecision.accepted && !opts.completion) {
         clearPostReleaseProtectedFollow();
       }
       try {
@@ -5966,6 +6057,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     };
   };
   type AsrVisualOwnershipCandidate = {
+    candidateLineIdx?: number;
     authority: string;
     targetScrollTop: number | null;
     reason: string;
@@ -5973,6 +6065,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     priority: number;
   };
   type AsrVisualOwnershipDecision = {
+    backwardDecision?: BackwardVisualDecision;
     selectedAuthority: string;
     selectedTargetScrollTop: number | null;
     selectedReason: string;
@@ -6138,7 +6231,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
       if (
         args.protectedForwardIntent &&
-        candidate.direction === 'backward' &&
         targetTop < (args.currentScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX)
       ) {
         rejectedAuthorities.push(candidate.authority);
@@ -6188,6 +6280,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     return {
       selectedAuthority,
       selectedTargetScrollTop,
+      backwardDecision: selectedTargetScrollTop != null &&
+        selectedTargetScrollTop < args.currentScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX
+        ? issueBackwardVisualDecision({ writerPath: 'visual_recenter_pullback',
+          source: selectedAuthority,
+          candidateLine: selectedCandidate?.candidateLineIdx ?? -1,
+          targetTop: selectedTargetScrollTop }) : undefined,
       selectedReason: selectedCandidate?.reason || movementBlockedReason,
       proposedCandidates,
       rejectedAuthorities: rejectedAuthorities.length > 0 ? rejectedAuthorities.join(',') : 'none',
@@ -6290,6 +6388,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   } => {
     const pendingOwner = args.ownershipNotFinalCandidatePresent ? 'asr4_pocket_drift' : 'none';
     const allowedRescueSources = 'reader_marker_correction';
+    const sameLineFinal = args.selectedAuthority === 'track_follow' &&
+      sameLineCompletionQualified(args.currentLineIdx) &&
+      !args.noMatchOrOffscript && !args.hardContradiction &&
+      Number.isFinite(args.selectedTargetScrollTop) &&
+      Number(args.selectedTargetScrollTop) > args.currentScrollTop + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX &&
+      Number(args.markerErrorPx) > getVisualTargetTolerancePx(Number(args.lineHeightPx));
+    if (sameLineFinal) return {
+      blockedReason: 'none', ownershipFinalizationRejectedReason: 'none', pendingOwner: 'track_follow',
+      requiredProofMissing: 'none', semanticCommitHeldButVisualCorrectionAllowed: true,
+      backendEvidencePresent: lastAuthorityMatchVia === 'backend', spokenAnchorEligible: true, spokenAnchorRejectedReason: 'none', allowedRescueSources: 'track_follow',
+    };
     if (!args.ownershipNotFinalCandidatePresent) {
       return {
         blockedReason: 'none',
@@ -6601,6 +6710,343 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       );
     } catch {}
   };
+  type BackwardWriterPath = 'visual_recenter_pullback' | 'pocket_drift' | 'reanchor_landing';
+  type BackwardVisualDecision = Readonly<{
+    writerPath: BackwardWriterPath;
+    source: string;
+    candidateLine: number;
+    targetTop: number;
+    semanticEpoch: number;
+    visualEpoch: number;
+    context: Readonly<ReanchorLandingAuthority>;
+    targetElement: HTMLElement | null;
+    evidenceKey: string;
+    freshness: Readonly<{ receivedAt: number; responseAgeMs: number; audioAgeMs: number }>;
+    expiresAt: number;
+    landing: ReanchorLandingState | null;
+    landingRevision: number | null;
+    support: readonly number[];
+  }>;
+  const backwardDecisions = new Map<BackwardWriterPath, BackwardVisualDecision>();
+  const consumedBackwardDecisions = new WeakSet<BackwardVisualDecision>();
+  let acceptedVisualEvidenceRevision = 0;
+  let acceptedVisualEvidenceContext: Readonly<ReanchorLandingAuthority> | null = null;
+  let backwardLocalAnchorContextBlocked = false;
+
+  function rememberAcceptedVisualEvidence(): void {
+    acceptedVisualEvidenceRevision += 1;
+    acceptedVisualEvidenceContext = Object.freeze(captureReanchorLandingAuthority());
+  }
+
+  function backwardEvidenceKey(): string {
+    return JSON.stringify([acceptedVisualEvidenceRevision, lastAcceptedMatchedLineIdx,
+      lastAcceptedMatchedLineSim, lastAcceptedMatchedAt, lastFreshProofLine,
+      lastForwardCommitAt, lastStrongConfirmedSpokenLine]);
+  }
+
+  function sameVisualContext(expected: Readonly<ReanchorLandingAuthority>): boolean {
+    const current = captureReanchorLandingAuthority();
+    return (Object.keys(expected) as Array<keyof ReanchorLandingAuthority>)
+      .every((key) => expected[key] === current[key]);
+  }
+
+  // Visual execution only. No lease, semantic evidence, or scheduler is owned here.
+  type PendingPacketContinuity = Readonly<{
+    pending: ReanchorPendingState;
+    context: Readonly<ReanchorLandingAuthority>;
+    semanticEpoch: number;
+    visualEpoch: number;
+    packetRevision: number;
+    packetIdentity: string;
+    fingerprint: string;
+    expiresAt: number;
+    anchor: number;
+    candidate: number;
+    element: HTMLElement;
+    scroller: HTMLElement;
+    targetTop: number;
+    beforeTop: number;
+    stepTop: number;
+    lineHeight: number;
+    geometry: string;
+  }>;
+  let pendingPacketRevision = 0;
+  let pendingPacketHighWater = -1;
+  let pendingPacketFinalHighWater = -1;
+  let pendingPacketDecision: PendingPacketContinuity | null = null;
+  let pendingPacketInFlight: PendingPacketContinuity | null = null;
+
+  function notePendingPacket(outcome: string): void {
+    try { console.info(`[ASR_PENDING_PACKET_CONTINUITY] outcome=${outcome} semanticEpoch=${semanticEpoch}`); } catch {}
+  }
+
+  function pendingPacketGeometry(scroller: HTMLElement, element: HTMLElement): string {
+    const rect = element.getBoundingClientRect();
+    const viewer = scroller.getBoundingClientRect();
+    return JSON.stringify([element.textContent, element.offsetTop, element.offsetHeight, element.clientHeight,
+      rect.top + scroller.scrollTop, rect.height, viewer.top, viewer.height,
+      scroller.clientHeight, scroller.scrollHeight]);
+  }
+
+  function pendingPacketCurrent(decision: PendingPacketContinuity): boolean {
+    const identityCurrent = () => !disposed && pendingPacketDecision === decision &&
+      pendingPacketInFlight === decision && decision.pending === reanchorPendingState &&
+      decision.packetRevision === pendingPacketRevision && decision.semanticEpoch === semanticEpoch &&
+      decision.visualEpoch === visualTargetEpoch && decision.anchor === lastLineIndex &&
+      sameVisualContext(decision.context) && Date.now() < decision.expiresAt;
+    if (!identityCurrent() || !canAsrMove() || getScrollMode() !== 'asr' ||
+      !isSessionLivePhase() || !isSessionAsrArmed() || !isDocumentFocused() ||
+      getDocumentVisibilityState() !== 'visible' || getAsrFocusHoldState(Date.now()).active ||
+      reanchorLandingState || pendingSpeakableBridgeState || liveAsrTerminalScriptHoldActive ||
+      terminalBoundaryAuthority.getPending() || canonicalAuthority.getSnapshot().terminalCompleted ||
+      asrSilenceActive || liveAsrVisualGovernorHardHold ||
+      !hasRecentVadSpeechNow(Date.now()) ||
+      /contradiction|offscript|no_match|stale_authority|authority_not_current/.test(
+        `${lastAsrGuardReason} ${lastAsrHudGuardText}`.toLowerCase()) ||
+      decision.scroller !== getScroller() || !decision.element.isConnected ||
+      decision.element !== getLineElementByIndex(decision.scroller, decision.candidate)) return false;
+    const target = resolveTargetTop(decision.scroller, decision.candidate);
+    const height = resolveMotionLineHeightPx(getLineElementByIndex(decision.scroller, decision.anchor));
+    return target === decision.targetTop && height === decision.lineHeight &&
+      pendingPacketGeometry(decision.scroller, decision.element) === decision.geometry && identityCurrent();
+  }
+
+  function attemptPendingPacket(args: {
+    detail: TranscriptDetail | undefined; isFinal: boolean; revision: number;
+    raw: number | null; assembled: number | null; rawConfidence: number; confidence: number;
+    sourceSeqs: number[]; supportSeqs: number[];
+    capture: Array<{ requestSeq: number; verdict: string; silenceBoundaryAtMs: number | null }>;
+    provenance: string | null; responseEpoch: number | null;
+  }): void {
+    const reject = (reason: string) => { notePendingPacket(reason); };
+    const detail = args.detail;
+    const pending = reanchorPendingState;
+    if (!pending || !detail || !args.isFinal || pending.reason !== 'raw_locality_diverged_without_continuing_support') return;
+    if (detail.noMatch === true || detail.semanticAdmissionVerdict) return reject('packet_admission_denied');
+    const sequence = resolveTranscriptSeq(detail);
+    const request = resolveTranscriptRequestSeq(detail);
+    // No fallback-to-now freshness, anonymous request, or reconsidered packet may mint authority.
+    const now = Date.now();
+    const bridgeTimestamp = (detail as TranscriptDetail & { timestamp?: number }).timestamp;
+    const bridgeGenerationCurrent = Number.isInteger(detail.requestGeneration) &&
+      Number.isInteger(detail.bridgeGeneration) && detail.requestGeneration === detail.bridgeGeneration;
+    // WhisperBridge's existing timestamp is performance.now(), not epoch millis.
+    // Convert its elapsed age once. Never substitute receipt-now for absent timing.
+    const bridgeAge = typeof bridgeTimestamp === 'number' && Number.isFinite(bridgeTimestamp) && bridgeTimestamp >= 0
+      ? performance.now() - bridgeTimestamp : Number.NaN;
+    const explicitReceived = detail.receivedAtMs ?? detail.responseCreatedAtMs;
+    const received = explicitReceived != null ? Number(explicitReceived)
+      : bridgeGenerationCurrent && Number.isFinite(bridgeAge) && bridgeAge >= 0 ? now - bridgeAge : Number.NaN;
+    const responseAge = detail.responseAgeMs != null ? Number(detail.responseAgeMs) : now - received;
+    const responseCurrent = args.responseEpoch != null ? args.responseEpoch === commitAuthorityEpoch && received > lastCommitAuthorityInvalidatedAt
+      : bridgeGenerationCurrent && received > lastCommitAuthorityInvalidatedAt;
+    if (sequence < 0 || !request || !Number.isFinite(received) || received <= 0 || received > now ||
+      !Number.isFinite(responseAge) || responseAge < 0 || !responseCurrent ||
+      !detail.runKey || detail.runGeneration == null ||
+      isRunIdentityStale({ runKey: detail.runKey, runGeneration: detail.runGeneration })) return reject('identity_or_response_invalid');
+    const incoming = Math.max(...args.sourceSeqs);
+    const evidence = new Map(args.capture.map(entry => [entry.requestSeq, entry]));
+    const support = [...new Set(args.supportSeqs)];
+    const source = [...new Set(args.sourceSeqs)];
+    if (!source.length || !support.length || !support.includes(incoming) ||
+      !support.every(seq => source.includes(seq) && evidence.get(seq)?.verdict === 'voice_detected')) return reject('unsupported_lineage');
+    const captureTimes = support.map(seq => detail.requestCaptureEvidence?.find(entry => entry.requestSeq === seq)?.captureEndedAtMs);
+    if (captureTimes.some(time => typeof time !== 'number' || !Number.isFinite(time) || time <= 0 || time > now ||
+      now - time >= activeAsrControllerProfile.audioFreshMaxAgeMs)) return reject('stale_capture_lineage');
+    if (args.responseEpoch == null && support.some(seq => {
+      const start = detail.requestCaptureEvidence?.find(entry => entry.requestSeq === seq)?.captureStartedAtMs;
+      return typeof start !== 'number' || !Number.isFinite(start) || start <= lastCommitAuthorityInvalidatedAt || start > now;
+    })) return reject('capture_before_response_authority');
+    const rawText = typeof detail.rawText === 'string' ? normalizeComparableText(detail.rawText) : '';
+    const assembledText = typeof detail.assembledText === 'string' ? normalizeComparableText(detail.assembledText) : '';
+    const direct = args.provenance === 'direct_raw_support' && rawText.length > 0 && rawText === assembledText &&
+      args.raw === args.assembled && Number.isFinite(args.rawConfidence) &&
+      args.rawConfidence >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM;
+    const multi = args.provenance === 'voice_backed_multi_request_support' &&
+      detail.forwardMatchCreatedByAssembly === true && rawText.length > 0 && assembledText.length > 0 &&
+      source.length > 1 && support.length > 1 && args.raw != null && args.raw >= 0 && args.raw < lastLineIndex;
+    if (!direct && !multi) return reject('unsupported_raw_assembled');
+    const candidate = args.assembled;
+    if (candidate == null || !Number.isInteger(candidate) || candidate < lastLineIndex || candidate > lastLineIndex + 1 ||
+      (candidate > lastLineIndex && resolveForwardSpeakableTarget(lastLineIndex, candidate, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) !== candidate) ||
+      !Number.isFinite(args.confidence) || args.confidence < DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM) return reject('nonlocal_or_weak_candidate');
+    const expiresAt = Math.min(received + activeAsrControllerProfile.responseFreshMaxAgeMs,
+      now + activeAsrControllerProfile.responseFreshMaxAgeMs - responseAge,
+      lastAudioChunkAt + activeAsrControllerProfile.audioFreshMaxAgeMs,
+      ...captureTimes.map(time => Number(time) + activeAsrControllerProfile.audioFreshMaxAgeMs));
+    if (!lastAudioChunkAt || now >= expiresAt) return reject('expired');
+    const context = Object.freeze(captureReanchorLandingAuthority());
+    const epoch = semanticEpoch;
+    const visualEpoch = visualTargetEpoch;
+    const anchor = lastLineIndex;
+    const scroller = getScroller();
+    const element = getLineElementByIndex(scroller, candidate);
+    if (!scroller || !element?.isConnected) return reject('missing_target');
+    const target = resolveTargetTop(scroller, candidate);
+    const height = resolveMotionLineHeightPx(getLineElementByIndex(scroller, anchor));
+    const before = Number(scroller.scrollTop);
+    const geometry = resolveLineVisualTelemetry(scroller, candidate);
+    if (!Number.isFinite(target) || !Number.isFinite(before) || !Number.isFinite(height) || height <= 0 ||
+      !Number.isFinite(geometry.lineCenterInViewport) ||
+      Math.abs(geometry.lineCenterInViewport - geometry.markerYInViewport) > height * 6) return reject('nonlocal_geometry');
+    const decision: PendingPacketContinuity = Object.freeze({
+      pending, context, semanticEpoch: epoch, visualEpoch, packetRevision: args.revision,
+      packetIdentity: JSON.stringify([detail.runKey, detail.runGeneration, sequence, request]),
+      // Exact serialized evidence, not a collision-prone hash or mutable event reference.
+      fingerprint: JSON.stringify([rawText, assembledText, detail.rawTextHash, detail.assembledTextHash,
+        args.raw, candidate, args.rawConfidence, args.confidence, source, support, args.capture,
+        args.provenance, detail.forwardMatchCreatedByAssembly, received, responseAge, args.responseEpoch,
+        detail.requestCaptureEvidence, bridgeTimestamp, detail.requestGeneration, detail.bridgeGeneration]),
+      expiresAt, anchor, candidate, element, scroller, targetTop: Number(target), beforeTop: before,
+      stepTop: Math.min(Number(target), before + height), lineHeight: height,
+      geometry: pendingPacketGeometry(scroller, element),
+    });
+    pendingPacketDecision = decision;
+    pendingPacketInFlight = decision;
+    try {
+      notePendingPacket('qualified');
+      if (!pendingPacketCurrent(decision)) return reject('authority_changed');
+      const backwardDecision = decision.targetTop < before
+        ? issueBackwardVisualDecision({ writerPath: 'visual_recenter_pullback', source: 'pending_packet_continuity',
+            candidateLine: candidate, targetTop: decision.targetTop }) : undefined;
+      const result = applyVisualActuatorTargetStep({
+        packetContinuity: decision, backwardDecision, candidateLineIdx: candidate, scroller,
+        currentTop: before, targetScrollTop: decision.targetTop,
+        requestedMovePx: Math.max(0, decision.stepTop - before), effectiveMinStepPx: 0, lineHeightPx: height,
+        currentLineIdx: anchor, committedLineIdx: anchor, nextSpeakableLineIdx: candidate,
+        authority: 'pending_packet_continuity', authorityReason: 'qualified_packet_only', allowedTargetIdx: candidate,
+        terminalClampActive: liveAsrTerminalScriptHoldActive, noMatchOrOffscript: false, hardContradiction: false,
+      });
+      if (!pendingPacketCurrent(decision)) return reject('superseded_during_write');
+      const after = Number(scroller.scrollTop);
+      if (Number.isFinite(after) && after > before + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        lastKnownScrollTop = after;
+        lastMoveAt = Date.now();
+        notePendingPacket('moved');
+      } else notePendingPacket(result.blockedPullback ? 'backward_denied' : 'no_progress');
+    } catch {
+      notePendingPacket('writer_rejected');
+    } finally {
+      if (pendingPacketDecision === decision) pendingPacketDecision = null;
+      if (pendingPacketInFlight === decision) pendingPacketInFlight = null;
+    }
+  }
+
+  function qualifiedLocalVisualLine(now: number): number | null {
+    // Raw matches and a larger index alone are not visual authority. Only the
+    // existing accepted, local, strong, fresh final evidence can compete here.
+    if (!acceptedVisualEvidenceContext || !sameVisualContext(acceptedVisualEvidenceContext) ||
+      !Number.isFinite(lastAcceptedMatchedLineSim) ||
+      lastAcceptedMatchedLineSim < DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM ||
+      lastAcceptedMatchedAt <= 0 || now - lastAcceptedMatchedAt > ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS ||
+      lastAcceptedMatchedLineIdx < lastLineIndex || lastAcceptedMatchedLineIdx > lastLineIndex + 1 ||
+      pendingSpeakableBridgeState || reanchorPendingState || asrSilenceActive ||
+      liveAsrVisualGovernorHardHold || backwardLocalAnchorContextBlocked ||
+      /offscript|no_match|contradiction/.test(`${lastAsrGuardReason} ${lastAsrHudGuardText}`)) return null;
+    const scroller = getScroller();
+    if (!scroller) return null;
+    const geometry = resolveLineVisualTelemetry(scroller, lastAcceptedMatchedLineIdx);
+    const height = resolveMotionLineHeightPx(getLineElementByIndex(scroller, lastLineIndex));
+    if (!Number.isFinite(geometry.lineCenterInViewport) ||
+      Math.abs(geometry.lineCenterInViewport - geometry.markerYInViewport) > height * 6) return null;
+    const opportunity = acceptedForwardOpportunity;
+    if (lastAcceptedMatchedLineIdx > lastLineIndex &&
+      (!opportunity || opportunity.targetLineIdx !== lastAcceptedMatchedLineIdx ||
+        opportunity.semanticCursorAtOpen !== lastLineIndex ||
+        opportunity.runKey !== resolveDriverRunKey() ||
+        opportunity.runGeneration !== resolveDriverRunGeneration())) return null;
+    return lastAcceptedMatchedLineIdx;
+  }
+
+  function rejectBackwardDecision(decision: BackwardVisualDecision, reason: string): false {
+    // A stale caller cannot consume or clear a replacement's permission.
+    if (backwardDecisions.get(decision.writerPath) === decision) backwardDecisions.delete(decision.writerPath);
+    lastAsrBackwardRecenterBlockReason = reason;
+    try { console.info(`[ASR_BACKWARD_VISUAL_DECISION] outcome=${reason} writer=${decision.writerPath} candidate=${decision.candidateLine} epoch=${decision.semanticEpoch}`); } catch {}
+    return false;
+  }
+
+  function backwardWriteStillOwned(decision: BackwardVisualDecision): boolean {
+    return !disposed && decision.semanticEpoch === semanticEpoch && decision.visualEpoch === visualTargetEpoch && sameVisualContext(decision.context) &&
+      !backwardDecisions.has(decision.writerPath) &&
+      (decision.landing ? decision.landing === reanchorLandingState &&
+        decision.landingRevision === decision.landing.revision : decision.evidenceKey === backwardEvidenceKey());
+  }
+
+  function issueBackwardVisualDecision(args: {
+    writerPath: BackwardWriterPath; source: string; candidateLine: number; targetTop: number;
+    landing?: ReanchorLandingState;
+  }): BackwardVisualDecision {
+    const landing = args.landing ?? null;
+    const evidenceAt = landing ? landing.startedAtMs : Math.max(lastAcceptedMatchedAt, lastForwardCommitAt, lastFinalTranscriptAt);
+    const freshness = Object.freeze({ receivedAt: lastTranscriptReceivedAtMs,
+      responseAgeMs: lastTranscriptResponseAgeMs, audioAgeMs: lastTranscriptAudioAgeMs });
+    let expiresAt = evidenceAt + ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS;
+    if (freshness.receivedAt > 0) {
+      if (Number.isFinite(freshness.responseAgeMs)) expiresAt = Math.min(expiresAt,
+        freshness.receivedAt + activeAsrControllerProfile.responseFreshMaxAgeMs - freshness.responseAgeMs);
+      if (Number.isFinite(freshness.audioAgeMs)) expiresAt = Math.min(expiresAt,
+        freshness.receivedAt + activeAsrControllerProfile.audioFreshMaxAgeMs - freshness.audioAgeMs);
+    }
+    const decision: BackwardVisualDecision = Object.freeze({
+      writerPath: args.writerPath, source: args.source, candidateLine: args.candidateLine,
+      targetTop: args.targetTop, semanticEpoch, visualEpoch: visualTargetEpoch,
+      context: Object.freeze(captureReanchorLandingAuthority()),
+      targetElement: getLineElementByIndex(getScroller(), args.candidateLine),
+      evidenceKey: backwardEvidenceKey(),
+      expiresAt, freshness,
+      landing, landingRevision: landing?.revision ?? null,
+      support: Object.freeze([...(landing?.supportingRequestSeqs ?? [])]),
+    });
+    backwardDecisions.set(args.writerPath, decision);
+    return decision;
+  }
+
+  function validateBackwardVisualDecision(decision: BackwardVisualDecision, args: {
+    writerPath: BackwardWriterPath; source: string; candidateLine: number; targetTop: number;
+  }, consume = false): boolean {
+    let reason = '';
+    const now = Date.now();
+    const evidenceAtCheck = backwardEvidenceKey();
+    if (backwardDecisions.get(decision.writerPath) !== decision || consumedBackwardDecisions.has(decision)) reason = 'stale_decision';
+    else if (args.writerPath !== decision.writerPath || args.source !== decision.source ||
+      args.candidateLine !== decision.candidateLine || args.targetTop !== decision.targetTop) reason = 'candidate_changed_before_writer';
+    else if (disposed || decision.semanticEpoch !== semanticEpoch || decision.visualEpoch !== visualTargetEpoch || !sameVisualContext(decision.context)) reason = 'authority_context_changed';
+    else if (!Number.isInteger(decision.candidateLine) || decision.candidateLine < 0 || !decision.targetElement?.isConnected ||
+      decision.targetElement !== getLineElementByIndex(getScroller(), decision.candidateLine)) reason = 'target_identity_changed';
+    else if (!Number.isFinite(decision.targetTop) || now > decision.expiresAt) reason = 'evidence_expired';
+    else if (!canAsrMove() || !canApplyAsrMovement(
+      decision.writerPath === 'reanchor_landing' ? 'reanchor-landing' : `backward-visual:${decision.writerPath}`, now,
+    )) reason = 'movement_denied';
+    else if (decision.landing ? (
+      decision.landing !== reanchorLandingState || decision.landingRevision !== decision.landing.revision ||
+      decision.candidateLine !== decision.landing.finalTargetLineIdx ||
+      decision.targetTop !== decision.landing.finalTargetScrollTop ||
+      !decision.support.every((seq) => decision.landing!.supportingRequestSeqs.includes(seq))
+    ) : decision.evidenceKey !== backwardEvidenceKey()) reason = 'evidence_identity_changed';
+    else {
+      const localLine = qualifiedLocalVisualLine(now);
+      const localTop = localLine == null ? null : resolveTargetTop(getScroller()!, localLine);
+      const freshCommittedLocal = !decision.landing && lastFreshProofLine === lastLineIndex &&
+        lastForwardCommitAt > 0 && now - lastForwardCommitAt <= ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS;
+      if ((localLine != null && localLine > decision.candidateLine && localTop != null &&
+        localTop > decision.targetTop + ASR_POCKET_WALL_NOISE_DELTA_PX &&
+        (!decision.landing || acceptedVisualEvidenceRevision > decision.landing.backwardEvidenceRevision)) ||
+        (freshCommittedLocal && decision.candidateLine < lastLineIndex)) reason = 'qualified_local_authority_superseded';
+    }
+    // Geometry/movement readers can dispatch synchronous listeners. Recheck
+    // after those reads, not merely before calculating the bounded target.
+    if (!reason && (backwardDecisions.get(decision.writerPath) !== decision ||
+      decision.semanticEpoch !== semanticEpoch || decision.visualEpoch !== visualTargetEpoch || !sameVisualContext(decision.context) ||
+      evidenceAtCheck !== backwardEvidenceKey())) reason = 'authority_changed_during_validation';
+    if (reason) return rejectBackwardDecision(decision, reason);
+    if (consume) {
+      consumedBackwardDecisions.add(decision);
+      backwardDecisions.delete(decision.writerPath);
+    }
+    return true;
+  }
+
   const evaluateBackwardRecenterBlock = (args: {
     scroller: HTMLElement;
     currentTop: number;
@@ -6982,6 +7428,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     asr4VisualRecoveryLastDirectWriteBlocked = true;
     asr4VisualRecoveryLastDirectWriteBlockedReason = 'duplicate_write_guard';
+    rememberCompletionBlocker('duplicate_write_guard', targetScrollTop);
     asr4VisualRecoveryLastTargetPreservedForEasing = true;
     preservedAsrAuthorityTargetTop = targetScrollTop;
     preservedAsrAuthorityTargetReason = visualDebtFloor.floorApplied
@@ -9081,6 +9528,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let activeAsrVisualRecoveryEpisode: AsrRecoveryEpisode | null = null;
   let reanchorPendingState: ReanchorPendingState | null = null;
   let reanchorLandingState: ReanchorLandingState | null = null;
+  let reanchorLandingRevision = 0;
+  let reanchorLandingFrame: ReanchorLandingFrame | null = null;
   let shortLinePreReanchorGraceState: ShortLinePreReanchorGraceState | null = null;
   let overshootSettleLockState: OvershootSettleLockState | null = null;
   let visualDebtRecoveryBudgetEpoch = visualTargetEpoch;
@@ -9104,6 +9553,188 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let postSemanticCommitVisualReleaseTranscriptAuthorityEpoch: number | null = null;
   let postSemanticCommitVisualReleaseTranscriptRunKey: string | null = null;
   let postSemanticCommitVisualReleaseTranscriptRunGeneration: number | null = null;
+  type PostCommitCompletion = {
+    readonly context: Readonly<ReanchorLandingAuthority>;
+    readonly semanticEpoch: number;
+    readonly visualEpoch: number;
+    readonly evidenceKey: string;
+    readonly line: number;
+    readonly expiresAt: number;
+    target: number | null;
+    canonicalTarget: number | null;
+    element: HTMLElement | null;
+    inFlight: boolean;
+    outcome: 'pending' | 'complete' | 'stale';
+    protected: boolean;
+  };
+  let postCommitCompletion: PostCommitCompletion | null = null;
+  let postCommitAttemptSerial = 0;
+  const completionBlockers = new Map<string, { context: ReanchorLandingAuthority; semanticEpoch: number; visualEpoch: number; target: number | null }>();
+  const rememberCompletionBlocker = (reason: string, target: number | null) => {
+    if (reason !== 'target_behind_current' && reason !== 'duplicate_write_guard') return;
+    completionBlockers.set(reason, { context: captureReanchorLandingAuthority(), semanticEpoch, visualEpoch: visualTargetEpoch, target });
+  };
+  const currentCompletionBlocker = (reason: string, target: number | null): string => {
+    const blocker = completionBlockers.get(reason);
+    if (!blocker) return reason;
+    const superseded = !sameVisualContext(blocker.context) || blocker.semanticEpoch !== semanticEpoch ||
+      blocker.visualEpoch !== visualTargetEpoch || blocker.target !== target;
+    const currentProof = sameLineCompletionQualified(lastLineIndex) ||
+      (!!postCommitCompletion && completionContextCurrent(postCommitCompletion) && postCommitCompletion.outcome === 'pending');
+    const canonicalTarget = computeLineTargetTop(getScroller(), getLineElementByIndex(getScroller(), lastLineIndex));
+    if (!superseded || !currentProof || !Number.isFinite(target) || !Number.isFinite(canonicalTarget) ||
+      Math.abs(Number(target) - Number(canonicalTarget)) > ASR_POCKET_WALL_NOISE_DELTA_PX) return reason;
+    if (completionBlockers.get(reason) !== blocker) return reason;
+    completionBlockers.delete(reason);
+    if (reason === 'target_behind_current' && lastDebugTargetCollapseReason === reason) lastDebugTargetCollapseReason = 'none';
+    if (reason === 'duplicate_write_guard' && asr4VisualRecoveryLastDirectWriteBlockedReason === reason) {
+      asr4VisualRecoveryLastDirectWriteBlockedReason = 'none';
+      asr4VisualRecoveryLastDirectWriteBlocked = false;
+    }
+    if (postCommitCompletion) noteCompletion(postCommitCompletion, `stale_blocker_superseded:${reason}`);
+    return 'none';
+  };
+  const completionIdentityCurrent = (state: PostCommitCompletion): boolean =>
+    postCommitCompletion === state && !disposed &&
+    state.semanticEpoch === semanticEpoch && state.visualEpoch === visualTargetEpoch &&
+    sameVisualContext(state.context) &&
+    state.line === lastLineIndex;
+  const completionContextCurrent = (state: PostCommitCompletion): boolean =>
+    completionIdentityCurrent(state) && state.evidenceKey === backwardEvidenceKey();
+  const completionWriteCurrent = (state: PostCommitCompletion): boolean =>
+    completionContextCurrent(state) && state.outcome === 'pending' && state.inFlight &&
+    Date.now() < state.expiresAt && state.element != null && state.element.isConnected &&
+    getLineElementByIndex(getScroller(), state.line) === state.element &&
+    Number.isFinite(state.canonicalTarget) &&
+    Math.abs(Number(computeLineTargetTop(getScroller(), state.element)) - Number(state.canonicalTarget)) <= ASR_POCKET_WALL_NOISE_DELTA_PX &&
+    !reanchorLandingState && !reanchorPendingState && !pendingSpeakableBridgeState &&
+    !asrSilenceActive && !liveAsrVisualGovernorHardHold &&
+    !/offscript|no_match|contradiction/.test(`${lastAsrGuardReason} ${lastAsrHudGuardText}`) &&
+    canAsrMove() && canApplyAsrMovement('post-commit-completion', Date.now()) && completionContextCurrent(state);
+  const noteCompletion = (state: PostCommitCompletion, outcome: string) => {
+    emitDevDiagnostic('ASR_POST_COMMIT_COMPLETION', 'info',
+      `[ASR_POST_COMMIT_COMPLETION] outcome=${outcome} semanticEpoch=${state.semanticEpoch} visualEpoch=${state.visualEpoch} line=${state.line} target=${state.target ?? 'unbound'}`,
+      { minMs: 120, signature: `${state.semanticEpoch}|${state.visualEpoch}|${state.line}|${state.target}|${outcome}` });
+  };
+  const capturePostCommitCompletion = (line: number, expiresAt: number) => {
+    if (postCommitCompletion && (completionContextCurrent(postCommitCompletion) ||
+      (postCommitCompletion.outcome === 'complete' && completionIdentityCurrent(postCommitCompletion)))) return postCommitCompletion;
+    postCommitCompletion = {
+      context: Object.freeze(captureReanchorLandingAuthority()), semanticEpoch, visualEpoch: visualTargetEpoch,
+      evidenceKey: backwardEvidenceKey(), line, expiresAt, target: null, canonicalTarget: null, element: null,
+      inFlight: false, outcome: 'pending', protected: false,
+    };
+    noteCompletion(postCommitCompletion, 'pending');
+    return postCommitCompletion;
+  };
+  const sameLineCompletionQualified = (line: number): boolean =>
+    line === lastLineIndex && qualifiedLocalVisualLine(Date.now()) === line &&
+    !reanchorLandingState && !reanchorPendingState && !pendingSpeakableBridgeState &&
+    !lastAsrGuardReason.toLowerCase().includes('contradiction') &&
+    canAsrMove() && canApplyAsrMovement('post-commit-completion', Date.now());
+
+  // The existing actuator remains the only writer. This record owns completion,
+  // not a second recovery schedule, semantic commit, or source of target truth.
+  const applyVisualActuatorTargetStep = (input: Parameters<typeof applyVisualActuatorTargetStepCore>[0]): ReturnType<typeof applyVisualActuatorTargetStepCore> & { ownershipLost?: boolean } => {
+    if (input.backwardDecision && !validateBackwardVisualDecision(input.backwardDecision, {
+      writerPath: 'visual_recenter_pullback', source: input.authority,
+      candidateLine: input.candidateLineIdx ?? input.committedLineIdx, targetTop: Number(input.targetScrollTop),
+    })) return applyVisualActuatorTargetStepCore(input);
+    const before = Number(input.scroller.scrollTop);
+    const hold = (reason: string) => ({ afterTop: before, appliedDeltaPx: 0, clampReason: reason,
+      tolerancePx: getVisualTargetTolerancePx(input.lineHeightPx), usedPullback: false,
+      blockedPullback: false, zeroingReason: reason });
+    if (input.packetContinuity) {
+      if (!pendingPacketCurrent(input.packetContinuity)) return hold('packet_authority_lost');
+      // This one-shot visual decision must not consume or rearm post-commit completion.
+      return applyVisualActuatorTargetStepCore(input);
+    }
+    if ((!postCommitCompletion || (!completionContextCurrent(postCommitCompletion) && postCommitCompletion.evidenceKey !== backwardEvidenceKey())) && input.currentLineIdx === input.committedLineIdx &&
+      sameLineCompletionQualified(input.currentLineIdx)) {
+      capturePostCommitCompletion(input.currentLineIdx, Date.now() + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS);
+    }
+    const state = postCommitCompletion;
+    if (!state || reanchorLandingState) return applyVisualActuatorTargetStepCore(input);
+    postCommitAttemptSerial += 1;
+    if (state.outcome === 'complete' && completionIdentityCurrent(state)) return hold('completion_replay');
+    if (!completionContextCurrent(state) || Date.now() >= state.expiresAt) {
+      if (postCommitCompletion === state) { state.outcome = 'stale'; noteCompletion(state, 'stale'); }
+      return hold('stale_completion');
+    }
+    if (state.outcome !== 'pending' || state.inFlight) return hold(state.outcome === 'complete' ? 'completion_replay' : 'completion_in_flight');
+    const target = Number(input.targetScrollTop);
+    const element = getLineElementByIndex(input.scroller, state.line);
+    const canonicalTarget = computeLineTargetTop(input.scroller, element);
+    const tolerance = getVisualTargetTolerancePx(input.lineHeightPx);
+    if (state.canonicalTarget != null && (!Number.isFinite(canonicalTarget) ||
+      Math.abs(Number(canonicalTarget) - state.canonicalTarget) > ASR_POCKET_WALL_NOISE_DELTA_PX || state.element !== element)) {
+      state.outcome = 'stale'; noteCompletion(state, 'target_changed'); return hold('stale_completion');
+    }
+    if (!element || !element.isConnected || !Number.isFinite(target) || !Number.isFinite(canonicalTarget) ||
+      input.currentLineIdx !== state.line || input.committedLineIdx !== state.line ||
+      Math.abs(target - Number(canonicalTarget)) > tolerance || input.noMatchOrOffscript || input.hardContradiction ||
+      !canAsrMove() || !canApplyAsrMovement('post-commit-completion', Date.now())) {
+      noteCompletion(state, 'ownership_not_final'); return hold('ownership_not_final');
+    }
+    if (state.target != null && (state.target !== target || state.element !== element)) {
+      state.outcome = 'stale'; noteCompletion(state, 'target_changed'); return hold('stale_completion');
+    }
+    state.target = target;
+    state.canonicalTarget = Number(canonicalTarget);
+    state.element = element;
+    if (input.requestedMovePx <= 0 && Math.abs(target - before) > tolerance && !input.backwardDecision) {
+      noteCompletion(state, 'execution_not_scheduled'); return hold('completion_not_scheduled');
+    }
+    if (input.ownershipPending) {
+      const geometry = resolveLineVisualTelemetry(input.scroller, state.line);
+      const finality = resolveReaderMarkerCorrectionOwnershipFinalization({
+        ownershipNotFinalCandidatePresent: true, selectedAuthority: input.authority,
+        selectedTargetScrollTop: target, currentScrollTop: before, currentLineIdx: state.line,
+        markerErrorPx: geometry.lineCenterInViewport - geometry.markerYInViewport, lineHeightPx: input.lineHeightPx,
+        noMatchOrOffscript: input.noMatchOrOffscript, hardContradiction: input.hardContradiction,
+      });
+      if (finality.blockedReason !== 'none') { noteCompletion(state, 'ownership_not_final'); return hold(`ownership_not_final:${finality.ownershipFinalizationRejectedReason}`); }
+    }
+    state.inFlight = true;
+    const finish = (after: number) => {
+      if (!completionWriteCurrent(state)) return;
+      const delta = after - before;
+      const maxTop = Math.max(0, input.scroller.scrollHeight - input.scroller.clientHeight);
+      const satisfied = Math.abs(target - after) <= tolerance;
+      const documentBound = target >= maxTop && Math.abs(after - maxTop) <= ASR_POCKET_WALL_NOISE_DELTA_PX;
+      if (Math.abs(delta) > ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        noteCompletion(state, 'movement_applied');
+        if (!completionWriteCurrent(state)) return;
+        if (!state.protected && delta > 0) {
+          state.protected = true;
+          armPostReleaseProtectedFollow({ nowMs: Date.now(), releaseLineIdx: state.line, protectedTargetScrollTop: target });
+        }
+      }
+      if (!completionWriteCurrent(state)) return;
+      if (satisfied || documentBound) {
+        state.outcome = 'complete';
+        clearPostSemanticCommitVisualRelease();
+        if (!completionIdentityCurrent(state)) return;
+        clearPostSemanticCommitVisualFollowDiagnostic();
+        noteCompletion(state, documentBound ? 'document_bound_complete' : Math.abs(delta) > ASR_POCKET_WALL_NOISE_DELTA_PX ? 'finalized' : 'already_satisfied');
+      } else noteCompletion(state, Math.abs(delta) > ASR_POCKET_WALL_NOISE_DELTA_PX ? 'residual_pending' : 'zero_progress');
+    };
+    try {
+      if (Math.abs(target - before) <= tolerance) { finish(before); return hold('already_satisfied'); }
+      noteCompletion(state, 'target_authorized');
+      if (!completionWriteCurrent(state)) return hold('stale_completion');
+      const result = applyVisualActuatorTargetStepCore({ ...input, currentTop: before, completion: state });
+      const after = Number(input.scroller.scrollTop);
+      if (!completionWriteCurrent(state)) return { ...result, afterTop: after, appliedDeltaPx: after - before, ownershipLost: true };
+      finish(after);
+      return { ...result, afterTop: after, appliedDeltaPx: after - before };
+    } catch {
+      const after = Number(input.scroller.scrollTop);
+      const current = completionWriteCurrent(state);
+      if (current) noteCompletion(state, 'execution_rejected');
+      return { ...hold('writer_rejected'), afterTop: after, appliedDeltaPx: after - before, ownershipLost: !current };
+    } finally { state.inFlight = false; }
+  };
   let safeForwardResidualNextEligibleAtMs = 0;
   const emitAdjacentPromotionTrace = (input: {
     stage: string;
@@ -10484,6 +11115,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pendingSeq += 1;
   };
   const resetRunTimingState = (source: string, nextRunKey: string, nextRunGeneration: number | null) => {
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
+    backwardLocalAnchorContextBlocked = false;
+    clearReanchorLandingState('run_identity_changed');
     const now = Date.now();
     rebindPendingResponseAuthority();
     lastCommitAt = now;
@@ -11057,6 +11692,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       clearPostSemanticCommitVisualRelease();
       return false;
     }
+    const completion = capturePostCommitCompletion(args.newSemanticLineIdx, args.now + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS);
+    if (completion.outcome !== 'pending') return false;
     postSemanticCommitVisualReleasePending = true;
     postSemanticCommitVisualReleaseUntilMs = args.now + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS;
     postSemanticCommitVisualReleasePreviousLineIdx = args.previousSemanticLineIdx;
@@ -11155,22 +11792,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         proposedTargetScrollTop: args.proposedTop,
         rejectReason,
       });
-      emitPostSemanticCommitVisualReleaseTokenState({
-        event: 'consumed',
-        previousSemanticLineIdx,
-        newSemanticLineIdx,
-        currentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
-        committedLineIdx: Math.max(0, Math.floor(Number(args.committedLineIdx) || 0)),
-        sessionLive,
-        asrMode,
-        speechLive,
-        transcriptFresh,
-        noMatch,
-        bridgeActive,
-        pendingBridgeActive: !!pendingSpeakableBridgeState,
-        proposedTargetScrollTop: args.proposedTop,
-        rejectReason,
-      });
       const result = {
         accepted,
         rejectReason,
@@ -11184,7 +11805,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         markerY,
         currentLineViewportY,
       };
-      clearPostSemanticCommitVisualRelease();
+      // Evaluation is not an acknowledgement of a writer result. Only expired
+      // or superseded execution authority is retired here, never as success.
+      if (['expired', 'stale_authority', 'generation_mismatch', 'semantic_line_mismatch'].includes(rejectReason)) {
+        clearPostSemanticCommitVisualRelease();
+      }
       return result;
     };
     if (postSemanticCommitVisualReleaseUntilMs <= nowMs) {
@@ -13298,6 +13923,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const clearReanchorLandingState = (reason = 'resolved') => {
     if (!reanchorLandingState) return;
+    cancelReanchorLandingFrame(reason === 'landed' ? null : 'superseded');
+    reanchorLandingRevision += 1;
+    pursuitActive = false;
+    pursuitTargetTop = null;
+    pursuitVel = 0;
     try {
       console.info(
         `[ASR_REANCHOR_LANDING_CLEARED] reason=${reason} anchorLineIdx=${reanchorLandingState.anchorLineIdx} finalTargetLineIdx=${reanchorLandingState.finalTargetLineIdx} epoch=${reanchorLandingState.semanticEpoch}`,
@@ -13313,6 +13943,247 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } catch {}
     reanchorLandingState = null;
   };
+
+  function captureReanchorLandingAuthority(): ReanchorLandingAuthority {
+    const ready = (window as any).__forgeCanonicalReadyScript;
+    return {
+      runKey: resolveActiveRunKey(),
+      runGeneration: resolveActiveRunGeneration(),
+      driverRunKey: resolveDriverRunKey(),
+      driverRunGeneration: resolveDriverRunGeneration(),
+      responseEpoch: commitAuthorityEpoch,
+      focusGeneration: asrFocusGeneration,
+      viewerRole: resolveViewerRole(),
+      scroller: getScroller(),
+      scriptRoot: getScriptRoot(),
+      scriptHash: readScriptHash(),
+      readyScriptIdentity: JSON.stringify(ready == null ? null : [
+        ready.workspaceId, ready.workpieceId, ready.path, ready.scriptRevision,
+        ready.scriptHash, ready.transitionId,
+      ]),
+      captureSessionId: (window as any).__tpAnvilCaptureSessionId ?? null,
+    };
+  }
+
+  function isReanchorLandingAuthorityCurrent(landing: ReanchorLandingState): boolean {
+    const current = captureReanchorLandingAuthority();
+    const captured = landing.authority;
+    return !disposed && landing === reanchorLandingState &&
+      landing.revision === reanchorLandingRevision && landing.semanticEpoch === semanticEpoch &&
+      (Object.keys(captured) as Array<keyof ReanchorLandingAuthority>)
+        .every((key) => captured[key] === current[key]) &&
+      current.scroller != null && current.scroller.isConnected &&
+      current.scriptRoot != null && current.scriptRoot.isConnected &&
+      Number.isFinite(landing.finalTargetScrollTop) &&
+      Number.isInteger(landing.finalTargetLineIdx);
+  }
+
+  function ownsReanchorLandingFrame(frame: ReanchorLandingFrame): boolean {
+    return reanchorLandingFrame === frame &&
+      frame.revision === frame.landing.revision &&
+      frame.semanticEpoch === semanticEpoch &&
+      frame.targetLine === frame.landing.finalTargetLineIdx &&
+      frame.targetTop === frame.landing.finalTargetScrollTop &&
+      frame.targetElement != null && frame.targetElement.isConnected &&
+      frame.targetElement === getLineElementByIndex(frame.landing.authority.scroller, frame.targetLine) &&
+      isReanchorLandingAuthorityCurrent(frame.landing);
+  }
+
+  function emitLandingFrameOutcome(frame: ReanchorLandingFrame, outcome: string): void {
+    try {
+      console.info(`[ASR_REANCHOR_FRAME] outcome=${outcome} revision=${frame.revision} epoch=${frame.semanticEpoch} targetLine=${frame.targetLine}`);
+    } catch {}
+  }
+
+  function cancelReanchorLandingFrame(outcome: 'superseded' | null = 'superseded'): void {
+    const frame = reanchorLandingFrame;
+    reanchorLandingFrame = null;
+    if (!frame) return;
+    if (frame.handle != null) {
+      try { window.cancelAnimationFrame(frame.handle); } catch {}
+    }
+    if (outcome) emitLandingFrameOutcome(frame, outcome);
+  }
+
+  function scheduleReanchorLandingFrame(): void {
+    const landing = reanchorLandingState;
+    if (!landing || disposed) return;
+    if (!isReanchorLandingAuthorityCurrent(landing) || !canAsrMove()) {
+      clearReanchorLandingState('landing_authority_lost');
+      return;
+    }
+    if (reanchorLandingFrame) return;
+    // General pursuit may delegate here, but it never writes a landing step.
+    pursuitActive = false;
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    const frame: ReanchorLandingFrame = {
+      handle: null, consumed: false, landing, revision: landing.revision,
+      semanticEpoch: landing.semanticEpoch,
+      targetLine: landing.finalTargetLineIdx, targetTop: landing.finalTargetScrollTop,
+      targetElement: getLineElementByIndex(landing.authority.scroller, landing.finalTargetLineIdx),
+    };
+    const backwardIdentity = { writerPath: 'reanchor_landing' as const, source: 'reanchor_landing',
+      candidateLine: frame.targetLine, targetTop: frame.targetTop };
+    const backwardDecision = issueBackwardVisualDecision({ ...backwardIdentity, landing });
+    reanchorLandingFrame = frame;
+    frame.handle = window.requestAnimationFrame(() => {
+      if (frame.consumed || !ownsReanchorLandingFrame(frame)) {
+        emitLandingFrameOutcome(frame, 'stale');
+        // Only this exact owner may retire itself; never touch its replacement.
+        if (!frame.consumed && reanchorLandingFrame === frame && reanchorLandingState === landing) {
+          clearReanchorLandingState('stale_landing_frame');
+        }
+        return;
+      }
+      frame.consumed = true;
+      frame.handle = null;
+      if (!canAsrMove() || !canApplyAsrMovement('reanchor-landing', Date.now())) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState('landing_movement_denied');
+        return;
+      }
+      if (!ownsReanchorLandingFrame(frame)) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState('stale_landing_frame');
+        return;
+      }
+      const scroller = landing.authority.scroller!;
+      const current = Number(scroller.scrollTop);
+      if (!Number.isFinite(current)) {
+        clearReanchorLandingState('non_finite_position');
+        return;
+      }
+      const lineHeightPx = Math.max(
+        1,
+        Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24),
+      );
+      const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
+      if (!Number.isFinite(lineHeightPx) || !Number.isFinite(maxScrollTop)) {
+        clearReanchorLandingState('non_finite_geometry');
+        return;
+      }
+      const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
+      const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
+      const finalTargetTop = clamp(requestedFinalTargetTop, 0, maxScrollTop);
+      const targetAhead = finalTargetTop >= current;
+      const exposedTargetTop = targetAhead
+        ? Math.min(finalTargetTop, current + maxExposeDeltaPx)
+        : Math.max(finalTargetTop, current - maxExposeDeltaPx);
+      applyScrollWithHybridGuard(exposedTargetTop, {
+        scroller,
+        reason: 'reanchor-landing',
+        sourceAuthority: 'reanchor_landing',
+        selectedAuthority: 'reanchor_landing',
+        currentLineIdx: landing.anchorLineIdx,
+        committedLineIdx: landing.anchorLineIdx,
+        nextSpeakableLineIdx: landing.finalTargetLineIdx,
+        bypassAsrVisualGuardrails: true,
+        landingWriteStillCurrent: () => ownsReanchorLandingFrame(frame) && canAsrMove(),
+        backwardWriteStillCurrent: () => validateBackwardVisualDecision(backwardDecision, backwardIdentity, true),
+      });
+      if (lastAsrBackwardRecenterBlockReason !== 'none' &&
+        exposedTargetTop < current - ASR_POCKET_WALL_NOISE_DELTA_PX &&
+        Number(scroller.scrollTop) === current && !backwardDecisions.has('reanchor_landing') &&
+        !consumedBackwardDecisions.has(backwardDecision)) {
+        if (ownsReanchorLandingFrame(frame)) clearReanchorLandingState('backward_authority_rejected');
+        return;
+      }
+      // Writer dispatch can invoke listeners synchronously; leave replacement state alone.
+      if (!ownsReanchorLandingFrame(frame)) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState('stale_after_write');
+        return;
+      }
+      const appliedTop = Number(scroller.scrollTop);
+      if (!Number.isFinite(appliedTop)) {
+        clearReanchorLandingState('non_finite_applied_position');
+        return;
+      }
+      const requestedDeltaPx = Math.abs(exposedTargetTop - current);
+      const appliedDeltaPx = Math.abs(appliedTop - current);
+      const actuatorNoProgress = requestedDeltaPx > 1 && appliedDeltaPx <= 0.5;
+      landing.lastExposedTargetScrollTop = exposedTargetTop;
+      landing.lastAppliedScrollTop = appliedTop;
+      if (actuatorNoProgress) {
+        landing.noProgressFrames += 1;
+        landing.lastActuatorFaultReason = 'landing_writer_no_progress';
+        if (landing.stuckSinceMs <= 0) landing.stuckSinceMs = Date.now();
+      } else {
+        landing.noProgressFrames = 0;
+        landing.lastActuatorFaultReason = null;
+        landing.stuckSinceMs = 0;
+      }
+      try {
+        const scrollState = ((window as any).__tpAsrScrollState ??= {});
+        scrollState.reanchorLandingActive = true;
+        scrollState.reanchorLandingAnchorLineIdx = landing.anchorLineIdx;
+        scrollState.reanchorLandingTargetLineIdx = landing.finalTargetLineIdx;
+        scrollState.reanchorLandingNoProgressFrames = landing.noProgressFrames;
+        scrollState.reanchorLandingActuatorFault =
+          landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD;
+        scrollState.reanchorLandingActuatorFaultReason = landing.lastActuatorFaultReason;
+        scrollState.reanchorLandingExposedTargetScrollTop = Math.round(exposedTargetTop);
+        scrollState.reanchorLandingFinalTargetScrollTop = Math.round(finalTargetTop);
+        scrollState.reanchorLandingAppliedScrollTop = Math.round(appliedTop);
+        scrollState.reanchorLandingStuckSinceMs = landing.stuckSinceMs;
+      } catch {}
+      lastKnownScrollTop = appliedTop;
+      if (appliedDeltaPx > 0) {
+        lastMoveAt = Date.now();
+        markProgrammaticScroll();
+      }
+      const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
+      const landed =
+        Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx ||
+        Math.abs(finalTargetTop - current) <= 0.5;
+      try {
+        console.warn(
+          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`,
+        );
+      } catch {}
+      if (
+        landed &&
+        Number.isFinite(requestedFinalTargetTop) &&
+        Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5
+      ) {
+        try {
+          console.info(
+            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop)} currentScrollTop=${Math.round(current)} appliedScrollTop=${Math.round(appliedTop)}`,
+          );
+        } catch {}
+      }
+      if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
+        try {
+          console.warn(
+            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || 'unknown'}`,
+          );
+        } catch {}
+        emitHudStatus(
+          'stall',
+          'ASR re-anchor landing stuck - transcripts visible, auto-follow paused',
+          {
+            key: 'stall',
+            sinceMs: landing.stuckSinceMs > 0 ? Math.max(0, Date.now() - landing.stuckSinceMs) : 0,
+            reasonSummary: 'reanchor_landing_actuator_fault',
+          },
+        );
+        stallHudEmitted = true;
+      }
+      emitLandingFrameOutcome(frame, appliedDeltaPx > 0 ? 'applied' : (actuatorNoProgress ? 'actuator_no_progress' : 'zero_movement'));
+      if (!ownsReanchorLandingFrame(frame)) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState('stale_after_diagnostic');
+        return;
+      }
+      if (landed) {
+        clearReanchorLandingState('landed');
+        pursuitActive = false;
+        pursuitTargetTop = null;
+        pursuitVel = 0;
+      } else {
+        reanchorLandingFrame = null;
+        scheduleReanchorLandingFrame();
+      }
+    });
+    emitLandingFrameOutcome(frame, 'scheduled');
+  }
 
   const cancelAutomaticVisualAuthorities = (reason: string) => {
     stopGlide(reason);
@@ -13425,6 +14296,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const targetTop = resolveTargetTop(scroller, newLineIdx);
       if (targetTop != null && Number.isFinite(targetTop)) {
         reanchorLandingState = {
+          backwardEvidenceRevision: acceptedVisualEvidenceRevision,
+          revision: ++reanchorLandingRevision,
+          authority: captureReanchorLandingAuthority(),
           startedAtMs: Date.now(),
           reason: args.reason,
           anchorLineIdx: newLineIdx,
@@ -13514,6 +14388,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const freezeAsrMovementForFocusHold = (reason: string) => {
+    clearReanchorLandingState(`focus-hold:${reason}`);
     pendingSeq += 1;
     pendingMatch = null;
     if (pendingRaf) {
@@ -13751,11 +14626,13 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       transcriptSource?: string;
       forceReason?: string;
       sourceBranch?: string;
+      packetContinuity?: PendingPacketContinuity;
     },
   ): boolean => {
     const normalizedSource = String(source || '').trim().toLowerCase();
     if (
       reanchorPendingState &&
+      !(detail?.packetContinuity && pendingPacketCurrent(detail.packetContinuity)) &&
       normalizedSource !== 'reanchor-confirmed' &&
       normalizedSource !== 'scroll-write:reanchor-confirmed'
     ) {
@@ -14230,6 +15107,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const resetHandler = () => {
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
+    clearReanchorLandingState('script-reset');
     clearEvidenceBuffer('script-reset');
   };
   const rescueHandler = (event?: Event) => {
@@ -20944,6 +21824,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     reason: string,
     overrides?: Partial<ReturnType<typeof getCommitFreshnessDiagnosticPayload>>,
   ) {
+    clearReanchorLandingState(`response-authority:${reason}`);
     commitAuthorityEpoch += 1;
     lastCommitAuthorityInvalidatedAt = Date.now();
     clearStallRecoveryOverrideHint();
@@ -21302,6 +22183,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const tickController = () => {
+    if (reanchorLandingState) {
+      scheduleReanchorLandingFrame();
+      return;
+    }
     if (!pursuitActive || disposed) return;
     const liveAsrFollowMode =
       getScrollMode() === 'asr' &&
@@ -21464,112 +22349,6 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       } catch {}
       return;
     }
-    if (reanchorLandingState) {
-      cancelAutomaticVisualAuthorities('reanchor_landing_tick');
-      const landing = reanchorLandingState;
-      const lineHeightPx = Math.max(
-        1,
-        Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24),
-      );
-      const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
-      const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
-      const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
-      const finalTargetTop = clamp(requestedFinalTargetTop, 0, maxScrollTop);
-      const targetAhead = finalTargetTop >= current;
-      const exposedTargetTop = targetAhead
-        ? Math.min(finalTargetTop, current + maxExposeDeltaPx)
-        : Math.max(finalTargetTop, current - maxExposeDeltaPx);
-      const appliedTop = applyScrollWithHybridGuard(exposedTargetTop, {
-        scroller,
-        reason: 'reanchor-landing',
-        sourceAuthority: 'reanchor_landing',
-        selectedAuthority: 'reanchor_landing',
-        currentLineIdx: landing.anchorLineIdx,
-        committedLineIdx: landing.anchorLineIdx,
-        nextSpeakableLineIdx: landing.finalTargetLineIdx,
-        bypassAsrVisualGuardrails: true,
-      });
-      const requestedDeltaPx = Math.abs(exposedTargetTop - current);
-      const appliedDeltaPx = Math.abs(appliedTop - current);
-      const actuatorNoProgress = requestedDeltaPx > 1 && appliedDeltaPx <= 0.5;
-      landing.lastExposedTargetScrollTop = exposedTargetTop;
-      landing.lastAppliedScrollTop = appliedTop;
-      if (actuatorNoProgress) {
-        landing.noProgressFrames += 1;
-        landing.lastActuatorFaultReason = 'landing_writer_no_progress';
-        if (landing.stuckSinceMs <= 0) landing.stuckSinceMs = Date.now();
-      } else {
-        landing.noProgressFrames = 0;
-        landing.lastActuatorFaultReason = null;
-        landing.stuckSinceMs = 0;
-      }
-      try {
-        const scrollState = ((window as any).__tpAsrScrollState ??= {});
-        scrollState.reanchorLandingActive = true;
-        scrollState.reanchorLandingAnchorLineIdx = landing.anchorLineIdx;
-        scrollState.reanchorLandingTargetLineIdx = landing.finalTargetLineIdx;
-        scrollState.reanchorLandingNoProgressFrames = landing.noProgressFrames;
-        scrollState.reanchorLandingActuatorFault =
-          landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD;
-        scrollState.reanchorLandingActuatorFaultReason = landing.lastActuatorFaultReason;
-        scrollState.reanchorLandingExposedTargetScrollTop = Math.round(exposedTargetTop);
-        scrollState.reanchorLandingFinalTargetScrollTop = Math.round(finalTargetTop);
-        scrollState.reanchorLandingAppliedScrollTop = Math.round(appliedTop);
-        scrollState.reanchorLandingStuckSinceMs = landing.stuckSinceMs;
-      } catch {}
-      lastKnownScrollTop = appliedTop;
-      lastMoveAt = Date.now();
-      markProgrammaticScroll();
-      const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
-      const landed =
-        Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx ||
-        Math.abs(finalTargetTop - current) <= 0.5;
-      try {
-        console.warn(
-          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`,
-        );
-      } catch {}
-      if (
-        landed &&
-        Number.isFinite(requestedFinalTargetTop) &&
-        Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5
-      ) {
-        try {
-          console.info(
-            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop)} currentScrollTop=${Math.round(current)} appliedScrollTop=${Math.round(appliedTop)}`,
-          );
-        } catch {}
-      }
-      if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
-        try {
-          console.warn(
-            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || 'unknown'}`,
-          );
-        } catch {}
-        emitHudStatus(
-          'stall',
-          'ASR re-anchor landing stuck - transcripts visible, auto-follow paused',
-          {
-            key: 'stall',
-            sinceMs: landing.stuckSinceMs > 0 ? Math.max(0, Date.now() - landing.stuckSinceMs) : 0,
-            reasonSummary: 'reanchor_landing_actuator_fault',
-          },
-        );
-        stallHudEmitted = true;
-      }
-      if (landed) {
-        clearReanchorLandingState('landed');
-        pursuitActive = false;
-        pursuitTargetTop = null;
-        pursuitVel = 0;
-      } else {
-        pursuitActive = true;
-        pursuitTargetTop = finalTargetTop;
-        pursuitVel = 0;
-        window.requestAnimationFrame(tickController);
-      }
-      return;
-    }
     appliedTopPx = current;
 
     const manualDelta = Math.abs(current - lastKnownScrollTop);
@@ -21695,6 +22474,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
     if (pursuitTargetTop < current) {
       targetCollapseReason = 'target_behind_current';
+      rememberCompletionBlocker(targetCollapseReason, pursuitTargetTop);
       emitDevDiagnostic(
         'ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED',
         'warn',
@@ -22506,6 +23286,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         acceptedAnchorFresh &&
         !acceptedAnchorHoldOrRecoveryContextActive &&
         acceptedAnchorLowDebt;
+      backwardLocalAnchorContextBlocked = !ordinaryLiveMarkerLandingActive || acceptedAnchorHoldOrRecoveryContextActive;
       const visualAnchorLineIdx = ordinaryLiveMarkerLandingActive
         ? (acceptedMatchAnchorEligible
           ? acceptedAnchorLineIdx
@@ -25145,8 +25926,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         reason: string,
         direction: 'forward' | 'backward' | 'hold',
         priority: number,
+        candidateLineIdx = lastAsrVisualAnchorLineIdx >= 0 ? lastAsrVisualAnchorLineIdx : -1,
       ) => {
         liveTickVisualOwnershipCandidates.push({
+          candidateLineIdx,
           authority,
           targetScrollTop: Number.isFinite(targetScrollTop as number) ? Number(targetScrollTop) : null,
           reason,
@@ -25171,6 +25954,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           preservedAsrAuthorityTargetReason || 'preserved_forward_follow_target',
           preservedTop > beforeScrollTop ? 'forward' : (preservedTop < beforeScrollTop ? 'backward' : 'hold'),
           preservedTop > beforeScrollTop ? 92 : 18,
+          // A preserved forward pixel target has no retained backward anchor
+          // identity. It cannot borrow the current anchor if it falls behind.
+          -1,
         );
       }
       if (liveAsrCommitteePreferredLowerRailReleaseActive) {
@@ -25513,6 +26299,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (liveAsrFollowMode && visualChairpersonOwnershipEnabled && chairDecisionOutput) {
       liveTickVisualOwnershipCandidates.push({
+        candidateLineIdx: lastAsrVisualAnchorLineIdx >= 0 ? lastAsrVisualAnchorLineIdx : lastLineIndex,
         authority: String(chairDecisionOutput.decision.authority || 'chairperson_ownership'),
         targetScrollTop: Number.isFinite(chairDecisionOutput.decision.targetScrollTop as number)
           ? Number(chairDecisionOutput.decision.targetScrollTop)
@@ -25697,6 +26484,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     }
 
+    const postCommitPassAttemptStart = postCommitAttemptSerial;
     let afterScrollTop = beforeScrollTop;
     let appliedDeltaPx = 0;
     const actuatorTargetDebtPx = Number.isFinite(liveTickFinalTargetDebtPx)
@@ -25840,7 +26628,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       visibilityBlockedForActuator ? 'visibility_hold' : null,
       String(liveAsrActuatorReason || 'none'),
       String(liveTickAuthorityReason || 'none'),
-      String(lastDebugTargetCollapseReason || 'none'),
+      currentCompletionBlocker(String(lastDebugTargetCollapseReason || 'none'), targetScrollTopForActuator),
       String(lastAsrPocketWallReason || 'none'),
       String(lastAsrRecoveryPathBlockReason || 'none'),
       !effectiveResolvedTargetSafety.effectiveTargetSafe
@@ -25955,8 +26743,12 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
         'Hold: focus lost, movement frozen',
       );
-    } else if (move > 0 || canAttemptVisualRecenterPullback) {
+    } else if (move > 0 || canAttemptVisualRecenterPullback || postCommitCompletion?.outcome === 'pending') {
       const actuatorStep = applyVisualActuatorTargetStep({
+        ownershipPending: liveTickVisualOwnershipCandidates.some((candidate) => candidate.authority === 'asr4_pocket_drift'),
+        backwardDecision: liveTickVisualOwnershipDecision?.backwardDecision,
+        candidateLineIdx: liveTickVisualOwnershipDecision?.backwardDecision?.candidateLine ??
+          (lastAsrVisualAnchorLineIdx >= 0 ? lastAsrVisualAnchorLineIdx : committedLineIdxForActuator),
         scroller,
         currentTop: beforeScrollTop,
         targetScrollTop: Number.isFinite(targetScrollTopForActuator) ? targetScrollTopForActuator : null,
@@ -25974,6 +26766,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         hardContradiction: hardContradictionActive,
         localRescueMinMovePx: localRescueBoundedMinMovePx,
       });
+      if (actuatorStep.ownershipLost) return;
       if (actuatorStep.blockedPullback && lastAsrRecoveryPathBlockReason === 'none') {
         lastAsrRecoveryPathBlockReason = lastAsrBackwardRecenterBlockReason !== 'none'
           ? `pullback_blocked:${lastAsrBackwardRecenterBlockReason}`
@@ -25991,6 +26784,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       afterScrollTop = actuatorStep.afterTop;
       appliedDeltaPx = afterScrollTop - beforeScrollTop;
       if (
+        postCommitAttemptSerial === postCommitPassAttemptStart &&
         localRescueMustRealizeMove &&
         Math.max(0, appliedDeltaPx) <= 0 &&
         Number.isFinite(targetScrollTopForActuator)
@@ -26131,6 +26925,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               ) ? liveTickOwnershipFinalizationStatus.blockedReason
                 : normalizeDirectWriteBlockedReason(asr4VisualRecoveryLastDirectWriteBlockedReason);
     const shouldObserveAsr4PocketAfterWrite =
+      postCommitAttemptSerial === postCommitPassAttemptStart &&
       liveAsrFollowMode &&
       (
         isDevMode() ||
@@ -26194,7 +26989,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       !sameTargetOvershootSettleLockForActuator &&
       Number.isFinite(targetScrollTopForActuator) &&
       Math.max(0, Number(targetScrollTopForActuator) - beforeScrollTop) > safeForwardHoldBandPx;
-    if (maturedMarkerClosureEligible && Math.abs(appliedDeltaPx) <= ASR_POCKET_WALL_NOISE_DELTA_PX) {
+    if (postCommitAttemptSerial === postCommitPassAttemptStart && maturedMarkerClosureEligible && Math.abs(appliedDeltaPx) <= ASR_POCKET_WALL_NOISE_DELTA_PX) {
       const boundedClosureStepPx = Math.min(
         Math.max(0, Number(targetScrollTopForActuator) - beforeScrollTop),
         Math.max(1, safeForwardPacingDecision.move),
@@ -27450,6 +28245,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (
       !activeFocusMovementHold &&
+      postCommitAttemptSerial === postCommitPassAttemptStart &&
       liveAsrFollowMode &&
       liveAsrEscapeAllowedThisTick &&
       appliedDeltaPx <= 0 &&
@@ -28059,6 +28855,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
 
   const ensurePursuitActive = () => {
+    if (reanchorLandingState) {
+      scheduleReanchorLandingFrame();
+      return;
+    }
     const liveAsrFollowMode =
       getScrollMode() === 'asr' &&
       isSessionLivePhase() &&
@@ -28141,6 +28941,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           : easedTargetScrollTop <= currentScrollTop + 0.5 ? 'min_delta'
             : 'duplicate_write_guard';
     }
+    rememberCompletionBlocker(asr4VisualRecoveryLastDirectWriteBlockedReason, requestedTargetScrollTop);
     const directWriteBlockedSignature = [
       input.sourcePath,
       input.reason,
@@ -37999,6 +38800,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
         const correctedTop = clamp(beforeScrollTop + (rowCenter - args.state.markerTopPx), 0, maxTop);
         if (Math.abs(correctedTop - beforeScrollTop) > 0.5) {
+          const backwardIdentity = { writerPath: 'pocket_drift' as const,
+            source: 'asr4-pocket-drift-authority', candidateLine: activeLine, targetTop: correctedTop };
+          const backwardDecision = correctedTop < beforeScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX
+            ? issueBackwardVisualDecision(backwardIdentity) : null;
           const backwardRecenterGuard = evaluateBackwardRecenterBlock({
             scroller: args.scroller,
             currentTop: beforeScrollTop,
@@ -38071,8 +38876,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           });
           const applied = leadPressureCapped
             ? leadPressureCapped.appliedTop
-            : applyCanonicalScrollTop(
-              evaluateAsrPocketWall({
+            : (() => {
+              const effectiveTop = evaluateAsrPocketWall({
                 scroller: args.scroller,
                 currentTop: beforeScrollTop,
                 proposedTop: correctedTop,
@@ -38088,13 +38893,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 sourceAuthority: 'asr4-pocket-drift-authority',
                 lineHeightHintPx: args.state.lineHeightPx,
                 terminalClampActive: args.state.terminalClampActive,
-              }).effectiveTop,
-              {
+              }).effectiveTop;
+              if (effectiveTop < beforeScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX &&
+                (!backwardDecision || !validateBackwardVisualDecision(backwardDecision, backwardIdentity, true))) return beforeScrollTop;
+              return applyCanonicalScrollTop(effectiveTop, {
                 scroller: args.scroller,
                 reason: 'asr4-pocket-drift-authority',
                 source: 'asr-follow',
-              },
-            );
+              });
+            })();
           afterScrollTop = Number.isFinite(applied) ? Number(applied) : Number(args.scroller.scrollTop || beforeScrollTop);
           movedPx = Math.round(afterScrollTop - beforeScrollTop);
           if (Math.abs(movedPx) >= 1) {
@@ -40176,6 +40983,22 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     const transcriptRunGeneration = normalizeRunGeneration(
       (detail as { runGeneration?: unknown } | null | undefined)?.runGeneration,
     );
+    // Retire an in-flight decision before any current-context packet can return early.
+    // Old-run delivery cannot replace current visual ownership. A monotonic high-water
+    // mark also prevents changed/replayed packets from earning corroboration on replay.
+    let continuityRevision = -1;
+    if (!isRunIdentityStale({ runKey: transcriptRunKey || undefined, runGeneration: transcriptRunGeneration })) {
+      pendingPacketRevision += 1;
+      continuityRevision = pendingPacketRevision;
+      pendingPacketDecision = null;
+      const sequence = resolveTranscriptSeq(detail);
+      if (sequence >= 0) {
+        if (reanchorPendingState && (sequence < pendingPacketHighWater ||
+          (isFinal && sequence <= pendingPacketFinalHighWater))) { notePendingPacket('replay_or_stale'); return; }
+        pendingPacketHighWater = Math.max(pendingPacketHighWater, sequence);
+        if (isFinal) pendingPacketFinalHighWater = Math.max(pendingPacketFinalHighWater, sequence);
+      }
+    }
     const detailSpeechRunningActualRaw =
       (detail as { speechRunningActual?: unknown } | null | undefined)?.speechRunningActual;
     if (detailSpeechRunningActualRaw === true) {
@@ -40700,6 +41523,16 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       const reinforcedTargetTop = scroller
         ? resolveTargetTop(scroller, rawMatchIndex)
         : null;
+      if (!isReanchorLandingAuthorityCurrent(reanchorLandingState)) {
+        clearReanchorLandingState('stale_reinforcement');
+        return;
+      }
+      const targetChanged = reanchorLandingState.finalTargetLineIdx !== rawMatchIndex ||
+        (reinforcedTargetTop != null && reinforcedTargetTop !== reanchorLandingState.finalTargetScrollTop);
+      if (targetChanged) {
+        cancelReanchorLandingFrame();
+        reanchorLandingState.revision = ++reanchorLandingRevision;
+      }
       reanchorLandingState.finalTargetLineIdx = rawMatchIndex;
       if (reinforcedTargetTop != null && Number.isFinite(reinforcedTargetTop)) {
         reanchorLandingState.finalTargetScrollTop = reinforcedTargetTop;
@@ -40821,7 +41654,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         }
       }
       if (reanchorPendingState) {
-        emitHudStatus('asr_reanchor_pending', 'ASR re-anchor pending - transcripts visible, auto-follow paused');
+        const pendingOwner = reanchorPendingState;
+        const pendingContext = captureReanchorLandingAuthority();
+        attemptPendingPacket({ detail, isFinal, revision: continuityRevision,
+          raw: rawMatchIndex, assembled: assembledMatchIndex, rawConfidence: rawMatchConfidence,
+          confidence: assembledMatchConfidence, sourceSeqs: sourceRequestSeqs, supportSeqs: lineageSeqsForForward,
+          capture: requestCaptureEvidence, provenance: targetSupportProvenance, responseEpoch: transcriptAuthorityEpoch });
+        if (pendingOwner === reanchorPendingState && continuityRevision === pendingPacketRevision && sameVisualContext(pendingContext)) {
+          emitHudStatus('asr_reanchor_pending', 'ASR re-anchor pending - transcripts visible, auto-follow paused');
+        }
         return;
       }
     }
@@ -41051,6 +41892,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           ? Number((incomingMatch as any).bestSim)
           : -1;
         if (freshBestIdx >= 0 && freshBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM) {
+          rememberAcceptedVisualEvidence();
           lastAcceptedMatchedLineIdx = freshBestIdx;
           lastAcceptedMatchedLineSim = freshBestSim;
           lastAcceptedMatchedAt = now;
@@ -46036,7 +46878,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   }
 
   const dispose = () => {
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
     if (disposed) return;
+    clearReanchorLandingState('dispose');
     const activeEpisode = alignmentEpisodes.flushStale();
     if (activeEpisode) alignmentEpisodes.dumpForConsole(activeEpisode);
     emitSummary('dispose');
@@ -46162,6 +47007,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const setLastLineIndex = (index: number) => {
     if (!Number.isFinite(index)) return;
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
+    backwardLocalAnchorContextBlocked = false;
     clearAcceptedForwardOpportunity('manual_reposition');
     clearShortLinePreReanchorGraceState('setLastLineIndex');
     clearReanchorPendingState('setLastLineIndex');
@@ -48526,7 +49374,51 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       focusHoldReason: focusHoldState.reason,
     };
   };
+  // The existing driver debug seam exercises real selection and actuation;
+  // it does not introduce another writer or a production authorization flag.
+  const debugBackwardVisual = {
+    seedAccepted(line: number, confidence: number, ageMs = 0) {
+      lastAcceptedMatchedLineIdx = line;
+      lastAcceptedMatchedLineSim = confidence;
+      lastAcceptedMatchedAt = Date.now() - ageMs;
+      rememberAcceptedVisualEvidence();
+      noteAcceptedForwardOpportunity({ semanticCursor: lastLineIndex, targetLineIdx: line,
+        confidence, nowMs: lastAcceptedMatchedAt, runKey: resolveDriverRunKey(),
+        runGeneration: resolveDriverRunGeneration() });
+      return qualifiedLocalVisualLine(Date.now());
+    },
+    select(candidateLine: number, targetTop: number, label: 'hold' | 'backward' = 'backward') {
+      return selectAsrVisualOwnershipCandidate({
+        candidates: [{ authority: 'track_follow', candidateLineIdx: candidateLine,
+          targetScrollTop: targetTop, reason: 'marker_error_line_too_high', direction: label, priority: 20 }],
+        currentScrollTop: getScroller()!.scrollTop, correctionRequested: true,
+        markerErrorPx: 0, lineHeightPx: 236, protectedForwardIntent: false,
+      }).backwardDecision!;
+    },
+    apply(decision: BackwardVisualDecision, targetTop = decision.targetTop, candidateLine = decision.candidateLine) {
+      const scroller = getScroller()!;
+      return applyVisualActuatorTargetStep({ scroller, currentTop: scroller.scrollTop,
+        targetScrollTop: targetTop, requestedMovePx: 20, effectiveMinStepPx: DEFAULT_MIN_STEP_PX,
+        lineHeightPx: resolveMotionLineHeightPx(getLineElementByIndex(scroller, lastLineIndex)),
+        currentLineIdx: lastLineIndex, committedLineIdx: lastLineIndex, nextSpeakableLineIdx: lastLineIndex,
+        authority: decision.source, authorityReason: 'marker_error_line_too_high', allowedTargetIdx: lastLineIndex,
+        terminalClampActive: false, noMatchOrOffscript: false, hardContradiction: false,
+        backwardDecision: decision, candidateLineIdx: candidateLine });
+    },
+    pocket() {
+      const scroller = getScroller()!;
+      const state = computeAsr4PocketDriftState({ scroller,
+        currentLine: lastLineIndex, committedLine: lastLineIndex, targetLine: lastLineIndex,
+        currentScrollTop: scroller.scrollTop, targetScrollTop: resolveTargetTop(scroller, lastLineIndex),
+        movedPx: 0, directWriteBlocked: false, targetPreservedForEasing: false,
+        visualSnapSuppressed: false, terminalClampActive: false,
+        followMode: 'live_asr_follow', scrollReason: 'pocket_drift', reason: 'ownership_candidate' });
+      return applyAsr4PocketDriftAuthority({ scroller, state, consecutiveBelowPocketCount: 1 });
+    },
+    invalidateResponse() { invalidatePendingResponseAuthority('debug_backward_response'); },
+  };
   const debugGetAuthoritySnapshot = () => ({
+    acceptedEvidenceIdentity: backwardEvidenceKey(),
     lastSelectedAuthority: lastAsrSelectedAuthority,
     visualAction: lastAsrVisualAction,
     visualErrorPx: lastAsrVisualErrorPx,
@@ -48571,6 +49463,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     reanchorLanding: !!reanchorLandingState,
     reanchorLandingAnchorLineIdx: reanchorLandingState?.anchorLineIdx ?? -1,
     reanchorLandingTargetLineIdx: reanchorLandingState?.finalTargetLineIdx ?? -1,
+    reanchorLandingFrameId: reanchorLandingFrame?.handle ?? null,
+    reanchorLandingRevision,
+    reanchorLandingNoProgressFrames: reanchorLandingState?.noProgressFrames ?? 0,
+    lastMoveAt,
     semanticEpoch,
     visualTargetEpoch,
     lastVisualWriteOwner,
@@ -48608,6 +49504,45 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     terminalUnsafe?: boolean;
   }) => evaluateAcceptedForwardOpportunity(args);
 
+  const debugPostCommitCompletion = {
+    prepare(line: number, adjacent = true) {
+      lastAcceptedMatchedLineIdx = line; lastAcceptedMatchedLineSim = 0.95; lastAcceptedMatchedAt = Date.now();
+      rememberAcceptedVisualEvidence();
+      lastTranscriptSpeechFresh = true; lastTranscriptResponseAgeMs = 0; lastTranscriptReceivedAtMs = Date.now();
+      lastFinalTranscriptAt = Date.now();
+      lastFinalTranscriptRunKey = resolveActiveRunKey(); lastFinalTranscriptRunGeneration = resolveActiveRunGeneration();
+      lastAsrGuardReason = 'none'; lastAsrHudGuardText = 'none';
+      if (adjacent) armPostSemanticCommitVisualRelease({ now: Date.now(), previousSemanticLineIdx: line - 1, newSemanticLineIdx: line, bridgeContextActive: false });
+      return computeLineTargetTop(getScroller(), getLineElementByIndex(getScroller(), line));
+    },
+    step(args: { target: number; move?: number; pending?: boolean; authority?: string; unsafe?: boolean }) {
+      const scroller = getScroller()!;
+      return applyVisualActuatorTargetStep({ scroller, currentTop: Number(scroller.scrollTop), targetScrollTop: args.target,
+        requestedMovePx: args.move ?? 236, effectiveMinStepPx: 0, lineHeightPx: 236,
+        currentLineIdx: lastLineIndex, committedLineIdx: lastLineIndex, nextSpeakableLineIdx: lastLineIndex,
+        candidateLineIdx: lastLineIndex, authority: args.authority ?? 'track_follow', authorityReason: 'marker_error_line_too_low',
+        allowedTargetIdx: lastLineIndex, terminalClampActive: false, noMatchOrOffscript: !!args.unsafe,
+        hardContradiction: false, ownershipPending: args.pending });
+    },
+    state() { return { outcome: postCommitCompletion?.outcome, pending: postSemanticCommitVisualReleasePending,
+      target: postCommitCompletion?.target, protected: postCommitCompletion?.protected, inFlight: postCommitCompletion?.inFlight,
+      attempts: postCommitAttemptSerial, lastMoveAt,
+      qualified: sameLineCompletionQualified(lastLineIndex), acceptedContextCurrent: !!acceptedVisualEvidenceContext && sameVisualContext(acceptedVisualEvidenceContext),
+      blockedContext: backwardLocalAnchorContextBlocked, silence: asrSilenceActive,
+      localLine: qualifiedLocalVisualLine(Date.now()), geometry: resolveLineVisualTelemetry(getScroller(), lastLineIndex) }; },
+    invalidate(kind: string) {
+      if (kind === 'response') invalidatePendingResponseAuthority('debug_completion_response');
+      else if (kind === 'focus') asrFocusGeneration += 1;
+      else if (kind === 'semantic') semanticEpoch += 1;
+      else if (kind === 'visual') visualTargetEpoch += 1;
+    },
+    rememberBlocker: rememberCompletionBlocker,
+    resolveBlocker: currentCompletionBlocker,
+    tick(target: number) {
+      pursuitTargetTop = target; pursuitActive = true; pursuitLastTs = performance.now() - 16;
+      tickController();
+    },
+  };
   const driver = {
     ingest,
     dispose,
@@ -48615,6 +49550,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     getLastLineIndex,
     getStats,
     __debugGetAuthoritySnapshot: debugGetAuthoritySnapshot,
+    __debugBackwardVisual: debugBackwardVisual,
+    __debugPostCommitCompletion: debugPostCommitCompletion,
     __debugNoteAcceptedForwardOpportunity: debugNoteAcceptedForwardOpportunity,
     __debugEvaluateAcceptedForwardOpportunity: debugEvaluateAcceptedForwardOpportunity,
     __debugClearAcceptedForwardOpportunity: clearAcceptedForwardOpportunity,
@@ -48650,6 +49587,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugSeedPreservedFollowTarget: debugSeedPreservedFollowTarget,
     __debugSeedOvershootSettleLock: debugSeedOvershootSettleLock,
   } as AsrScrollDriver & {
+    __debugBackwardVisual: typeof debugBackwardVisual;
     __debugNoteAcceptedForwardOpportunity(args: {
       semanticCursor: number;
       targetLineIdx: number;
@@ -48710,6 +49648,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       reanchorLanding: boolean;
       reanchorLandingAnchorLineIdx: number;
       reanchorLandingTargetLineIdx: number;
+      reanchorLandingFrameId: number | null;
+      reanchorLandingRevision: number;
+      reanchorLandingNoProgressFrames: number;
+      lastMoveAt: number;
       semanticEpoch: number;
       visualTargetEpoch: number;
       lastVisualWriteOwner: string;

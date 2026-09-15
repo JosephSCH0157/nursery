@@ -1,5 +1,6 @@
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
 import { evaluateAsrTerminalScriptHold } from '../../src/features/asr/asr-terminal-script-hold';
+import * as canonicalScroller from '../../src/scroll/scroller';
 
 function extractTraceField(line: string, key: string): string {
   const match = line.match(new RegExp(`(?:^|\\s)${key}=([^\\s]+)`));
@@ -357,6 +358,202 @@ describe('ASR visual contract', () => {
     (window as any).__TP_MARKER_PCT = 0.4;
   });
 
+  describe('post-commit measured completion', () => {
+    let driver: any;
+    let api: any;
+    let viewer: HTMLElement;
+    let writes: jest.SpyInstance;
+    let info: jest.SpyInstance;
+    let target: number;
+    beforeEach(() => {
+      info = jest.spyOn(console, 'info').mockImplementation(() => {});
+      driver = createAsrScrollDriver();
+      driver.setLastLineIndex(2);
+      bootstrapLiveAsrRuntime();
+      window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+      viewer = document.getElementById('viewer') as HTMLElement;
+      document.querySelectorAll<HTMLElement>('.line').forEach((line) => {
+        Object.defineProperty(line, 'getBoundingClientRect', { configurable: true, value: () => ({
+          top: line.offsetTop - viewer.scrollTop, bottom: line.offsetTop - viewer.scrollTop + 236,
+          height: 236, left: 0, right: 800, width: 800,
+        }) });
+      });
+      api = driver.__debugPostCommitCompletion;
+      target = api.prepare(2);
+      viewer.scrollTop = target - 100;
+      writes = jest.spyOn(canonicalScroller, 'applyCanonicalScrollTop');
+    });
+    afterEach(() => { driver.dispose(); writes.mockRestore(); info.mockRestore(); });
+    const completedEvents = (spy: jest.SpyInstance) => spy.mock.calls.filter(([line]) =>
+      String(line).includes('[ASR_POST_COMMIT_COMPLETION]') && /outcome=(finalized|already_satisfied|document_bound_complete)/.test(String(line)));
+
+    test('accepted commit finishes once; replay neither writes nor repeats completion/protection', () => {
+      api.step({ target });
+      expect(viewer.scrollTop).toBeCloseTo(target);
+      expect(api.state()).toMatchObject({ outcome: 'complete', pending: false, protected: true });
+      const count = writes.mock.calls.length;
+      api.step({ target }); api.step({ target });
+      expect(writes).toHaveBeenCalledTimes(count);
+      expect(completedEvents(info)).toHaveLength(1);
+      expect(driver.getLastLineIndex()).toBe(2);
+    });
+    test('bounded steps retain residual obligation until geometry is satisfied', () => {
+      viewer.scrollTop = target - 400;
+      api.step({ target, move: 20 });
+      expect(api.state().outcome).toBe('pending');
+      expect(api.state().pending).toBe(true);
+      for (let i = 0; i < 8 && api.state().outcome === 'pending'; i++) api.step({ target });
+      expect(api.state().outcome).toBe('complete');
+      expect(completedEvents(info)).toHaveLength(1);
+    });
+    test('repeated accepted evidence cannot re-arm a finalized completion', () => {
+      api.step({ target });
+      const count = writes.mock.calls.length;
+      api.prepare(2); api.step({ target });
+      expect(api.state().outcome).toBe('complete');
+      expect(writes).toHaveBeenCalledTimes(count);
+      expect(completedEvents(info)).toHaveLength(1);
+    });
+    test('canonical document limit is a one-shot terminal no-op', () => {
+      Object.defineProperty(viewer, 'scrollHeight', { configurable: true, value: viewer.clientHeight + 100 });
+      api.invalidate('visual');
+      target = api.prepare(2);
+      viewer.scrollTop = 100;
+      api.step({ target }); api.step({ target });
+      expect(api.state().outcome).toBe('complete');
+      expect(writes).not.toHaveBeenCalled();
+      expect(completedEvents(info)).toHaveLength(1);
+    });
+    test('fresh same-line evidence closes via the existing actuator without a new semantic commit', () => {
+      driver.dispose();
+      driver = createAsrScrollDriver(); driver.setLastLineIndex(2);
+      bootstrapLiveAsrRuntime();
+      window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+      api = driver.__debugPostCommitCompletion;
+      target = api.prepare(2, false); viewer.scrollTop = target - 100;
+      api.step({ target });
+      expect(viewer.scrollTop).toBeGreaterThan(target - 100);
+      expect(driver.getLastLineIndex()).toBe(2);
+      expect(driver.getStats().commitCount).toBe(0);
+    });
+    test('negative completion still enters the existing backward writer guard', () => {
+      viewer.scrollTop = target + 200;
+      const result = api.step({ target });
+      expect(result.usedPullback || result.blockedPullback).toBe(true);
+      expect(driver.getLastLineIndex()).toBe(2);
+    });
+    test('run replacement rejects old completion without writes', () => {
+      window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', {
+        detail: { speechRunningActual: true, recognizerAttached: true, activeReadMode: true, runKey: 'replacement', runGeneration: 99 },
+      }));
+      api.step({ target });
+      expect(writes).not.toHaveBeenCalled();
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+    test.each([0, 200])('a lying writer return does not consume authority when actual pixels stay at %s', (top) => {
+      viewer.scrollTop = top;
+      writes.mockImplementation((requested: number) => requested);
+      const before = api.state().lastMoveAt;
+      const result = api.step({ target });
+      expect(result.afterTop).toBe(top);
+      expect(result.appliedDeltaPx).toBe(0);
+      expect(api.state()).toMatchObject({ outcome: 'pending', pending: true, protected: false, lastMoveAt: before });
+      expect(writes).toHaveBeenCalledTimes(1);
+      expect(completedEvents(info)).toHaveLength(0);
+      writes.mockRestore(); writes = jest.spyOn(canonicalScroller, 'applyCanonicalScrollTop');
+      api.step({ target });
+      expect(viewer.scrollTop).toBeGreaterThan(top);
+    });
+    test('already satisfied is verified without another write', () => {
+      viewer.scrollTop = target;
+      api.step({ target }); api.step({ target });
+      expect(writes).not.toHaveBeenCalled();
+      expect(api.state().outcome).toBe('complete');
+      expect(completedEvents(info)).toHaveLength(1);
+    });
+    test('writer rejection releases only the in-flight claim, not completion authority', () => {
+      writes.mockImplementation(() => { throw new Error('fixture writer rejected'); });
+      expect(api.step({ target }).zeroingReason).toBe('writer_rejected');
+      expect(api.state()).toMatchObject({ outcome: 'pending', pending: true, inFlight: false, protected: false });
+      expect(writes).toHaveBeenCalledTimes(1);
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+    test('an unscheduled correction cannot become a fallback write', () => {
+      expect(api.step({ target, move: 0 }).zeroingReason).toBe('completion_not_scheduled');
+      expect(api.state().outcome).toBe('pending');
+      expect(writes).not.toHaveBeenCalled();
+    });
+    test('changed canonical geometry invalidates the bound target before a later step', () => {
+      writes.mockImplementation((requested: number) => requested);
+      api.step({ target });
+      Object.defineProperty(document.querySelector('[data-line="2"]'), 'offsetTop', { configurable: true, value: 2000 });
+      writes.mockClear();
+      api.step({ target });
+      expect(writes).not.toHaveBeenCalled();
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+    test('unsafe already-satisfied geometry is not completion', () => {
+      viewer.scrollTop = target;
+      api.step({ target, unsafe: true });
+      expect(api.state().outcome).toBe('pending');
+      expect(writes).not.toHaveBeenCalled();
+    });
+    test('ordinary tick no-progress completion does not retry through same-pass helpers', () => {
+      writes.mockImplementation((requested: number) => requested);
+      api.tick(target);
+      expect(api.state().attempts).toBe(1);
+      expect(writes.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(viewer.scrollTop).toBe(target - 100);
+      expect(api.state().outcome).not.toBe('complete');
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+    test('not-final ownership blocks; qualified same-line ownership then closes without a commit', () => {
+      viewer.scrollTop = target - 100;
+      api.step({ target, pending: true, authority: 'preserved_forward_follow_target' });
+      expect(writes).not.toHaveBeenCalled();
+      expect(api.state().outcome).toBe('pending');
+      const resumed = api.step({ target, pending: true });
+      expect(api.state().qualified).toBe(true);
+      expect(resumed.zeroingReason).toBe('none');
+      expect(viewer.scrollTop).toBeGreaterThan(target - 100);
+      expect(driver.getLastLineIndex()).toBe(2);
+    });
+    test.each(['response', 'focus', 'semantic', 'visual'])('%s invalidation cannot consume or apply old work', (kind) => {
+      api.invalidate(kind);
+      api.step({ target });
+      expect(writes).not.toHaveBeenCalled();
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+    test('expiry retires execution authority, never claims completion', () => {
+      jest.advanceTimersByTime(4000);
+      api.step({ target });
+      expect(writes).not.toHaveBeenCalled();
+      expect(api.state().outcome).toBe('stale');
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+    test.each(['target_behind_current', 'duplicate_write_guard'])('%s requires proven target supersession', (reason) => {
+      api.rememberBlocker(reason, target);
+      expect(api.resolveBlocker(reason, target)).toBe(reason);
+      api.rememberBlocker(reason, target - 400);
+      expect(api.resolveBlocker(reason, target)).toBe('none');
+      expect(api.state().outcome).toBe('pending');
+    });
+    test('unproven replacement geometry cannot discard a blocker', () => {
+      api.rememberBlocker('target_behind_current', target - 400);
+      expect(api.resolveBlocker('target_behind_current', target + 1000)).toBe('target_behind_current');
+    });
+    test('synchronous replacement cannot finalize newer completion', () => {
+      writes.mockImplementation((requested: number) => {
+        viewer.scrollTop = requested;
+        api.invalidate('semantic'); api.prepare(2);
+        return requested;
+      });
+      api.step({ target });
+      expect(api.state()).toMatchObject({ outcome: 'pending', target: null, protected: false });
+      expect(completedEvents(info)).toHaveLength(0);
+    });
+  });
+
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
@@ -541,6 +738,148 @@ describe('ASR visual contract', () => {
     expect(pursueEntriesBeforeMotion.some((entry) => Number(entry.payload.err) === 0)).toBe(false);
 
     driver.dispose();
+  });
+
+  describe('exact backward visual ownership', () => {
+    let driver: any;
+    let scroller: HTMLElement;
+    let writeSpy: jest.SpyInstance;
+    let infoSpy: jest.SpyInstance;
+    const evidence = () => JSON.stringify((window as any).__tpCanonicalAsrAuthority ?? null);
+    beforeEach(() => {
+      driver = createAsrScrollDriver();
+      bootstrapLiveAsrRuntime();
+      driver.setLastLineIndex(5);
+      window.dispatchEvent(new CustomEvent('tp:asr:silence', { detail: { silent: false } }));
+      scroller = document.getElementById('viewer') as HTMLElement;
+      scroller.scrollTop = 2400;
+      const line = document.querySelector<HTMLElement>('[data-line="5"]')!;
+      const marker = 669 * 0.4;
+      Object.defineProperty(line, 'offsetTop', { configurable: true, value: 2400 + marker });
+      Object.defineProperty(line, 'getBoundingClientRect', { configurable: true,
+        value: () => ({ top: marker, bottom: marker + 236, height: 236, left: 0, right: 800, width: 800 }) });
+      writeSpy = jest.spyOn(canonicalScroller, 'applyCanonicalScrollTop');
+      infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+    });
+    afterEach(() => {
+      driver.dispose(); writeSpy.mockRestore(); infoSpy.mockRestore();
+      delete (window as any).__tpAsrRunKey;
+    });
+    const select = (line = 5, top = 2200, label: 'hold' | 'backward' = 'backward') =>
+      driver.__debugBackwardVisual.select(line, top, label);
+    const apply = (decision: any, top?: number, line?: number) => driver.__debugBackwardVisual.apply(decision, top, line);
+    const reason = (value: string) => expect(infoSpy.mock.calls.some((call) => String(call[0]).includes(`outcome=${value}`))).toBe(true);
+
+    test('below-one-line geometry: a stale spoken target loses to qualified current-local evidence, even labeled hold', () => {
+      expect(driver.__debugBackwardVisual.seedAccepted(5, 0.91)).toBe(5);
+      const before = evidence();
+      expect((window as any).__tpCanonicalAsrAuthority).toBeDefined();
+      const decision = select(4, 2200, 'hold');
+      expect(Object.isFrozen(decision)).toBe(true);
+      expect(Object.isFrozen(decision.context)).toBe(true);
+      expect(apply(decision).blockedPullback).toBe(true);
+      reason('qualified_local_authority_superseded');
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(2400);
+      expect(driver.getLastLineIndex()).toBe(5);
+      expect(evidence()).toBe(before);
+      expect(driver.__debugGetAuthoritySnapshot().overshootSettleLockActive).toBe(false);
+    });
+
+    test.each(['target', 'line', 'evidence', 'run', 'response', 'expiry'])(
+      '%s changes after selection reject the old decision without a write', (change) => {
+        const decision = select();
+        const before = evidence();
+        if (change === 'evidence') driver.__debugBackwardVisual.seedAccepted(5, 0.91);
+        if (change === 'evidence') expect(driver.__debugGetAuthoritySnapshot().semanticEpoch).toBe(decision.semanticEpoch);
+        if (change === 'run') (window as any).__tpAsrRunKey = 'replacement-run';
+        if (change === 'response') driver.__debugBackwardVisual.invalidateResponse();
+        if (change === 'expiry') jest.setSystemTime(Date.now() + 1801);
+        const result = apply(decision, change === 'target' ? 2100 : undefined, change === 'line' ? 4 : undefined);
+        expect(result.blockedPullback).toBe(true);
+        expect(writeSpy).not.toHaveBeenCalled();
+        expect(driver.getLastLineIndex()).toBe(5);
+        expect(evidence()).toBe(before);
+        expect(driver.__debugGetAuthoritySnapshot().overshootSettleLockActive).toBe(false);
+      });
+
+    test('same-epoch replacement is not consumed by stale replay; the replacement writes exactly once', () => {
+      const old = select();
+      const replacement = select(5, 2180);
+      expect(replacement.semanticEpoch).toBe(old.semanticEpoch);
+      expect(apply(old).blockedPullback).toBe(true);
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(apply(replacement).appliedDeltaPx).toBeLessThan(0);
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const after = scroller.scrollTop;
+      apply(replacement);
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      expect(scroller.scrollTop).toBe(after);
+    });
+
+    test('a consumed decision cannot replay after its target is reached or retarget forward', () => {
+      const decision = select(5, 2300);
+      expect(apply(decision).appliedDeltaPx).toBeLessThan(0);
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+      const after = scroller.scrollTop;
+      apply(decision);
+      apply(decision, after + 100);
+      expect(scroller.scrollTop).toBe(after);
+      expect(writeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    test('a pixel target without an exact anchor cannot borrow current semantic identity', () => {
+      const decision = select(-1, 2200);
+      expect(apply(decision).blockedPullback).toBe(true);
+      expect(writeSpy).not.toHaveBeenCalled();
+      reason('target_identity_changed');
+    });
+
+    test('geometry-time evidence replacement is rejected by the final guarded writer', () => {
+      const decision = select();
+      let changed = false;
+      const line = document.querySelector<HTMLElement>('[data-line="5"]')!;
+      Object.defineProperty(line, 'offsetTop', { configurable: true, get: () => {
+        if (!changed) { changed = true; driver.__debugBackwardVisual.seedAccepted(5, 0.91); }
+        return 2667.6;
+      } });
+      expect(apply(decision).blockedPullback).toBe(true);
+      expect(changed).toBe(true);
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(driver.__debugGetAuthoritySnapshot().overshootSettleLockActive).toBe(false);
+    });
+
+    test.each([false, true])('negative pocket-drift final writer revalidation (replace=%s)', (replace) => {
+      const line = document.querySelector<HTMLElement>('[data-line="5"]')!;
+      const marker = 669 * 0.4;
+      Object.defineProperty(line, 'offsetTop', { configurable: true, value: 2400 + marker - 200 });
+      Object.defineProperty(line, 'getBoundingClientRect', { configurable: true,
+        value: () => ({ top: marker - 200, bottom: marker + 36, height: 236, left: 0, right: 800, width: 800 }) });
+      const debugSpy = jest.spyOn(console, 'info').mockImplementation((message) => {
+        if (replace && String(message).includes('ASR_POCKET_WALL_EVALUATED')) {
+          driver.__debugBackwardVisual.seedAccepted(5, 0.91);
+        }
+      });
+      const result = driver.__debugBackwardVisual.pocket();
+      debugSpy.mockRestore();
+      if (replace) {
+        expect(result.movementAllowed).toBe(false);
+        expect(writeSpy).not.toHaveBeenCalled();
+        expect(scroller.scrollTop).toBe(2400);
+      } else {
+        expect(result.movementAllowed).toBe(true);
+        expect(scroller.scrollTop).toBeLessThan(2400);
+        expect(writeSpy).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    test.each([[6, 0.2, 0], [6, 0.91, 1801], [10, 0.91, 0]])(
+      'unqualified local evidence (%s/%s/%s) cannot become superseding authority', (line, confidence, age) => {
+        driver.__debugBackwardVisual.seedAccepted(line, confidence, age);
+        const decision = select();
+        expect(apply(decision).appliedDeltaPx).toBeLessThan(0);
+        expect(writeSpy).toHaveBeenCalledTimes(1);
+      });
   });
 
   test('protected forward target suppresses backward recenter while local proof remains strong below marker', () => {

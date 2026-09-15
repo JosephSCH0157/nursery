@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,6 +10,7 @@ import {
   type SetStateAction,
 } from "react";
 import type { Draft } from "../../domain/draft";
+import { hearthLoadCancelled, type HearthLoadGuard } from "../../lib/hearth-discovery-retry";
 import type { Revision, RevisionKind } from "../../domain/revision";
 import type {
   DraftSnapshot,
@@ -218,7 +220,9 @@ export function useHearthScriptPersistenceWorkspace(args: {
   const refreshRevisions = useCallback(async (
     currentWorkpieceId: string | null,
     draftId?: string | null,
+    loadGuard?: HearthLoadGuard,
   ): Promise<Revision[]> => {
+    loadGuard?.assertCurrent();
     const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
     if (!resolvedWorkpieceId) {
       args.setRevisions([]);
@@ -228,6 +232,7 @@ export function useHearthScriptPersistenceWorkspace(args: {
       resolvedWorkpieceId,
       draftId?.trim() ? draftId : null,
     );
+    loadGuard?.assertCurrent();
     args.setRevisions(list);
     return list;
   }, [args.store]);
@@ -322,17 +327,36 @@ export function useHearthCanonicalScriptApprovalLoader(args: {
 export function useHearthScriptRevisionLoader(args: {
   activeDraftId: string | null;
   revisionWorkpieceId: string | null;
+  loadScope: string;
+  enabled: boolean;
+  onError: (error: unknown) => void;
   refreshRevisions: (
     workpieceId: string | null,
     draftId?: string | null,
+    loadGuard?: HearthLoadGuard,
   ) => Promise<Revision[]>;
 }) {
+  const scope = JSON.stringify([args.loadScope, args.activeDraftId, args.revisionWorkpieceId, args.enabled]);
+  const currentScope = useRef<string | null>(scope);
+  useLayoutEffect(() => {
+    currentScope.current = scope;
+    return () => { currentScope.current = null; };
+  }, [scope]);
   useEffect(() => {
-    if (!args.activeDraftId) return;
-    void args.refreshRevisions(args.revisionWorkpieceId, args.activeDraftId);
+    if (!args.enabled || !args.activeDraftId) return;
+    let cancelled = false;
+    const loadGuard = { assertCurrent() {
+      if (cancelled || currentScope.current !== scope) throw hearthLoadCancelled();
+    } };
+    void args.refreshRevisions(args.revisionWorkpieceId, args.activeDraftId, loadGuard).catch((error: unknown) => {
+      if (!cancelled && currentScope.current === scope) args.onError(error);
+    });
+    return () => { cancelled = true; };
   }, [
     args.activeDraftId,
     args.refreshRevisions,
     args.revisionWorkpieceId,
+    args.enabled,
+    scope,
   ]);
 }

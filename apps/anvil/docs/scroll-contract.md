@@ -14,6 +14,12 @@ This document is the executable contract for scroll behavior.
 
 ## 2) ASR Invariants (Hard)
 
+Pending-reanchor packet continuity is a narrow visual-only exception, not accepted transcript or snapshot authority. It cannot change the semantic cursor, accepted evidence, epochs, or corroboration. Normal semantic packet processing and reanchor confirmation remain independent.
+
+Backward visual decisions bind exact candidate/source/writer, evidence identity, semantic and response epochs, run, target, freshness, and viewer/script context. Actual negative pixel direction invokes validation regardless of `hold` or other labels. The final pullback/pocket-drift actuator and backward landing step reject changed or qualified-superseded authority without retargeting, duplicate writes, settle-lock creation, or semantic mutation. A raw or merely larger match index is not superseding authority. Existing confidence/locality/freshness and accepted-forward rules remain unchanged.
+
+Reanchor landing scheduling is single-owner and ephemeral. At most one unconsumed landing RAF is authoritative. General pursuit delegates without taking landing steps. Run, semantic/response epoch, focus generation, exact target, and current scroller/script/viewer context must still match immediately before the existing guarded canonical actuator. Reset, dispose, authority loss, or replacement invalidates old callbacks even if cancellation fails. Cancelled work does not resume on focus regain alone.
+
 When `scrollMode='asr'`:
 
 - `Start speech sync` must arm ASR for the session (`session.asrArmed=true`) before preroll/live begin.
@@ -119,8 +125,23 @@ When `scrollMode='asr'`:
 
 ### 2.1 ASR Bounded Visual Recovery Lanes
 
+A pending reanchor may accept one synchronous bounded attempt per independently qualified final packet through the existing actuator and guarded writer. The candidate must already be the current or immediate next speakable line (at most current + 1), with valid local geometry, direct raw/assembled support or verified voice-backed multi-request lineage including the incoming request. No source label, equal hashes, missing capture evidence, nonlocal clamping, or stale-final exception supplies permission.
+
+The immutable decision binds pending/run/response/packet identity, exact serialized evidence, original freshness, semantic/visual epochs, script/viewer/scroller/focus, target element and geometry. Revalidate before writing and before bookkeeping. New current-context evidence invalidates prior authority, including on contradictory/unsupported early returns. Replays cannot renew freshness or repeat the attempt. No lease, retry or RAF chain exists. Existing negative-pixel, pocket-wall and terminal safeguards remain; post-commit completion is neither consumed nor rearmed. Confirmation retires pending authority and uses the sole existing landing scheduler. Zero measured movement is not completion.
+
+Explicit epoch-millisecond response evidence or the existing WhisperBridge monotonic timestamp supplies original age, never receipt-now substitution. Without an explicit response epoch, matching request/bridge generations and support captures strictly after the last response-authority invalidation are mandatory. Every supporting capture must have a fresh end timestamp. Missing or stale evidence holds; no production freshness threshold is changed.
+
+Post-commit completion is ephemeral execution state, separate from semantic acceptance and pixel selection. The existing release record binds current semantic/visual epochs, run/response/focus, script/scroller identity, accepted evidence, semantic line, and exact canonical target. Selection does not consume it. Measure actual post-write scroll position (zero is valid); partial movement retains residual debt. A rejected/no-progress attempt cannot escape through another fallback in the same pass. Expired or superseded execution authority is stale, never successful.
+
+Same-line accepted/current identity may authorize bounded alignment under existing freshness, provenance, geometry, and safety rules, without another transcript commit. Landing remains owned by its sole scheduler; negative movement still requires immutable backward authority. Recheck ownership after actuation before bookkeeping. Complete exactly once after target satisfaction or an explicitly verified document boundary; replay cannot repeat movement, success, or protection arming. Discard target-derived blockers only on proven canonical target/context supersession, never by globally clearing a category.
+
 Allowed ASR-owned visual correction paths include:
 
+- **Confirmed reanchor landing**
+	- Backward steps additionally require the immutable candidate/evidence decision at the final writer; permission is never inherited merely from semantic confirmation or renewed by a delayed callback.
+	- One single-use frame at a time applies the existing bounded step toward the confirmed/reinforced target; it never advances semantic truth.
+	- Identical reinforcement retains the frame. Replacement invalidates it, and stale callbacks cannot consume newer authority.
+	- Existing marker tolerance and document-limit convergence remain unchanged; a distant landing may require multiple bounded frames, not one unbounded jump.
 - **Post-commit visual follow**
 	- After a validated semantic commit, ASR may perform bounded visual follow to keep the committed/current line near the marker.
 	- This does not create a new commit.
@@ -141,6 +162,14 @@ Allowed ASR-owned visual correction paths include:
 	- ASR may apply bounded reader-comfort correction when the trusted semantic line drifts materially outside the marker pocket near viewport bottom, without advancing semantic truth.
 
 ### 2.2 ASR Diagnostic Contract
+
+`ASR_PENDING_PACKET_CONTINUITY` records qualification, rejection/invalidation, replay suppression, actual bounded movement, backward denial and no progress. It must not imply semantic acceptance or reanchor completion.
+
+`ASR_POST_COMMIT_COMPLETION` separates pending, ownership-not-final, target-authorized, movement-applied, residual-pending, zero-progress, stale authority/blocker supersession, and finalized/already-satisfied/document-bound outcomes. Only measured motion may claim movement; only a verified terminal outcome may claim completion.
+
+`ASR_BACKWARD_VISUAL_DECISION` distinguishes stale/replaced candidate, expired evidence, changed context, and qualified-local supersession. It does not replace existing actual-write diagnostics or imply semantic progress.
+
+Landing-local `ASR_REANCHOR_FRAME` outcomes distinguish scheduling, supersession/staleness, actual application, authorized zero movement, and actuator no-progress. Existing document-limit settlement remains explicit. Measure actual post-write pixels, preserving a valid zero; never update movement timestamps for a no-op or infer semantic advancement from visual motion.
 
 ASR diagnostics are part of the runtime contract. New ASR movement/recovery paths must emit enough information to prove:
 

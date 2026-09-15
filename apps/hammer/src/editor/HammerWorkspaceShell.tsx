@@ -496,6 +496,10 @@ function HammerWorkspaceShellWithContext(
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
   const cleanupCandidateReview = useHammerWorkspaceShellCleanupCandidateReview({
+    reviewContext: props.recordingRevisionId && props.canonicalRecordingId ? {
+      workspace_id: launchContext.workspace_id, workpiece_id: launchContext.workpiece_id,
+      canonical_recording_id: props.canonicalRecordingId, recording_revision_id: props.recordingRevisionId,
+    } : null,
     transcriptSegments: editableTranscriptSegments,
     getDurationSec: () => playbackTransportDurationSec,
     getWaveformProxy: () => editableAudioPolish?.analysis?.waveform_proxy ?? null,

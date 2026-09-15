@@ -17,6 +17,7 @@ import {
 } from "../src/lib/source-registry";
 import { useChatWorkspaceHistory, useChatWorkspaceRuntime } from "../src/hooks/useChatWorkspace";
 import { TongsHearthStore } from "../src/storage/tongs-store";
+import { LocalHearthStore } from "../src/storage/local-store";
 import { useHearthWorkpieceCollectionLoader } from "../src/routes/hearth-shell/useHearthCollectionController";
 import {
   resolveHearthChatComposerPlaceholder,
@@ -114,7 +115,7 @@ function installDom(): { container: HTMLElement; restore: () => void } {
     url: `http://localhost/?workspace_id=${WORKSPACE_A}&workpiece_id=${WORKPIECE_A}`,
   });
   const runtime = globalThis as unknown as Record<string, unknown>;
-  const properties = ["window", "document", "navigator", "Node", "HTMLElement", "Event"] as const;
+  const properties = ["window", "document", "navigator", "Node", "HTMLElement", "Event", "localStorage"] as const;
   const previous = new Map<string, PropertyDescriptor | undefined>(
     properties.map((property) => [property, Object.getOwnPropertyDescriptor(globalThis, property)]),
   );
@@ -125,6 +126,7 @@ function installDom(): { container: HTMLElement; restore: () => void } {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Event: dom.window.Event,
+    localStorage: dom.window.localStorage,
   };
   for (const property of properties) {
     Object.defineProperty(globalThis, property, {
@@ -933,6 +935,148 @@ test("stabilization contract: an unacknowledged browser-cache write cannot resol
     windowHarness.restore();
   }
 });
+
+for (const initial of [[], [{ role: "user", content: "Retained canonical text" }]] as HearthChatMessage[][]) {
+  test(`persistence boundary: ${initial.length ? "nonempty" : "empty"} hydration stays read-only through idle, unload, and navigation`, async () => {
+    const dom = installDom();
+    const saves: unknown[] = [];
+    const cacheWrites: unknown[] = [];
+    let reads = 0;
+    let setVisible: (messages: HearthChatMessage[]) => void = () => undefined;
+    const store = { getChatHistory: async () => { reads++; return initial; }, saveChatHistory: async (...values: unknown[]) => { saves.push(values); } };
+    const ignore = () => undefined;
+    const readCache = () => [] as HearthChatMessage[];
+    const writeCache = (...values: unknown[]) => { cacheWrites.push(values); };
+    const sanitize = (entries: ReadonlyArray<unknown>) => entries as HearthChatMessage[];
+    function Harness({ id }: { id: string }) {
+      const [messages, setMessages] = useState<HearthChatMessage[]>([]);
+      setVisible = setMessages;
+      useChatWorkspaceHistory({ store, activeDraftId: id, activeWorkpieceId: id, chatHistoryKey: id, chatMessages: messages,
+        setChatMessages: setMessages, setChatError: ignore, setPendingAiProposal: ignore,
+        chatPersistTimerRef: useRef(null), chatMessagesRef: useRef(messages), latestChatDraftIdRef: useRef(null),
+        latestChatWorkpieceIdRef: useRef(null), latestChatHistoryKeyRef: useRef(null), skipChatHydrationKeyRef: useRef(null),
+        pendingChatHydrationKeyRef: useRef(null), chatHydrationSeqRef: useRef(0), setHydratedChatHistoryKey: ignore,
+        setChatHydrationStatus: ignore, readChatHistoryFromCache: readCache, writeChatHistoryCache: writeCache,
+        sanitizeChatMessagesForStorage: sanitize, chatHistoryWriteDebounceMs: 10 });
+      return null;
+    }
+    (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+    const root = createRoot(dom.container);
+    try {
+      await act(async () => root.render(createElement(Harness, { id: WORKPIECE_A })));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+      assert.equal(reads, 1);
+      assert.equal(saves.length, 0, "idle hydration must not save");
+      const writesAfterHydration = cacheWrites.length;
+      await act(async () => window.dispatchEvent(new Event("beforeunload")));
+      assert.equal(saves.length, 0, "beforeunload must not save unchanged hydrated content");
+      await act(async () => window.dispatchEvent(new Event("pagehide")));
+      assert.equal(saves.length, 0, "pagehide must not save unchanged hydrated content");
+      assert.equal(cacheWrites.length, writesAfterHydration, "unload must not overwrite recovery material");
+      if (initial.length > 0) {
+        await act(async () => setVisible([]));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+        await act(async () => window.dispatchEvent(new Event("beforeunload")));
+        await act(async () => window.dispatchEvent(new Event("pagehide")));
+        assert.equal(saves.length, 0, "a non-explicit empty state must not clear canonical data");
+        assert.equal(cacheWrites.length, writesAfterHydration, "a non-explicit empty state preserves recovery cache");
+      }
+      await act(async () => root.render(createElement(Harness, { id: WORKPIECE_B })));
+      assert.equal(reads, 2);
+      assert.equal(saves.length, 0, "unchanged A must not flush during A to B");
+    } finally { await act(async () => root.unmount()); dom.restore(); }
+  });
+}
+
+test("persistence boundary: ordinary empty saves preserve Tongs and local recovery caches and make no requests", async () => {
+  const harness = installWindow();
+  const oldFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => { requests++; throw new Error("Unexpected request in empty-save regression"); }) as typeof fetch;
+  const original = JSON.stringify({ schemaVersion: 1, drafts: {}, chats: { [WORKPIECE_A]: { draftId: WORKPIECE_A, updatedAt: 1, messages: [{ role: "user", content: "Recovery copy" }] } }, draftWorkspaceById: { [WORKPIECE_A]: WORKSPACE_A }, draftSnapshotUpdatedAtByWorkspace: {}, workpieceByWorkspace: { [WORKSPACE_A]: WORKPIECE_A } });
+  harness.storage.setItem("hearth:tongs:cache:v1", original);
+  harness.storage.setItem("hearth:chat-local:v1", original);
+  try {
+    await new TongsHearthStore().saveChatHistory(WORKPIECE_A, [], WORKPIECE_A);
+    await new LocalHearthStore().saveChatHistory(WORKPIECE_A, [], WORKPIECE_A);
+    assert.equal(harness.storage.getItem("hearth:tongs:cache:v1"), original);
+    assert.equal(harness.storage.getItem("hearth:chat-local:v1"), original);
+    assert.equal(requests, 0);
+  } finally { globalThis.fetch = oldFetch; harness.restore(); }
+});
+
+for (const outcome of ["cleared", "generation_conflict", "rejected", "invalid_ack"] as const) {
+  test(`persistence boundary: explicit ${outcome} clear changes recovery only after canonical acknowledgement`, async () => {
+    const dom = installDom();
+    const runtime = globalThis as typeof globalThis & { __FORGE_RUNTIME_CONFIG__?: Record<string, unknown> };
+    const oldConfig = runtime.__FORGE_RUNTIME_CONFIG__;
+    const oldFetch = globalThis.fetch;
+    runtime.__FORGE_RUNTIME_CONFIG__ = { supabaseUrl: "https://example.test", supabaseAnonKey: "anon" };
+    const token = `${Buffer.from("{}").toString("base64url")}.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.sig`;
+    window.localStorage.setItem("forge-auth", token);
+    const initial: HearthChatMessage[] = [{ role: "user", content: "Keep unless acknowledged" }];
+    const cache = JSON.stringify({ schemaVersion: 1, drafts: { [WORKPIECE_A]: { ...createDraft({ title: "Generic recovery", body: "Script unchanged" }), id: WORKPIECE_A } }, chats: { [WORKPIECE_A]: { draftId: WORKPIECE_A, updatedAt: 1, messages: initial } }, draftWorkspaceById: { [WORKPIECE_A]: WORKSPACE_A }, draftSnapshotUpdatedAtByWorkspace: {}, workpieceByWorkspace: { [WORKSPACE_A]: WORKPIECE_A } });
+    window.localStorage.setItem("hearth:tongs:cache:v1", cache);
+    const ack = deferred<Response>();
+    const clearBodies: unknown[] = [];
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      if (String(input).includes("read_my_hearth_conversation")) return new Response(JSON.stringify([{ generation: 5, completeness: "complete", sequence: 1, role: "user", content: initial[0].content }]));
+      if (String(input).includes("clear_my_hearth_conversation")) { clearBodies.push(JSON.parse(String(init?.body))); return ack.promise; }
+      return new Response(JSON.stringify({ ok: true, data: { ok: true } }));
+    }) as typeof fetch;
+    let root: Root | null = null;
+    try {
+      const store = new TongsHearthStore();
+      assert.deepEqual(await store.getChatHistory(WORKPIECE_A, WORKPIECE_A), initial);
+      let visible: HearthChatMessage[] = [];
+      let clearNow: () => Promise<boolean> = async () => false;
+      let chatError: string | null = null;
+      const ignore = () => undefined;
+      const readCache = () => [] as HearthChatMessage[];
+      const writeCache = () => undefined;
+      const sanitize = (entries: ReadonlyArray<unknown>) => entries as HearthChatMessage[];
+      const recordError = (value: string | null) => { chatError = value; };
+      const clearCache = (key: string) => { window.localStorage.removeItem(key); };
+      window.localStorage.setItem("recovery-history", JSON.stringify(initial));
+      function ClearHarness() {
+        const [messages, setMessages] = useState<HearthChatMessage[]>([]);
+        visible = messages;
+        const controller = useChatWorkspaceHistory({ store, activeDraftId: WORKPIECE_A, activeWorkpieceId: WORKPIECE_A,
+          chatHistoryKey: "recovery-history", chatMessages: messages, setChatMessages: setMessages, setChatError: recordError,
+          setPendingAiProposal: ignore, chatPersistTimerRef: useRef(null), chatMessagesRef: useRef(messages),
+          latestChatDraftIdRef: useRef(null), latestChatWorkpieceIdRef: useRef(null), latestChatHistoryKeyRef: useRef(null),
+          skipChatHydrationKeyRef: useRef(null), pendingChatHydrationKeyRef: useRef(null), chatHydrationSeqRef: useRef(0),
+          setHydratedChatHistoryKey: ignore, setChatHydrationStatus: ignore, readChatHistoryFromCache: readCache,
+          writeChatHistoryCache: writeCache, clearChatHistoryCache: clearCache, sanitizeChatMessagesForStorage: sanitize,
+          chatHistoryWriteDebounceMs: 10 });
+        clearNow = (controller as unknown as { clearChatHistoryNow: () => Promise<boolean> }).clearChatHistoryNow;
+        return null;
+      }
+      (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+      await act(async () => { root = createRoot(dom.container); root.render(createElement(ClearHarness)); });
+      assert.deepEqual(visible, initial);
+      const before = window.localStorage.getItem("hearth:tongs:cache:v1");
+      const result = clearNow();
+      assert.equal(window.localStorage.getItem("hearth:tongs:cache:v1"), before, "pending clear preserves cache");
+      assert.deepEqual(visible, initial, "pending clear preserves visible messages");
+      await act(async () => {
+        ack.resolve(new Response(JSON.stringify(outcome === "invalid_ack" ? {} : { status: outcome, generation: outcome === "cleared" ? 6 : 7 }), { status: outcome === "rejected" ? 403 : 200 }));
+        assert.equal(await result, outcome === "cleared");
+      });
+      assert.deepEqual(clearBodies, [{ p_workspace_id: WORKSPACE_A, p_workpiece_id: WORKPIECE_A, p_expected_generation: 5 }]);
+      if (outcome === "cleared") {
+        assert.equal(JSON.parse(window.localStorage.getItem("hearth:tongs:cache:v1")!).chats[WORKPIECE_A], undefined);
+        assert.deepEqual(visible, []);
+        assert.equal(window.localStorage.getItem("recovery-history"), null);
+      } else {
+        assert.equal(window.localStorage.getItem("hearth:tongs:cache:v1"), before);
+        assert.deepEqual(visible, initial);
+        assert.equal(window.localStorage.getItem("recovery-history"), JSON.stringify(initial));
+        assert.match(chatError ?? "", /not cleared/);
+      }
+    } finally { await act(async () => root?.unmount()); globalThis.fetch = oldFetch; runtime.__FORGE_RUNTIME_CONFIG__ = oldConfig; dom.restore(); }
+  });
+}
 
 test("stabilization contract: absent canonical approval remains unapproved", () => {
   assert.deepEqual(

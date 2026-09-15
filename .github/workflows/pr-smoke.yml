@@ -163,12 +163,28 @@ jobs:
           };
           for (const [key, value] of Object.entries(values)) fs.appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
           NODE
+      - name: Verify credential-safe startup diagnostics
+        run: pnpm --filter nursery exec tsx --test tests/browser-supabase-diagnostics.test.mts
       - name: Start disposable Supabase and apply repository migrations
         run: |
           umask 077
           # CLI startup prints local keys: retain its output privately, never echo it.
-          supabase start --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" --exclude studio,postgres-meta,edge-runtime,logflare,vector,supavisor,imgproxy > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1
-          supabase migration up --local --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR"
+          if supabase start --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" --exclude studio,postgres-meta,edge-runtime,logflare,vector,supavisor,imgproxy > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
+            echo 'Disposable Supabase startup succeeded.'
+          else
+            status=$?
+            echo "Disposable Supabase startup failed (exit $status). Credential-safe diagnostic follows:"
+            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" supabase/migrations
+            exit "$status"
+          fi
+          if supabase migration up --local --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-migrations.log" 2>&1; then
+            echo 'Disposable Supabase migration runner succeeded.'
+          else
+            status=$?
+            echo "Disposable Supabase migration runner failed (exit $status). Credential-safe diagnostic follows:"
+            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-migrations.log" supabase/migrations
+            exit "$status"
+          fi
       - name: Configure disposable credentials without logging values
         run: |
           umask 077

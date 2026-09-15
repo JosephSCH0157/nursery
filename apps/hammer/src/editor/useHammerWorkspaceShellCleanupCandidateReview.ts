@@ -1,4 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { filterAcknowledgedCleanupCandidates, loadCleanupReview, pendingCleanupDiscard, persistCleanupDiscard, type CleanupReviewContext, type PendingCleanupDiscard } from "../persistence/hammerCleanupReviewPersistence";
+import { stableCleanupJson, type CleanupOptions } from "../../../../packages/tongs/src/hammer-cleanup-review-contract";
+import type { HammerAppliedHistoryMutation } from "./hammerMutationPersistenceReceipt";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerPersistedAudioEdit } from "../persistence/hammerPersistenceContract";
 import { buildNotStartedHammerAudioPolish, cloneHammerAudioEdit } from "../prep/hammerAudioPolish";
@@ -18,6 +21,7 @@ import { syncEditableTranscriptSegments } from "./hammerWorkspaceTranscript";
 
 /** Cleanup review owns transcript-removal proposals only; it is not a short-candidate system. */
 export type UseHammerWorkspaceShellCleanupCandidateReviewArgs = {
+  reviewContext: CleanupReviewContext | null;
   transcriptSegments: HammerTranscriptSegment[];
   getDurationSec: () => number;
   getWaveformProxy: () => Parameters<typeof deriveDeleteOnlyTranscriptCutSelection>[0]["waveformProxy"];
@@ -60,6 +64,18 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
   const [candidateProposedRemovalById, setCandidateProposedRemovalById] = useState<Record<string, HammerSelectedTranscriptRangeDetail>>({});
   const [candidateReceiptByKind, setCandidateReceiptByKind] = useState<Record<HammerCleanupCandidateReviewKind, string | null>>({ fillers: null, retakes: null });
   const handledIdsRef = useRef({ fillers: new Set<string>(), retakes: new Set<string>() });
+  const contextKey = stableCleanupJson(args.reviewContext);
+  const scopeRef = useRef({ key: contextKey, generation: 0 });
+  if (scopeRef.current.key !== contextKey) scopeRef.current = { key: contextKey, generation: scopeRef.current.generation + 1 };
+  const contextKeyRef = useRef(contextKey);
+  contextKeyRef.current = `${contextKey}:${scopeRef.current.generation}`;
+  const pendingDiscardRef = useRef<Partial<Record<HammerCleanupCandidateReviewKind, PendingCleanupDiscard>>>({});
+  const readOrdinals = useRef({ fillers: 0, retakes: 0 });
+  const materialRef = useRef("");
+  materialRef.current = stableCleanupJson(args.transcriptSegments);
+  const lastGenerationInput = useRef("");
+  const mountedRef = useRef(true);
+  useEffect(() => { const ordinals = readOrdinals.current; mountedRef.current = true; return () => { mountedRef.current = false; ordinals.fillers++; ordinals.retakes++; }; }, []);
   const inFlightRef = useRef({ fillers: false, retakes: false });
   const lastHandledIdRef = useRef<{ fillers: string | null; retakes: string | null }>({ fillers: null, retakes: null });
 
@@ -89,6 +105,22 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
       setRetakeActiveCandidateIndex((previous) => clampActiveCleanupCandidateIndex(input.preserveIndex ?? previous, cards.length));
     }
     argsRef.current.clearCleanupPreview();
+    // Canonical discards are loaded independently of session snapshots and history.
+    const context = argsRef.current.reviewContext;
+    const key = contextKeyRef.current;
+    const ordinal = ++readOrdinals.current[input.kind];
+    if (context) {
+      const options = (input.kind === "fillers" ? argsRef.current.getFillerOptions() : argsRef.current.getRetakeOptions()) as CleanupOptions;
+      void loadCleanupReview(context,input.kind,options,input.segments).then(async snapshot => {
+        const suppressed = await filterAcknowledgedCleanupCandidates(cards,snapshot);
+        if (!mountedRef.current || key !== contextKeyRef.current || ordinal !== readOrdinals.current[input.kind]) return;
+        const remaining = cards.filter(card => !suppressed.has(card.id));
+        if (input.kind === "fillers") { setFillerCandidateCards(remaining); setFillerActiveCandidateIndex(i => clampActiveCleanupCandidateIndex(i,remaining.length)); }
+        else { setRetakeCandidateCards(remaining); setRetakeActiveCandidateIndex(i => clampActiveCleanupCandidateIndex(i,remaining.length)); }
+      }).catch(() => {
+        if (mountedRef.current && key === contextKeyRef.current && ordinal === readOrdinals.current[input.kind] && !inFlightRef.current[input.kind]) setCandidateReceiptByKind(current => current[input.kind] ? current : ({...current,[input.kind]: "Review decisions unavailable — save canonical edits, then rebuild or retry."}));
+      });
+    }
   }, [resetHandled]);
   const refreshCandidateQueue = useCallback((kind: HammerCleanupCandidateReviewKind) => {
     setActiveReviewKind(kind);
@@ -117,11 +149,16 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
     }
     return cloneHammerAudioEdit(polish.audio_edit);
   }, []);
-  const handleCandidateDecision = useCallback((kind: HammerCleanupCandidateReviewKind, approve: boolean) => {
+  const handleCandidateDecision = useCallback(async (kind: HammerCleanupCandidateReviewKind, approve: boolean) => {
     setActiveReviewKind(kind);
     const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
     if (!card || inFlightRef.current[kind] || lastHandledIdRef.current[card.kind] === card.id) return;
     inFlightRef.current[kind] = true;
+    const decisionContextKey = contextKeyRef.current;
+    const decisionMaterial = materialRef.current;
+    const decisionOptions = stableCleanupJson(kind === "fillers" ? argsRef.current.getFillerOptions() : argsRef.current.getRetakeOptions());
+    const ownsScope = () => mountedRef.current && contextKeyRef.current === decisionContextKey;
+    const isCurrent = () => ownsScope() && (approve || (materialRef.current === decisionMaterial && stableCleanupJson(kind === "fillers" ? argsRef.current.getFillerOptions() : argsRef.current.getRetakeOptions()) === decisionOptions));
     if (kind === "fillers") setFillerDecisionInFlight(true); else setRetakeDecisionInFlight(true);
     try {
       const preserveIndex = kind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
@@ -155,10 +192,22 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
           },
         });
         if (!applied) { setCandidateReceiptByKind((current) => ({ ...current, [card.kind]: "No-op: candidate approval did not commit any canonical changes." })); lastHandledIdRef.current[card.kind] = null; return; }
+        // The edit is already applied. A failed acknowledgement is retried via
+        // existing history save/recovery, never by applying this edit again.
+        lastHandledIdRef.current[card.kind] = card.id;
+        setCandidateReceiptByKind(current => ({...current,[kind]: "Saving canonical edit…"}));
+        const persistence = (applied as HammerAppliedHistoryMutation).persistence;
+        if (!persistence) throw new Error("cleanup_approval_receipt_missing");
+        const saved = await persistence;
+        if (!isCurrent()) return;
+        if (saved.state !== "acknowledged") {
+          setCandidateReceiptByKind(current => ({...current,[kind]: "Unsaved canonical edit — use Retry Save; do not apply again."}));
+          return;
+        }
         const afterState = argsRef.current.getCurrentState();
         const committedCutCount = Math.max(0, (afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount) - beforeAudioOpCount);
         handledIdsRef.current[card.kind].add(card.id); lastHandledIdRef.current[card.kind] = card.id;
-        if (import.meta.env.DEV && typeof window !== "undefined" && Boolean((window as Window & { __forgeHammerDebugCandidateApproval__?: unknown }).__forgeHammerDebugCandidateApproval__)) {
+        if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV && typeof window !== "undefined" && Boolean((window as Window & { __forgeHammerDebugCandidateApproval__?: unknown }).__forgeHammerDebugCandidateApproval__)) {
           const durationSec = argsRef.current.getDurationSec();
           const effectiveRegions = getEffectiveCutRegions(afterState?.audioEdit ?? null, durationSec);
           const seekTarget = afterState ? resolveNextAudiblePlaybackTime({ requestedTimeSec: afterState.playheadSec, durationSec, effectiveCutRegions: effectiveRegions, transcriptSegments: afterState.transcriptSegments }) : null;
@@ -168,17 +217,56 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
         setCandidateReceiptByKind((current) => ({ ...current, [card.kind]: committedCutCount > 0 ? `Applied cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.` : "Applied transcript cleanup (no new timeline cuts committed)." }));
         nextSegments = afterState?.transcriptSegments ?? nextSegments;
       } else {
-        handledIdsRef.current[card.kind].add(card.id); lastHandledIdRef.current[card.kind] = card.id;
+        const context = argsRef.current.reviewContext;
+        if (!context) throw new Error("cleanup_review_context_unavailable");
+        setCandidateReceiptByKind(current => ({...current,[kind]: "Saving review decision…"}));
+        const options = (kind === "fillers" ? argsRef.current.getFillerOptions() : argsRef.current.getRetakeOptions()) as CleanupOptions;
+        const snapshot = await loadCleanupReview(context,kind,options,argsRef.current.transcriptSegments);
+        if (!isCurrent()) return;
+        const pending = await pendingCleanupDiscard(snapshot,card);
+        if (!isCurrent()) return;
+        // A retry retains exact semantic identity; changed bases require review.
+        const previous = pendingDiscardRef.current[kind];
+        if (previous && stableCleanupJson(previous) !== stableCleanupJson(pending)) {
+          delete pendingDiscardRef.current[kind];
+          throw new Error("cleanup_review_changed_request_rebuild_required");
+        }
+        pendingDiscardRef.current[kind] = pending;
+        await persistCleanupDiscard(context,pending);
+        if (!isCurrent()) return;
+        delete pendingDiscardRef.current[kind];
         setCandidateReceiptByKind((current) => ({ ...current, [card.kind]: "Candidate discarded (no transcript or audio change)." }));
       }
       rebuildCandidateQueue({ kind: card.kind, segments: nextSegments, preserveIndex });
       const otherKind = kind === "fillers" ? "retakes" : "fillers";
       rebuildCandidateQueue({ kind: otherKind, segments: nextSegments, preserveIndex: otherKind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex });
+    } catch {
+      if (isCurrent()) setCandidateReceiptByKind(current => ({...current,[kind]: approve ? "Unsaved canonical edit — use Retry Save; do not apply again." : "Unsaved review decision — Retry"}));
     } finally {
-      inFlightRef.current[kind] = false;
-      if (kind === "fillers") setFillerDecisionInFlight(false); else setRetakeDecisionInFlight(false);
+      if (ownsScope()) {
+        inFlightRef.current[kind] = false;
+        if (kind === "fillers") setFillerDecisionInFlight(false); else setRetakeDecisionInFlight(false);
+      }
     }
   }, [activeFillerCandidateCard, activeRetakeCandidateCard, applyCuts, fillerActiveCandidateIndex, rebuildCandidateQueue, resolveRemovalDraft, retakeActiveCandidateIndex]);
+
+  useEffect(() => {
+    pendingDiscardRef.current = {};
+    inFlightRef.current = { fillers: false, retakes: false };
+    setFillerDecisionInFlight(false); setRetakeDecisionInFlight(false);
+    setCandidateReceiptByKind({fillers: null, retakes: null});
+  }, [contextKey]);
+  // Options are owned later in the shell's render; evaluate getters only after
+  // commit, not during this hook's render (and never snapshot them as authority).
+  useEffect(() => {
+    const generationInput = stableCleanupJson({ context: contextKeyRef.current, segments: argsRef.current.transcriptSegments, fillers: argsRef.current.getFillerOptions(), retakes: argsRef.current.getRetakeOptions() });
+    if (lastGenerationInput.current === generationInput) return;
+    lastGenerationInput.current = generationInput;
+    handledIdsRef.current = { fillers: new Set(), retakes: new Set() };
+    lastHandledIdRef.current = { fillers: null, retakes: null };
+    rebuildCandidateQueue({kind: "fillers",segments: argsRef.current.transcriptSegments,resetHandled: true});
+    rebuildCandidateQueue({kind: "retakes",segments: argsRef.current.transcriptSegments,resetHandled: true});
+  });
 
   const syncReviewPass = useCallback((pass: string) => {
     if (pass === "transcript_cleanup" || pass === "retakes") {
@@ -186,6 +274,7 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
       rebuildCandidateQueue({ kind: "fillers", segments: argsRef.current.transcriptSegments, resetHandled: true, preserveIndex: 0 });
       rebuildCandidateQueue({ kind: "retakes", segments: argsRef.current.transcriptSegments, resetHandled: true, preserveIndex: 0 });
     } else {
+      readOrdinals.current.fillers++; readOrdinals.current.retakes++;
       setFillerCandidateCards([]); setFillerActiveCandidateIndex(0); setFillerDecisionInFlight(false);
       setRetakeCandidateCards([]); setRetakeActiveCandidateIndex(0); setRetakeDecisionInFlight(false);
     }

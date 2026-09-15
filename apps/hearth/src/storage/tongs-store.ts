@@ -28,6 +28,7 @@ import {
 import type {
   HearthCanonicalRevisionsResult,
   HearthDraftSaveAcknowledgement,
+  HearthDraftReadOptions,
   HearthRevisionSaveAcknowledgement,
   HearthStore,
   SaveDraftOptions,
@@ -983,25 +984,29 @@ function createDraftConflictError(details?: CommitConflictDetails): Error {
 }
 
 export class TongsHearthStore implements HearthStore {
-  async listDrafts(): Promise<Draft[]> {
+  async listDrafts(options?: HearthDraftReadOptions): Promise<Draft[]> {
+    options?.assertCurrent?.();
     const cache = readCache();
     const workspaceId = resolveWorkspaceId();
     if (workspaceId) {
-      await this.hydrateWorkspaceDrafts(cache, workspaceId);
+      await this.hydrateWorkspaceDrafts(cache, workspaceId, options);
     }
+    options?.assertCurrent?.();
     if (workspaceId && migrateLegacyDraftWorkspaceIds(cache, workspaceId)) {
       writeCache(cache);
     }
     return readDrafts(cache, workspaceId);
   }
 
-  async listWorkpieceDrafts(workpieceId: string): Promise<Draft[]> {
+  async listWorkpieceDrafts(workpieceId: string, options?: HearthDraftReadOptions): Promise<Draft[]> {
+    options?.assertCurrent?.();
     const normalizedWorkpieceId = normalizeUuid(workpieceId);
     if (!normalizedWorkpieceId) return [];
 
     const cache = readCache();
     const workspaceId = resolveWorkspaceId();
     const remote = await readDraftSnapshot(normalizedWorkpieceId);
+    options?.assertCurrent?.();
     if (remote) {
       if (workspaceId) {
         persistWorkpieceId(workspaceId, normalizedWorkpieceId, cache);
@@ -1140,6 +1145,12 @@ export class TongsHearthStore implements HearthStore {
     const id = typeof draftId === "string" ? draftId.trim() : "";
     if (!id) return;
 
+    const canonicalMessages = messages.filter((message) => (
+      (message.role === "user" || message.role === "assistant") && Boolean(message.content.trim())
+    ));
+    // An empty autosave is not permission to erase canonical or recovery data.
+    if (canonicalMessages.length === 0) return;
+
     const cache = readCache();
     const workspaceId = resolveWorkspaceId();
     if (!workspaceId) {
@@ -1149,38 +1160,50 @@ export class TongsHearthStore implements HearthStore {
       return;
     }
     cache.draftWorkspaceById[id] = workspaceId;
-    const canonicalMessages = messages.filter((message) => (
-      (message.role === "user" || message.role === "assistant") && Boolean(message.content.trim())
-    ));
     const sanitized = sanitizeChatMessages(canonicalMessages);
-    if (sanitized.length === 0) {
-      if (cache.chats[id]) {
-        delete cache.chats[id];
-      }
-    } else {
-      cache.chats[id] = {
-        draftId: id,
-        updatedAt: Date.now(),
-        messages: sanitized,
-      };
-    }
+    if (sanitized.length === 0) return;
+    cache.chats[id] = {
+      draftId: id,
+      updatedAt: Date.now(),
+      messages: sanitized,
+    };
     writeCache(cache);
     const workpieceId = normalizeUuid(explicitWorkpieceId) ?? resolveCachedWorkpieceId(workspaceId, cache);
     if (!workpieceId) throw new Error("canonical_chat_workpiece_required");
     const generation = canonicalChatGenerationByWorkpiece.get(workpieceId) ?? 1;
-    if (canonicalMessages.length === 0) {
-      const cleared = await clearCanonicalHearthConversation(workspaceId, workpieceId, generation);
-      if (!cleared.ok) throw new Error(`canonical_chat_clear_failed:${cleared.status}`);
-      if (cleared.data.status === "generation_conflict") throw new Error("canonical_chat_generation_conflict");
-      canonicalChatGenerationByWorkpiece.set(workpieceId, cleared.data.generation ?? generation);
-    } else {
-      const appended = await appendCanonicalHearthConversation({ workspaceId, workpieceId, generation, messages: canonicalMessages });
-      if (!appended.ok) throw new Error(`canonical_chat_append_failed:${appended.status}`);
-      if (appended.data.status === "generation_conflict") throw new Error("canonical_chat_generation_conflict");
-      canonicalChatGenerationByWorkpiece.set(workpieceId, appended.data.generation ?? generation);
-    }
+    const appended = await appendCanonicalHearthConversation({ workspaceId, workpieceId, generation, messages: canonicalMessages });
+    if (!appended.ok) throw new Error(`canonical_chat_append_failed:${appended.status}`);
+    if (appended.data.status === "generation_conflict") throw new Error("canonical_chat_generation_conflict");
+    canonicalChatGenerationByWorkpiece.set(workpieceId, appended.data.generation ?? generation);
     // Keep the bounded snapshot temporarily for rollback/read compatibility.
     await this.syncChatsToTongs(cache, workspaceId, id, workpieceId);
+  }
+
+  async clearChatHistory(draftId: DraftId, explicitWorkpieceId: string): Promise<void> {
+    const id = readString(draftId);
+    const workspaceId = resolveWorkspaceId();
+    const workpieceId = normalizeUuid(explicitWorkpieceId);
+    if (!id || !workspaceId || !workpieceId) throw new Error("canonical_chat_clear_identity_required");
+    const cache = readCache();
+    if (cache.draftWorkspaceById[id] !== workspaceId) throw new Error("canonical_chat_clear_workspace_mismatch");
+    const generation = canonicalChatGenerationByWorkpiece.get(workpieceId);
+    if (generation == null) throw new Error("canonical_chat_clear_generation_required");
+    const cleared = await clearCanonicalHearthConversation(workspaceId, workpieceId, generation);
+    if (!cleared.ok) throw new Error(`canonical_chat_clear_failed:${cleared.status}`);
+    if (cleared.data?.status === "generation_conflict") throw new Error("canonical_chat_generation_conflict");
+    if (!cleared.data || !["cleared", "empty"].includes(cleared.data.status ?? "")
+      || !Number.isSafeInteger(cleared.data.generation)
+      || (cleared.data.status === "cleared" ? cleared.data.generation !== generation + 1 : generation !== 1 || cleared.data.generation !== 1)) {
+      throw new Error("canonical_chat_clear_invalid_acknowledgement");
+    }
+    canonicalChatGenerationByWorkpiece.set(workpieceId, cleared.data.generation!);
+    canonicalChatCompletenessByWorkpiece.set(workpieceId, "complete");
+    const acknowledgedCache = readCache();
+    delete acknowledgedCache.chats[id];
+    writeCache(acknowledgedCache);
+    // Canonical clear is already acknowledged; compatibility failure cannot undo it.
+    try { await this.syncChatsToTongs(acknowledgedCache, workspaceId, id, workpieceId); }
+    catch { console.warn("[hearth:tongs] Canonical chat cleared; compatibility snapshot sync failed."); }
   }
 
   getChatHistoryCompleteness(workpieceId: string | null): "complete" | "legacy_completeness_unknown" | "known_truncated" {
@@ -1467,10 +1490,13 @@ export class TongsHearthStore implements HearthStore {
     };
   }
 
-  private async hydrateWorkspaceDrafts(cache: TongsCacheV1, workspaceId: string): Promise<void> {
+  private async hydrateWorkspaceDrafts(cache: TongsCacheV1, workspaceId: string, options?: HearthDraftReadOptions): Promise<void> {
+    options?.assertCurrent?.();
     const workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
     if (!workpieceId) return;
+    if (options?.canonicalWorkpieceIds && !options.canonicalWorkpieceIds.has(workpieceId)) return;
     const remote = await readDraftSnapshot(workpieceId);
+    options?.assertCurrent?.();
     if (remote == null) return;
     writeDraftSnapshotUpdatedAt(cache, workspaceId, remote.fileUpdatedAt ?? remote.updatedAt);
     for (const draft of remote.drafts) {

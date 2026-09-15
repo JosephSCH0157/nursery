@@ -320,10 +320,6 @@ export class LocalHearthStore implements HearthStore {
     const record = readChatRecord();
     const sanitized = sanitizeChatMessages(messages);
     if (sanitized.length === 0) {
-      if (record[id]) {
-        delete record[id];
-        writeChatRecord(record);
-      }
       return;
     }
     record[id] = {
@@ -332,6 +328,10 @@ export class LocalHearthStore implements HearthStore {
       messages: sanitized,
     };
     writeChatRecord(record);
+  }
+
+  async clearChatHistory(_draftId: DraftId, _workpieceId: string): Promise<void> {
+    throw new Error("canonical_chat_clear_unavailable_in_local_store");
   }
 
   getChatHistoryCompleteness(_workpieceId: string | null): "legacy_completeness_unknown" {

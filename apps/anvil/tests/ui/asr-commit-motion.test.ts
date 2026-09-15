@@ -1694,7 +1694,7 @@ describe('ASR live commit motion', () => {
     driver.dispose();
   });
 
-  test('fresh semantic +1 commit arms one post-commit visual release token and consumes it once', () => {
+  test('fresh semantic +1 commit evaluation retains the token until measured completion', () => {
     const driver = createAsrScrollDriver() as DebugAsrDriver;
     bootstrapLiveAsrRuntime();
 
@@ -1749,7 +1749,7 @@ describe('ASR live commit motion', () => {
       speechLive: true,
       transcriptFresh: true,
     });
-    expect(second).toBeNull();
+    expect(second).toMatchObject({ accepted: true, rejectReason: 'none' });
 
     driver.dispose();
   });

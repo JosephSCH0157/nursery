@@ -222,7 +222,8 @@ test("dependency degradation: orchestration surfaces failures instead of resolvi
   const sparkDiscovery = readFileSync(resolve(process.cwd(), "src/hooks/useHearthSparkDiscovery.ts"), "utf8");
 
   assert.doesNotMatch(initialLoader, /listHearthWorkpieces[\s\S]{0,300}\.catch\(\(\) => \[\]/);
-  assert.match(initialLoader, /setWorkpiecesError\(workpiecesResult\.ok/);
+  assert.match(initialLoader, /recoverInitialHearthDiscovery/);
+  assert.match(initialLoader, /setWorkpiecesError\(message\)/);
   assert.match(sparkDiscovery, /Bar Stock spark discovery is currently unavailable\./);
   assert.match(sparkDiscovery, /catch[\s\S]{0,180}setSparkDiscoveryWorkspaceId\(null\)/);
 });

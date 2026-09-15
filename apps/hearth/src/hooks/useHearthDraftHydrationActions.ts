@@ -13,19 +13,20 @@ import {
   type HearthDraftSaveAcknowledgement,
 } from "../storage/hearth-store";
 import { formatHearthDraftSaveAcknowledgementFailure } from "../lib/hearth-draft-persistence";
+import type { HearthLoadGuard } from "../lib/hearth-discovery-retry";
 
 type UseHearthDraftHydrationActionsArgs = {
   hearthUser: { userId: string | null; displayName: string };
   sparks: BarStockSpark[];
   store: {
-    listWorkpieceDrafts: (workpieceId: string) => Promise<Draft[]>;
+    listWorkpieceDrafts: (workpieceId: string, loadGuard?: HearthLoadGuard) => Promise<Draft[]>;
     saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<HearthDraftSaveAcknowledgement>;
   };
   draftsRef: MutableRefObject<Draft[]>;
   workpieceSummariesRef: MutableRefObject<HearthWorkpieceSummary[]>;
   setDrafts: Dispatch<SetStateAction<Draft[]>>;
   setAiRuntimeWarning: (next: string | null) => void;
-  refreshDrafts: () => Promise<Draft[]>;
+  refreshDrafts: (loadGuard?: HearthLoadGuard) => Promise<Draft[]>;
   normalizeUuid: (value: string | null | undefined) => string | null;
   dedupeDraftListById: (input: Draft[]) => Draft[];
   selectDraftForWorkpiece: (args: {
@@ -53,8 +54,11 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
       workpieces?: readonly HearthWorkpieceSummary[];
       preferredDraftId?: string | null;
       seed?: { title?: string; body?: string };
+      loadGuard?: HearthLoadGuard;
     },
   ): Promise<Draft | null> => {
+    const guard = options?.loadGuard;
+    guard?.assertCurrent();
     const normalizedWorkpieceId = args.normalizeUuid(targetWorkpieceId);
     if (!normalizedWorkpieceId) return null;
 
@@ -68,7 +72,8 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
     let selectedDraft = existingDraft;
 
     if (!draftHasUsableScriptBody(selectedDraft)) {
-      const canonicalDrafts = args.dedupeDraftListById(await args.store.listWorkpieceDrafts(normalizedWorkpieceId));
+      const canonicalDrafts = args.dedupeDraftListById(await args.store.listWorkpieceDrafts(normalizedWorkpieceId, guard));
+      guard?.assertCurrent();
       if (canonicalDrafts.length > 0) {
         const mergedDrafts = args.dedupeDraftListById([...availableDrafts, ...canonicalDrafts]);
         args.draftsRef.current = mergedDrafts;
@@ -97,6 +102,7 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
     const availableWorkpieces = options?.workpieces ?? args.workpieceSummariesRef.current;
     const workpieceSummary = availableWorkpieces.find((entry) => entry.workpieceId === normalizedWorkpieceId) ?? null;
     const scriptRead = await readHearthPrimaryScript(normalizedWorkpieceId);
+    guard?.assertCurrent();
     if (!scriptRead.ok) {
       args.setAiRuntimeWarning("Opened Episode, but Hearth could not load the canonical script snapshot.");
     }
@@ -115,6 +121,7 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
 
       try {
         const saveAcknowledgement = await args.store.saveDraft(repairedDraft, { reason: "hydrate_workpiece" });
+        guard?.assertCurrent();
         if (!isCanonicalHearthDraftSave(saveAcknowledgement)) {
           const message = formatHearthDraftSaveAcknowledgementFailure(saveAcknowledgement);
           args.setAiRuntimeWarning(message);
@@ -125,10 +132,12 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
         args.setDrafts(nextDrafts);
         return repairedDraft;
       } catch (err) {
+        guard?.assertCurrent();
         if (!args.parseDraftConflictError(err)) {
           throw err;
         }
-        const latestDrafts = await args.refreshDrafts();
+        const latestDrafts = await args.refreshDrafts(guard);
+        guard?.assertCurrent();
         const latestDraft = args.selectDraftForWorkpiece({
           workpieceId: normalizedWorkpieceId,
           drafts: latestDrafts,
@@ -167,18 +176,21 @@ export function useHearthDraftHydrationActions(args: UseHearthDraftHydrationActi
 
     try {
       const saveAcknowledgement = await args.store.saveDraft(draft, { reason: "hydrate_workpiece" });
+      guard?.assertCurrent();
       if (!isCanonicalHearthDraftSave(saveAcknowledgement)) {
         const message = formatHearthDraftSaveAcknowledgementFailure(saveAcknowledgement);
         args.setAiRuntimeWarning(message);
         throw new Error(message);
       }
     } catch (err) {
+      guard?.assertCurrent();
       if (!args.parseDraftConflictError(err)) {
         throw err;
       }
     }
 
-    const latestDrafts = await args.refreshDrafts();
+    const latestDrafts = await args.refreshDrafts(guard);
+    guard?.assertCurrent();
     return args.selectDraftForWorkpiece({
       workpieceId: normalizedWorkpieceId,
       drafts: latestDrafts,

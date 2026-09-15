@@ -60,6 +60,10 @@ Everything else (`auto`, `off`, `manual`) is a UI/legacy convenience state, not 
 
 ### 1.3 ASR Mode Invariants (Hard Boundaries)
 
+- Pending-reanchor packet continuity is visual-only: one independently qualified final packet may attempt one bounded local step. It never commits, confirms reanchor, changes accepted evidence, or contributes corroboration; normal semantic packet processing remains separate.
+
+Reanchor landing has one ephemeral, driver-owned pending frame, separate from general pursuit. General pursuit may delegate scheduling but cannot execute landing steps. Each frame is single-use and bound to the confirmed landing revision, semantic and response epochs, run identity, focus generation, exact target, and canonical viewer/script context. Replacement, reset, disposal, response invalidation, run change, and focus quarantine invalidate old frames; cancellation alone never grants safety or authority. No landing state is persisted.
+
 In `scrollMode='asr'`:
 - Must not wire auto-intent listeners.
 - Must not start timed/hybrid/wpm motors.
@@ -178,6 +182,20 @@ In `scrollMode='asr'`:
 
 ### ASR Visual Authority and Recovery Invariants
 
+- Pending packet decisions bind the exact pending owner, run/response identity, immutable serialized raw/assembled and capture lineage, original freshness, semantic/visual epochs, script/viewer/scroller/focus context, semantic anchor, candidate and geometry. New current-context packets invalidate old decisions before early returns; replay cannot refresh or repeat an attempt. Stale runs cannot replace current ownership.
+- The narrow pending-packet exception permits only an already-local current/current-plus-one speakable candidate, with verified direct support or voice-backed multi-request lineage. Hash equality and source labels alone confer no authority. Unsupported/contradictory evidence freezes; no far candidate is clamped into permission. Negative pixels still require existing backward permission, and pocket-wall/terminal/focus guards remain mandatory.
+
+- Semantic acceptance, visual selection, measured movement, and visual completion are distinct. The existing post-commit release record retains ephemeral completion ownership; evaluation never consumes it.
+- Completion binds semantic/visual epochs, run/response/focus and script/scroller identity, accepted evidence, semantic line, and the exact canonical target. Stale authority is retired, not reported as success.
+- Completion uses measured post-write pixels, including zero. Partial movement retains residual debt; no-progress and rejected writers retain valid pending work without another fallback attempt in the same pass. Only current-authoritative target satisfaction or a document-bound terminal outcome completes without movement.
+- Qualified same-line accepted evidence may finalize local visual ownership without a new semantic commit. Existing safety, landing ownership, and immutable backward-decision checks still apply.
+- Target-derived blockers remain tied to their originating context. Only proven canonical supersession may discard them; delegation/duplicate suppression is not evidence of movement. Finalized completion cannot be replayed into another write, protection arm, or success transition.
+
+- Backward visual permission is an immutable, ephemeral candidate decision, not a generic allowance. Selection retains the exact source/writer, anchor, target pixels, evidence identity, semantic/response/run context, freshness, and viewer/script identity. Negative pixels require validation even when the candidate is labeled `hold`.
+- A preserved forward pixel target without retained backward anchor identity cannot borrow the current semantic/visual anchor to become a backward candidate. Its forward behavior is unchanged; backward use must earn exact authority.
+- Ordinary pullback, negative pocket-drift correction, and backward landing steps revalidate at the existing guarded actuator. Changed or superseded decisions are rejected, never retargeted; rejection does not arm a settle lock, consume a replacement, or alter semantic coverage. Only qualified fresh/local accepted evidence or fresh canonical committed proof may supersede an older anchor; raw matcher indices alone cannot.
+- Landing ownership remains with the existing single-use RAF scheduler. Its frame/revision checks and the backward decision are cumulative requirements, not alternative authority. Corroborated rereads remain supported; semantic confirmation alone is not pixel permission. No backward authority is persisted.
+- A landing callback must revalidate its captured authority immediately before the guarded canonical actuator. An obsolete callback cannot clear or complete its replacement. Unchanged reinforcement retains one pending frame; changed targets replace it. Each valid continuation remains bounded by existing marker geometry and document limits. Focus regain alone never resurrects a cancelled landing.
 - ASR semantic cursor truth and ASR visual scroll target are separate concerns.
   - Semantic truth is owned by validated ASR commits.
   - Visual target correction is allowed only to keep the trusted semantic line readable near the marker.
@@ -200,7 +218,11 @@ In `scrollMode='asr'`:
 
 Allowed ASR-owned visual correction paths include:
 
+- **One-shot pending-packet continuity**
+  - Uses the existing actuator and guarded writer synchronously, without a lease, RAF chain, retry, or post-commit completion consumption. A new packet must qualify independently. Normal corroboration alone may transfer ownership to the existing confirmed-landing scheduler. Measure actual pixels, including zero; no progress is not completion.
+
 - **Post-commit visual follow**
+  - Uses the existing guarded actuator and residual pacing, never another RAF/recovery manager. Finality is checked before execution and ownership again after the writer; synchronous replacement cannot finalize newer work.
   - After a validated semantic commit, ASR may perform bounded visual follow to keep the committed/current line near the marker.
   - This does not create a new commit.
 - **Post-release protection**
@@ -220,6 +242,14 @@ Allowed ASR-owned visual correction paths include:
   - ASR may apply bounded reader-comfort correction when the trusted semantic line drifts materially outside the marker pocket near viewport bottom, without advancing semantic truth.
 
 ### ASR Diagnostic Contract
+
+`ASR_PENDING_PACKET_CONTINUITY` distinguishes qualification, identity/provenance/locality rejection, replay/staleness, lost authority, measured movement, backward denial, and no progress. It is never evidence of a semantic commit or completed reanchor.
+
+`ASR_POST_COMMIT_COMPLETION` distinguishes pending, ownership rejection, target authorization, measured movement, residual/no-progress, superseded blockers, stale authority, and one terminal completion. Target selection and attempted writes are not successful-motion evidence.
+
+`ASR_BACKWARD_VISUAL_DECISION` reports rejection reason, writer, candidate, and semantic epoch. Existing actuator/landing diagnostics remain the evidence of actual movement; rejecting authority is not an actuator success or semantic transition.
+
+Reanchor scheduling emits only landing-local `ASR_REANCHOR_FRAME` outcomes: scheduled, superseded, stale, applied, zero_movement, or actuator_no_progress. Existing scroll-limit settlement remains distinct. Movement bookkeeping uses the measured post-write position (including zero), and only actual pixel movement updates movement timestamps; these frames never create semantic commits or coverage.
 
 ASR diagnostics are part of the runtime contract. New ASR movement/recovery paths must emit enough information to prove:
 

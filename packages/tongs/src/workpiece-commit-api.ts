@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { coordinateCleanupReview, CleanupReviewError } from "./hammer-cleanup-review-coordinator.js";
+import type { CleanupGenerator } from "./hammer-cleanup-review-contract.js";
 import type { Database, Json } from "./db.types.js";
 import {
   unzlibSync as fflateUnzlibSync,
@@ -2453,6 +2455,7 @@ export type DeleteReadyScriptResult = {
 };
 
 export type TongsCommitApiOptions = {
+  cleanupReviewGenerator?: CleanupGenerator;
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
   bucket?: string;
@@ -2944,6 +2947,7 @@ function asRunwayTransportError(error: unknown): {
 }
 
 export type TongsCommitApiService = {
+  cleanupReview?: TongsCommitService["cleanupReview"];
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(
     workpieceId: string,
@@ -9356,6 +9360,7 @@ export class TongsCommitService {
   readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
   readonly unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null;
   readonly openAiTextGate: OpenAiTextGateClient;
+  readonly cleanupReviewGenerator: CleanupGenerator | undefined;
 
   readonly userClientFactory:
     | ((accessToken: string) => SupabaseClient<Database>)
@@ -9375,8 +9380,10 @@ export class TongsCommitService {
     unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null = null,
     runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null = null,
     openAiTextGate?: OpenAiTextGateClient,
+    cleanupReviewGenerator?: CleanupGenerator,
   ) {
     this.supabase = supabase;
+    this.cleanupReviewGenerator = cleanupReviewGenerator;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
@@ -9401,6 +9408,35 @@ export class TongsCommitService {
         return candidate.schema("tongs").rpc(name, args);
       },
     };
+  }
+
+  async cleanupReview(workspace: string, workpiece: string, revision: string, action: "read" | "discard", input: Record<string, unknown>, token: string) {
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspace, action === "read" ? "viewer" : "editor", token);
+    if (!this.cleanupReviewGenerator) throw new HttpError(503, "cleanup_review_unavailable", "Cleanup review verification is unavailable.");
+    const schema = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    try {
+      return await coordinateCleanupReview({ actor: auth.userId, workspace, workpiece, revision, action, input, generate: this.cleanupReviewGenerator, store: {
+        rpc: async (name, args) => {
+          const result = await schema.rpc(name, args);
+          if (result.error) throw new HttpError(result.error.code === "42501" ? 403 : 409, "cleanup_review_authority_rejected", result.error.message);
+          return result.data;
+        },
+        download: async (bucket, key) => {
+          const result = await this.supabase.storage.from(bucket).download(key);
+          if (result.error || !result.data) throw new HttpError(409,"cleanup_review_material_unavailable","Canonical transcript is unavailable.");
+          return new Uint8Array(await result.data.arrayBuffer());
+        },
+        decisions: async (w,p,r,basis) => {
+          const result = await schema.from("hammer_cleanup_review_decisions").select("decision,contract_version,basis_fingerprint,candidate_fingerprint")
+            .eq("workspace_id",w).eq("workpiece_id",p).eq("recording_revision_id",r).eq("basis_fingerprint",basis);
+          if (result.error) throw new HttpError(409,"cleanup_review_read_failed","Cleanup decisions could not be loaded.");
+          return (result.data ?? []) as Record<string, unknown>[];
+        },
+      }});
+    } catch (error) {
+      if (error instanceof CleanupReviewError) throw new HttpError(error.status,error.code,error.message);
+      throw error;
+    }
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -18468,29 +18504,34 @@ export class TongsCommitService {
       !Array.isArray(asset.metadata_json)
         ? (asset.metadata_json as Record<string, Json | undefined>)
         : {};
-    const { data, error } = await this.supabase
-      .schema("tongs")
-      .from("assets")
-      .update({
-        reference_committed_at: referenceCommittedAt,
-        metadata_json: {
-          ...metadata,
-          reference_pointer: input.reference_pointer,
-        },
-        failure_code: null,
-        failure_message: null,
-        failed_at: null,
-      })
-      .eq("id", asset.id)
-      .eq("status", "pending")
-      .select("*")
-      .single();
-    if (error || !data) {
+    const data = await this.compareAndSetThumbnailAsset(asset, {
+      reference_committed_at: referenceCommittedAt,
+      metadata_json: {
+        ...metadata,
+        reference_pointer: input.reference_pointer,
+      },
+      failure_code: null,
+      failure_message: null,
+      failed_at: null,
+    });
+    if (!data) {
+      const current = await this.getThumbnailAssetRow(workpieceId, asset.id);
+      const readback = await this.readWorkpieceJson(workpieceId, "metadata.json");
+      if (
+        (current.status === "pending" || current.status === "ready") &&
+        current.reference_committed_at &&
+        current.content_hash === asset.content_hash &&
+        current.operation_fingerprint === asset.operation_fingerprint &&
+        thumbnailReferencePointer(current) === input.reference_pointer &&
+        readback.found &&
+        jsonPointerValue(readback.data, input.reference_pointer) === current.id
+      ) {
+        return thumbnailAssetSummary(current);
+      }
       throw new HttpError(
-        502,
-        "db_write_failed",
-        "Failed to acknowledge thumbnail package reference",
-        { reason: error?.message },
+        409,
+        "thumbnail_asset_changed",
+        "Thumbnail changed while its package reference was being acknowledged",
       );
     }
     return thumbnailAssetSummary(data);
@@ -18508,6 +18549,39 @@ export class TongsCommitService {
       options?.userAccessToken,
     );
     const asset = await this.getThumbnailAssetRow(workpieceId, input.asset_id);
+    return this.transitionThumbnailAssetSnapshot(workpieceId, input, asset);
+  }
+
+  // Server-only snapshots, never caller-supplied revision/authority flags.
+  private async compareAndSetThumbnailAsset(
+    asset: AssetRow,
+    patch: Database["tongs"]["Tables"]["assets"]["Update"],
+  ): Promise<AssetRow | null> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .update(patch)
+      .eq("id", asset.id)
+      .eq("workspace_id", asset.workspace_id)
+      .eq("workpiece_id", asset.workpiece_id!)
+      .eq("asset_kind", asset.asset_kind)
+      .eq("status", asset.status)
+      .eq("updated_at", asset.updated_at)
+      .select("*")
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update thumbnail lifecycle", {
+        reason: error.message,
+      });
+    }
+    return data;
+  }
+
+  private async transitionThumbnailAssetSnapshot(
+    workpieceId: string,
+    input: TransitionThumbnailAssetRequest,
+    asset: AssetRow,
+  ): Promise<ThumbnailAssetSummary> {
     if (asset.status === input.target_status)
       return thumbnailAssetSummary(asset);
     if (asset.status === "superseded")
@@ -18568,20 +18642,26 @@ export class TongsCommitService {
         );
       }
     }
-    const { data, error } = await this.supabase
-      .schema("tongs")
-      .from("assets")
-      .update(patch)
-      .eq("id", asset.id)
-      .select("*")
-      .single();
-    if (error || !data)
+    const data = await this.compareAndSetThumbnailAsset(asset, patch);
+    if (!data) {
+      const current = await this.getThumbnailAssetRow(workpieceId, asset.id);
+      if (
+        current.status === input.target_status &&
+        current.operation_fingerprint === asset.operation_fingerprint &&
+        current.content_hash === asset.content_hash &&
+        thumbnailReferencePointer(current) === thumbnailReferencePointer(asset) &&
+        (input.target_status !== "failed" ||
+          (current.failure_code === patch.failure_code &&
+            current.failure_message === patch.failure_message))
+      ) {
+        return thumbnailAssetSummary(current);
+      }
       throw new HttpError(
-        502,
-        "db_write_failed",
-        "Failed to transition thumbnail asset",
-        { reason: error?.message },
+        409,
+        "thumbnail_asset_changed",
+        "Thumbnail changed during reconciliation; read canonical state before retrying",
       );
+    }
     if (
       input.target_status === "ready" &&
       typeof data.operation_id === "string" &&
@@ -18631,6 +18711,8 @@ export class TongsCommitService {
       .from("assets")
       .select("*")
       .eq("workpiece_id", workpieceId)
+      .eq("workspace_id", input.workspace_id)
+      .in("asset_kind", ["thumbnail_image", "thumbnail_composite"])
       .eq("status", "pending");
     if (input.operation_id)
       query = query.eq(
@@ -18645,79 +18727,96 @@ export class TongsCommitService {
         "Failed to list pending thumbnail assets",
         { reason: error.message },
       );
-    const metadataRead = await this.readWorkpieceJson(
-      workpieceId,
-      "metadata.json",
-    );
-    const metadata = metadataRead.found ? metadataRead.data : null;
     const results: ThumbnailAssetSummary[] = [];
-    for (const row of pending ?? []) {
-      const assetMetadata =
-        row.metadata_json &&
-        typeof row.metadata_json === "object" &&
-        !Array.isArray(row.metadata_json)
-          ? (row.metadata_json as Record<string, unknown>)
-          : {};
-      const pointer =
-        typeof assetMetadata.reference_pointer === "string"
-          ? assetMetadata.reference_pointer
-          : null;
-      const stored = pointer
-        ? await downloadStorageObject(
-            this.supabase,
-            row.storage_bucket,
-            row.storage_key,
-          )
-        : null;
-      const outcome = resolveThumbnailReconciliationOutcome({
-        assetId: row.id,
-        referencedAssetId: pointer
-          ? jsonPointerValue(metadata, pointer)
-          : undefined,
-        canonicalHash: row.content_hash ?? "",
-        storedHash: stored ? await sha256Hex(stored) : null,
-      });
-      if (outcome.target === "failed") {
-        results.push(
-          await this.transitionThumbnailAsset(
-            workpieceId,
-            {
-              workspace_id: input.workspace_id,
-              asset_id: row.id,
-              target_status: "failed",
-              failure_code: outcome.code,
-              failure_message: outcome.message,
-            },
-            options,
-          ),
-        );
-      } else {
-        if (!row.reference_committed_at) {
-          const { data: acknowledged, error: ackError } = await this.supabase
-            .schema("tongs")
-            .from("assets")
-            .update({ reference_committed_at: new Date().toISOString() })
-            .eq("id", row.id)
-            .select("*")
-            .single();
-          if (ackError || !acknowledged)
-            throw new HttpError(
-              502,
-              "db_write_failed",
-              "Failed to recover thumbnail reference acknowledgement",
-            );
+    for (const pendingRow of pending ?? []) {
+      // Only repeat canonical reads/CAS after contention; never regenerate or
+      // infer abandonment. A busy writer leaves a recoverable conflict.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const row = await this.getThumbnailAssetRow(workpieceId, pendingRow.id);
+        if (row.status !== "pending") {
+          results.push(thumbnailAssetSummary(row));
+          break;
         }
-        results.push(
-          await this.transitionThumbnailAsset(
-            workpieceId,
-            {
-              workspace_id: input.workspace_id,
-              asset_id: row.id,
-              target_status: "ready",
-            },
-            options,
-          ),
-        );
+        try {
+          const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
+          const pointer = thumbnailReferencePointer(row) ?? (
+            !row.reference_committed_at
+              ? canonicalThumbnailReferencePointer(metadataRead.found ? metadataRead.data : null, row.id)
+              : null
+          );
+          const referencedAssetId = pointer
+            ? jsonPointerValue(metadataRead.found ? metadataRead.data : null, pointer)
+            : undefined;
+          // An intended pointer is not attachment authority. No storage read,
+          // lifecycle write or settlement is justified by an unattached row.
+          if (!row.reference_committed_at && referencedAssetId !== row.id) break;
+          const stored = pointer
+            ? await downloadStorageObject(
+                this.supabase,
+                row.storage_bucket,
+                row.storage_key,
+              )
+            : null;
+          const outcome = resolveThumbnailReconciliationOutcome({
+            assetId: row.id,
+            referencedAssetId,
+            canonicalHash: row.content_hash ?? "",
+            storedHash: stored ? await sha256Hex(stored) : null,
+          });
+          if (outcome.target === "failed") {
+            results.push(
+              await this.transitionThumbnailAssetSnapshot(
+                workpieceId,
+                {
+                  workspace_id: input.workspace_id,
+                  asset_id: row.id,
+                  target_status: "failed",
+                  failure_code: outcome.code,
+                  failure_message: outcome.message,
+                },
+                row,
+              ),
+            );
+          } else {
+            if (!row.reference_committed_at) {
+              const acknowledged = await this.compareAndSetThumbnailAsset(row, {
+                reference_committed_at: metadataRead.found
+                  ? metadataRead.file_row?.updated_at ?? new Date().toISOString()
+                  : new Date().toISOString(),
+                metadata_json: {
+                  ...(isRecord(row.metadata_json) ? row.metadata_json : {}),
+                  reference_pointer: pointer,
+                } as Json,
+              });
+              if (!acknowledged)
+                throw new HttpError(
+                  409,
+                  "thumbnail_asset_changed",
+                  "Thumbnail changed while recovering its reference acknowledgement",
+                );
+              // Use the acknowledged revision in the subsequent lifecycle CAS.
+              Object.assign(row, acknowledged);
+            }
+            results.push(
+              await this.transitionThumbnailAssetSnapshot(
+                workpieceId,
+                {
+                  workspace_id: input.workspace_id,
+                  asset_id: row.id,
+                  target_status: "ready",
+                },
+                row,
+              ),
+            );
+          }
+          break;
+        } catch (error) {
+          if (
+            !(error instanceof HttpError) ||
+            error.code !== "thumbnail_asset_changed" ||
+            attempt === 2
+          ) throw error;
+        }
       }
     }
     return { assets: results, reconciled_count: results.length };
@@ -35131,6 +35230,7 @@ export function createTongsCommitService(
         supabase.schema("tongs") as unknown as UntypedTongsSchemaClient,
       ),
     options.openAiTextGate,
+    options.cleanupReviewGenerator,
   );
 }
 
@@ -35564,6 +35664,35 @@ export function resolveThumbnailOperationReplay(
     );
   }
   return thumbnailAssetSummary(existing);
+}
+
+function thumbnailReferencePointer(row: AssetRow): string | null {
+  const metadata = row.metadata_json;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) &&
+    typeof metadata.reference_pointer === "string"
+    ? metadata.reference_pointer
+    : null;
+}
+
+// Recover only an unambiguous exact ID in canonical thumbnail attachment slots.
+// Never search arbitrary metadata/provenance for an ID or repair a stale pointer.
+function canonicalThumbnailReferencePointer(document: unknown, assetId: string): string | null {
+  const pointers: string[] = [];
+  for (const [collection, suffix] of [
+    ["base_versions", "/asset_id"],
+    ["versions", "/asset_id"],
+    ["launch_variant_revisions", "/snapshot/asset_id"],
+    ["publication_events", "/snapshot/asset_id"],
+  ]) {
+    const root = `/episode/thumbnail/${collection}`;
+    const entries = jsonPointerValue(document, root);
+    if (!Array.isArray(entries)) continue;
+    for (let index = 0; index < entries.length; index += 1) {
+      const pointer = `${root}/${index}${suffix}`;
+      if (jsonPointerValue(document, pointer) === assetId) pointers.push(pointer);
+    }
+  }
+  return pointers.length === 1 ? pointers[0] : null;
 }
 
 export function resolveThumbnailReconciliationOutcome(args: {
@@ -41870,6 +41999,15 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: { truth: result } });
       }
 
+      if (parts.length === 10 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces" && parts[5] === "hammer" && parts[6] === "revisions" && parts[8] === "cleanup-review" && (parts[9] === "read" || parts[9] === "discard")) {
+        requireMethod(request, "POST");
+        const token = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        if (JSON.stringify(body).length > 16384) throw new HttpError(413,"cleanup_review_request_too_large","Cleanup request is too large.");
+        if (!service.cleanupReview) throw new HttpError(503,"cleanup_review_unavailable","Cleanup review authority is unavailable.");
+        const data = await service.cleanupReview(normalizeUuid(parts[2],"workspace_id"), normalizeUuid(parts[4],"workpiece_id"), normalizeUuid(parts[7],"revision_id"), parts[9], body, token);
+        return jsonResponse(200, { ok: true, data });
+      }
       throw new HttpError(404, "not_found", "Endpoint not found");
     } catch (error) {
       const httpLike = toHttpLikeError(error);
