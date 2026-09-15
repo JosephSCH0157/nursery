@@ -7,7 +7,8 @@ async function openHammerEditor(page: Page): Promise<void> {
   await page.goto(
     `/app/hammer/editor?workspace_id=${encodeURIComponent(WORKSPACE_ID)}&workpiece_id=${encodeURIComponent(WORKPIECE_ID)}`,
   );
-  await expect(page.locator("section.hammer-source-bay")).toBeVisible();
+  // Cold canonical preparation measured >15s; wait for the actual prepared editor.
+  await expect(page.locator("section.hammer-source-bay")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator("section.hammer-preview-bay")).toBeVisible();
   await expect(page.locator("section.hammer-timeline-dock")).toBeVisible();
   const expandTimeline = page.locator("section.hammer-timeline-dock").getByRole("button", { name: "Expand", exact: true });

@@ -11,9 +11,11 @@ import { mwAnvilWhisperApi } from "./scripts/mw-anvil-whisper-api";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
 import { resolveOpenAiTextBrowserCertificationRuntime } from "./server/billing/openai-text-browser-certification-runtime";
+import { readDisposableBrowserConfig, disposableRuntimeMiddleware, isolateDisposableHtml } from "./scripts/browser-disposable-isolation.mts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const DISPOSABLE_BROWSER = readDisposableBrowserConfig();
 
 const RETRYABLE_PUBLIC_COPY_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
 const PUBLIC_COPY_RETRIES = 6;
@@ -122,6 +124,10 @@ function createAnvilSourceMiddleware() {
         res.setHeader("Content-Type", getMimeType(candidatePath));
         if (candidatePath.toLowerCase().endsWith(".html")) {
           res.setHeader("Cache-Control", "no-store");
+          if (DISPOSABLE_BROWSER) {
+            res.end(isolateDisposableHtml(await fsPromises.readFile(candidatePath, "utf8")));
+            return;
+          }
         }
         fs.createReadStream(candidatePath)
           .on("error", (error) => next(error))
@@ -215,6 +221,7 @@ export default defineConfig({
     {
       name: "nursery:tongs-commit-api",
       configureServer(server) {
+        if (DISPOSABLE_BROWSER) server.middlewares.use(disposableRuntimeMiddleware(DISPOSABLE_BROWSER));
         server.middlewares.use(createAnvilSourceMiddleware());
         server.middlewares.use(createNurseryTongsMiddleware({
           routePrefix: "/tongs",

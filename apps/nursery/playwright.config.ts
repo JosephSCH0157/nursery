@@ -3,10 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "playwright/test";
 import { applyFixtureManifestToEnvironment } from "./scripts/browser-fixture-authority.mts";
+import { DISPOSABLE_PROXY, readDisposableBrowserConfig } from "./scripts/browser-disposable-isolation.mts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 applyFixtureManifestToEnvironment();
+const disposable = readDisposableBrowserConfig();
 
 const baseURL = process.env.FORGE_SMOKE_BASE_URL
   ?? process.env.FORGE_TEST_BASE_URL
@@ -27,6 +29,7 @@ const storageStatePath = process.env.PLAYWRIGHT_STORAGE_STATE
 const hasStorageState = fs.existsSync(storageStatePath);
 
 export default defineConfig({
+  globalSetup: disposable ? "./scripts/browser-disposable-global-setup.mts" : undefined,
   testDir: path.resolve(__dirname, "playwright"),
   timeout: 180_000,
   expect: {
@@ -37,6 +40,9 @@ export default defineConfig({
   use: {
     baseURL,
     headless: true,
+    launchOptions: disposable ? { proxy: { server: DISPOSABLE_PROXY, bypass: "<-loopback>" } } : undefined,
+    serviceWorkers: disposable ? "block" : undefined,
+    proxy: disposable ? { server: DISPOSABLE_PROXY, bypass: "<-loopback>" } : undefined,
     trace: "retain-on-failure",
     storageState: hasStorageState ? storageStatePath : undefined,
   },
