@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Draft } from "../domain/draft";
 import type { Revision } from "../domain/revision";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
@@ -52,6 +52,8 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
 } {
   const [isApprovingScript, setIsApprovingScript] = useState(false);
   const [isMarkingReady, setIsMarkingReady] = useState(false);
+  const latestArgs = useRef(args);
+  latestArgs.current = args;
 
   const onApproveScript = useCallback(async (options?: { draftOverride?: Draft }) => {
     if (isApprovingScript || args.isSaving || args.isAiProcessing) return false;
@@ -65,13 +67,28 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
       return false;
     }
 
-    const { buildHearthApprovedScriptReplacement } = await import("../lib/hearth-script-approval");
+    const operation = args.operationAuthority.begin("ap");
+    const { buildHearthApprovedScriptReplacement, canonicalHearthApprovalText } = await import("../lib/hearth-script-approval");
+    if (!args.operationAuthority.isCurrent(operation)) return false;
     const approvedReplacement = buildHearthApprovedScriptReplacement({
       draft: approvalDraft,
       evaluateScriptValidation: args.evaluateScriptValidation,
       buildPersistedValidationMeta: args.buildPersistedValidationMeta,
     });
     const { scriptText: normalizedText, validation } = approvedReplacement;
+    const isApprovalCurrent = () => {
+      const current = latestArgs.current;
+      return args.operationAuthority.isCurrent(operation)
+        && current.workspaceId === args.workspaceId
+        && current.workpieceId === args.workpieceId
+        && current.activeDraft?.id === approvalDraft.id
+        && canonicalHearthApprovalText(current.activeDraft.body) === normalizedText
+        && current.preflight?.id === args.preflight?.id
+        && current.preflight?.sourceFileRevision === args.preflight?.sourceFileRevision
+        && current.preflight?.scriptHash === args.preflight?.scriptHash
+        && current.preflight?.reviewed === true && !current.preflight.stale;
+    };
+    if (!isApprovalCurrent()) return false;
     if (!validation.ok) {
       args.setScriptValidationGateResult(validation);
       args.setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${args.buildValidationReport(validation)}`);
@@ -83,11 +100,10 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
     args.setChatError(null);
     args.setAiRuntimeWarning(null);
     args.setApprovalPersistenceStatus(null);
-    const operation = args.operationAuthority.begin("ap");
     setIsApprovingScript(true);
     try {
       const canonical = await args.readCanonicalApprovalRevisions({ episodeId, draftId: approvalDraft.id });
-      if (!canonical.ok || !args.operationAuthority.isCurrent(operation)) {
+      if (!canonical.ok || !isApprovalCurrent()) {
         args.setError("Approval is unavailable because canonical Tongs revision history could not be verified.");
         return false;
       }
@@ -100,8 +116,10 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         creatorVersion: nextVersion,
         scriptText: normalizedText,
         preflightReportId: args.preflight.id,
+        reviewedBasis: { sourceFileRevision: args.preflight.sourceFileRevision, scriptHash: args.preflight.scriptHash },
+        isCurrent: isApprovalCurrent,
       });
-      if (!args.operationAuthority.isCurrent(operation)) return false;
+      if (!isApprovalCurrent()) return false;
       if (!authorityCommit.ok) { args.setError(authorityCommit.error); return false; }
 
       const approvedAt = Date.now();

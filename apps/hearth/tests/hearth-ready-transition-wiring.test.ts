@@ -55,7 +55,7 @@ test("approval and explicit Ready are separate and preserve preflight identity",
     return response({ ok: true, data: { outcome: "saved", ready: { transition_id: TRANSITION_ID } } });
   }) as typeof fetch;
   try {
-    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID });
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID, reviewedBasis: { sourceFileRevision: 4, scriptHash }, isCurrent: () => true });
     assert.equal(result.ok, true);
     assert.equal(requests.some((entry) => entry.url.endsWith("/ready-transition")), false);
     if (!result.ok) return;
@@ -79,7 +79,7 @@ test("approval CAS rejects source bytes different from the creator-visible draft
     ? response({ ok: true, file_row: { revision: 21, hash_value: "a".repeat(64) } })
     : response({ ok: true, data: { current_revision: 2 } })) as typeof fetch;
   try {
-    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 3, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID });
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 3, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID, reviewedBasis: { sourceFileRevision: 21, scriptHash: await hash(VALID_SCRIPT) }, isCurrent: () => true });
     assert.deepEqual(result, { ok: false, error: "The working draft changed before approval. Reload the current script and approve it deliberately." });
   } finally { globalThis.fetch = originalFetch; restoreWindow(); Object.defineProperty(globalThis, "crypto", { configurable: true, value: originalCrypto }); }
 });
