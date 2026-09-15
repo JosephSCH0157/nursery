@@ -57,6 +57,7 @@ jobs:
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter nursery exec playwright install --with-deps chromium
       - run: pnpm gate:integration
 
   barstock-production-gate:
@@ -102,14 +103,8 @@ jobs:
     timeout-minutes: 60
     env:
       CI: "true"
-      VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
-      TONGS_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
-      FORGE_CI_AUTH_EMAIL: ${{ secrets.NURSERY_PLAYWRIGHT_EMAIL }}
-      FORGE_CI_AUTH_PASSWORD: ${{ secrets.NURSERY_PLAYWRIGHT_PASSWORD }}
-      FORGE_TEST_WORKSPACE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKSPACE_ID }}
-      FORGE_TEST_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
-      FORGE_TEST_HAMMER_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
+      # No remote fixture or provider secrets enter this job.
+      FORGE_NONPROD_SUPABASE_PROJECT_REFS: ""
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -117,20 +112,97 @@ jobs:
         with:
           node-version: 20.20.0
           cache: pnpm
-      - name: Validate required live browser fixtures
-        run: |
-          test -n "${VITE_SUPABASE_URL}"
-          test -n "${VITE_SUPABASE_ANON_KEY}"
-          test -n "${TONGS_SERVICE_ROLE_KEY}"
-          test -n "${FORGE_CI_AUTH_EMAIL}"
-          test -n "${FORGE_CI_AUTH_PASSWORD}"
-          test -n "${FORGE_TEST_WORKSPACE_ID}"
-          test -n "${FORGE_TEST_WORKPIECE_ID}"
-          test -n "${FORGE_TEST_HAMMER_WORKPIECE_ID}"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.84.2
       - run: pnpm install --frozen-lockfile
+      - name: Prebuild @forge/shared and @forge/tongs (fresh emit)
+        run: |
+          rm -f packages/shared/tsconfig.tsbuildinfo
+          rm -f packages/tongs/tsconfig.tsbuildinfo
+          pnpm --filter @forge/shared build
+          pnpm --filter @forge/tongs build
+          test -f packages/shared/dist/script-tags/index.d.ts
+          test -f packages/tongs/dist/index.d.ts
+          test -f packages/shared/dist/script-tags/index.js
+      - name: Prepare job-owned Supabase configuration
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { randomBytes } from 'node:crypto';
+          const id = `forge-he3-browser-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+          const workdir = path.join(process.env.RUNNER_TEMP, id);
+          fs.mkdirSync(workdir); // Refuse reuse of another run's directory.
+          const configDir = path.join(workdir, 'supabase');
+          fs.mkdirSync(configDir);
+          // Only schema/configuration inputs, not another application checkout.
+          for (const name of ['migrations', 'templates']) fs.cpSync(path.join('supabase', name), path.join(configDir, name), { recursive: true });
+          const canonical = fs.readFileSync('supabase/config.toml', 'utf8').split('[functions.')[0];
+          if (/^project_id\s*=|^\[db\]/m.test(canonical)) throw new Error('Review changed canonical Supabase configuration before adapting it.');
+          const config = `project_id = "${id}"\n` + canonical
+            .replace('[api]', '[api]\nport = 58621')
+            .replace('site_url = "https://podcastersforge.com"', 'site_url = "http://127.0.0.1:5173"')
+            .replace(/additional_redirect_urls = \[[\s\S]*?\]/, 'additional_redirect_urls = ["http://127.0.0.1:5173/auth/callback"]')
+            + '\n[db]\nport = 58622\nshadow_port = 58620\nmajor_version = 17\n[db.seed]\nenabled = false\n[studio]\nport = 58623\n[inbucket]\nport = 58624\n[analytics]\nenabled = false\n';
+          fs.writeFileSync(path.join(configDir, 'config.toml'), config);
+          const password = `Fixture-Aa1!${randomBytes(24).toString('hex')}`;
+          const tongsToken = randomBytes(32).toString('hex');
+          console.log(`::add-mask::${password}`);
+          console.log(`::add-mask::${tongsToken}`);
+          const values = {
+            FORGE_BROWSER_SUPABASE_WORKDIR: workdir,
+            FORGE_BROWSER_FIXTURE_EMAIL: `forge-browser-${process.env.GITHUB_RUN_ID}@example.invalid`,
+            FORGE_BROWSER_FIXTURE_PASSWORD: password,
+            TONGS_API_TOKEN: tongsToken,
+            VITE_TONGS_API_TOKEN: tongsToken,
+            FORGE_BROWSER_FIXTURE_MANIFEST: path.join(workdir, 'browser-fixtures.v1.json'),
+            FORGE_BROWSER_FIXTURE_RECEIPT: path.join(workdir, 'browser-fixtures-verification.v1.json'),
+            HEARTH_PHASE4_FIXTURE_ARTIFACT: path.join(workdir, 'hearth-phase4-fixtures.json'),
+            PLAYWRIGHT_STORAGE_STATE: path.join(workdir, 'auth-state.json'),
+          };
+          for (const [key, value] of Object.entries(values)) fs.appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
+          NODE
+      - name: Start disposable Supabase and apply repository migrations
+        run: |
+          umask 077
+          # CLI startup prints local keys: retain its output privately, never echo it.
+          supabase start --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" --exclude studio,postgres-meta,edge-runtime,logflare,vector,supavisor,imgproxy > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1
+          supabase migration up --local --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR"
+      - name: Configure disposable credentials without logging values
+        run: |
+          umask 077
+          supabase status --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" --output json > "$RUNNER_TEMP/browser-supabase-status.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import assert from 'node:assert/strict';
+          const file = path.join(process.env.RUNNER_TEMP, 'browser-supabase-status.json');
+          const status = JSON.parse(fs.readFileSync(file, 'utf8'));
+          assert.equal(new URL(status.API_URL).hostname, '127.0.0.1');
+          const values = {
+            VITE_SUPABASE_URL: status.API_URL, SUPABASE_URL: status.API_URL, TONGS_SUPABASE_URL: status.API_URL,
+            VITE_SUPABASE_ANON_KEY: status.ANON_KEY, SUPABASE_ANON_KEY: status.ANON_KEY, TONGS_SUPABASE_ANON_KEY: status.ANON_KEY,
+            TONGS_SERVICE_ROLE_KEY: status.SERVICE_ROLE_KEY, SUPABASE_SERVICE_ROLE_KEY: status.SERVICE_ROLE_KEY,
+          };
+          for (const [key, value] of Object.entries(values)) {
+            assert.equal(typeof value, 'string'); assert.ok(value && !/[\r\n]/.test(value));
+            console.log(`::add-mask::${value}`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
+          }
+          fs.unlinkSync(file);
+          NODE
       - run: pnpm --filter nursery exec playwright install --with-deps chromium
-      - run: pnpm --filter nursery generate:playwright:auth
+      - run: pnpm --filter nursery test:browser-fixtures
+      - run: pnpm --filter nursery exec tsx --test tests/browser-disposable-isolation.test.mts
+      # gate:browser calls browser:prepare exactly once. It provisions, generates
+      # auth at 127.0.0.1:5173 and verifies authenticated Storage before Playwright.
+      # Playwright loads the manifest's distinct Hearth/Hammer IDs itself; no
+      # external base URL is set, so its normal task-owned Vite server starts.
       - run: pnpm gate:browser
+      - name: Stop job-owned disposable Supabase
+        if: always() && env.FORGE_BROWSER_SUPABASE_WORKDIR != ''
+        run: supabase stop --no-backup --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR"
 
   hammer-production-gates:
     name: hammer:production

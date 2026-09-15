@@ -324,35 +324,80 @@ export async function verifyBrowserFixtures(): Promise<BrowserFixtureManifest> {
   if (!fs.existsSync(config.manifestPath)) throw new Error("Browser fixture manifest is missing. Run browser:fixtures:provision.");
   const manifest = validateBrowserFixtureManifest(JSON.parse(fs.readFileSync(config.manifestPath, "utf8")), config.projectRef);
   const { client, session, user } = await signIn(config);
-  const admin = createClient(config.supabaseUrl, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   if (user.id !== manifest.user_id) throw new Error("Authenticated fixture user does not match the manifest.");
-  const userTongs = client.schema("tongs");
-  const entitlement = await userTongs.from("account_balances").select("user_id,plan_item_id,plan_entitled").eq("user_id", user.id).maybeSingle();
-  if (entitlement.error || entitlement.data?.plan_item_id !== "creator" || entitlement.data.plan_entitled !== true) throw new Error("Fixture plan entitlement is missing or inaccessible through RLS.");
-  const membership = await userTongs.from("workspace_members").select("workspace_id,role").eq("workspace_id", manifest.workspace_id).eq("user_id", user.id).maybeSingle();
-  if (membership.error || !membership.data) throw new Error(`Fixture workspace is not reachable through normal RLS: ${membership.error?.message ?? "missing membership"}`);
-  const episodes = await userTongs.from("episodes").select("id,workspace_id,canonical_recording_id,active_revision_id").in("id", [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id]);
-  if (episodes.error || episodes.data?.length !== 4 || episodes.data.some((row) => row.workspace_id !== manifest.workspace_id)) throw new Error("Fixture workpieces are missing, cross-workspace, or inaccessible through RLS.");
-  const ready = await userTongs.from("current_workpiece_ready_scripts").select("workpiece_id,script_path").eq("workspace_id", manifest.workspace_id).in("workpiece_id", manifest.ready_workpiece_ids);
-  if (ready.error || ready.data?.length !== 2) throw new Error("Fixture Ready candidates are incomplete through normal RLS.");
-  const revision = await userTongs.from("recording_revisions").select("id,canonical_recording_id,revision_transcript_path,editor_session_path,audio_polish_path,visual_timeline_path,visual_placements_path,history_path,editorial_authority_path").eq("id", manifest.hammer_revision_id).maybeSingle();
-  if (revision.error || !revision.data || revision.data.canonical_recording_id !== manifest.hammer_recording_id) throw new Error("Hammer fixture revision is missing or stale.");
-  const transcriptRow = await userTongs.from("workpiece_files").select("storage_bucket,storage_key,hash_value").eq("workpiece_id", manifest.hammer_workpiece_id).eq("path", revision.data.revision_transcript_path!).maybeSingle();
-  if (transcriptRow.error || !transcriptRow.data) throw new Error("Hammer fixture transcript registry is missing.");
-  const downloaded = await admin.storage.from(transcriptRow.data.storage_bucket).download(transcriptRow.data.storage_key);
-  if (downloaded.error || !downloaded.data) throw new Error(`Hammer fixture transcript object is missing from canonical storage: ${downloaded.error?.message ?? "missing object"}`);
-  const transcriptBytes = Buffer.from(await downloaded.data.arrayBuffer()); const transcript = JSON.parse(transcriptBytes.toString("utf8"));
-  if (!Array.isArray(transcript.segments) || transcript.segments.length < 6 || sha256(transcriptBytes) !== transcriptRow.data.hash_value) throw new Error("Hammer fixture transcript is malformed or hash-mismatched.");
-  const canonical = await userTongs.from("canonical_recordings").select("id,media_path,media_duration_ms,status").eq("id", manifest.hammer_recording_id).eq("workpiece_id", manifest.hammer_workpiece_id).maybeSingle();
-  if (canonical.error || !canonical.data || canonical.data.status !== "sealed" || (canonical.data.media_duration_ms ?? 0) < 25000) throw new Error("Hammer canonical recording is missing or malformed through normal RLS.");
-  const requiredPaths = [revision.data.editor_session_path, revision.data.audio_polish_path, revision.data.visual_timeline_path, revision.data.visual_placements_path, revision.data.history_path, revision.data.editorial_authority_path, canonical.data.media_path].filter((value): value is string => Boolean(value));
-  const requiredFiles = await userTongs.from("workpiece_files").select("path,hash_value").eq("workpiece_id", manifest.hammer_workpiece_id).in("path", requiredPaths);
-  if (requiredFiles.error || requiredFiles.data?.length !== requiredPaths.length || requiredFiles.data.some((row) => manifest.artifact_hashes[`${manifest.hammer_workpiece_id}:${row.path}`] !== row.hash_value)) throw new Error("Hammer editor, timeline, history, or media fixture authority is incomplete.");
+  // Workpiece objects are private: browsers read through authenticated Tongs,
+  // not direct Storage RLS (which only authorizes other scoped asset classes).
+  const { createTongsCommitApiHandler } = await import("../../../packages/tongs/src/workpiece-commit-api.ts");
+  const handler = createTongsCommitApiHandler({ supabaseUrl: config.supabaseUrl, supabaseServiceRoleKey: config.serviceKey });
+  const evidence = await verifyBrowserFixtureRecords(client, manifest, createFixtureArtifactReader(handler, session.access_token));
   const verified = { ...manifest, verified_at: new Date().toISOString() };
   fs.writeFileSync(config.manifestPath, `${JSON.stringify(verified, null, 2)}\n`);
-  const receipt = sanitizeFixtureDiagnostic({ schema_version: BROWSER_FIXTURE_SCHEMA, project_ref: config.projectRef, fixture_namespace: BROWSER_FIXTURE_NAMESPACE, verified_at: verified.verified_at, user_id: user.id, workspace_id: manifest.workspace_id, workpiece_ids: [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id], checks: { authentication: true, membership_rls: true, plan_entitlement_rls: true, episodes_rls: true, ready_candidates: 2, hammer_transcript_segments: transcript.segments.length, transcript_hash: transcriptRow.data.hash_value, canonical_recording: true, editor_session: true, visual_timeline: true, history: true }, session_expires_at: session.expires_at ?? null });
+  const receipt = sanitizeFixtureDiagnostic({ schema_version: BROWSER_FIXTURE_SCHEMA, project_ref: config.projectRef, fixture_namespace: BROWSER_FIXTURE_NAMESPACE, verified_at: verified.verified_at, user_id: user.id, workspace_id: manifest.workspace_id, workpiece_ids: [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id], checks: { authentication: true, membership_rls: true, owner_role: true, plan_entitlement_rls: true, episodes_rls: true, ready_candidates: 2, hammer_transcript_segments: evidence.transcriptSegments, transcript_hash: evidence.transcriptHash, canonical_recording: true, active_revision: true, authenticated_storage_hashes: evidence.verifiedObjects, editor_session: true, visual_timeline: true, history: true }, session_expires_at: session.expires_at ?? null });
   fs.mkdirSync(path.dirname(config.receiptPath), { recursive: true }); fs.writeFileSync(config.receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   return verified;
+}
+
+type FixtureArtifactReader = (workpieceId: string, filePath: string) => Promise<Uint8Array>;
+
+export function createFixtureArtifactReader(handler: (request: Request) => Promise<Response>, accessToken: string): FixtureArtifactReader {
+  if (!accessToken.trim()) throw new Error("Authenticated fixture token is missing.");
+  return async (workpieceId, filePath) => {
+    const url = new URL(`http://127.0.0.1/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file`);
+    url.searchParams.set("path", filePath); url.searchParams.set("encoding", "binary");
+    const response = await handler(new Request(url, { headers: { "x-forge-user-authorization": `Bearer ${accessToken}` } }));
+    if (!response.ok) throw new Error(`Authenticated fixture Storage retrieval failed: ${filePath} (HTTP ${response.status})`);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+}
+
+// Registry queries use the signed-in client; byte reads must use the existing
+// Tongs handler with the same actor. No service-role-only read fallback.
+export async function verifyBrowserFixtureRecords(client: SupabaseClient, manifest: BrowserFixtureManifest, readArtifact: FixtureArtifactReader) {
+  if (manifest.hearth_workpiece_id === manifest.hammer_workpiece_id) throw new Error("Hearth and Hammer fixture identities must differ.");
+  const userTongs = client.schema("tongs");
+  const entitlement = await userTongs.from("account_balances").select("user_id,plan_item_id,plan_entitled").eq("user_id", manifest.user_id).maybeSingle();
+  if (entitlement.error || entitlement.data?.plan_item_id !== "creator" || entitlement.data.plan_entitled !== true) throw new Error("Fixture plan entitlement is missing or inaccessible through RLS.");
+  const membership = await userTongs.from("workspace_members").select("workspace_id,role").eq("workspace_id", manifest.workspace_id).eq("user_id", manifest.user_id).maybeSingle();
+  if (membership.error || membership.data?.workspace_id !== manifest.workspace_id || membership.data.role !== "owner") throw new Error("Fixture workspace owner membership is missing through normal RLS.");
+  const episodes = await userTongs.from("episodes").select("id,workspace_id,canonical_recording_id,active_revision_id").in("id", [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id]);
+  if (episodes.error || episodes.data?.length !== 4 || episodes.data.some((row) => row.workspace_id !== manifest.workspace_id)) throw new Error("Fixture workpieces are missing, cross-workspace, or inaccessible through RLS.");
+  const hammer = episodes.data.find((row) => row.id === manifest.hammer_workpiece_id);
+  if (hammer?.canonical_recording_id !== manifest.hammer_recording_id || hammer.active_revision_id !== manifest.hammer_revision_id) throw new Error("Hammer workpiece recording/revision pointers are stale.");
+  const ready = await userTongs.from("current_workpiece_ready_scripts").select("workpiece_id,script_path").eq("workspace_id", manifest.workspace_id).in("workpiece_id", manifest.ready_workpiece_ids);
+  if (ready.error || ready.data?.length !== 2) throw new Error("Fixture Ready candidates are incomplete through normal RLS.");
+  const revision = await userTongs.from("recording_revisions").select("id,workspace_id,workpiece_id,status,canonical_recording_id,revision_transcript_path,editor_session_path,audio_polish_path,visual_timeline_path,visual_placements_path,history_path,editorial_authority_path").eq("id", manifest.hammer_revision_id).maybeSingle();
+  const rev = revision.data;
+  if (revision.error || !rev || rev.id !== manifest.hammer_revision_id || rev.workspace_id !== manifest.workspace_id || rev.workpiece_id !== manifest.hammer_workpiece_id || rev.canonical_recording_id !== manifest.hammer_recording_id || rev.status !== "active") throw new Error("Hammer fixture revision identity/status is missing or stale.");
+  const canonical = await userTongs.from("canonical_recordings").select("id,workspace_id,workpiece_id,media_id,media_path,media_signature,media_bytes,media_duration_ms,status,sealed_at,baseline_transcript_path").eq("id", manifest.hammer_recording_id).eq("workpiece_id", manifest.hammer_workpiece_id).maybeSingle();
+  const recording = canonical.data;
+  if (canonical.error || !recording || recording.id !== manifest.hammer_recording_id || recording.workspace_id !== manifest.workspace_id || recording.workpiece_id !== manifest.hammer_workpiece_id || recording.status !== "sealed" || !recording.sealed_at || recording.media_duration_ms < 25000) throw new Error("Hammer canonical recording is missing or malformed through normal RLS.");
+  const paths = [rev.revision_transcript_path, rev.editor_session_path, rev.audio_polish_path, rev.visual_timeline_path, rev.visual_placements_path, rev.history_path, rev.editorial_authority_path, recording.media_path];
+  if (paths.some((value) => !readString(value)) || new Set(paths).size !== paths.length) throw new Error("Required Hammer artifact path is missing or duplicated.");
+  if (recording.baseline_transcript_path !== rev.revision_transcript_path) throw new Error("Fixture baseline transcript is not the active revision transcript.");
+  const required = new Map<string, string[]>([
+    [manifest.hearth_workpiece_id, ["script/script.md", "hearth/drafts.v1.json"]],
+    ...manifest.ready_workpiece_ids.map((id): [string, string[]] => [id, ["script/script.md"]]),
+    [manifest.hammer_workpiece_id, paths as string[]],
+  ]);
+  const objects = new Map<string, Buffer>();
+  for (const [workpieceId, requiredPaths] of required) {
+    const files = await userTongs.from("workpiece_files").select("workpiece_id,path,storage_bucket,storage_key,hash_algo,hash_value,bytes").eq("workpiece_id", workpieceId).in("path", requiredPaths);
+    if (files.error || files.data?.length !== requiredPaths.length) throw new Error("Required fixture artifact registry is incomplete through RLS.");
+    for (const filePath of requiredPaths) {
+      const row = files.data.find((file) => file.path === filePath);
+      const key = `${workpieceId}:${filePath}`;
+      if (!row || row.workpiece_id !== workpieceId || row.storage_bucket !== "forge-workpieces" || row.storage_key !== `workpieces/${workpieceId}/${filePath}` || row.hash_algo !== "sha256" || !/^[a-f0-9]{64}$/.test(row.hash_value ?? "") || manifest.artifact_hashes[key] !== row.hash_value) throw new Error("Fixture registry/manifest identity or hash mismatch.");
+      const bytes = Buffer.from(await readArtifact(workpieceId, filePath));
+      if (bytes.length !== row.bytes || sha256(bytes) !== row.hash_value) throw new Error(`Downloaded fixture bytes/hash mismatch: ${filePath}`);
+      if (filePath.endsWith(".json")) JSON.parse(bytes.toString("utf8"));
+      objects.set(key, bytes);
+    }
+  }
+  const transcriptKey = `${manifest.hammer_workpiece_id}:${rev.revision_transcript_path}`;
+  const transcript = JSON.parse(objects.get(transcriptKey)!.toString("utf8"));
+  const media = objects.get(`${manifest.hammer_workpiece_id}:${recording.media_path}`)!;
+  if (!Array.isArray(transcript.segments) || transcript.segments.length < 6 || transcript.media_id !== recording.media_id || transcript.media_signature !== recording.media_signature || transcript.source_media_ref?.media_id !== recording.media_id || transcript.source_media_ref?.sha256 !== recording.media_signature || transcript.source_media_ref?.cloud_uri !== recording.media_path || transcript.source_media_ref?.byte_size !== recording.media_bytes || transcript.source_media_ref?.duration_ms !== recording.media_duration_ms || media.length !== recording.media_bytes || sha256(media) !== recording.media_signature) throw new Error("Fixture transcript/media identity or signature mismatch.");
+  return { transcriptSegments: transcript.segments.length, transcriptHash: manifest.artifact_hashes[transcriptKey], verifiedObjects: objects.size };
 }
 
 export async function cleanBrowserFixtures(confirm: boolean): Promise<void> {

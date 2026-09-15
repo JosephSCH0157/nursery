@@ -52,8 +52,10 @@ test("library_to_session_switching", async ({ page }) => {
   await createdSessionButton.click();
 
   const readyCards = page.locator('section:has-text("Ready Candidates") li');
-  const readyCount = await readyCards.count();
-  expect(readyCount).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => readyCards.count(), {
+    message: "At least two canonical Ready candidates must become available",
+    timeout: 30_000,
+  }).toBeGreaterThanOrEqual(2);
 
   await readyCards.nth(0).getByRole("button", { name: "Add" }).click();
   await readyCards.nth(1).getByRole("button", { name: "Add" }).click();

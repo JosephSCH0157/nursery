@@ -37,10 +37,12 @@ async function openImageMapWorkpiece(page: Page, artifact: ReturnType<typeof rea
     pathnamePrefix: "/apps/hearth",
   });
   const readyPill = page.locator(".hs-episode-ready-pill");
-  if ((await readyPill.textContent())?.trim() !== "Ready") {
-    await page.getByRole("button", { name: "Approve & Replace Script", exact: true }).click();
-    await expect(readyPill).toHaveText("Ready");
-  }
+  await expect(readyPill, "Canonical Hearth workpiece must finish loading as Ready").toHaveText("Ready", {
+    timeout: 30_000,
+  });
+  const startRecording = page.getByRole("button", { name: "Start Recording", exact: true });
+  await expect(startRecording, "Ready authority must expose Start Recording").toBeVisible({ timeout: 30_000 });
+  await expect(startRecording, "Ready authority must permit Start Recording").toBeEnabled({ timeout: 30_000 });
   await page.getByRole("tab", { name: /^Visuals/u }).click();
   const workflow = page.getByRole("region", { name: "Episode visual production workflow" });
   await expect(workflow).toBeVisible({ timeout: 20_000 });

@@ -1,8 +1,8 @@
 import { tongsFetch } from "./tongs-fetch";
+import { canonicalHearthApprovalText } from "./hearth-script-approval";
 
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
 async function json(response: Response): Promise<unknown> { try { return await response.json(); } catch { return null; } }
-function canonicalApprovalText(value: string): string { return value.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").normalize("NFC"); }
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -30,7 +30,13 @@ export async function readPublishedScriptApprovalAuthority(workpieceId: string):
 
 export async function commitPublishedScriptApprovalAuthority(args: {
   workpieceId: string; workspaceId: string; creatorVersion: number; scriptText: string; preflightReportId: string; operationId?: string;
+  reviewedBasis: Readonly<{ sourceFileRevision: number; scriptHash: string }>;
+  isCurrent: () => boolean;
 }): Promise<{ ok: true; authority: PublishedScriptApprovalAuthority } | { ok: false; error: string }> {
+  const expectedSourceHash = await sha256(canonicalHearthApprovalText(args.scriptText));
+  const expectedSourceRevision = args.reviewedBasis.sourceFileRevision;
+  const changed = { ok: false as const, error: "The working draft changed before approval. Reload the current script and approve it deliberately." };
+  if (!args.isCurrent() || !Number.isInteger(expectedSourceRevision) || expectedSourceRevision < 1 || expectedSourceHash !== args.reviewedBasis.scriptHash) return changed;
   const projectionResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/script-approval`, { method: "GET" });
   const projectionBody = await json(projectionResponse);
   if (!projectionResponse.ok || !record(projectionBody) || projectionBody.ok !== true || !record(projectionBody.data)) return { ok: false, error: "Canonical script approval state could not be read." };
@@ -40,10 +46,9 @@ export async function commitPublishedScriptApprovalAuthority(args: {
   const sourceResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent("script/script.md")}`, { method: "GET" });
   const sourceBody = await json(sourceResponse);
   const sourceData = record(sourceBody) && record(sourceBody.file_row) ? sourceBody.file_row : record(sourceBody) && record(sourceBody.data) && record(sourceBody.data.file_row) ? sourceBody.data.file_row : null;
-  const expectedSourceRevision = Number(sourceData?.revision);
-  const expectedSourceHash = await sha256(canonicalApprovalText(args.scriptText));
+  const returnedSourceRevision = Number(sourceData?.revision);
   const returnedSourceHash = typeof sourceData?.hash_value === "string" ? sourceData.hash_value.toLowerCase() : "";
-  if (!sourceResponse.ok || !Number.isInteger(expectedSourceRevision) || expectedSourceRevision < 1 || returnedSourceHash !== expectedSourceHash) return { ok: false, error: "The working draft changed before approval. Reload the current script and approve it deliberately." };
+  if (!args.isCurrent() || !sourceResponse.ok || returnedSourceRevision !== expectedSourceRevision || returnedSourceHash !== expectedSourceHash) return changed;
 
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/script-approval`, {
     method: "POST",
