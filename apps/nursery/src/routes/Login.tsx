@@ -59,7 +59,6 @@ export default function Login() {
   const nav = useNavigate();
   const next = useNextParam();
   const reason = useLoginReason();
-  const devMode = (import.meta as { env?: Record<string, unknown> }).env?.DEV === true;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -262,7 +261,6 @@ export default function Login() {
           <p className="forge-login-card__footer">
             Need beta access? <a href="/beta/index.html">Apply for beta</a>.
           </p>
-          {devMode ? <p className="forge-login-card__dev-next">dev next: {next}</p> : null}
         </div>
       </section>
     </main>

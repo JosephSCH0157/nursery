@@ -359,9 +359,3 @@
     display: none;
   }
 }
-
-.forge-login-card__dev-next {
-  margin: 0.5rem 0 0;
-  color: rgba(216, 230, 255, 0.74);
-  font-size: 0.72rem;
-}
