@@ -57,6 +57,7 @@ jobs:
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install --yes ffmpeg
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter nursery exec playwright install --with-deps chromium
       - run: pnpm gate:integration
 
   barstock-production-gate:

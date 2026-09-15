@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { test } from "node:test";
 import vm from "node:vm";
-import { chromium } from "playwright/test";
+import { chromium, type Browser } from "playwright/test";
 import { allowedDisposableTarget, disposableRuntimeMiddleware, disposableRuntimeScript, isolateDisposableHtml, readDisposableBrowserConfig, startDisposableProxy } from "../scripts/browser-disposable-isolation.mts";
 import { getHearthPhase4ArtifactPath } from "../playwright/helpers/hearth-phase4-fixtures";
 
@@ -106,26 +106,77 @@ test("unexpected allowed-upstream socket errors are observable and fail teardown
   }
 });
 
-test("Chromium uses disposable globals and proxy blocks remote redirects, requests, sockets and HTTPS", async () => {
-  const server = http.createServer();
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  assert(address && typeof address !== "string");
-  const local = { ...config, appOrigin: `http://127.0.0.1:${address.port}` };
-  const middleware = disposableRuntimeMiddleware(local);
-  server.on("request", (req, res) => middleware(req, res, () => {
-    if (req.url === "/redirect") { res.writeHead(302, { Location: "https://external.invalid/private?secret=excluded" }); res.end(); }
-    else { res.end("local response"); }
-  }));
-  server.on("upgrade", (req, socket) => {
-    const accept = createHash("sha1").update(String(req.headers["sec-websocket-key"]) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
-    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
-    socket.on("data", () => socket.end());
-  });
-  const proxy = await startDisposableProxy(local, 0);
+type IsolationResources = {
+  server: http.Server;
+  proxy: Awaited<ReturnType<typeof startDisposableProxy>>;
+  local: typeof config;
+};
+
+const launchIsolationBrowser = ({ proxy }: IsolationResources): Promise<Browser> => {
   assert(proxy.address && typeof proxy.address !== "string");
-  const browser = await chromium.launch({ proxy: { server: `http://127.0.0.1:${proxy.address.port}`, bypass: "<-loopback>" } });
+  return chromium.launch({ proxy: { server: `http://127.0.0.1:${proxy.address.port}`, bypass: "<-loopback>" } });
+};
+
+async function withIsolationBrowser(
+  run: (resources: IsolationResources & { browser: Browser }) => Promise<void>,
+  launch: (resources: IsolationResources) => Promise<Browser> = launchIsolationBrowser,
+): Promise<void> {
+  const server = http.createServer();
+  const sockets = new Set<net.Socket>();
+  server.on("connection", socket => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+  });
+  let proxy: IsolationResources["proxy"] | undefined;
+  let browser: Browser | undefined;
+  const errors: unknown[] = [];
+  // Arm cleanup before listening, starting the proxy, launching Chromium or
+  // creating contexts. Upgraded sockets are not covered by closeAllConnections.
   try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    assert(address && typeof address !== "string");
+    const local = { ...config, appOrigin: `http://127.0.0.1:${address.port}` };
+    const middleware = disposableRuntimeMiddleware(local);
+    server.on("request", (req, res) => middleware(req, res, () => {
+      if (req.url === "/redirect") { res.writeHead(302, { Location: "https://external.invalid/private?secret=excluded" }); res.end(); }
+      else { res.end("local response"); }
+    }));
+    server.on("upgrade", (req, socket) => {
+      const accept = createHash("sha1").update(String(req.headers["sec-websocket-key"]) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+      socket.on("data", () => socket.end());
+    });
+    proxy = await startDisposableProxy(local, 0);
+    assert(proxy.address && typeof proxy.address !== "string");
+    browser = await launch({ server, proxy, local });
+    await run({ server, proxy, local, browser });
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    // Attempt every cleanup even if an earlier close fails. Preserve both the
+    // original launch/test error and fail-closed proxy transport errors.
+    for (const close of [
+      async () => { await browser?.close(); },
+      async () => { await proxy?.close(); },
+      async () => {
+        for (const socket of sockets) socket.destroy();
+        server.closeAllConnections();
+        if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      },
+    ]) {
+      try { await close(); } catch (error) { errors.push(error); }
+    }
+  }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, "Isolation test and/or cleanup failed");
+}
+
+test("Chromium uses disposable globals and proxy blocks remote redirects, requests, sockets and HTTPS", async () => {
+  await withIsolationBrowser(async ({ browser, proxy, local }) => {
     const context = await browser.newContext({ serviceWorkers: "block" });
     const page = await context.newPage();
     await page.goto(local.appOrigin + "/__forge-browser/config-check");
@@ -154,10 +205,75 @@ test("Chromium uses disposable globals and proxy blocks remote redirects, reques
     const apiResponse = await context.request.get("http://api-request.invalid/");
     assert.equal(apiResponse.status(), 403);
     assert(proxy.denied.some(url => new URL(url).hostname === "api-request.invalid"));
+  });
+});
+
+test("browser launch failure closes the proxy, HTTP server and connected sockets without swallowing the error", { timeout: 10_000 }, async () => {
+  const failure = new Error("synthetic Chromium launch failure");
+  let resources: IsolationResources | undefined;
+  let client: net.Socket | undefined;
+  let clientClosed: Promise<unknown> | undefined;
+  try {
+    await assert.rejects(withIsolationBrowser(async () => assert.fail("Launch failure must not run the browser assertions"), async current => {
+      resources = current;
+      assert(current.proxy.address && typeof current.proxy.address !== "string");
+      client = net.connect(current.proxy.address.port, "127.0.0.1");
+      await once(client, "connect");
+      clientClosed = once(client, "close");
+      const response = once(client, "data");
+      client.write(`CONNECT ${new URL(current.local.appOrigin).host} HTTP/1.1\r\nHost: ${new URL(current.local.appOrigin).host}\r\n\r\n`);
+      assert.match(String((await response)[0]), /200 Connection Established/);
+      throw failure;
+    }), error => error === failure);
+    await clientClosed;
+    assert(resources);
+    assert.equal(resources.server.listening, false);
+    assert.deepEqual(resources.proxy.denied, []);
+    assert.deepEqual(resources.proxy.transportErrors, []);
+    assert.equal(client?.destroyed, true);
+    // Rebinding the exact proxy port proves its listener was released too.
+    assert(resources.proxy.address && typeof resources.proxy.address !== "string");
+    const proxyPort = resources.proxy.address.port;
+    const probe = net.createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        probe.once("error", reject);
+        probe.listen(proxyPort, "127.0.0.1", resolve);
+      });
+    } finally {
+      if (probe.listening) await new Promise<void>(resolve => probe.close(() => resolve()));
+    }
   } finally {
-    await browser.close();
-    await proxy.close();
-    server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    client?.destroy();
   }
+});
+
+test("post-launch setup failure closes Chromium and all listeners", { timeout: 10_000 }, async () => {
+  const failure = new Error("synthetic browser context setup failure");
+  let resources: (IsolationResources & { browser: Browser }) | undefined;
+  await assert.rejects(withIsolationBrowser(async current => {
+    resources = current;
+    throw failure;
+  }), error => error === failure);
+  assert(resources);
+  assert.equal(resources.browser.isConnected(), false);
+  assert.equal(resources.server.listening, false);
+  assert.deepEqual(resources.proxy.transportErrors, []);
+});
+
+test("launch and unexpected transport failures are both preserved while remaining cleanup completes", { timeout: 10_000 }, async () => {
+  const failure = new Error("synthetic launch failure with transport evidence");
+  let resources: IsolationResources | undefined;
+  await assert.rejects(withIsolationBrowser(async () => assert.fail("Launch must fail"), async current => {
+    resources = current;
+    current.proxy.transportErrors.push({ code: "SYNTHETIC_UNEXPECTED_TRANSPORT" });
+    throw failure;
+  }), error => {
+    assert(error instanceof AggregateError);
+    assert.equal(error.errors[0], failure);
+    assert.match(String(error.errors[1]), /Unexpected disposable proxy transport errors/);
+    return true;
+  });
+  assert(resources);
+  assert.equal(resources.server.listening, false);
 });
