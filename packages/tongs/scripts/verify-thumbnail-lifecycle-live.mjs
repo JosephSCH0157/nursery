@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
 import { createTongsCommitService } from "../dist/workpiece-commit-api.js";
+import { assertMutableSupabaseTarget } from "../../../apps/nursery/scripts/supabase-target-authority.mjs";
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);
@@ -33,11 +34,13 @@ async function readConfig() {
     anonKey: values.VITE_SUPABASE_ANON_KEY,
     serviceKey: values.TONGS_SERVICE_ROLE_KEY,
     bucket: values.TONGS_WORKPIECE_BUCKET || "forge-workpieces",
+    allowlist: process.env.FORGE_NONPROD_SUPABASE_PROJECT_REFS || values.FORGE_NONPROD_SUPABASE_PROJECT_REFS,
   };
 }
 
 const config = await readConfig();
 assert(config.url && config.anonKey && config.serviceKey, "Missing linked Supabase credentials");
+assertMutableSupabaseTarget(config.url, config.allowlist, "thumbnail lifecycle live verification");
 const admin = createClient(config.url, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const service = createTongsCommitService({ supabaseUrl: config.url, supabaseServiceRoleKey: config.serviceKey, bucket: config.bucket });
 const suffix = randomUUID();

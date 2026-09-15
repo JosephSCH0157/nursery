@@ -27,9 +27,18 @@ import {
   readForgeFfmpegClientConfig,
 } from "../server/forge-ffmpeg-client";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
-import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-runner";
+import {
+  startWorkpieceJobRunner,
+  type WorkpieceJobRunnerHandle,
+} from "../server/tongs/workpiece-job-runner";
+import { resolveWorkpieceJobRunnerAuthority } from "./workpiece-job-runner-authority";
 
 type Next = (err?: unknown) => void;
+
+export type NurseryTongsMiddleware = {
+  (req: IncomingMessage, res: ServerResponse, next: Next): Promise<void>;
+  dispose(): Promise<void>;
+};
 
 export function isClientAbortError(error: unknown, req?: Pick<IncomingMessage, "aborted" | "destroyed">): boolean {
   if (req?.aborted || req?.destroyed) return true;
@@ -170,13 +179,17 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
   res.end(body);
 }
 
-export function createNurseryTongsMiddleware(opts?: {
+export async function createNurseryTongsMiddleware(opts?: {
   routePrefix?: string;
   /** Isolated-test seam. Production callers must leave this undefined. */
   testOnlyOptionsOverride?: Partial<TongsCommitApiOptions>;
-}) {
+}): Promise<NurseryTongsMiddleware> {
   const routePrefix = (opts?.routePrefix ?? "/tongs").replace(/\/+$/, "") || "/tongs";
   const config = resolveTongsRuntimeConfig();
+  const runnerAuthority = resolveWorkpieceJobRunnerAuthority(
+    process.env,
+    config.options.supabaseUrl,
+  );
   const providerBoundary = resolveNurseryTongsProviderBoundary(config);
   if (opts?.testOnlyOptionsOverride) {
     const localApi = /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/i.test(config.options.supabaseUrl);
@@ -199,8 +212,12 @@ export function createNurseryTongsMiddleware(opts?: {
     serviceAcquisitionRuntimeMatches: Boolean(service && service.brollAcquisitionRuntime === providerBoundary.acquisitionRuntime),
   });
 
-  if (service) {
-    ensureWorkpieceJobRunnerStarted({ service });
+  let runnerHandle: WorkpieceJobRunnerHandle | null = null;
+  if (service && runnerAuthority.enabled) {
+    runnerHandle = await startWorkpieceJobRunner(
+      { service },
+      { targetKey: runnerAuthority.targetKey },
+    );
   }
 
   if (!handler) {
@@ -209,7 +226,7 @@ export function createNurseryTongsMiddleware(opts?: {
     console.warn("[nursery:tongs-commit-api] running without token guard because TONGS_ALLOW_UNSAFE_NO_TOKEN=1");
   }
 
-  return async function nurseryTongsMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
+  const middleware = async function nurseryTongsMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
       const rawUrl = req.url || "";
       const origin = `http://${req.headers.host || "localhost"}`;
@@ -269,5 +286,11 @@ export function createNurseryTongsMiddleware(opts?: {
       if (isClientAbortError(error, req)) return;
       next(error);
     }
+  } as NurseryTongsMiddleware;
+  middleware.dispose = async () => {
+    const ownedRunner = runnerHandle;
+    runnerHandle = null;
+    await ownedRunner?.dispose();
   };
+  return middleware;
 }

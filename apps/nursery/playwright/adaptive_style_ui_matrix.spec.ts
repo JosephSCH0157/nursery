@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, test, type Browser, type BrowserContext, type Page } from "playwright/test";
+import { assertMutableSupabaseTarget } from "../scripts/supabase-target-authority.mjs";
 
 type WorkspaceRow = {
   adaptive_style_alignment_enabled: boolean | null;
@@ -234,6 +235,11 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     throw new Error("Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY / TONGS_SERVICE_ROLE_KEY.");
   }
+  assertMutableSupabaseTarget(
+    supabaseUrl,
+    env.FORGE_NONPROD_SUPABASE_PROJECT_REFS,
+    "adaptive style UI matrix verification",
+  );
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey, {
     db: { schema: "tongs" },
