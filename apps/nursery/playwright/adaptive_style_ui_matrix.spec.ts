@@ -191,7 +191,7 @@ async function loginAs(
     });
     await phase("CREDENTIALS_SUBMITTED", async () => {
       await page.getByLabel("Email").fill(user.email, { timeout: 10_000 });
-      await page.getByLabel("Password").fill(user.password, { timeout: 10_000 });
+      await page.getByLabel("Password", { exact: true }).fill(user.password, { timeout: 10_000 });
       await Promise.all([
         page.waitForURL((url) => url.pathname.startsWith("/app"), { timeout: 30_000 }),
         page.getByRole("button", { name: "Sign in" }).click({ timeout: 10_000 }),
@@ -318,7 +318,9 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
       const reflectsDb = (await alignment.isChecked()) === (db.adaptive_style_alignment_enabled === true)
         && (await accelerate.isChecked()) === (db.adaptive_style_ai_accelerate_enabled === true);
 
-      await page.getByRole("button", { name: "AI Controls" }).click();
+      await page.getByRole("button", { name: "Open The Forge menu", exact: true }).click();
+      await page.getByRole("dialog", { name: "The Forge menu", exact: true })
+        .getByRole("button", { name: "AI Controls", exact: true }).click();
       const aiPanel = page.locator(".forge-ai-panel");
       await aiPanel.waitFor({ state: "visible", timeout: 20_000 });
       await aiPanel.getByText("Adaptive Style Alignment", { exact: true }).waitFor({ state: "visible", timeout: 20_000 });
@@ -428,7 +430,9 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
       adminPanelPage = await adminSettingsContext.newPage();
       await adminPanelPage.goto(`${baseURL}/app?workspace_id=${workspaceId}`, { waitUntil: "load" });
       await adminPanelPage.waitForURL((url) => url.pathname.startsWith("/app"), { timeout: 30_000 });
-      const adminPanelAiControlsButton = adminPanelPage.getByRole("button", { name: "AI Controls" });
+      await adminPanelPage.getByRole("button", { name: "Open The Forge menu", exact: true }).click();
+      const adminPanelAiControlsButton = adminPanelPage.getByRole("dialog", { name: "The Forge menu", exact: true })
+        .getByRole("button", { name: "AI Controls", exact: true });
       await adminPanelAiControlsButton.waitFor({ state: "visible", timeout: 30_000 });
       await adminPanelAiControlsButton.click({ timeout: 15_000 });
       const adminAiPanel = adminPanelPage.locator(".forge-ai-panel");
