@@ -1,6 +1,12 @@
 import type { BarStockMutationResult, BarStockRepository, BarStockScope, BarStockSnapshot } from "./bar-stock-repository";
 import type { BarStockPersistenceState } from "./bar-stock-state";
-import { markLegacyImportAcknowledged, readLegacyImport } from "./legacy-import";
+import {
+  legacyAssignmentIsSatisfied,
+  legacySparkIsSatisfied,
+  markLegacyImportAcknowledged,
+  readLegacyImport,
+  type LegacyImportData,
+} from "./legacy-import";
 import type { Assignment, Spark } from "./model";
 import {
   acknowledgeRetryOperation,
@@ -8,6 +14,7 @@ import {
   deterministicOperationId,
   loadRetryCache,
   retainRetryOperation,
+  saveRetryCache,
   type BarStockRetryOperation,
   type RetryStorage,
 } from "./retry-cache";
@@ -25,6 +32,11 @@ export type WorkspaceReconciliationResult = {
   executions: OperationExecution[];
   legacy: { imported: number; malformed: number; pending: number };
   remainingRetryCount: number;
+};
+
+type LegacyOperation = {
+  operation: BarStockRetryOperation;
+  inferredAssignment: boolean;
 };
 
 export function assignmentOperation(args: {
@@ -150,6 +162,105 @@ export async function reconcileRetryCache(args: {
   return results;
 }
 
+function operationEntityKey(operation: Pick<BarStockRetryOperation, "kind" | "entityId">): string {
+  return `${operation.kind}:${operation.entityId.toLowerCase()}`;
+}
+
+function isLegacyCreate(operation: BarStockRetryOperation): boolean {
+  return operation.action === "create" && operation.idempotencyKey?.startsWith("legacy:") === true;
+}
+
+function legacyOperations(workspaceId: string, legacy: LegacyImportData): LegacyOperation[] {
+  const assignments = legacy.assignments.map((row): LegacyOperation => {
+    const operation = assignmentOperation({ workspaceId, action: "create", assignment: row.canonical });
+    operation.idempotencyKey = row.importKey;
+    return { operation, inferredAssignment: row.inferred };
+  });
+  const sparks = legacy.sparks.map((row): LegacyOperation => {
+    const operation = sparkOperation({ workspaceId, action: "create", spark: row.canonical });
+    operation.idempotencyKey = row.importKey;
+    return { operation, inferredAssignment: false };
+  });
+  return [...assignments, ...sparks];
+}
+
+function compactLegacyRetryCache(
+  storage: RetryStorage,
+  workspaceId: string,
+  current: readonly LegacyOperation[],
+): Map<string, BarStockRetryOperation> {
+  const currentByEntity = new Map(current.map((item) => [operationEntityKey(item.operation), item.operation]));
+  const authoritativeCached = new Map<string, BarStockRetryOperation>();
+  const compacted: BarStockRetryOperation[] = [];
+
+  for (const operation of loadRetryCache(storage, workspaceId)) {
+    const authoritative = currentByEntity.get(operationEntityKey(operation));
+    if (!authoritative || !isLegacyCreate(operation)) {
+      compacted.push(operation);
+      continue;
+    }
+    if (operation.operationId === authoritative.operationId) {
+      const existing = authoritativeCached.get(operation.operationId);
+      if (!existing || operation.attempts >= existing.attempts) {
+        authoritativeCached.set(operation.operationId, operation);
+      }
+    }
+  }
+  compacted.push(...authoritativeCached.values());
+  saveRetryCache(storage, workspaceId, compacted);
+  return authoritativeCached;
+}
+
+function legacyIntentIsSatisfied(item: LegacyOperation, canonical: Assignment | Spark): boolean {
+  if (item.operation.kind === "assignment" && "name" in canonical) {
+    return legacyAssignmentIsSatisfied(item.operation.intent, canonical, item.inferredAssignment);
+  }
+  if (item.operation.kind === "spark" && "body" in canonical) {
+    return legacySparkIsSatisfied(item.operation.intent, canonical);
+  }
+  return false;
+}
+
+function acknowledgeSatisfiedLegacyOperation(
+  storage: RetryStorage,
+  workspaceId: string,
+  operation: BarStockRetryOperation,
+  canonical: Assignment | Spark,
+): OperationExecution {
+  acknowledgeRetryOperation(storage, workspaceId, operation.operationId);
+  return {
+    operation,
+    state: { status: "saved", operationId: operation.operationId },
+    row: canonical,
+    acknowledged: true,
+  };
+}
+
+function retainDivergentLegacyOperation(
+  storage: RetryStorage,
+  operation: BarStockRetryOperation,
+  canonical: Assignment | Spark,
+): OperationExecution {
+  const message = "Legacy import differs from canonical state.";
+  const retained = {
+    ...operation,
+    attempts: operation.attempts + 1,
+    lastError: message,
+  } as BarStockRetryOperation;
+  retainRetryOperation(storage, retained);
+  return {
+    operation: retained,
+    state: {
+      status: "conflict",
+      operationId: retained.operationId,
+      message,
+    },
+    row: canonical,
+    acknowledged: false,
+    rpcOutcome: "conflict",
+  };
+}
+
 export async function reconcileWorkspacePersistence(args: {
   repository: BarStockRepository;
   storage: RetryStorage;
@@ -157,21 +268,33 @@ export async function reconcileWorkspacePersistence(args: {
   online: boolean;
 }): Promise<WorkspaceReconciliationResult> {
   const initial = await args.repository.hydrateWorkspace(args.scope);
-  const executions = await reconcileRetryCache({
+  const legacyData = await readLegacyImport(args.storage, args.scope.workspaceId);
+  const currentLegacy = legacyOperations(args.scope.workspaceId, legacyData);
+  const currentOperationIds = new Set(currentLegacy.map((item) => item.operation.operationId));
+  const authoritativeCached = compactLegacyRetryCache(
+    args.storage,
+    args.scope.workspaceId,
+    currentLegacy,
+  );
+  const retryOperations = loadRetryCache(args.storage, args.scope.workspaceId)
+    .filter((operation) => !(isLegacyCreate(operation) && currentOperationIds.has(operation.operationId)));
+  const executions = await reconcileOperations({ ...args, snapshot: initial }, retryOperations);
+  const legacyResult = await reconcileLegacyImport({
     ...args,
     snapshot: initial,
+    legacy: legacyData,
+    operations: currentLegacy,
+    authoritativeCached,
   });
-  // Import after replaying the cache so a failed legacy write is retained for
-  // the next explicit reconciliation instead of being attempted twice here.
-  const legacy = await importLegacyBrowserData(args);
-  const snapshot = executions.some((execution) => execution.acknowledged) || legacy.imported > 0
+  executions.push(...legacyResult.executions);
+  const snapshot = executions.some((execution) => execution.acknowledged && execution.rpcOutcome !== undefined)
     ? await args.repository.hydrateWorkspace(args.scope)
     : initial;
 
   return {
     snapshot,
     executions,
-    legacy,
+    legacy: legacyResult.summary,
     remainingRetryCount: loadRetryCache(args.storage, args.scope.workspaceId).length,
   };
 }
@@ -182,23 +305,77 @@ export async function importLegacyBrowserData(args: {
   scope: BarStockScope;
   online: boolean;
 }): Promise<{ imported: number; malformed: number; pending: number }> {
+  const snapshot = await args.repository.hydrateWorkspace(args.scope);
   const legacy = await readLegacyImport(args.storage, args.scope.workspaceId);
+  const operations = legacyOperations(args.scope.workspaceId, legacy);
+  const authoritativeCached = compactLegacyRetryCache(args.storage, args.scope.workspaceId, operations);
+  const result = await reconcileLegacyImport({
+    ...args,
+    snapshot,
+    legacy,
+    operations,
+    authoritativeCached,
+  });
+  return result.summary;
+}
+
+async function reconcileOperations(
+  args: Parameters<typeof reconcileRetryCache>[0],
+  operations: readonly BarStockRetryOperation[],
+): Promise<OperationExecution[]> {
+  const results: OperationExecution[] = [];
+  for (const operation of operations) {
+    args.onTransition?.(operation, { status: "retrying", operationId: operation.operationId });
+    results.push(await executeOperation({ ...args, operation }));
+  }
+  return results;
+}
+
+async function reconcileLegacyImport(args: {
+  repository: BarStockRepository;
+  storage: RetryStorage;
+  scope: BarStockScope;
+  online: boolean;
+  snapshot: BarStockSnapshot;
+  legacy: LegacyImportData;
+  operations: readonly LegacyOperation[];
+  authoritativeCached: ReadonlyMap<string, BarStockRetryOperation>;
+}): Promise<{
+  executions: OperationExecution[];
+  summary: { imported: number; malformed: number; pending: number };
+}> {
   let imported = 0;
   let pending = 0;
-  for (const row of legacy.assignments) {
-    const operation = assignmentOperation({ workspaceId: args.scope.workspaceId, action: "create", assignment: row.canonical });
-    operation.idempotencyKey = row.importKey;
-    const result = await executeOperation({ ...args, operation });
+  const executions: OperationExecution[] = [];
+
+  for (const item of args.operations) {
+    const cached = args.authoritativeCached.get(item.operation.operationId);
+    const operation = cached
+      ? { ...item.operation, attempts: cached.attempts, lastError: cached.lastError } as BarStockRetryOperation
+      : item.operation;
+    const canonical = canonicalEntity(args.snapshot, operation);
+    let result: OperationExecution;
+    if (canonical && legacyIntentIsSatisfied(item, canonical)) {
+      result = acknowledgeSatisfiedLegacyOperation(args.storage, args.scope.workspaceId, operation, canonical);
+    } else if (canonical) {
+      result = retainDivergentLegacyOperation(args.storage, operation, canonical);
+    } else {
+      result = await executeOperation({ ...args, operation });
+    }
+    executions.push(result);
     if (result.acknowledged) imported++; else pending++;
   }
-  for (const row of legacy.sparks) {
-    const operation = sparkOperation({ workspaceId: args.scope.workspaceId, action: "create", spark: row.canonical });
-    operation.idempotencyKey = row.importKey;
-    const result = await executeOperation({ ...args, operation });
-    if (result.acknowledged) imported++; else pending++;
+
+  if (pending === 0 && args.legacy.malformed === 0 && args.operations.length > 0) {
+    const currentOperationIds = new Set(args.operations.map((item) => item.operation.operationId));
+    const currentRetriesRemain = loadRetryCache(args.storage, args.scope.workspaceId)
+      .some((operation) => isLegacyCreate(operation) && currentOperationIds.has(operation.operationId));
+    if (!currentRetriesRemain) {
+      markLegacyImportAcknowledged(args.storage, args.scope.workspaceId, args.legacy.sourceKeys);
+    }
   }
-  if (pending === 0 && (legacy.assignments.length > 0 || legacy.sparks.length > 0)) {
-    markLegacyImportAcknowledged(args.storage, args.scope.workspaceId, legacy.sourceKeys);
-  }
-  return { imported, malformed: legacy.malformed, pending };
+  return {
+    executions,
+    summary: { imported, malformed: args.legacy.malformed, pending },
+  };
 }

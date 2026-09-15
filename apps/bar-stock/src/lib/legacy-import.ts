@@ -5,7 +5,7 @@ const ASSIGNMENT_KEYS = ["barstock_assignments_v1", "barstock_sessions_v1"];
 const SPARK_KEYS = ["barstock_sparks_v1"];
 
 export type LegacyImportData = {
-  assignments: Array<{ originalId: string; canonical: Assignment; importKey: string }>;
+  assignments: Array<{ originalId: string; canonical: Assignment; importKey: string; inferred: boolean }>;
   sparks: Array<{ originalId: string; canonical: Spark; importKey: string }>;
   malformed: number;
   sourceKeys: string[];
@@ -60,10 +60,11 @@ export async function readLegacyImport(storage: RetryStorage, workspaceId: strin
       assignments.push({
         originalId: row.id,
         importKey: `legacy:assignment:${row.id}`,
+        inferred: false,
         canonical: {
           id, name: row.name.trim(), revision: 0,
-          createdAt: typeof row.createdAt === "number" ? row.createdAt : Date.now(),
-          updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : Date.now(),
+          createdAt: typeof row.createdAt === "number" ? row.createdAt : 0,
+          updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : 0,
         },
       });
     }
@@ -84,10 +85,11 @@ export async function readLegacyImport(storage: RetryStorage, workspaceId: strin
         canonicalAssignmentId = assignmentIds.get(rawAssignmentId) ?? await canonicalId(scope, "assignment", rawAssignmentId);
         if (!assignmentIds.has(rawAssignmentId)) {
           assignmentIds.set(rawAssignmentId, canonicalAssignmentId);
-          const at = typeof row.createdAt === "number" ? row.createdAt : Date.now();
+          const at = typeof row.createdAt === "number" ? row.createdAt : 0;
           assignments.push({
             originalId: rawAssignmentId,
             importKey: `legacy:assignment:${rawAssignmentId}`,
+            inferred: true,
             canonical: {
               id: canonicalAssignmentId,
               name: typeof row.title === "string" && row.title.trim() ? row.title.trim() : "Imported Project",
@@ -106,11 +108,11 @@ export async function readLegacyImport(storage: RetryStorage, workspaceId: strin
           title: typeof row.title === "string" ? row.title : undefined,
           assignmentId: canonicalAssignmentId,
           tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === "string") : [],
-          status: row.status === "warming" || row.status === "forged" || row.status === "archived" ? row.status : "raw",
+          status: row.status === "warming" || row.status === "forged" || row.status === "graduated" || row.status === "archived" ? row.status : "raw",
           source: row.source === "typed" || row.source === "paste" || row.source === "voice" || row.source === "link" ? row.source : "import",
           pinned: row.pinned === true,
-          createdAt: typeof row.createdAt === "number" ? row.createdAt : Date.now(),
-          updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : Date.now(),
+          createdAt: typeof row.createdAt === "number" ? row.createdAt : 0,
+          updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : 0,
         },
       });
     }
@@ -118,7 +120,51 @@ export async function readLegacyImport(storage: RetryStorage, workspaceId: strin
   return { assignments, sparks, malformed, sourceKeys: [...assignmentSources, ...sparkSources].map((source) => source.key) };
 }
 
+export function legacyAssignmentIsSatisfied(intent: Assignment, canonical: Assignment, inferred: boolean): boolean {
+  if (intent.id !== canonical.id) return false;
+  const intentName = intent.name.trim();
+  return (inferred && intentName === "Imported Project") || intentName === canonical.name.trim();
+}
+
+const ACTIVE_STATUS_RANK: Partial<Record<Spark["status"], number>> = {
+  raw: 0,
+  warming: 1,
+  forged: 2,
+};
+
+function normalizedTitle(value: string | undefined): string {
+  return value?.trim() ?? "";
+}
+
+function tagsEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index]);
+}
+
+function lifecycleIsSatisfied(intent: Spark["status"], canonical: Spark["status"]): boolean {
+  if (intent === canonical) return true;
+  // The canonical persistence contract stores a graduated Spark as forged;
+  // treat that projection as equivalent before comparing forward progress.
+  const persistedIntent = intent === "graduated" ? "forged" : intent;
+  const persistedCanonical = canonical === "graduated" ? "forged" : canonical;
+  const intentRank = ACTIVE_STATUS_RANK[persistedIntent];
+  const canonicalRank = ACTIVE_STATUS_RANK[persistedCanonical];
+  return intentRank !== undefined && canonicalRank !== undefined && canonicalRank >= intentRank;
+}
+
+export function legacySparkIsSatisfied(intent: Spark, canonical: Spark): boolean {
+  return intent.id === canonical.id
+    && intent.assignmentId === canonical.assignmentId
+    && normalizedTitle(intent.title) === normalizedTitle(canonical.title)
+    && intent.body === canonical.body
+    && tagsEqual(intent.tags, canonical.tags)
+    && (intent.pinned === true) === (canonical.pinned === true)
+    && lifecycleIsSatisfied(intent.status, canonical.status);
+}
+
 export function markLegacyImportAcknowledged(storage: RetryStorage, workspaceId: string, sourceKeys: readonly string[]): void {
-  storage.setItem(`barstock_legacy_import_v3:${workspaceId.toLowerCase()}`, JSON.stringify({ acknowledgedAt: new Date().toISOString() }));
+  const markerKey = `barstock_legacy_import_v3:${workspaceId.toLowerCase()}`;
+  const marker = JSON.stringify({ acknowledgedAt: new Date().toISOString() });
+  storage.setItem(markerKey, marker);
+  if (storage.getItem(markerKey) !== marker) throw new Error("Legacy import completion marker could not be verified.");
   for (const key of sourceKeys) storage.removeItem(key);
 }
