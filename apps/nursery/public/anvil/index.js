@@ -40468,6 +40468,26 @@ function createAsrScrollDriver(options = {}) {
         overshootPx
       };
     }
+    const candidateLine = input.candidateLineIdx ?? input.committedLineIdx;
+    const backwardIdentity = {
+      writerPath: "visual_recenter_pullback",
+      source: input.authority,
+      candidateLine,
+      targetTop: targetScrollTop
+    };
+    const backwardDecision = input.backwardDecision ?? issueBackwardVisualDecision(backwardIdentity);
+    if (!validateBackwardVisualDecision(backwardDecision, backwardIdentity)) {
+      return {
+        applied: false,
+        blocked: true,
+        blockedReason: lastAsrBackwardRecenterBlockReason,
+        beforeTop,
+        afterTop: beforeTop,
+        pullbackPx: 0,
+        tolerancePx,
+        overshootPx
+      };
+    }
     const backwardRecenterGuard = evaluateBackwardRecenterBlock({
       scroller: input.scroller,
       currentTop: beforeTop,
@@ -40566,8 +40586,11 @@ function createAsrScrollDriver(options = {}) {
     const pullbackPx = Math.min(overshootPx, maxPullbackPx);
     const proposedTop = Math.max(targetScrollTop, beforeTop - pullbackPx);
     const afterTop = applyScrollWithHybridGuard(proposedTop, {
+      completion: input.completion,
       scroller: input.scroller,
       reason: "asr-visual-recenter-pullback",
+      backwardWriteStillCurrent: () => validateBackwardVisualDecision(backwardDecision, backwardIdentity, true),
+      backwardWriteStillOwned: () => backwardWriteStillOwned(backwardDecision),
       source: "asr-follow",
       targetScrollTop,
       currentLineIdx: input.currentLineIdx,
@@ -40576,11 +40599,23 @@ function createAsrScrollDriver(options = {}) {
       allowedTargetIdx: input.committedLineIdx,
       selectedAuthority: input.authority,
       authorityReason: "marker_error_line_too_high",
-      candidateLineIdx: input.committedLineIdx,
+      candidateLineIdx: candidateLine,
       sourceAuthority: input.authority,
       terminalClampActive: input.terminalClampActive
     });
     const actualPullbackPx = Math.max(0, beforeTop - afterTop);
+    if (actualPullbackPx === 0 && lastAsrBackwardRecenterBlockReason !== "none") {
+      return {
+        applied: false,
+        blocked: true,
+        blockedReason: lastAsrBackwardRecenterBlockReason,
+        beforeTop,
+        afterTop,
+        pullbackPx: 0,
+        tolerancePx,
+        overshootPx
+      };
+    }
     emitDevDiagnostic(
       "ASR_VISUAL_RECENTER_PULLBACK_APPLIED",
       "warn",
@@ -40607,7 +40642,7 @@ function createAsrScrollDriver(options = {}) {
         ].join("|")
       }
     );
-    if (actualPullbackPx > 0) {
+    if (actualPullbackPx > 0 && backwardWriteStillOwned(backwardDecision)) {
       armOvershootSettleLock({
         lineIdx: input.nextSpeakableLineIdx,
         targetScrollTop,
@@ -40628,10 +40663,26 @@ function createAsrScrollDriver(options = {}) {
       overshootPx
     };
   };
-  const applyVisualActuatorTargetStep = (input) => {
+  const applyVisualActuatorTargetStepCore = (input) => {
     const currentTop = Number.isFinite(input.currentTop) ? Number(input.currentTop) : 0;
     const targetFinite = Number.isFinite(input.targetScrollTop);
     const targetTop = targetFinite ? Number(input.targetScrollTop) : currentTop;
+    if (input.backwardDecision && !validateBackwardVisualDecision(input.backwardDecision, {
+      writerPath: "visual_recenter_pullback",
+      source: input.authority,
+      candidateLine: input.candidateLineIdx ?? input.committedLineIdx,
+      targetTop
+    })) {
+      return {
+        afterTop: currentTop,
+        appliedDeltaPx: 0,
+        clampReason: lastAsrBackwardRecenterBlockReason,
+        tolerancePx: getVisualTargetTolerancePx(input.lineHeightPx),
+        usedPullback: false,
+        blockedPullback: true,
+        zeroingReason: lastAsrBackwardRecenterBlockReason
+      };
+    }
     const remainingForwardDebtPx = targetFinite && targetTop >= currentTop ? Math.max(0, targetTop - currentTop) : Number.POSITIVE_INFINITY;
     const leasedReaderCorrectionActive = isLeasedReaderCorrectionActivelyClosing({
       authority: input.authority,
@@ -40662,6 +40713,9 @@ function createAsrScrollDriver(options = {}) {
     });
     if (targetBounding.overshootActive) {
       const pullbackResult = applyBoundedVisualRecenterPullback({
+        completion: input.completion,
+        backwardDecision: input.backwardDecision,
+        candidateLineIdx: input.candidateLineIdx,
         scroller: input.scroller,
         currentTop,
         targetScrollTop: targetTop,
@@ -40717,6 +40771,8 @@ function createAsrScrollDriver(options = {}) {
       );
     }
     const afterTop = applyScrollWithHybridGuard(boundedTop, {
+      packetContinuity: input.packetContinuity,
+      completion: input.completion,
       scroller: input.scroller,
       reason: "asr-tick",
       source: "asr-follow",
@@ -40730,7 +40786,7 @@ function createAsrScrollDriver(options = {}) {
       candidateLineIdx: input.allowedTargetIdx >= 0 ? input.allowedTargetIdx : input.committedLineIdx,
       sourceAuthority: input.authority,
       terminalClampActive: input.terminalClampActive,
-      allowPostSemanticCommitVisualRelease: true
+      allowPostSemanticCommitVisualRelease: !input.packetContinuity
     });
     return {
       afterTop,
@@ -40782,7 +40838,7 @@ function createAsrScrollDriver(options = {}) {
       });
       return currentTop;
     }
-    if (!canApplyAsrMovement(`scroll-write:${reason}`, Date.now())) {
+    if (!canApplyAsrMovement(`scroll-write:${reason}`, Date.now(), { packetContinuity: opts.packetContinuity })) {
       logAsrScrollAttempt("denied", {
         targetTop,
         currentTop,
@@ -40796,7 +40852,12 @@ function createAsrScrollDriver(options = {}) {
     const liveAsrMode = mode === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     if (liveAsrMode && liveAsrVisualGovernorHardHold) {
       if (opts.bypassAsrVisualGuardrails === true) {
-        const appliedTop2 = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+        if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return currentTop;
+        if (targetTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX && opts.backwardWriteStillCurrent && !opts.backwardWriteStillCurrent()) return currentTop;
+        const reportedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+        const appliedTop2 = opts.landingWriteStillCurrent ? Number(scroller.scrollTop) : reportedTop;
+        if (opts.backwardWriteStillOwned && !opts.backwardWriteStillOwned()) return appliedTop2;
+        if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return appliedTop2;
         scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
         noteVisualWrite(
           String(opts.selectedAuthority || opts.sourceAuthority || reason || "asr"),
@@ -40814,7 +40875,12 @@ function createAsrScrollDriver(options = {}) {
       return currentTop;
     }
     if (opts.bypassAsrVisualGuardrails === true) {
-      const appliedTop2 = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+      if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return currentTop;
+      if (targetTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX && opts.backwardWriteStillCurrent && !opts.backwardWriteStillCurrent()) return currentTop;
+      const reportedTop = applyCanonicalScrollTop(targetTop, { ...opts, scroller, source });
+      const appliedTop2 = opts.landingWriteStillCurrent ? Number(scroller.scrollTop) : reportedTop;
+      if (opts.backwardWriteStillOwned && !opts.backwardWriteStillOwned()) return appliedTop2;
+      if (opts.landingWriteStillCurrent && !opts.landingWriteStillCurrent()) return appliedTop2;
       scheduleAsrWriteCheck(scroller, currentTop, reason, targetTop, source);
       noteVisualWrite(
         String(opts.selectedAuthority || opts.sourceAuthority || reason || "asr"),
@@ -40857,20 +40923,27 @@ function createAsrScrollDriver(options = {}) {
       sourceBranch: opts.sourceBranch,
       forceReason: opts.forceReason,
       terminalClampActive: opts.terminalClampActive === true,
-      releaseFreshVerifiedForwardCommit: releaseDecision?.accepted === true,
-      releaseAuthoritativeLineIdx: releaseDecision?.accepted === true ? releaseDecision.authoritativeLineIdx : null,
-      releaseBoundedTargetTop: releaseDecision?.accepted === true ? releaseDecision.boundedTargetScrollTop : null
+      releaseFreshVerifiedForwardCommit: releaseDecision?.accepted === true || !!opts.completion && completionWriteCurrent(opts.completion),
+      releaseAuthoritativeLineIdx: opts.completion?.line ?? (releaseDecision?.accepted === true ? releaseDecision.authoritativeLineIdx : null),
+      releaseBoundedTargetTop: opts.completion ? targetTop : releaseDecision?.accepted === true ? releaseDecision.boundedTargetScrollTop : null
     });
     const payload = { ...opts, scroller };
-    const appliedTop = applyCanonicalScrollTop(pocketWall.effectiveTop, { ...payload, source });
+    if (pocketWall.effectiveTop < currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX && opts.backwardWriteStillCurrent && !opts.backwardWriteStillCurrent()) return currentTop;
+    if (opts.completion && !completionWriteCurrent(opts.completion)) return currentTop;
+    if (opts.packetContinuity && (!pendingPacketCurrent(opts.packetContinuity) || currentTop !== opts.packetContinuity.beforeTop || pocketWall.effectiveTop < currentTop || pocketWall.effectiveTop > opts.packetContinuity.stepTop)) return currentTop;
+    applyCanonicalScrollTop(pocketWall.effectiveTop, { ...payload, source });
+    const appliedTop = Number(scroller.scrollTop);
+    if (opts.packetContinuity && !pendingPacketCurrent(opts.packetContinuity)) return appliedTop;
+    if (opts.completion && !completionWriteCurrent(opts.completion)) return appliedTop;
+    if (opts.backwardWriteStillOwned && !opts.backwardWriteStillOwned()) return appliedTop;
     if (releaseDecision) {
-      if (releaseDecision.accepted) {
+      if (releaseDecision.accepted && !opts.completion && appliedTop > currentTop + ASR_POCKET_WALL_NOISE_DELTA_PX) {
         armPostReleaseProtectedFollow({
           nowMs: Date.now(),
           releaseLineIdx: releaseDecision.newSemanticLineIdx,
           protectedTargetScrollTop: releaseDecision.releaseDesiredTargetScrollTop
         });
-      } else {
+      } else if (!releaseDecision.accepted && !opts.completion) {
         clearPostReleaseProtectedFollow();
       }
       try {
@@ -41233,7 +41306,7 @@ function createAsrScrollDriver(options = {}) {
         rejectionReasons.push(`${candidate.authority}:${preservedTargetYieldReason !== "none" ? preservedTargetYieldReason : "leased_reader_correction_debt_active"}`);
         continue;
       }
-      if (args.protectedForwardIntent && candidate.direction === "backward" && targetTop < args.currentScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX) {
+      if (args.protectedForwardIntent && targetTop < args.currentScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX) {
         rejectedAuthorities.push(candidate.authority);
         rejectionReasons.push(`${candidate.authority}:protected_forward_reader_intent`);
         continue;
@@ -41258,6 +41331,12 @@ function createAsrScrollDriver(options = {}) {
     return {
       selectedAuthority,
       selectedTargetScrollTop,
+      backwardDecision: selectedTargetScrollTop != null && selectedTargetScrollTop < args.currentScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX ? issueBackwardVisualDecision({
+        writerPath: "visual_recenter_pullback",
+        source: selectedAuthority,
+        candidateLine: selectedCandidate?.candidateLineIdx ?? -1,
+        targetTop: selectedTargetScrollTop
+      }) : void 0,
       selectedReason: selectedCandidate?.reason || movementBlockedReason,
       proposedCandidates,
       rejectedAuthorities: rejectedAuthorities.length > 0 ? rejectedAuthorities.join(",") : "none",
@@ -41317,6 +41396,18 @@ function createAsrScrollDriver(options = {}) {
   const resolveReaderMarkerCorrectionOwnershipFinalization = (args) => {
     const pendingOwner = args.ownershipNotFinalCandidatePresent ? "asr4_pocket_drift" : "none";
     const allowedRescueSources = "reader_marker_correction";
+    const sameLineFinal = args.selectedAuthority === "track_follow" && sameLineCompletionQualified(args.currentLineIdx) && !args.noMatchOrOffscript && !args.hardContradiction && Number.isFinite(args.selectedTargetScrollTop) && Number(args.selectedTargetScrollTop) > args.currentScrollTop + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX && Number(args.markerErrorPx) > getVisualTargetTolerancePx(Number(args.lineHeightPx));
+    if (sameLineFinal) return {
+      blockedReason: "none",
+      ownershipFinalizationRejectedReason: "none",
+      pendingOwner: "track_follow",
+      requiredProofMissing: "none",
+      semanticCommitHeldButVisualCorrectionAllowed: true,
+      backendEvidencePresent: lastAuthorityMatchVia === "backend",
+      spokenAnchorEligible: true,
+      spokenAnchorRejectedReason: "none",
+      allowedRescueSources: "track_follow"
+    };
     if (!args.ownershipNotFinalCandidatePresent) {
       return {
         blockedReason: "none",
@@ -41506,6 +41597,297 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
   };
+  const backwardDecisions = /* @__PURE__ */ new Map();
+  const consumedBackwardDecisions = /* @__PURE__ */ new WeakSet();
+  let acceptedVisualEvidenceRevision = 0;
+  let acceptedVisualEvidenceContext = null;
+  let backwardLocalAnchorContextBlocked = false;
+  function rememberAcceptedVisualEvidence() {
+    acceptedVisualEvidenceRevision += 1;
+    acceptedVisualEvidenceContext = Object.freeze(captureReanchorLandingAuthority());
+  }
+  function backwardEvidenceKey() {
+    return JSON.stringify([
+      acceptedVisualEvidenceRevision,
+      lastAcceptedMatchedLineIdx,
+      lastAcceptedMatchedLineSim,
+      lastAcceptedMatchedAt,
+      lastFreshProofLine,
+      lastForwardCommitAt,
+      lastStrongConfirmedSpokenLine
+    ]);
+  }
+  function sameVisualContext(expected) {
+    const current2 = captureReanchorLandingAuthority();
+    return Object.keys(expected).every((key) => expected[key] === current2[key]);
+  }
+  let pendingPacketRevision = 0;
+  let pendingPacketHighWater = -1;
+  let pendingPacketFinalHighWater = -1;
+  let pendingPacketDecision = null;
+  let pendingPacketInFlight = null;
+  function notePendingPacket(outcome) {
+    try {
+      console.info(`[ASR_PENDING_PACKET_CONTINUITY] outcome=${outcome} semanticEpoch=${semanticEpoch}`);
+    } catch {
+    }
+  }
+  function pendingPacketGeometry(scroller, element) {
+    const rect = element.getBoundingClientRect();
+    const viewer2 = scroller.getBoundingClientRect();
+    return JSON.stringify([
+      element.textContent,
+      element.offsetTop,
+      element.offsetHeight,
+      element.clientHeight,
+      rect.top + scroller.scrollTop,
+      rect.height,
+      viewer2.top,
+      viewer2.height,
+      scroller.clientHeight,
+      scroller.scrollHeight
+    ]);
+  }
+  function pendingPacketCurrent(decision) {
+    const identityCurrent = () => !disposed && pendingPacketDecision === decision && pendingPacketInFlight === decision && decision.pending === reanchorPendingState && decision.packetRevision === pendingPacketRevision && decision.semanticEpoch === semanticEpoch && decision.visualEpoch === visualTargetEpoch && decision.anchor === lastLineIndex && sameVisualContext(decision.context) && Date.now() < decision.expiresAt;
+    if (!identityCurrent() || !canAsrMove() || getScrollMode3() !== "asr" || !isSessionLivePhase() || !isSessionAsrArmed() || !isDocumentFocused() || getDocumentVisibilityState() !== "visible" || getAsrFocusHoldState(Date.now()).active || reanchorLandingState || pendingSpeakableBridgeState || liveAsrTerminalScriptHoldActive || terminalBoundaryAuthority.getPending() || canonicalAuthority.getSnapshot().terminalCompleted || asrSilenceActive || liveAsrVisualGovernorHardHold || !hasRecentVadSpeechNow(Date.now()) || /contradiction|offscript|no_match|stale_authority|authority_not_current/.test(
+      `${lastAsrGuardReason} ${lastAsrHudGuardText}`.toLowerCase()
+    ) || decision.scroller !== getScroller() || !decision.element.isConnected || decision.element !== getLineElementByIndex(decision.scroller, decision.candidate)) return false;
+    const target = resolveTargetTop(decision.scroller, decision.candidate);
+    const height = resolveMotionLineHeightPx(getLineElementByIndex(decision.scroller, decision.anchor));
+    return target === decision.targetTop && height === decision.lineHeight && pendingPacketGeometry(decision.scroller, decision.element) === decision.geometry && identityCurrent();
+  }
+  function attemptPendingPacket(args) {
+    const reject = (reason) => {
+      notePendingPacket(reason);
+    };
+    const detail = args.detail;
+    const pending = reanchorPendingState;
+    if (!pending || !detail || !args.isFinal || pending.reason !== "raw_locality_diverged_without_continuing_support") return;
+    if (detail.noMatch === true || detail.semanticAdmissionVerdict) return reject("packet_admission_denied");
+    const sequence = resolveTranscriptSeq(detail);
+    const request = resolveTranscriptRequestSeq(detail);
+    const now3 = Date.now();
+    const bridgeTimestamp = detail.timestamp;
+    const bridgeGenerationCurrent = Number.isInteger(detail.requestGeneration) && Number.isInteger(detail.bridgeGeneration) && detail.requestGeneration === detail.bridgeGeneration;
+    const bridgeAge = typeof bridgeTimestamp === "number" && Number.isFinite(bridgeTimestamp) && bridgeTimestamp >= 0 ? performance.now() - bridgeTimestamp : Number.NaN;
+    const explicitReceived = detail.receivedAtMs ?? detail.responseCreatedAtMs;
+    const received = explicitReceived != null ? Number(explicitReceived) : bridgeGenerationCurrent && Number.isFinite(bridgeAge) && bridgeAge >= 0 ? now3 - bridgeAge : Number.NaN;
+    const responseAge = detail.responseAgeMs != null ? Number(detail.responseAgeMs) : now3 - received;
+    const responseCurrent = args.responseEpoch != null ? args.responseEpoch === commitAuthorityEpoch && received > lastCommitAuthorityInvalidatedAt : bridgeGenerationCurrent && received > lastCommitAuthorityInvalidatedAt;
+    if (sequence < 0 || !request || !Number.isFinite(received) || received <= 0 || received > now3 || !Number.isFinite(responseAge) || responseAge < 0 || !responseCurrent || !detail.runKey || detail.runGeneration == null || isRunIdentityStale({ runKey: detail.runKey, runGeneration: detail.runGeneration })) return reject("identity_or_response_invalid");
+    const incoming = Math.max(...args.sourceSeqs);
+    const evidence = new Map(args.capture.map((entry) => [entry.requestSeq, entry]));
+    const support = [...new Set(args.supportSeqs)];
+    const source = [...new Set(args.sourceSeqs)];
+    if (!source.length || !support.length || !support.includes(incoming) || !support.every((seq) => source.includes(seq) && evidence.get(seq)?.verdict === "voice_detected")) return reject("unsupported_lineage");
+    const captureTimes = support.map((seq) => detail.requestCaptureEvidence?.find((entry) => entry.requestSeq === seq)?.captureEndedAtMs);
+    if (captureTimes.some((time) => typeof time !== "number" || !Number.isFinite(time) || time <= 0 || time > now3 || now3 - time >= activeAsrControllerProfile.audioFreshMaxAgeMs)) return reject("stale_capture_lineage");
+    if (args.responseEpoch == null && support.some((seq) => {
+      const start2 = detail.requestCaptureEvidence?.find((entry) => entry.requestSeq === seq)?.captureStartedAtMs;
+      return typeof start2 !== "number" || !Number.isFinite(start2) || start2 <= lastCommitAuthorityInvalidatedAt || start2 > now3;
+    })) return reject("capture_before_response_authority");
+    const rawText = typeof detail.rawText === "string" ? normalizeComparableText2(detail.rawText) : "";
+    const assembledText = typeof detail.assembledText === "string" ? normalizeComparableText2(detail.assembledText) : "";
+    const direct = args.provenance === "direct_raw_support" && rawText.length > 0 && rawText === assembledText && args.raw === args.assembled && Number.isFinite(args.rawConfidence) && args.rawConfidence >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM;
+    const multi = args.provenance === "voice_backed_multi_request_support" && detail.forwardMatchCreatedByAssembly === true && rawText.length > 0 && assembledText.length > 0 && source.length > 1 && support.length > 1 && args.raw != null && args.raw >= 0 && args.raw < lastLineIndex;
+    if (!direct && !multi) return reject("unsupported_raw_assembled");
+    const candidate = args.assembled;
+    if (candidate == null || !Number.isInteger(candidate) || candidate < lastLineIndex || candidate > lastLineIndex + 1 || candidate > lastLineIndex && resolveForwardSpeakableTarget2(lastLineIndex, candidate, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN) !== candidate || !Number.isFinite(args.confidence) || args.confidence < DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM) return reject("nonlocal_or_weak_candidate");
+    const expiresAt2 = Math.min(
+      received + activeAsrControllerProfile.responseFreshMaxAgeMs,
+      now3 + activeAsrControllerProfile.responseFreshMaxAgeMs - responseAge,
+      lastAudioChunkAt + activeAsrControllerProfile.audioFreshMaxAgeMs,
+      ...captureTimes.map((time) => Number(time) + activeAsrControllerProfile.audioFreshMaxAgeMs)
+    );
+    if (!lastAudioChunkAt || now3 >= expiresAt2) return reject("expired");
+    const context = Object.freeze(captureReanchorLandingAuthority());
+    const epoch = semanticEpoch;
+    const visualEpoch = visualTargetEpoch;
+    const anchor = lastLineIndex;
+    const scroller = getScroller();
+    const element = getLineElementByIndex(scroller, candidate);
+    if (!scroller || !element?.isConnected) return reject("missing_target");
+    const target = resolveTargetTop(scroller, candidate);
+    const height = resolveMotionLineHeightPx(getLineElementByIndex(scroller, anchor));
+    const before = Number(scroller.scrollTop);
+    const geometry = resolveLineVisualTelemetry(scroller, candidate);
+    if (!Number.isFinite(target) || !Number.isFinite(before) || !Number.isFinite(height) || height <= 0 || !Number.isFinite(geometry.lineCenterInViewport) || Math.abs(geometry.lineCenterInViewport - geometry.markerYInViewport) > height * 6) return reject("nonlocal_geometry");
+    const decision = Object.freeze({
+      pending,
+      context,
+      semanticEpoch: epoch,
+      visualEpoch,
+      packetRevision: args.revision,
+      packetIdentity: JSON.stringify([detail.runKey, detail.runGeneration, sequence, request]),
+      // Exact serialized evidence, not a collision-prone hash or mutable event reference.
+      fingerprint: JSON.stringify([
+        rawText,
+        assembledText,
+        detail.rawTextHash,
+        detail.assembledTextHash,
+        args.raw,
+        candidate,
+        args.rawConfidence,
+        args.confidence,
+        source,
+        support,
+        args.capture,
+        args.provenance,
+        detail.forwardMatchCreatedByAssembly,
+        received,
+        responseAge,
+        args.responseEpoch,
+        detail.requestCaptureEvidence,
+        bridgeTimestamp,
+        detail.requestGeneration,
+        detail.bridgeGeneration
+      ]),
+      expiresAt: expiresAt2,
+      anchor,
+      candidate,
+      element,
+      scroller,
+      targetTop: Number(target),
+      beforeTop: before,
+      stepTop: Math.min(Number(target), before + height),
+      lineHeight: height,
+      geometry: pendingPacketGeometry(scroller, element)
+    });
+    pendingPacketDecision = decision;
+    pendingPacketInFlight = decision;
+    try {
+      notePendingPacket("qualified");
+      if (!pendingPacketCurrent(decision)) return reject("authority_changed");
+      const backwardDecision = decision.targetTop < before ? issueBackwardVisualDecision({
+        writerPath: "visual_recenter_pullback",
+        source: "pending_packet_continuity",
+        candidateLine: candidate,
+        targetTop: decision.targetTop
+      }) : void 0;
+      const result = applyVisualActuatorTargetStep({
+        packetContinuity: decision,
+        backwardDecision,
+        candidateLineIdx: candidate,
+        scroller,
+        currentTop: before,
+        targetScrollTop: decision.targetTop,
+        requestedMovePx: Math.max(0, decision.stepTop - before),
+        effectiveMinStepPx: 0,
+        lineHeightPx: height,
+        currentLineIdx: anchor,
+        committedLineIdx: anchor,
+        nextSpeakableLineIdx: candidate,
+        authority: "pending_packet_continuity",
+        authorityReason: "qualified_packet_only",
+        allowedTargetIdx: candidate,
+        terminalClampActive: liveAsrTerminalScriptHoldActive,
+        noMatchOrOffscript: false,
+        hardContradiction: false
+      });
+      if (!pendingPacketCurrent(decision)) return reject("superseded_during_write");
+      const after = Number(scroller.scrollTop);
+      if (Number.isFinite(after) && after > before + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        lastKnownScrollTop = after;
+        lastMoveAt = Date.now();
+        notePendingPacket("moved");
+      } else notePendingPacket(result.blockedPullback ? "backward_denied" : "no_progress");
+    } catch {
+      notePendingPacket("writer_rejected");
+    } finally {
+      if (pendingPacketDecision === decision) pendingPacketDecision = null;
+      if (pendingPacketInFlight === decision) pendingPacketInFlight = null;
+    }
+  }
+  function qualifiedLocalVisualLine(now3) {
+    if (!acceptedVisualEvidenceContext || !sameVisualContext(acceptedVisualEvidenceContext) || !Number.isFinite(lastAcceptedMatchedLineSim) || lastAcceptedMatchedLineSim < DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM || lastAcceptedMatchedAt <= 0 || now3 - lastAcceptedMatchedAt > ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS || lastAcceptedMatchedLineIdx < lastLineIndex || lastAcceptedMatchedLineIdx > lastLineIndex + 1 || pendingSpeakableBridgeState || reanchorPendingState || asrSilenceActive || liveAsrVisualGovernorHardHold || backwardLocalAnchorContextBlocked || /offscript|no_match|contradiction/.test(`${lastAsrGuardReason} ${lastAsrHudGuardText}`)) return null;
+    const scroller = getScroller();
+    if (!scroller) return null;
+    const geometry = resolveLineVisualTelemetry(scroller, lastAcceptedMatchedLineIdx);
+    const height = resolveMotionLineHeightPx(getLineElementByIndex(scroller, lastLineIndex));
+    if (!Number.isFinite(geometry.lineCenterInViewport) || Math.abs(geometry.lineCenterInViewport - geometry.markerYInViewport) > height * 6) return null;
+    const opportunity = acceptedForwardOpportunity;
+    if (lastAcceptedMatchedLineIdx > lastLineIndex && (!opportunity || opportunity.targetLineIdx !== lastAcceptedMatchedLineIdx || opportunity.semanticCursorAtOpen !== lastLineIndex || opportunity.runKey !== resolveDriverRunKey() || opportunity.runGeneration !== resolveDriverRunGeneration())) return null;
+    return lastAcceptedMatchedLineIdx;
+  }
+  function rejectBackwardDecision(decision, reason) {
+    if (backwardDecisions.get(decision.writerPath) === decision) backwardDecisions.delete(decision.writerPath);
+    lastAsrBackwardRecenterBlockReason = reason;
+    try {
+      console.info(`[ASR_BACKWARD_VISUAL_DECISION] outcome=${reason} writer=${decision.writerPath} candidate=${decision.candidateLine} epoch=${decision.semanticEpoch}`);
+    } catch {
+    }
+    return false;
+  }
+  function backwardWriteStillOwned(decision) {
+    return !disposed && decision.semanticEpoch === semanticEpoch && decision.visualEpoch === visualTargetEpoch && sameVisualContext(decision.context) && !backwardDecisions.has(decision.writerPath) && (decision.landing ? decision.landing === reanchorLandingState && decision.landingRevision === decision.landing.revision : decision.evidenceKey === backwardEvidenceKey());
+  }
+  function issueBackwardVisualDecision(args) {
+    const landing = args.landing ?? null;
+    const evidenceAt = landing ? landing.startedAtMs : Math.max(lastAcceptedMatchedAt, lastForwardCommitAt, lastFinalTranscriptAt);
+    const freshness = Object.freeze({
+      receivedAt: lastTranscriptReceivedAtMs,
+      responseAgeMs: lastTranscriptResponseAgeMs,
+      audioAgeMs: lastTranscriptAudioAgeMs
+    });
+    let expiresAt2 = evidenceAt + ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS;
+    if (freshness.receivedAt > 0) {
+      if (Number.isFinite(freshness.responseAgeMs)) expiresAt2 = Math.min(
+        expiresAt2,
+        freshness.receivedAt + activeAsrControllerProfile.responseFreshMaxAgeMs - freshness.responseAgeMs
+      );
+      if (Number.isFinite(freshness.audioAgeMs)) expiresAt2 = Math.min(
+        expiresAt2,
+        freshness.receivedAt + activeAsrControllerProfile.audioFreshMaxAgeMs - freshness.audioAgeMs
+      );
+    }
+    const decision = Object.freeze({
+      writerPath: args.writerPath,
+      source: args.source,
+      candidateLine: args.candidateLine,
+      targetTop: args.targetTop,
+      semanticEpoch,
+      visualEpoch: visualTargetEpoch,
+      context: Object.freeze(captureReanchorLandingAuthority()),
+      targetElement: getLineElementByIndex(getScroller(), args.candidateLine),
+      evidenceKey: backwardEvidenceKey(),
+      expiresAt: expiresAt2,
+      freshness,
+      landing,
+      landingRevision: landing?.revision ?? null,
+      support: Object.freeze([...landing?.supportingRequestSeqs ?? []])
+    });
+    backwardDecisions.set(args.writerPath, decision);
+    return decision;
+  }
+  function validateBackwardVisualDecision(decision, args, consume = false) {
+    let reason = "";
+    const now3 = Date.now();
+    const evidenceAtCheck = backwardEvidenceKey();
+    if (backwardDecisions.get(decision.writerPath) !== decision || consumedBackwardDecisions.has(decision)) reason = "stale_decision";
+    else if (args.writerPath !== decision.writerPath || args.source !== decision.source || args.candidateLine !== decision.candidateLine || args.targetTop !== decision.targetTop) reason = "candidate_changed_before_writer";
+    else if (disposed || decision.semanticEpoch !== semanticEpoch || decision.visualEpoch !== visualTargetEpoch || !sameVisualContext(decision.context)) reason = "authority_context_changed";
+    else if (!Number.isInteger(decision.candidateLine) || decision.candidateLine < 0 || !decision.targetElement?.isConnected || decision.targetElement !== getLineElementByIndex(getScroller(), decision.candidateLine)) reason = "target_identity_changed";
+    else if (!Number.isFinite(decision.targetTop) || now3 > decision.expiresAt) reason = "evidence_expired";
+    else if (!canAsrMove() || !canApplyAsrMovement(
+      decision.writerPath === "reanchor_landing" ? "reanchor-landing" : `backward-visual:${decision.writerPath}`,
+      now3
+    )) reason = "movement_denied";
+    else if (decision.landing ? decision.landing !== reanchorLandingState || decision.landingRevision !== decision.landing.revision || decision.candidateLine !== decision.landing.finalTargetLineIdx || decision.targetTop !== decision.landing.finalTargetScrollTop || !decision.support.every((seq) => decision.landing.supportingRequestSeqs.includes(seq)) : decision.evidenceKey !== backwardEvidenceKey()) reason = "evidence_identity_changed";
+    else {
+      const localLine = qualifiedLocalVisualLine(now3);
+      const localTop = localLine == null ? null : resolveTargetTop(getScroller(), localLine);
+      const freshCommittedLocal = !decision.landing && lastFreshProofLine === lastLineIndex && lastForwardCommitAt > 0 && now3 - lastForwardCommitAt <= ASR_COMMIT_FRESH_RESPONSE_MAX_AGE_MS;
+      if (localLine != null && localLine > decision.candidateLine && localTop != null && localTop > decision.targetTop + ASR_POCKET_WALL_NOISE_DELTA_PX && (!decision.landing || acceptedVisualEvidenceRevision > decision.landing.backwardEvidenceRevision) || freshCommittedLocal && decision.candidateLine < lastLineIndex) reason = "qualified_local_authority_superseded";
+    }
+    if (!reason && (backwardDecisions.get(decision.writerPath) !== decision || decision.semanticEpoch !== semanticEpoch || decision.visualEpoch !== visualTargetEpoch || !sameVisualContext(decision.context) || evidenceAtCheck !== backwardEvidenceKey())) reason = "authority_changed_during_validation";
+    if (reason) return rejectBackwardDecision(decision, reason);
+    if (consume) {
+      consumedBackwardDecisions.add(decision);
+      backwardDecisions.delete(decision.writerPath);
+    }
+    return true;
+  }
   const evaluateBackwardRecenterBlock = (args) => {
     lastAsrBackwardRecenterBlockReason = "none";
     if (!(Number.isFinite(args.targetTop) && args.targetTop < args.currentTop - ASR_POCKET_WALL_NOISE_DELTA_PX)) {
@@ -41756,6 +42138,7 @@ function createAsrScrollDriver(options = {}) {
     }
     asr4VisualRecoveryLastDirectWriteBlocked = true;
     asr4VisualRecoveryLastDirectWriteBlockedReason = "duplicate_write_guard";
+    rememberCompletionBlocker("duplicate_write_guard", targetScrollTop);
     asr4VisualRecoveryLastTargetPreservedForEasing = true;
     preservedAsrAuthorityTargetTop = targetScrollTop;
     preservedAsrAuthorityTargetReason = visualDebtFloor.floorApplied ? `${input.authoritySource}:lead_pressure_visual_debt_floor` : safeLocalRecoverySignal && appliedTop > currentScrollTop + 0.5 ? `${input.authoritySource}:safe_local_recovery_exempted` : `${input.authoritySource}:lead_pressure_capped`;
@@ -43361,6 +43744,8 @@ function createAsrScrollDriver(options = {}) {
   let activeAsrVisualRecoveryEpisode = null;
   let reanchorPendingState = null;
   let reanchorLandingState = null;
+  let reanchorLandingRevision = 0;
+  let reanchorLandingFrame = null;
   let shortLinePreReanchorGraceState = null;
   let overshootSettleLockState = null;
   let visualDebtRecoveryBudgetEpoch = visualTargetEpoch;
@@ -43384,6 +43769,185 @@ function createAsrScrollDriver(options = {}) {
   let postSemanticCommitVisualReleaseTranscriptAuthorityEpoch = null;
   let postSemanticCommitVisualReleaseTranscriptRunKey = null;
   let postSemanticCommitVisualReleaseTranscriptRunGeneration = null;
+  let postCommitCompletion = null;
+  let postCommitAttemptSerial = 0;
+  const completionBlockers = /* @__PURE__ */ new Map();
+  const rememberCompletionBlocker = (reason, target) => {
+    if (reason !== "target_behind_current" && reason !== "duplicate_write_guard") return;
+    completionBlockers.set(reason, { context: captureReanchorLandingAuthority(), semanticEpoch, visualEpoch: visualTargetEpoch, target });
+  };
+  const currentCompletionBlocker = (reason, target) => {
+    const blocker = completionBlockers.get(reason);
+    if (!blocker) return reason;
+    const superseded = !sameVisualContext(blocker.context) || blocker.semanticEpoch !== semanticEpoch || blocker.visualEpoch !== visualTargetEpoch || blocker.target !== target;
+    const currentProof = sameLineCompletionQualified(lastLineIndex) || !!postCommitCompletion && completionContextCurrent(postCommitCompletion) && postCommitCompletion.outcome === "pending";
+    const canonicalTarget = computeLineTargetTop(getScroller(), getLineElementByIndex(getScroller(), lastLineIndex));
+    if (!superseded || !currentProof || !Number.isFinite(target) || !Number.isFinite(canonicalTarget) || Math.abs(Number(target) - Number(canonicalTarget)) > ASR_POCKET_WALL_NOISE_DELTA_PX) return reason;
+    if (completionBlockers.get(reason) !== blocker) return reason;
+    completionBlockers.delete(reason);
+    if (reason === "target_behind_current" && lastDebugTargetCollapseReason === reason) lastDebugTargetCollapseReason = "none";
+    if (reason === "duplicate_write_guard" && asr4VisualRecoveryLastDirectWriteBlockedReason === reason) {
+      asr4VisualRecoveryLastDirectWriteBlockedReason = "none";
+      asr4VisualRecoveryLastDirectWriteBlocked = false;
+    }
+    if (postCommitCompletion) noteCompletion(postCommitCompletion, `stale_blocker_superseded:${reason}`);
+    return "none";
+  };
+  const completionIdentityCurrent = (state9) => postCommitCompletion === state9 && !disposed && state9.semanticEpoch === semanticEpoch && state9.visualEpoch === visualTargetEpoch && sameVisualContext(state9.context) && state9.line === lastLineIndex;
+  const completionContextCurrent = (state9) => completionIdentityCurrent(state9) && state9.evidenceKey === backwardEvidenceKey();
+  const completionWriteCurrent = (state9) => completionContextCurrent(state9) && state9.outcome === "pending" && state9.inFlight && Date.now() < state9.expiresAt && state9.element != null && state9.element.isConnected && getLineElementByIndex(getScroller(), state9.line) === state9.element && Number.isFinite(state9.canonicalTarget) && Math.abs(Number(computeLineTargetTop(getScroller(), state9.element)) - Number(state9.canonicalTarget)) <= ASR_POCKET_WALL_NOISE_DELTA_PX && !reanchorLandingState && !reanchorPendingState && !pendingSpeakableBridgeState && !asrSilenceActive && !liveAsrVisualGovernorHardHold && !/offscript|no_match|contradiction/.test(`${lastAsrGuardReason} ${lastAsrHudGuardText}`) && canAsrMove() && canApplyAsrMovement("post-commit-completion", Date.now()) && completionContextCurrent(state9);
+  const noteCompletion = (state9, outcome) => {
+    emitDevDiagnostic(
+      "ASR_POST_COMMIT_COMPLETION",
+      "info",
+      `[ASR_POST_COMMIT_COMPLETION] outcome=${outcome} semanticEpoch=${state9.semanticEpoch} visualEpoch=${state9.visualEpoch} line=${state9.line} target=${state9.target ?? "unbound"}`,
+      { minMs: 120, signature: `${state9.semanticEpoch}|${state9.visualEpoch}|${state9.line}|${state9.target}|${outcome}` }
+    );
+  };
+  const capturePostCommitCompletion = (line, expiresAt2) => {
+    if (postCommitCompletion && (completionContextCurrent(postCommitCompletion) || postCommitCompletion.outcome === "complete" && completionIdentityCurrent(postCommitCompletion))) return postCommitCompletion;
+    postCommitCompletion = {
+      context: Object.freeze(captureReanchorLandingAuthority()),
+      semanticEpoch,
+      visualEpoch: visualTargetEpoch,
+      evidenceKey: backwardEvidenceKey(),
+      line,
+      expiresAt: expiresAt2,
+      target: null,
+      canonicalTarget: null,
+      element: null,
+      inFlight: false,
+      outcome: "pending",
+      protected: false
+    };
+    noteCompletion(postCommitCompletion, "pending");
+    return postCommitCompletion;
+  };
+  const sameLineCompletionQualified = (line) => line === lastLineIndex && qualifiedLocalVisualLine(Date.now()) === line && !reanchorLandingState && !reanchorPendingState && !pendingSpeakableBridgeState && !lastAsrGuardReason.toLowerCase().includes("contradiction") && canAsrMove() && canApplyAsrMovement("post-commit-completion", Date.now());
+  const applyVisualActuatorTargetStep = (input) => {
+    if (input.backwardDecision && !validateBackwardVisualDecision(input.backwardDecision, {
+      writerPath: "visual_recenter_pullback",
+      source: input.authority,
+      candidateLine: input.candidateLineIdx ?? input.committedLineIdx,
+      targetTop: Number(input.targetScrollTop)
+    })) return applyVisualActuatorTargetStepCore(input);
+    const before = Number(input.scroller.scrollTop);
+    const hold = (reason) => ({
+      afterTop: before,
+      appliedDeltaPx: 0,
+      clampReason: reason,
+      tolerancePx: getVisualTargetTolerancePx(input.lineHeightPx),
+      usedPullback: false,
+      blockedPullback: false,
+      zeroingReason: reason
+    });
+    if (input.packetContinuity) {
+      if (!pendingPacketCurrent(input.packetContinuity)) return hold("packet_authority_lost");
+      return applyVisualActuatorTargetStepCore(input);
+    }
+    if ((!postCommitCompletion || !completionContextCurrent(postCommitCompletion) && postCommitCompletion.evidenceKey !== backwardEvidenceKey()) && input.currentLineIdx === input.committedLineIdx && sameLineCompletionQualified(input.currentLineIdx)) {
+      capturePostCommitCompletion(input.currentLineIdx, Date.now() + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS);
+    }
+    const state9 = postCommitCompletion;
+    if (!state9 || reanchorLandingState) return applyVisualActuatorTargetStepCore(input);
+    postCommitAttemptSerial += 1;
+    if (state9.outcome === "complete" && completionIdentityCurrent(state9)) return hold("completion_replay");
+    if (!completionContextCurrent(state9) || Date.now() >= state9.expiresAt) {
+      if (postCommitCompletion === state9) {
+        state9.outcome = "stale";
+        noteCompletion(state9, "stale");
+      }
+      return hold("stale_completion");
+    }
+    if (state9.outcome !== "pending" || state9.inFlight) return hold(state9.outcome === "complete" ? "completion_replay" : "completion_in_flight");
+    const target = Number(input.targetScrollTop);
+    const element = getLineElementByIndex(input.scroller, state9.line);
+    const canonicalTarget = computeLineTargetTop(input.scroller, element);
+    const tolerance = getVisualTargetTolerancePx(input.lineHeightPx);
+    if (state9.canonicalTarget != null && (!Number.isFinite(canonicalTarget) || Math.abs(Number(canonicalTarget) - state9.canonicalTarget) > ASR_POCKET_WALL_NOISE_DELTA_PX || state9.element !== element)) {
+      state9.outcome = "stale";
+      noteCompletion(state9, "target_changed");
+      return hold("stale_completion");
+    }
+    if (!element || !element.isConnected || !Number.isFinite(target) || !Number.isFinite(canonicalTarget) || input.currentLineIdx !== state9.line || input.committedLineIdx !== state9.line || Math.abs(target - Number(canonicalTarget)) > tolerance || input.noMatchOrOffscript || input.hardContradiction || !canAsrMove() || !canApplyAsrMovement("post-commit-completion", Date.now())) {
+      noteCompletion(state9, "ownership_not_final");
+      return hold("ownership_not_final");
+    }
+    if (state9.target != null && (state9.target !== target || state9.element !== element)) {
+      state9.outcome = "stale";
+      noteCompletion(state9, "target_changed");
+      return hold("stale_completion");
+    }
+    state9.target = target;
+    state9.canonicalTarget = Number(canonicalTarget);
+    state9.element = element;
+    if (input.requestedMovePx <= 0 && Math.abs(target - before) > tolerance && !input.backwardDecision) {
+      noteCompletion(state9, "execution_not_scheduled");
+      return hold("completion_not_scheduled");
+    }
+    if (input.ownershipPending) {
+      const geometry = resolveLineVisualTelemetry(input.scroller, state9.line);
+      const finality = resolveReaderMarkerCorrectionOwnershipFinalization({
+        ownershipNotFinalCandidatePresent: true,
+        selectedAuthority: input.authority,
+        selectedTargetScrollTop: target,
+        currentScrollTop: before,
+        currentLineIdx: state9.line,
+        markerErrorPx: geometry.lineCenterInViewport - geometry.markerYInViewport,
+        lineHeightPx: input.lineHeightPx,
+        noMatchOrOffscript: input.noMatchOrOffscript,
+        hardContradiction: input.hardContradiction
+      });
+      if (finality.blockedReason !== "none") {
+        noteCompletion(state9, "ownership_not_final");
+        return hold(`ownership_not_final:${finality.ownershipFinalizationRejectedReason}`);
+      }
+    }
+    state9.inFlight = true;
+    const finish = (after) => {
+      if (!completionWriteCurrent(state9)) return;
+      const delta = after - before;
+      const maxTop = Math.max(0, input.scroller.scrollHeight - input.scroller.clientHeight);
+      const satisfied = Math.abs(target - after) <= tolerance;
+      const documentBound = target >= maxTop && Math.abs(after - maxTop) <= ASR_POCKET_WALL_NOISE_DELTA_PX;
+      if (Math.abs(delta) > ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        noteCompletion(state9, "movement_applied");
+        if (!completionWriteCurrent(state9)) return;
+        if (!state9.protected && delta > 0) {
+          state9.protected = true;
+          armPostReleaseProtectedFollow({ nowMs: Date.now(), releaseLineIdx: state9.line, protectedTargetScrollTop: target });
+        }
+      }
+      if (!completionWriteCurrent(state9)) return;
+      if (satisfied || documentBound) {
+        state9.outcome = "complete";
+        clearPostSemanticCommitVisualRelease();
+        if (!completionIdentityCurrent(state9)) return;
+        clearPostSemanticCommitVisualFollowDiagnostic();
+        noteCompletion(state9, documentBound ? "document_bound_complete" : Math.abs(delta) > ASR_POCKET_WALL_NOISE_DELTA_PX ? "finalized" : "already_satisfied");
+      } else noteCompletion(state9, Math.abs(delta) > ASR_POCKET_WALL_NOISE_DELTA_PX ? "residual_pending" : "zero_progress");
+    };
+    try {
+      if (Math.abs(target - before) <= tolerance) {
+        finish(before);
+        return hold("already_satisfied");
+      }
+      noteCompletion(state9, "target_authorized");
+      if (!completionWriteCurrent(state9)) return hold("stale_completion");
+      const result = applyVisualActuatorTargetStepCore({ ...input, currentTop: before, completion: state9 });
+      const after = Number(input.scroller.scrollTop);
+      if (!completionWriteCurrent(state9)) return { ...result, afterTop: after, appliedDeltaPx: after - before, ownershipLost: true };
+      finish(after);
+      return { ...result, afterTop: after, appliedDeltaPx: after - before };
+    } catch {
+      const after = Number(input.scroller.scrollTop);
+      const current2 = completionWriteCurrent(state9);
+      if (current2) noteCompletion(state9, "execution_rejected");
+      return { ...hold("writer_rejected"), afterTop: after, appliedDeltaPx: after - before, ownershipLost: !current2 };
+    } finally {
+      state9.inFlight = false;
+    }
+  };
   let safeForwardResidualNextEligibleAtMs = 0;
   const emitAdjacentPromotionTrace = (input) => {
     try {
@@ -44403,6 +44967,10 @@ function createAsrScrollDriver(options = {}) {
     pendingSeq += 1;
   };
   const resetRunTimingState = (source, nextRunKey, nextRunGeneration) => {
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
+    backwardLocalAnchorContextBlocked = false;
+    clearReanchorLandingState("run_identity_changed");
     const now3 = Date.now();
     rebindPendingResponseAuthority();
     lastCommitAt2 = now3;
@@ -44835,6 +45403,8 @@ function createAsrScrollDriver(options = {}) {
       clearPostSemanticCommitVisualRelease();
       return false;
     }
+    const completion = capturePostCommitCompletion(args.newSemanticLineIdx, args.now + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS);
+    if (completion.outcome !== "pending") return false;
     postSemanticCommitVisualReleasePending = true;
     postSemanticCommitVisualReleaseUntilMs = args.now + ASR_POST_SEMANTIC_COMMIT_VISUAL_FOLLOW_WINDOW_MS;
     postSemanticCommitVisualReleasePreviousLineIdx = args.previousSemanticLineIdx;
@@ -44898,22 +45468,6 @@ function createAsrScrollDriver(options = {}) {
         proposedTargetScrollTop: args.proposedTop,
         rejectReason
       });
-      emitPostSemanticCommitVisualReleaseTokenState({
-        event: "consumed",
-        previousSemanticLineIdx,
-        newSemanticLineIdx,
-        currentLineIdx: Math.max(0, Math.floor(Number(args.currentLineIdx) || 0)),
-        committedLineIdx: Math.max(0, Math.floor(Number(args.committedLineIdx) || 0)),
-        sessionLive,
-        asrMode,
-        speechLive,
-        transcriptFresh,
-        noMatch,
-        bridgeActive,
-        pendingBridgeActive: !!pendingSpeakableBridgeState,
-        proposedTargetScrollTop: args.proposedTop,
-        rejectReason
-      });
       const result = {
         accepted,
         rejectReason,
@@ -44927,7 +45481,9 @@ function createAsrScrollDriver(options = {}) {
         markerY,
         currentLineViewportY
       };
-      clearPostSemanticCommitVisualRelease();
+      if (["expired", "stale_authority", "generation_mismatch", "semantic_line_mismatch"].includes(rejectReason)) {
+        clearPostSemanticCommitVisualRelease();
+      }
       return result;
     };
     if (postSemanticCommitVisualReleaseUntilMs <= nowMs3) {
@@ -46591,6 +47147,11 @@ function createAsrScrollDriver(options = {}) {
   };
   const clearReanchorLandingState = (reason = "resolved") => {
     if (!reanchorLandingState) return;
+    cancelReanchorLandingFrame(reason === "landed" ? null : "superseded");
+    reanchorLandingRevision += 1;
+    pursuitActive = false;
+    pursuitTargetTop = null;
+    pursuitVel = 0;
     try {
       console.info(
         `[ASR_REANCHOR_LANDING_CLEARED] reason=${reason} anchorLineIdx=${reanchorLandingState.anchorLineIdx} finalTargetLineIdx=${reanchorLandingState.finalTargetLineIdx} epoch=${reanchorLandingState.semanticEpoch}`
@@ -46608,6 +47169,232 @@ function createAsrScrollDriver(options = {}) {
     }
     reanchorLandingState = null;
   };
+  function captureReanchorLandingAuthority() {
+    const ready = window.__forgeCanonicalReadyScript;
+    return {
+      runKey: resolveActiveRunKey(),
+      runGeneration: resolveActiveRunGeneration(),
+      driverRunKey: resolveDriverRunKey(),
+      driverRunGeneration: resolveDriverRunGeneration(),
+      responseEpoch: commitAuthorityEpoch,
+      focusGeneration: asrFocusGeneration,
+      viewerRole: resolveViewerRole(),
+      scroller: getScroller(),
+      scriptRoot: getScriptRoot(),
+      scriptHash: readScriptHash3(),
+      readyScriptIdentity: JSON.stringify(ready == null ? null : [
+        ready.workspaceId,
+        ready.workpieceId,
+        ready.path,
+        ready.scriptRevision,
+        ready.scriptHash,
+        ready.transitionId
+      ]),
+      captureSessionId: window.__tpAnvilCaptureSessionId ?? null
+    };
+  }
+  function isReanchorLandingAuthorityCurrent(landing) {
+    const current2 = captureReanchorLandingAuthority();
+    const captured = landing.authority;
+    return !disposed && landing === reanchorLandingState && landing.revision === reanchorLandingRevision && landing.semanticEpoch === semanticEpoch && Object.keys(captured).every((key) => captured[key] === current2[key]) && current2.scroller != null && current2.scroller.isConnected && current2.scriptRoot != null && current2.scriptRoot.isConnected && Number.isFinite(landing.finalTargetScrollTop) && Number.isInteger(landing.finalTargetLineIdx);
+  }
+  function ownsReanchorLandingFrame(frame) {
+    return reanchorLandingFrame === frame && frame.revision === frame.landing.revision && frame.semanticEpoch === semanticEpoch && frame.targetLine === frame.landing.finalTargetLineIdx && frame.targetTop === frame.landing.finalTargetScrollTop && frame.targetElement != null && frame.targetElement.isConnected && frame.targetElement === getLineElementByIndex(frame.landing.authority.scroller, frame.targetLine) && isReanchorLandingAuthorityCurrent(frame.landing);
+  }
+  function emitLandingFrameOutcome(frame, outcome) {
+    try {
+      console.info(`[ASR_REANCHOR_FRAME] outcome=${outcome} revision=${frame.revision} epoch=${frame.semanticEpoch} targetLine=${frame.targetLine}`);
+    } catch {
+    }
+  }
+  function cancelReanchorLandingFrame(outcome = "superseded") {
+    const frame = reanchorLandingFrame;
+    reanchorLandingFrame = null;
+    if (!frame) return;
+    if (frame.handle != null) {
+      try {
+        window.cancelAnimationFrame(frame.handle);
+      } catch {
+      }
+    }
+    if (outcome) emitLandingFrameOutcome(frame, outcome);
+  }
+  function scheduleReanchorLandingFrame() {
+    const landing = reanchorLandingState;
+    if (!landing || disposed) return;
+    if (!isReanchorLandingAuthorityCurrent(landing) || !canAsrMove()) {
+      clearReanchorLandingState("landing_authority_lost");
+      return;
+    }
+    if (reanchorLandingFrame) return;
+    pursuitActive = false;
+    pursuitTargetTop = null;
+    pursuitVel = 0;
+    const frame = {
+      handle: null,
+      consumed: false,
+      landing,
+      revision: landing.revision,
+      semanticEpoch: landing.semanticEpoch,
+      targetLine: landing.finalTargetLineIdx,
+      targetTop: landing.finalTargetScrollTop,
+      targetElement: getLineElementByIndex(landing.authority.scroller, landing.finalTargetLineIdx)
+    };
+    const backwardIdentity = {
+      writerPath: "reanchor_landing",
+      source: "reanchor_landing",
+      candidateLine: frame.targetLine,
+      targetTop: frame.targetTop
+    };
+    const backwardDecision = issueBackwardVisualDecision({ ...backwardIdentity, landing });
+    reanchorLandingFrame = frame;
+    frame.handle = window.requestAnimationFrame(() => {
+      if (frame.consumed || !ownsReanchorLandingFrame(frame)) {
+        emitLandingFrameOutcome(frame, "stale");
+        if (!frame.consumed && reanchorLandingFrame === frame && reanchorLandingState === landing) {
+          clearReanchorLandingState("stale_landing_frame");
+        }
+        return;
+      }
+      frame.consumed = true;
+      frame.handle = null;
+      if (!canAsrMove() || !canApplyAsrMovement("reanchor-landing", Date.now())) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState("landing_movement_denied");
+        return;
+      }
+      if (!ownsReanchorLandingFrame(frame)) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState("stale_landing_frame");
+        return;
+      }
+      const scroller = landing.authority.scroller;
+      const current2 = Number(scroller.scrollTop);
+      if (!Number.isFinite(current2)) {
+        clearReanchorLandingState("non_finite_position");
+        return;
+      }
+      const lineHeightPx = Math.max(
+        1,
+        Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24)
+      );
+      const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
+      if (!Number.isFinite(lineHeightPx) || !Number.isFinite(maxScrollTop)) {
+        clearReanchorLandingState("non_finite_geometry");
+        return;
+      }
+      const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
+      const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
+      const finalTargetTop = clamp5(requestedFinalTargetTop, 0, maxScrollTop);
+      const targetAhead = finalTargetTop >= current2;
+      const exposedTargetTop = targetAhead ? Math.min(finalTargetTop, current2 + maxExposeDeltaPx) : Math.max(finalTargetTop, current2 - maxExposeDeltaPx);
+      applyScrollWithHybridGuard(exposedTargetTop, {
+        scroller,
+        reason: "reanchor-landing",
+        sourceAuthority: "reanchor_landing",
+        selectedAuthority: "reanchor_landing",
+        currentLineIdx: landing.anchorLineIdx,
+        committedLineIdx: landing.anchorLineIdx,
+        nextSpeakableLineIdx: landing.finalTargetLineIdx,
+        bypassAsrVisualGuardrails: true,
+        landingWriteStillCurrent: () => ownsReanchorLandingFrame(frame) && canAsrMove(),
+        backwardWriteStillCurrent: () => validateBackwardVisualDecision(backwardDecision, backwardIdentity, true)
+      });
+      if (lastAsrBackwardRecenterBlockReason !== "none" && exposedTargetTop < current2 - ASR_POCKET_WALL_NOISE_DELTA_PX && Number(scroller.scrollTop) === current2 && !backwardDecisions.has("reanchor_landing") && !consumedBackwardDecisions.has(backwardDecision)) {
+        if (ownsReanchorLandingFrame(frame)) clearReanchorLandingState("backward_authority_rejected");
+        return;
+      }
+      if (!ownsReanchorLandingFrame(frame)) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState("stale_after_write");
+        return;
+      }
+      const appliedTop = Number(scroller.scrollTop);
+      if (!Number.isFinite(appliedTop)) {
+        clearReanchorLandingState("non_finite_applied_position");
+        return;
+      }
+      const requestedDeltaPx = Math.abs(exposedTargetTop - current2);
+      const appliedDeltaPx = Math.abs(appliedTop - current2);
+      const actuatorNoProgress = requestedDeltaPx > 1 && appliedDeltaPx <= 0.5;
+      landing.lastExposedTargetScrollTop = exposedTargetTop;
+      landing.lastAppliedScrollTop = appliedTop;
+      if (actuatorNoProgress) {
+        landing.noProgressFrames += 1;
+        landing.lastActuatorFaultReason = "landing_writer_no_progress";
+        if (landing.stuckSinceMs <= 0) landing.stuckSinceMs = Date.now();
+      } else {
+        landing.noProgressFrames = 0;
+        landing.lastActuatorFaultReason = null;
+        landing.stuckSinceMs = 0;
+      }
+      try {
+        const scrollState = window.__tpAsrScrollState ??= {};
+        scrollState.reanchorLandingActive = true;
+        scrollState.reanchorLandingAnchorLineIdx = landing.anchorLineIdx;
+        scrollState.reanchorLandingTargetLineIdx = landing.finalTargetLineIdx;
+        scrollState.reanchorLandingNoProgressFrames = landing.noProgressFrames;
+        scrollState.reanchorLandingActuatorFault = landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD;
+        scrollState.reanchorLandingActuatorFaultReason = landing.lastActuatorFaultReason;
+        scrollState.reanchorLandingExposedTargetScrollTop = Math.round(exposedTargetTop);
+        scrollState.reanchorLandingFinalTargetScrollTop = Math.round(finalTargetTop);
+        scrollState.reanchorLandingAppliedScrollTop = Math.round(appliedTop);
+        scrollState.reanchorLandingStuckSinceMs = landing.stuckSinceMs;
+      } catch {
+      }
+      lastKnownScrollTop = appliedTop;
+      if (appliedDeltaPx > 0) {
+        lastMoveAt = Date.now();
+        markProgrammaticScroll();
+      }
+      const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
+      const landed = Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx || Math.abs(finalTargetTop - current2) <= 0.5;
+      try {
+        console.warn(
+          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`
+        );
+      } catch {
+      }
+      if (landed && Number.isFinite(requestedFinalTargetTop) && Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5) {
+        try {
+          console.info(
+            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop)} currentScrollTop=${Math.round(current2)} appliedScrollTop=${Math.round(appliedTop)}`
+          );
+        } catch {
+        }
+      }
+      if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
+        try {
+          console.warn(
+            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || "unknown"}`
+          );
+        } catch {
+        }
+        emitHudStatus(
+          "stall",
+          "ASR re-anchor landing stuck - transcripts visible, auto-follow paused",
+          {
+            key: "stall",
+            sinceMs: landing.stuckSinceMs > 0 ? Math.max(0, Date.now() - landing.stuckSinceMs) : 0,
+            reasonSummary: "reanchor_landing_actuator_fault"
+          }
+        );
+        stallHudEmitted = true;
+      }
+      emitLandingFrameOutcome(frame, appliedDeltaPx > 0 ? "applied" : actuatorNoProgress ? "actuator_no_progress" : "zero_movement");
+      if (!ownsReanchorLandingFrame(frame)) {
+        if (reanchorLandingFrame === frame) clearReanchorLandingState("stale_after_diagnostic");
+        return;
+      }
+      if (landed) {
+        clearReanchorLandingState("landed");
+        pursuitActive = false;
+        pursuitTargetTop = null;
+        pursuitVel = 0;
+      } else {
+        reanchorLandingFrame = null;
+        scheduleReanchorLandingFrame();
+      }
+    });
+    emitLandingFrameOutcome(frame, "scheduled");
+  }
   const cancelAutomaticVisualAuthorities = (reason) => {
     stopGlide(reason);
     pursuitTargetTop = null;
@@ -46695,6 +47482,9 @@ function createAsrScrollDriver(options = {}) {
       const targetTop = resolveTargetTop(scroller, newLineIdx);
       if (targetTop != null && Number.isFinite(targetTop)) {
         reanchorLandingState = {
+          backwardEvidenceRevision: acceptedVisualEvidenceRevision,
+          revision: ++reanchorLandingRevision,
+          authority: captureReanchorLandingAuthority(),
           startedAtMs: Date.now(),
           reason: args.reason,
           anchorLineIdx: newLineIdx,
@@ -46772,6 +47562,7 @@ function createAsrScrollDriver(options = {}) {
     return true;
   };
   const freezeAsrMovementForFocusHold = (reason) => {
+    clearReanchorLandingState(`focus-hold:${reason}`);
     pendingSeq += 1;
     pendingMatch = null;
     if (pendingRaf) {
@@ -46963,7 +47754,7 @@ function createAsrScrollDriver(options = {}) {
   };
   const canApplyAsrMovement = (source, now3, detail) => {
     const normalizedSource = String(source || "").trim().toLowerCase();
-    if (reanchorPendingState && normalizedSource !== "reanchor-confirmed" && normalizedSource !== "scroll-write:reanchor-confirmed") {
+    if (reanchorPendingState && !(detail?.packetContinuity && pendingPacketCurrent(detail.packetContinuity)) && normalizedSource !== "reanchor-confirmed" && normalizedSource !== "scroll-write:reanchor-confirmed") {
       warnGuard("asr_reanchor_pending_hold", [
         `source=${source}`,
         `reason=${reanchorPendingState.reason}`,
@@ -47368,6 +48159,9 @@ function createAsrScrollDriver(options = {}) {
     lastAudioChunkAt = Math.max(lastAudioChunkAt, ts);
   };
   const resetHandler = () => {
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
+    clearReanchorLandingState("script-reset");
     clearEvidenceBuffer("script-reset");
   };
   const rescueHandler = (event) => {
@@ -52600,6 +53394,7 @@ function createAsrScrollDriver(options = {}) {
     };
   }
   function invalidatePendingResponseAuthority(reason, overrides) {
+    clearReanchorLandingState(`response-authority:${reason}`);
     commitAuthorityEpoch += 1;
     lastCommitAuthorityInvalidatedAt = Date.now();
     clearStallRecoveryOverrideHint();
@@ -52841,6 +53636,10 @@ function createAsrScrollDriver(options = {}) {
     };
   };
   const tickController = () => {
+    if (reanchorLandingState) {
+      scheduleReanchorLandingFrame();
+      return;
+    }
     if (!pursuitActive || disposed) return;
     const liveAsrFollowMode = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     if (getScrollMode3() === "asr" && !liveAsrFollowMode) {
@@ -52985,107 +53784,6 @@ function createAsrScrollDriver(options = {}) {
       }
       return;
     }
-    if (reanchorLandingState) {
-      cancelAutomaticVisualAuthorities("reanchor_landing_tick");
-      const landing = reanchorLandingState;
-      const lineHeightPx = Math.max(
-        1,
-        Number(getLineElementByIndex(scroller, Math.max(0, landing.finalTargetLineIdx))?.clientHeight || 24)
-      );
-      const maxScrollTop2 = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
-      const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
-      const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
-      const finalTargetTop = clamp5(requestedFinalTargetTop, 0, maxScrollTop2);
-      const targetAhead = finalTargetTop >= current2;
-      const exposedTargetTop = targetAhead ? Math.min(finalTargetTop, current2 + maxExposeDeltaPx) : Math.max(finalTargetTop, current2 - maxExposeDeltaPx);
-      const appliedTop = applyScrollWithHybridGuard(exposedTargetTop, {
-        scroller,
-        reason: "reanchor-landing",
-        sourceAuthority: "reanchor_landing",
-        selectedAuthority: "reanchor_landing",
-        currentLineIdx: landing.anchorLineIdx,
-        committedLineIdx: landing.anchorLineIdx,
-        nextSpeakableLineIdx: landing.finalTargetLineIdx,
-        bypassAsrVisualGuardrails: true
-      });
-      const requestedDeltaPx2 = Math.abs(exposedTargetTop - current2);
-      const appliedDeltaPx2 = Math.abs(appliedTop - current2);
-      const actuatorNoProgress = requestedDeltaPx2 > 1 && appliedDeltaPx2 <= 0.5;
-      landing.lastExposedTargetScrollTop = exposedTargetTop;
-      landing.lastAppliedScrollTop = appliedTop;
-      if (actuatorNoProgress) {
-        landing.noProgressFrames += 1;
-        landing.lastActuatorFaultReason = "landing_writer_no_progress";
-        if (landing.stuckSinceMs <= 0) landing.stuckSinceMs = Date.now();
-      } else {
-        landing.noProgressFrames = 0;
-        landing.lastActuatorFaultReason = null;
-        landing.stuckSinceMs = 0;
-      }
-      try {
-        const scrollState = window.__tpAsrScrollState ??= {};
-        scrollState.reanchorLandingActive = true;
-        scrollState.reanchorLandingAnchorLineIdx = landing.anchorLineIdx;
-        scrollState.reanchorLandingTargetLineIdx = landing.finalTargetLineIdx;
-        scrollState.reanchorLandingNoProgressFrames = landing.noProgressFrames;
-        scrollState.reanchorLandingActuatorFault = landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD;
-        scrollState.reanchorLandingActuatorFaultReason = landing.lastActuatorFaultReason;
-        scrollState.reanchorLandingExposedTargetScrollTop = Math.round(exposedTargetTop);
-        scrollState.reanchorLandingFinalTargetScrollTop = Math.round(finalTargetTop);
-        scrollState.reanchorLandingAppliedScrollTop = Math.round(appliedTop);
-        scrollState.reanchorLandingStuckSinceMs = landing.stuckSinceMs;
-      } catch {
-      }
-      lastKnownScrollTop = appliedTop;
-      lastMoveAt = Date.now();
-      markProgrammaticScroll();
-      const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
-      const landed = Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx || Math.abs(finalTargetTop - current2) <= 0.5;
-      try {
-        console.warn(
-          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx2)} appliedDeltaPx=${Math.round(appliedDeltaPx2)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`
-        );
-      } catch {
-      }
-      if (landed && Number.isFinite(requestedFinalTargetTop) && Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5) {
-        try {
-          console.info(
-            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop2)} currentScrollTop=${Math.round(current2)} appliedScrollTop=${Math.round(appliedTop)}`
-          );
-        } catch {
-        }
-      }
-      if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
-        try {
-          console.warn(
-            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx2)} appliedDeltaPx=${Math.round(appliedDeltaPx2)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || "unknown"}`
-          );
-        } catch {
-        }
-        emitHudStatus(
-          "stall",
-          "ASR re-anchor landing stuck - transcripts visible, auto-follow paused",
-          {
-            key: "stall",
-            sinceMs: landing.stuckSinceMs > 0 ? Math.max(0, Date.now() - landing.stuckSinceMs) : 0,
-            reasonSummary: "reanchor_landing_actuator_fault"
-          }
-        );
-        stallHudEmitted = true;
-      }
-      if (landed) {
-        clearReanchorLandingState("landed");
-        pursuitActive = false;
-        pursuitTargetTop = null;
-        pursuitVel = 0;
-      } else {
-        pursuitActive = true;
-        pursuitTargetTop = finalTargetTop;
-        pursuitVel = 0;
-        window.requestAnimationFrame(tickController);
-      }
-      return;
-    }
     appliedTopPx = current2;
     const manualDelta = Math.abs(current2 - lastKnownScrollTop);
     if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
@@ -53190,6 +53888,7 @@ function createAsrScrollDriver(options = {}) {
     let targetCollapseReason = null;
     if (pursuitTargetTop < current2) {
       targetCollapseReason = "target_behind_current";
+      rememberCompletionBlocker(targetCollapseReason, pursuitTargetTop);
       emitDevDiagnostic(
         "ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED",
         "warn",
@@ -53753,6 +54452,7 @@ function createAsrScrollDriver(options = {}) {
       const ordinaryLiveMarkerLandingActive = liveAsrFollowMode && !bridgeHoldContextActive;
       const acceptedAnchorHoldOrRecoveryContextActive = visualGovernorHoldActive || liveHardHold || readerPaceHold || liveAsrRecoveryBoostMinStepPx > 0 || liveAsrRecoveryBoostMaxStepPx > 0 || postAdjacentCommitRecoveryMinStepPx > 0 || postAdjacentCommitRecoveryMaxStepPx > 0;
       const acceptedMatchAnchorEligible = ordinaryLiveMarkerLandingActive && hasAcceptedMatchAnchor && acceptedAnchorLocalAdjacent && acceptedAnchorStrongConfidence && acceptedAnchorFresh && !acceptedAnchorHoldOrRecoveryContextActive && acceptedAnchorLowDebt;
+      backwardLocalAnchorContextBlocked = !ordinaryLiveMarkerLandingActive || acceptedAnchorHoldOrRecoveryContextActive;
       const visualAnchorLineIdx = ordinaryLiveMarkerLandingActive ? acceptedMatchAnchorEligible ? acceptedAnchorLineIdx : hasConfirmedSpokenAnchor ? Math.max(0, Math.floor(Number(lastStrongConfirmedSpokenLine))) : hasCurrentLineAnchor ? Math.max(0, Math.floor(Number(lastLineIndex))) : Math.max(0, nextSpeakableLineIdx) : Math.max(0, nextSpeakableLineIdx);
       const visualAnchorSource = ordinaryLiveMarkerLandingActive ? acceptedMatchAnchorEligible ? "accepted_match" : hasConfirmedSpokenAnchor ? "confirmed_spoken" : hasCurrentLineAnchor ? "current_line" : "next_speakable_fallback" : "next_speakable_pending_bridge";
       const visualAnchorVisual = resolveLineVisualTelemetry(scroller, visualAnchorLineIdx);
@@ -55796,8 +56496,9 @@ function createAsrScrollDriver(options = {}) {
       const provisionalSelectedReason = String(liveTickAuthorityReason || "unknown");
       const localSafeSemanticTarget = Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx) && liveAsrCommitteeAcceptedCommitTargetIdx >= lastLineIndex && liveAsrCommitteeAcceptedCommitTargetIdx <= lastLineIndex + 1;
       const protectedForwardIntent = liveTickOwnershipSnapshot.correctionRequested && Number.isFinite(liveTickOwnershipSnapshot.matchBestSim) && liveTickOwnershipSnapshot.matchBestSim >= 0.78 && Number.isFinite(liveTickOwnershipSnapshot.matchBestIdx) && Math.abs(Number(liveTickOwnershipSnapshot.matchBestIdx) - Math.max(0, Math.floor(Number(lastLineIndex) || 0))) <= 1 && Number.isFinite(liveTickOwnershipSnapshot.markerErrorPx) && Number.isFinite(liveTickOwnershipSnapshot.lineHeightPx) && liveTickOwnershipSnapshot.markerErrorPx > liveTickOwnershipSnapshot.lineHeightPx && localSafeSemanticTarget;
-      const addOwnershipCandidate = (authority, targetScrollTop, reason, direction, priority) => {
+      const addOwnershipCandidate = (authority, targetScrollTop, reason, direction, priority, candidateLineIdx = lastAsrVisualAnchorLineIdx >= 0 ? lastAsrVisualAnchorLineIdx : -1) => {
         liveTickVisualOwnershipCandidates.push({
+          candidateLineIdx,
           authority,
           targetScrollTop: Number.isFinite(targetScrollTop) ? Number(targetScrollTop) : null,
           reason,
@@ -55821,7 +56522,10 @@ function createAsrScrollDriver(options = {}) {
           preservedTop,
           preservedAsrAuthorityTargetReason || "preserved_forward_follow_target",
           preservedTop > beforeScrollTop ? "forward" : preservedTop < beforeScrollTop ? "backward" : "hold",
-          preservedTop > beforeScrollTop ? 92 : 18
+          preservedTop > beforeScrollTop ? 92 : 18,
+          // A preserved forward pixel target has no retained backward anchor
+          // identity. It cannot borrow the current anchor if it falls behind.
+          -1
         );
       }
       if (liveAsrCommitteePreferredLowerRailReleaseActive) {
@@ -56050,6 +56754,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (liveAsrFollowMode && visualChairpersonOwnershipEnabled && chairDecisionOutput) {
       liveTickVisualOwnershipCandidates.push({
+        candidateLineIdx: lastAsrVisualAnchorLineIdx >= 0 ? lastAsrVisualAnchorLineIdx : lastLineIndex,
         authority: String(chairDecisionOutput.decision.authority || "chairperson_ownership"),
         targetScrollTop: Number.isFinite(chairDecisionOutput.decision.targetScrollTop) ? Number(chairDecisionOutput.decision.targetScrollTop) : beforeScrollTop,
         reason: String(chairDecisionOutput.decision.reason || "chairperson_ownership"),
@@ -56182,6 +56887,7 @@ function createAsrScrollDriver(options = {}) {
         clampReason = clampReason === "none" ? "target_debt_cap" : clampReason;
       }
     }
+    const postCommitPassAttemptStart = postCommitAttemptSerial;
     let afterScrollTop = beforeScrollTop;
     let appliedDeltaPx = 0;
     const actuatorTargetDebtPx = Number.isFinite(liveTickFinalTargetDebtPx) ? liveTickFinalTargetDebtPx : Number.isFinite(liveAsrActuatorTargetDebtPx) ? liveAsrActuatorTargetDebtPx : arithmeticTargetDebtPx;
@@ -56238,7 +56944,7 @@ function createAsrScrollDriver(options = {}) {
       visibilityBlockedForActuator ? "visibility_hold" : null,
       String(liveAsrActuatorReason || "none"),
       String(liveTickAuthorityReason || "none"),
-      String(lastDebugTargetCollapseReason || "none"),
+      currentCompletionBlocker(String(lastDebugTargetCollapseReason || "none"), targetScrollTopForActuator),
       String(lastAsrPocketWallReason || "none"),
       String(lastAsrRecoveryPathBlockReason || "none"),
       !effectiveResolvedTargetSafety.effectiveTargetSafe ? String(effectiveResolvedTargetSafety.effectiveTargetSafeBlockedReason || "unsafe_target") : null,
@@ -56341,8 +57047,11 @@ function createAsrScrollDriver(options = {}) {
         ASR_FOCUS_LOST_MOVEMENT_HOLD_GUARD,
         "Hold: focus lost, movement frozen"
       );
-    } else if (move > 0 || canAttemptVisualRecenterPullback) {
+    } else if (move > 0 || canAttemptVisualRecenterPullback || postCommitCompletion?.outcome === "pending") {
       const actuatorStep = applyVisualActuatorTargetStep({
+        ownershipPending: liveTickVisualOwnershipCandidates.some((candidate) => candidate.authority === "asr4_pocket_drift"),
+        backwardDecision: liveTickVisualOwnershipDecision?.backwardDecision,
+        candidateLineIdx: liveTickVisualOwnershipDecision?.backwardDecision?.candidateLine ?? (lastAsrVisualAnchorLineIdx >= 0 ? lastAsrVisualAnchorLineIdx : committedLineIdxForActuator),
         scroller,
         currentTop: beforeScrollTop,
         targetScrollTop: Number.isFinite(targetScrollTopForActuator) ? targetScrollTopForActuator : null,
@@ -56360,6 +57069,7 @@ function createAsrScrollDriver(options = {}) {
         hardContradiction: hardContradictionActive,
         localRescueMinMovePx: localRescueBoundedMinMovePx
       });
+      if (actuatorStep.ownershipLost) return;
       if (actuatorStep.blockedPullback && lastAsrRecoveryPathBlockReason === "none") {
         lastAsrRecoveryPathBlockReason = lastAsrBackwardRecenterBlockReason !== "none" ? `pullback_blocked:${lastAsrBackwardRecenterBlockReason}` : "pullback_blocked";
       } else if (actuatorStep.usedPullback && lastAsrRecoveryPathBlockReason === "none") {
@@ -56374,7 +57084,7 @@ function createAsrScrollDriver(options = {}) {
       lastKnownScrollTop = actuatorStep.afterTop;
       afterScrollTop = actuatorStep.afterTop;
       appliedDeltaPx = afterScrollTop - beforeScrollTop;
-      if (localRescueMustRealizeMove && Math.max(0, appliedDeltaPx) <= 0 && Number.isFinite(targetScrollTopForActuator)) {
+      if (postCommitAttemptSerial === postCommitPassAttemptStart && localRescueMustRealizeMove && Math.max(0, appliedDeltaPx) <= 0 && Number.isFinite(targetScrollTopForActuator)) {
         const rescueFallbackTop = resolveSafeLocalRecoveryStepTop({
           currentScrollTop: beforeScrollTop,
           proposedScrollTop: beforeScrollTop + localRescueBoundedMinMovePx,
@@ -56486,7 +57196,7 @@ function createAsrScrollDriver(options = {}) {
       primaryBypassReason: lastAuthorityPrimaryBypassReason
     });
     const liveTickDirectWriteBlockedReason = atScrollLimit ? "scroll_limit" : actuatorNoMatchOrOffscript || hardContradictionActive || liveHardHold ? "safety_blocker" : liveTickStaleDebtSource ? "stale_debt" : liveTickOwnershipTargetChanged ? "target_changed" : liveTickOwnershipNotFinalCandidatePresent && liveTickOwnershipFinalizationStatus.blockedReason !== "none" ? liveTickOwnershipFinalizationStatus.blockedReason : normalizeDirectWriteBlockedReason(asr4VisualRecoveryLastDirectWriteBlockedReason);
-    const shouldObserveAsr4PocketAfterWrite = liveAsrFollowMode && (isDevMode4() || liveScrollStallDecision.active || Math.abs(appliedDeltaPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX || asr4VisualRecoveryLastDirectWriteBlocked || preservedAsrAuthorityTargetTop != null);
+    const shouldObserveAsr4PocketAfterWrite = postCommitAttemptSerial === postCommitPassAttemptStart && liveAsrFollowMode && (isDevMode4() || liveScrollStallDecision.active || Math.abs(appliedDeltaPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX || asr4VisualRecoveryLastDirectWriteBlocked || preservedAsrAuthorityTargetTop != null);
     const asr4PocketTickObservation = shouldObserveAsr4PocketAfterWrite ? observeAsr4PocketDrift({
       scroller,
       currentLine: lastLineIndex,
@@ -56515,7 +57225,7 @@ function createAsrScrollDriver(options = {}) {
       }
     }
     const maturedMarkerClosureEligible = acceptedMarkerMaintenanceActive && safeForwardPacingDecision.usedPreservedDebt && safeForwardPacingDecision.scheduleMatured && safeForwardPacingDecision.eligible && safeForwardActuatorEligible && safeForwardRealBlockerReason === "none" && !pendingSpeakableBridgeState && !atScrollLimit && !actuatorNoMatchOrOffscript && !hardContradictionActive && !sameTargetOvershootSettleLockForActuator && Number.isFinite(targetScrollTopForActuator) && Math.max(0, Number(targetScrollTopForActuator) - beforeScrollTop) > safeForwardHoldBandPx;
-    if (maturedMarkerClosureEligible && Math.abs(appliedDeltaPx) <= ASR_POCKET_WALL_NOISE_DELTA_PX) {
+    if (postCommitAttemptSerial === postCommitPassAttemptStart && maturedMarkerClosureEligible && Math.abs(appliedDeltaPx) <= ASR_POCKET_WALL_NOISE_DELTA_PX) {
       const boundedClosureStepPx = Math.min(
         Math.max(0, Number(targetScrollTopForActuator) - beforeScrollTop),
         Math.max(1, safeForwardPacingDecision.move),
@@ -57362,7 +58072,7 @@ function createAsrScrollDriver(options = {}) {
         }
       }
     }
-    if (!activeFocusMovementHold && liveAsrFollowMode && liveAsrEscapeAllowedThisTick && appliedDeltaPx <= 0 && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit) {
+    if (!activeFocusMovementHold && postCommitAttemptSerial === postCommitPassAttemptStart && liveAsrFollowMode && liveAsrEscapeAllowedThisTick && appliedDeltaPx <= 0 && !actuatorNoMatchOrOffscript && !hardContradictionActive && !atScrollLimit) {
       const requestedEscapeTargetTop = Number.isFinite(liveAsrEscapeRequestedTargetTopThisTick) ? Number(liveAsrEscapeRequestedTargetTopThisTick) : Number.isFinite(pursuitTargetTop) ? Number(pursuitTargetTop) : beforeScrollTop + DEFAULT_MIN_STEP_PX;
       const preservedEscapeTop = clamp5(
         Math.min(requestedEscapeTargetTop, beforeScrollTop + Math.max(1, DEFAULT_MIN_STEP_PX)),
@@ -57795,6 +58505,10 @@ function createAsrScrollDriver(options = {}) {
     window.requestAnimationFrame(tickController);
   };
   const ensurePursuitActive = () => {
+    if (reanchorLandingState) {
+      scheduleReanchorLandingFrame();
+      return;
+    }
     const liveAsrFollowMode = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed();
     const scroller = getScroller();
     const nowTs2 = Date.now();
@@ -57850,6 +58564,7 @@ function createAsrScrollDriver(options = {}) {
     if (asr4VisualRecoveryLastDirectWriteBlockedReason === "none") {
       asr4VisualRecoveryLastDirectWriteBlockedReason = !scroller ? "no_writer" : easedTargetScrollTop <= currentScrollTop + 0.5 ? "min_delta" : "duplicate_write_guard";
     }
+    rememberCompletionBlocker(asr4VisualRecoveryLastDirectWriteBlockedReason, requestedTargetScrollTop);
     const directWriteBlockedSignature = [
       input.sourcePath,
       input.reason,
@@ -65360,6 +66075,13 @@ function createAsrScrollDriver(options = {}) {
         const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
         const correctedTop = clamp5(beforeScrollTop + (rowCenter - args.state.markerTopPx), 0, maxTop);
         if (Math.abs(correctedTop - beforeScrollTop) > 0.5) {
+          const backwardIdentity = {
+            writerPath: "pocket_drift",
+            source: "asr4-pocket-drift-authority",
+            candidateLine: activeLine,
+            targetTop: correctedTop
+          };
+          const backwardDecision = correctedTop < beforeScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX ? issueBackwardVisualDecision(backwardIdentity) : null;
           const backwardRecenterGuard = evaluateBackwardRecenterBlock({
             scroller: args.scroller,
             currentTop: beforeScrollTop,
@@ -65428,8 +66150,8 @@ function createAsrScrollDriver(options = {}) {
             lineHeightPx: args.state.lineHeightPx,
             maxScrollTop: maxTop
           });
-          const applied = leadPressureCapped ? leadPressureCapped.appliedTop : applyCanonicalScrollTop(
-            evaluateAsrPocketWall({
+          const applied = leadPressureCapped ? leadPressureCapped.appliedTop : (() => {
+            const effectiveTop = evaluateAsrPocketWall({
               scroller: args.scroller,
               currentTop: beforeScrollTop,
               proposedTop: correctedTop,
@@ -65443,13 +66165,14 @@ function createAsrScrollDriver(options = {}) {
               sourceAuthority: "asr4-pocket-drift-authority",
               lineHeightHintPx: args.state.lineHeightPx,
               terminalClampActive: args.state.terminalClampActive
-            }).effectiveTop,
-            {
+            }).effectiveTop;
+            if (effectiveTop < beforeScrollTop - ASR_POCKET_WALL_NOISE_DELTA_PX && (!backwardDecision || !validateBackwardVisualDecision(backwardDecision, backwardIdentity, true))) return beforeScrollTop;
+            return applyCanonicalScrollTop(effectiveTop, {
               scroller: args.scroller,
               reason: "asr4-pocket-drift-authority",
               source: "asr-follow"
-            }
-          );
+            });
+          })();
           afterScrollTop = Number.isFinite(applied) ? Number(applied) : Number(args.scroller.scrollTop || beforeScrollTop);
           movedPx = Math.round(afterScrollTop - beforeScrollTop);
           if (Math.abs(movedPx) >= 1) {
@@ -67113,6 +67836,21 @@ function createAsrScrollDriver(options = {}) {
     const transcriptRunGeneration = normalizeRunGeneration(
       detail?.runGeneration
     );
+    let continuityRevision = -1;
+    if (!isRunIdentityStale({ runKey: transcriptRunKey || void 0, runGeneration: transcriptRunGeneration })) {
+      pendingPacketRevision += 1;
+      continuityRevision = pendingPacketRevision;
+      pendingPacketDecision = null;
+      const sequence = resolveTranscriptSeq(detail);
+      if (sequence >= 0) {
+        if (reanchorPendingState && (sequence < pendingPacketHighWater || isFinal && sequence <= pendingPacketFinalHighWater)) {
+          notePendingPacket("replay_or_stale");
+          return;
+        }
+        pendingPacketHighWater = Math.max(pendingPacketHighWater, sequence);
+        if (isFinal) pendingPacketFinalHighWater = Math.max(pendingPacketFinalHighWater, sequence);
+      }
+    }
     const detailSpeechRunningActualRaw = detail?.speechRunningActual;
     if (detailSpeechRunningActualRaw === true) {
       asrRuntimeSpeechSeen = true;
@@ -67445,6 +68183,15 @@ function createAsrScrollDriver(options = {}) {
     if (reanchorLandingState && liveAsrSessionActive && isFinal && requestCaptureVoiceDetected && rawMatchIndex != null && Math.abs(rawMatchIndex - reanchorLandingState.finalTargetLineIdx) <= ASR_REANCHOR_CONFIRM_LOCAL_WINDOW_LINES + 1) {
       const scroller = getScroller();
       const reinforcedTargetTop = scroller ? resolveTargetTop(scroller, rawMatchIndex) : null;
+      if (!isReanchorLandingAuthorityCurrent(reanchorLandingState)) {
+        clearReanchorLandingState("stale_reinforcement");
+        return;
+      }
+      const targetChanged = reanchorLandingState.finalTargetLineIdx !== rawMatchIndex || reinforcedTargetTop != null && reinforcedTargetTop !== reanchorLandingState.finalTargetScrollTop;
+      if (targetChanged) {
+        cancelReanchorLandingFrame();
+        reanchorLandingState.revision = ++reanchorLandingRevision;
+      }
       reanchorLandingState.finalTargetLineIdx = rawMatchIndex;
       if (reinforcedTargetTop != null && Number.isFinite(reinforcedTargetTop)) {
         reanchorLandingState.finalTargetScrollTop = reinforcedTargetTop;
@@ -67535,7 +68282,25 @@ function createAsrScrollDriver(options = {}) {
         }
       }
       if (reanchorPendingState) {
-        emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
+        const pendingOwner = reanchorPendingState;
+        const pendingContext = captureReanchorLandingAuthority();
+        attemptPendingPacket({
+          detail,
+          isFinal,
+          revision: continuityRevision,
+          raw: rawMatchIndex,
+          assembled: assembledMatchIndex,
+          rawConfidence: rawMatchConfidence,
+          confidence: assembledMatchConfidence,
+          sourceSeqs: sourceRequestSeqs,
+          supportSeqs: lineageSeqsForForward,
+          capture: requestCaptureEvidence,
+          provenance: targetSupportProvenance,
+          responseEpoch: transcriptAuthorityEpoch
+        });
+        if (pendingOwner === reanchorPendingState && continuityRevision === pendingPacketRevision && sameVisualContext(pendingContext)) {
+          emitHudStatus("asr_reanchor_pending", "ASR re-anchor pending - transcripts visible, auto-follow paused");
+        }
         return;
       }
     }
@@ -67706,6 +68471,7 @@ function createAsrScrollDriver(options = {}) {
         const freshBestIdx = Number.isFinite(Number(incomingMatch.bestIdx)) ? Math.max(0, Math.floor(Number(incomingMatch.bestIdx))) : -1;
         const freshBestSim = Number.isFinite(Number(incomingMatch.bestSim)) ? Number(incomingMatch.bestSim) : -1;
         if (freshBestIdx >= 0 && freshBestSim >= DEFAULT_LIVE_ASR_DIRECT_ADJACENT_MIN_SIM) {
+          rememberAcceptedVisualEvidence();
           lastAcceptedMatchedLineIdx = freshBestIdx;
           lastAcceptedMatchedLineSim = freshBestSim;
           lastAcceptedMatchedAt = now3;
@@ -71646,7 +72412,10 @@ function createAsrScrollDriver(options = {}) {
     return true;
   }
   const dispose = () => {
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
     if (disposed) return;
+    clearReanchorLandingState("dispose");
     const activeEpisode = alignmentEpisodes.flushStale();
     if (activeEpisode) alignmentEpisodes.dumpForConsole(activeEpisode);
     emitSummary("dispose");
@@ -71804,6 +72573,9 @@ function createAsrScrollDriver(options = {}) {
   };
   const setLastLineIndex = (index) => {
     if (!Number.isFinite(index)) return;
+    backwardDecisions.clear();
+    acceptedVisualEvidenceContext = null;
+    backwardLocalAnchorContextBlocked = false;
     clearAcceptedForwardOpportunity("manual_reposition");
     clearShortLinePreReanchorGraceState("setLastLineIndex");
     clearReanchorPendingState("setLastLineIndex");
@@ -73510,7 +74282,87 @@ function createAsrScrollDriver(options = {}) {
       focusHoldReason: focusHoldState.reason
     };
   };
+  const debugBackwardVisual = {
+    seedAccepted(line, confidence, ageMs = 0) {
+      lastAcceptedMatchedLineIdx = line;
+      lastAcceptedMatchedLineSim = confidence;
+      lastAcceptedMatchedAt = Date.now() - ageMs;
+      rememberAcceptedVisualEvidence();
+      noteAcceptedForwardOpportunity({
+        semanticCursor: lastLineIndex,
+        targetLineIdx: line,
+        confidence,
+        nowMs: lastAcceptedMatchedAt,
+        runKey: resolveDriverRunKey(),
+        runGeneration: resolveDriverRunGeneration()
+      });
+      return qualifiedLocalVisualLine(Date.now());
+    },
+    select(candidateLine, targetTop, label = "backward") {
+      return selectAsrVisualOwnershipCandidate({
+        candidates: [{
+          authority: "track_follow",
+          candidateLineIdx: candidateLine,
+          targetScrollTop: targetTop,
+          reason: "marker_error_line_too_high",
+          direction: label,
+          priority: 20
+        }],
+        currentScrollTop: getScroller().scrollTop,
+        correctionRequested: true,
+        markerErrorPx: 0,
+        lineHeightPx: 236,
+        protectedForwardIntent: false
+      }).backwardDecision;
+    },
+    apply(decision, targetTop = decision.targetTop, candidateLine = decision.candidateLine) {
+      const scroller = getScroller();
+      return applyVisualActuatorTargetStep({
+        scroller,
+        currentTop: scroller.scrollTop,
+        targetScrollTop: targetTop,
+        requestedMovePx: 20,
+        effectiveMinStepPx: DEFAULT_MIN_STEP_PX,
+        lineHeightPx: resolveMotionLineHeightPx(getLineElementByIndex(scroller, lastLineIndex)),
+        currentLineIdx: lastLineIndex,
+        committedLineIdx: lastLineIndex,
+        nextSpeakableLineIdx: lastLineIndex,
+        authority: decision.source,
+        authorityReason: "marker_error_line_too_high",
+        allowedTargetIdx: lastLineIndex,
+        terminalClampActive: false,
+        noMatchOrOffscript: false,
+        hardContradiction: false,
+        backwardDecision: decision,
+        candidateLineIdx: candidateLine
+      });
+    },
+    pocket() {
+      const scroller = getScroller();
+      const state9 = computeAsr4PocketDriftState({
+        scroller,
+        currentLine: lastLineIndex,
+        committedLine: lastLineIndex,
+        targetLine: lastLineIndex,
+        currentScrollTop: scroller.scrollTop,
+        targetScrollTop: resolveTargetTop(scroller, lastLineIndex),
+        movedPx: 0,
+        directWriteBlocked: false,
+        targetPreservedForEasing: false,
+        visualSnapSuppressed: false,
+        terminalClampActive: false,
+        followMode: "live_asr_follow",
+        scrollReason: "pocket_drift",
+        reason: "ownership_candidate"
+      });
+      return applyAsr4PocketDriftAuthority({ scroller, state: state9, consecutiveBelowPocketCount: 1 });
+    },
+    invalidateResponse() {
+      invalidatePendingResponseAuthority("debug_backward_response");
+    }
+  };
   const debugGetAuthoritySnapshot = () => ({
+    acceptedEvidenceIdentity: backwardEvidenceKey(),
     lastSelectedAuthority: lastAsrSelectedAuthority,
     visualAction: lastAsrVisualAction,
     visualErrorPx: lastAsrVisualErrorPx,
@@ -73555,6 +74407,10 @@ function createAsrScrollDriver(options = {}) {
     reanchorLanding: !!reanchorLandingState,
     reanchorLandingAnchorLineIdx: reanchorLandingState?.anchorLineIdx ?? -1,
     reanchorLandingTargetLineIdx: reanchorLandingState?.finalTargetLineIdx ?? -1,
+    reanchorLandingFrameId: reanchorLandingFrame?.handle ?? null,
+    reanchorLandingRevision,
+    reanchorLandingNoProgressFrames: reanchorLandingState?.noProgressFrames ?? 0,
+    lastMoveAt,
     semanticEpoch,
     visualTargetEpoch,
     lastVisualWriteOwner,
@@ -73570,6 +74426,77 @@ function createAsrScrollDriver(options = {}) {
     return opportunity ? { ...opportunity } : null;
   };
   const debugEvaluateAcceptedForwardOpportunity = (args) => evaluateAcceptedForwardOpportunity(args);
+  const debugPostCommitCompletion = {
+    prepare(line, adjacent = true) {
+      lastAcceptedMatchedLineIdx = line;
+      lastAcceptedMatchedLineSim = 0.95;
+      lastAcceptedMatchedAt = Date.now();
+      rememberAcceptedVisualEvidence();
+      lastTranscriptSpeechFresh = true;
+      lastTranscriptResponseAgeMs = 0;
+      lastTranscriptReceivedAtMs = Date.now();
+      lastFinalTranscriptAt = Date.now();
+      lastFinalTranscriptRunKey = resolveActiveRunKey();
+      lastFinalTranscriptRunGeneration = resolveActiveRunGeneration();
+      lastAsrGuardReason = "none";
+      lastAsrHudGuardText = "none";
+      if (adjacent) armPostSemanticCommitVisualRelease({ now: Date.now(), previousSemanticLineIdx: line - 1, newSemanticLineIdx: line, bridgeContextActive: false });
+      return computeLineTargetTop(getScroller(), getLineElementByIndex(getScroller(), line));
+    },
+    step(args) {
+      const scroller = getScroller();
+      return applyVisualActuatorTargetStep({
+        scroller,
+        currentTop: Number(scroller.scrollTop),
+        targetScrollTop: args.target,
+        requestedMovePx: args.move ?? 236,
+        effectiveMinStepPx: 0,
+        lineHeightPx: 236,
+        currentLineIdx: lastLineIndex,
+        committedLineIdx: lastLineIndex,
+        nextSpeakableLineIdx: lastLineIndex,
+        candidateLineIdx: lastLineIndex,
+        authority: args.authority ?? "track_follow",
+        authorityReason: "marker_error_line_too_low",
+        allowedTargetIdx: lastLineIndex,
+        terminalClampActive: false,
+        noMatchOrOffscript: !!args.unsafe,
+        hardContradiction: false,
+        ownershipPending: args.pending
+      });
+    },
+    state() {
+      return {
+        outcome: postCommitCompletion?.outcome,
+        pending: postSemanticCommitVisualReleasePending,
+        target: postCommitCompletion?.target,
+        protected: postCommitCompletion?.protected,
+        inFlight: postCommitCompletion?.inFlight,
+        attempts: postCommitAttemptSerial,
+        lastMoveAt,
+        qualified: sameLineCompletionQualified(lastLineIndex),
+        acceptedContextCurrent: !!acceptedVisualEvidenceContext && sameVisualContext(acceptedVisualEvidenceContext),
+        blockedContext: backwardLocalAnchorContextBlocked,
+        silence: asrSilenceActive,
+        localLine: qualifiedLocalVisualLine(Date.now()),
+        geometry: resolveLineVisualTelemetry(getScroller(), lastLineIndex)
+      };
+    },
+    invalidate(kind) {
+      if (kind === "response") invalidatePendingResponseAuthority("debug_completion_response");
+      else if (kind === "focus") asrFocusGeneration += 1;
+      else if (kind === "semantic") semanticEpoch += 1;
+      else if (kind === "visual") visualTargetEpoch += 1;
+    },
+    rememberBlocker: rememberCompletionBlocker,
+    resolveBlocker: currentCompletionBlocker,
+    tick(target) {
+      pursuitTargetTop = target;
+      pursuitActive = true;
+      pursuitLastTs = performance.now() - 16;
+      tickController();
+    }
+  };
   const driver = {
     ingest,
     dispose,
@@ -73577,6 +74504,8 @@ function createAsrScrollDriver(options = {}) {
     getLastLineIndex,
     getStats,
     __debugGetAuthoritySnapshot: debugGetAuthoritySnapshot,
+    __debugBackwardVisual: debugBackwardVisual,
+    __debugPostCommitCompletion: debugPostCommitCompletion,
     __debugNoteAcceptedForwardOpportunity: debugNoteAcceptedForwardOpportunity,
     __debugEvaluateAcceptedForwardOpportunity: debugEvaluateAcceptedForwardOpportunity,
     __debugClearAcceptedForwardOpportunity: clearAcceptedForwardOpportunity,
@@ -75662,6 +76591,229 @@ var init_active_profile = __esm({
   }
 });
 
+// src/forge/workpiece-context.ts
+function readString3(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid(value) {
+  const str = readString3(value);
+  if (!str) return null;
+  return UUID_RE.test(str) ? str.toLowerCase() : null;
+}
+function readLocalStorage(key) {
+  try {
+    return readString3(window.localStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function writeLocalStorage(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+  }
+}
+function getQueryParam(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString3(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
+  }
+  return null;
+}
+function resolveWorkspaceId() {
+  const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+  return null;
+}
+function resolveDirectWorkpieceId() {
+  const fromQuery = normalizeUuid(
+    getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  );
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid(
+    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKPIECE_STORAGE_KEYS) {
+    const value = normalizeUuid(readLocalStorage(key));
+    if (value) return value;
+  }
+  return null;
+}
+function loadCachedWorkpiece(workspaceId) {
+  if (!workspaceId) return null;
+  return normalizeUuid(readLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`));
+}
+function parseReadyScriptWorkpieceId(scriptId) {
+  const id = readString3(scriptId);
+  if (!id) return null;
+  if (!id.toLowerCase().startsWith("ready:")) return null;
+  const rest = id.slice("ready:".length);
+  const separator = rest.indexOf(":");
+  if (separator <= 0) return null;
+  return normalizeUuid(rest.slice(0, separator));
+}
+function persistActiveWorkpieceFromScriptId(scriptId) {
+  const workpieceId = parseReadyScriptWorkpieceId(scriptId);
+  if (!workpieceId) return null;
+  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
+  const workspaceId = resolveWorkspaceId();
+  if (workspaceId) {
+    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
+  }
+  return workpieceId;
+}
+function resolveActiveWorkpieceId() {
+  const direct = resolveDirectWorkpieceId();
+  if (direct) return direct;
+  return loadCachedWorkpiece(resolveWorkspaceId());
+}
+function resolveActiveWorkspaceId() {
+  return resolveWorkspaceId();
+}
+var UUID_RE, WORKSPACE_STORAGE_KEYS, WORKPIECE_STORAGE_KEYS, ACTIVE_WORKPIECE_KEY, WORKSPACE_WORKPIECE_PREFIX;
+var init_workpiece_context = __esm({
+  "src/forge/workpiece-context.ts"() {
+    "use strict";
+    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS = [
+      "forge_active_workpiece_id_v1",
+      "forge_workpiece_id_v1",
+      "tp_workpiece_id"
+    ];
+    ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+  }
+});
+
+// ../../packages/tongs/src/customer-spending-confirmation.ts
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function string(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+function readCustomerSpendingQuote(payload) {
+  const root = object(payload);
+  const error = object(root?.error);
+  const details = object(error?.details);
+  const row = object(error?.billing_quote) ?? object(details?.billing_quote) ?? object(root?.billing_quote);
+  if (!row) return null;
+  const maximum = Number(row.maximum_customer_charge_micros);
+  const failure = Number(row.failure_customer_charge_micros);
+  const expiresAt2 = string(row.expires_at);
+  if (!string(row.quote_id) || !string(row.operation_id) || !string(row.quote_hash) || !string(row.request_fingerprint) || row.currency !== "USD" || !Number.isSafeInteger(maximum) || maximum < 0 || failure !== 0 || !expiresAt2) return null;
+  return {
+    quote_id: string(row.quote_id),
+    operation_id: string(row.operation_id),
+    quote_hash: string(row.quote_hash),
+    request_fingerprint: string(row.request_fingerprint),
+    currency: "USD",
+    maximum_customer_charge_micros: maximum,
+    failure_customer_charge_micros: 0,
+    failure_terms: string(row.failure_terms) || "Forge-caused and provider-caused failures cost you $0.",
+    funding_eligible: row.funding_eligible === true,
+    funding_source: string(row.funding_source) || "none",
+    funding_label: string(row.funding_label) || "No verified eligible funds",
+    model_display_name: string(row.model_display_name) || null,
+    provider_model_id: string(row.provider_model_id) || null,
+    model_tradeoff_summary: string(row.model_tradeoff_summary) || null,
+    catalog_revision: Number.isSafeInteger(Number(row.catalog_revision)) ? Number(row.catalog_revision) : null,
+    estimated_customer_charge_micros: Number.isSafeInteger(Number(row.estimated_customer_charge_micros)) ? Number(row.estimated_customer_charge_micros) : maximum,
+    ...Number.isSafeInteger(Number(row.maximum_owner_commitment_micros)) && Number(row.maximum_owner_commitment_micros) >= 0 ? { maximum_owner_commitment_micros: Number(row.maximum_owner_commitment_micros) } : {},
+    ...object(row.cost_components) ? { cost_components: Object.fromEntries(Object.entries(object(row.cost_components)).flatMap(([key, value]) => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : [])) } : {},
+    ...object(row.limits) ? { limits: Object.fromEntries(Object.entries(object(row.limits)).flatMap(([key, value]) => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : [])) } : {},
+    expires_at: expiresAt2
+  };
+}
+function customerSpendingAcceptance(quote) {
+  return {
+    quote_id: quote.quote_id,
+    operation_id: quote.operation_id,
+    quote_hash: quote.quote_hash,
+    request_fingerprint: quote.request_fingerprint
+  };
+}
+function confirmCustomerSpendingQuote(quote) {
+  if (!quote.funding_eligible) return false;
+  const maximum = (quote.maximum_customer_charge_micros / 1e6).toLocaleString("en-US", {
+    style: "currency",
+    currency: quote.currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6
+  });
+  const estimate = (quote.estimated_customer_charge_micros / 1e6).toLocaleString("en-US", {
+    style: "currency",
+    currency: quote.currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6
+  });
+  const ownerMaximum = quote.maximum_owner_commitment_micros == null ? null : (quote.maximum_owner_commitment_micros / 1e6).toLocaleString("en-US", {
+    style: "currency",
+    currency: quote.currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6
+  });
+  const componentLines = quote.cost_components ? Object.entries(quote.cost_components).map(([key, micros]) => `${key === "aggregate_risk_micros" ? "shared aggregate risk exposure (not an owner expense)" : key.replaceAll("_", " ")}: ${(micros / 1e6).toLocaleString("en-US", {
+    style: "currency",
+    currency: quote.currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6
+  })}`) : [];
+  return globalThis.confirm([
+    quote.model_display_name ? `Model: ${quote.model_display_name}` : null,
+    quote.model_tradeoff_summary || null,
+    `Conservative estimate: ${estimate}`,
+    `Maximum charge: ${maximum}`,
+    ownerMaximum ? `Maximum owner research commitment: ${ownerMaximum}` : null,
+    ...componentLines,
+    `Funding: ${quote.funding_label}`,
+    quote.failure_terms,
+    `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,
+    "Continue with this exact request?"
+  ].filter(Boolean).join("\n\n"));
+}
+function requestCustomerSpendingAcceptance(quote) {
+  if (quote.funding_eligible) {
+    return confirmCustomerSpendingQuote(quote) ? customerSpendingAcceptance(quote) : null;
+  }
+  const shouldOpenBilling = globalThis.confirm([
+    "This operation needs verified purchased credits or a funded paid-plan allowance.",
+    quote.funding_label,
+    "Stripe Test credits and legacy compatibility balances cannot fund a real provider call.",
+    "Open Account & Billing to add credits? You will need to retry this action and accept a fresh quote after the payment is recorded."
+  ].join("\n\n"));
+  if (!shouldOpenBilling) return null;
+  const location2 = globalThis.location;
+  if (location2 && typeof location2.assign === "function") {
+    const returnTo = `${location2.pathname || "/"}${location2.search || ""}${location2.hash || ""}`;
+    location2.assign(`/app/subscriptions?funding=required&return_to=${encodeURIComponent(returnTo)}`);
+  }
+  return null;
+}
+var init_customer_spending_confirmation = __esm({
+  "../../packages/tongs/src/customer-spending-confirmation.ts"() {
+    "use strict";
+  }
+});
+
 // src/speech/engines/whisper-bridge.ts
 function isDevAuthLoggingEnabled() {
   try {
@@ -75977,6 +77129,8 @@ var init_whisper_bridge = __esm({
     init_dev_log();
     init_active_profile();
     init_recorderRegistry();
+    init_workpiece_context();
+    init_customer_spending_confirmation();
     WhisperBridgeHttpError = class extends Error {
       status;
       payload;
@@ -77402,6 +78556,14 @@ var init_whisper_bridge = __esm({
         form.set("asr_lane", this.asrLane);
         form.set("request_seq", String(seq));
         form.set("user_access_token", accessToken);
+        const workspaceId = resolveActiveWorkspaceId();
+        const workpieceId = resolveActiveWorkpieceId();
+        if (workspaceId) form.set("workspace_id", workspaceId);
+        if (workpieceId) form.set("workpiece_id", workpieceId);
+        form.set("source_asset_revision", `${this.readRunMeta().runKey ?? "anvil-session"}:generation:${requestGeneration}:chunk:${seq}`);
+        if (typeof durationMs === "number" && Number.isFinite(durationMs)) {
+          form.set("duration_ms", String(Math.max(0, Math.round(durationMs))));
+        }
         if (this.modelHint) {
           form.set("model_hint", this.modelHint);
         }
@@ -77454,6 +78616,14 @@ var init_whisper_bridge = __esm({
           throw new Error("whisper_stale_response");
         }
         let response;
+        const submit = (body) => fetch(this.route, {
+          method: "POST",
+          headers: { "x-whisper-request-seq": String(seq) },
+          body,
+          cache: "no-store",
+          credentials: "omit",
+          signal: abortController.signal
+        });
         try {
           const explicitHeaders = {
             "x-whisper-request-seq": String(seq)
@@ -77470,14 +78640,16 @@ var init_whisper_bridge = __esm({
             });
           } catch {
           }
-          response = await fetch(this.route, {
-            method: "POST",
-            headers: explicitHeaders,
-            body: form,
-            cache: "no-store",
-            credentials: "omit",
-            signal: abortController.signal
-          });
+          response = await submit(form);
+          if (response.status === 409 || response.status === 402) {
+            const quoted = await response.clone().json().catch(() => null);
+            const quote = readCustomerSpendingQuote(quoted);
+            const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
+            if (acceptance) {
+              form.set("spending_acceptance", JSON.stringify(acceptance));
+              response = await submit(form);
+            }
+          }
         } finally {
           this.inFlightTranscriptionControllers.delete(abortController);
         }
@@ -87135,7 +88307,7 @@ var init_authProfile = __esm({
 });
 
 // src/forge/forge-nav.ts
-function readString3(value) {
+function readString4(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
@@ -87148,17 +88320,17 @@ function normalizePayload(raw) {
   const tree = [];
   for (const section of raw.tree) {
     if (!isRecord(section)) continue;
-    const id = readString3(section.id);
-    const title = readString3(section.title) ?? void 0;
+    const id = readString4(section.id);
+    const title = readString4(section.title) ?? void 0;
     const rawItems = Array.isArray(section.items) ? section.items : [];
     if (!id || rawItems.length === 0) continue;
     const items = [];
     for (const item of rawItems) {
       if (!isRecord(item)) continue;
-      const itemId = readString3(item.id);
-      const label = readString3(item.label);
-      const to = readString3(item.to) ?? void 0;
-      const href = readString3(item.href) ?? void 0;
+      const itemId = readString4(item.id);
+      const label = readString4(item.label);
+      const to = readString4(item.to) ?? void 0;
+      const href = readString4(item.href) ?? void 0;
       if (!itemId || !label || !to && !href) continue;
       items.push({ id: itemId, label, to, href });
     }
@@ -87168,16 +88340,16 @@ function normalizePayload(raw) {
   if (!tree.length) return null;
   return {
     schema: typeof raw.schema === "number" ? raw.schema : 1,
-    generated_at: readString3(raw.generated_at),
+    generated_at: readString4(raw.generated_at),
     tree
   };
 }
 function getForgeHubOrigin2() {
   const win = window;
-  const fromEnv = readString3(win.FORGE_HUB_ORIGIN);
+  const fromEnv = readString4(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
-  const fromForgeConfig = readString3(win.__forgeAppOrigin);
-  const currentOrigin = readString3(window.location.origin);
+  const fromForgeConfig = readString4(win.__forgeAppOrigin);
+  const currentOrigin = readString4(window.location.origin);
   if (!fromForgeConfig) return currentOrigin ?? "";
   try {
     const current2 = new URL(currentOrigin ?? "http://localhost");
@@ -87191,9 +88363,9 @@ function getForgeHubOrigin2() {
 }
 function getBuildId() {
   const win = window;
-  const explicit = readString3(win.FORGE_BUILD_ID);
+  const explicit = readString4(win.FORGE_BUILD_ID);
   if (explicit) return explicit;
-  return readString3(win.APP_VERSION) ?? null;
+  return readString4(win.APP_VERSION) ?? null;
 }
 function buildNavUrl() {
   const base = getForgeHubOrigin2() || window.location.origin;
@@ -87567,7 +88739,7 @@ function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
     const actionTrigger = target.closest("[data-forge-nav-action-id]");
     if (actionTrigger) {
       event.preventDefault();
-      const actionId = readString3(actionTrigger.dataset.forgeNavActionId) ?? null;
+      const actionId = readString4(actionTrigger.dataset.forgeNavActionId) ?? null;
       if (!actionId) return;
       const action2 = extraActionHandlers.get(actionId);
       if (!action2) return;
@@ -87581,7 +88753,7 @@ function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
     const action = target.closest("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
-    const targetHref = readString3(action.dataset.forgeNavHref) ?? null;
+    const targetHref = readString4(action.dataset.forgeNavHref) ?? null;
     if (!targetHref || targetHref === "#") return;
     closeOverlay();
     navigateFromOverlay(targetHref);
@@ -87607,7 +88779,7 @@ async function openForgeMenuOverlay() {
   wireOverlayLinks(panel, closeOverlay, extraActionHandlers);
 }
 function initForgeMenu(opts = {}) {
-  const mountId = readString3(opts.mountId) ?? DEFAULT_MOUNT_ID;
+  const mountId = readString4(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
   if (!mount) return;
   const win = window;
@@ -88794,7 +89966,7 @@ var init_presentation_scroll_mode_authority = __esm({
 });
 
 // src/net/display-ws-endpoint.ts
-function readString4(value) {
+function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -88802,7 +89974,7 @@ function readString4(value) {
 function resolveConfiguredBase() {
   const w3 = typeof window !== "undefined" ? window : {};
   const metaEnv3 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
-  return readString4(w3.__TP_DISPLAY_WS_URL) || readString4(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
+  return readString5(w3.__TP_DISPLAY_WS_URL) || readString5(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
 }
 function normalizeWsBase(candidate) {
   try {
@@ -88824,7 +89996,7 @@ function resolveDisplayWsBase() {
   return normalizeWsBase(resolveConfiguredBase()) || DEFAULT_DISPLAY_WS_BASE;
 }
 function buildDisplayWsUrl(pairToken) {
-  const token = readString4(pairToken);
+  const token = readString5(pairToken);
   if (!token) return null;
   try {
     const url = new URL(resolveDisplayWsBase());
@@ -90219,100 +91391,100 @@ var init_workpiece_performance_entrypoint = __esm({
 });
 
 // src/forge/workpiece-script-handoff.ts
-function readString5(value) {
+function readString6(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid(value) {
-  const str = readString5(value);
+function normalizeUuid2(value) {
+  const str = readString6(value);
   if (!str) return null;
-  return UUID_RE.test(str) ? str.toLowerCase() : null;
+  return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
-function readLocalStorage(key) {
+function readLocalStorage2(key) {
   try {
-    return readString5(window.localStorage.getItem(key));
+    return readString6(window.localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function writeLocalStorage(key, value) {
+function writeLocalStorage2(key, value) {
   try {
     window.localStorage.setItem(key, value);
   } catch {
   }
 }
-function getQueryParam(...keys) {
+function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString5(q3.get(key));
+      const value = readString6(q3.get(key));
       if (value) return value;
     }
   } catch {
   }
   return null;
 }
-function resolveWorkspaceId() {
-  const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
+function resolveWorkspaceId2() {
+  const fromQuery = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid(
+  const fromWindow = normalizeUuid2(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
+  for (const key of WORKSPACE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
     if (value) return value;
   }
   return null;
 }
 function resolveWorkpieceId() {
-  const fromQuery = normalizeUuid(
-    getQueryParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  const fromQuery = normalizeUuid2(
+    getQueryParam2("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
   );
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid(
+  const fromWindow = normalizeUuid2(
     w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKPIECE_STORAGE_KEYS) {
-    const value = normalizeUuid(readLocalStorage(key));
+  for (const key of WORKPIECE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
     if (value) return value;
   }
   return null;
 }
 function persistWorkpiece(workspaceId, workpieceId) {
-  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
+  writeLocalStorage2(ACTIVE_WORKPIECE_KEY2, workpieceId);
   if (workspaceId) {
-    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
+    writeLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`, workpieceId);
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString5(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  const open = readString6(getQueryParam2("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString5(getQueryParam("script_path", "path")));
+  return Boolean(readString6(getQueryParam2("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString5(getQueryParam("script_path", "path"));
+  const fromQuery = readString6(getQueryParam2("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString5(getQueryParam("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString6(getQueryParam2("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString5(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta2 = import.meta;
-    const fromEnv = readString5(meta2.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString6(meta2.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
-  return readLocalStorage("forge_tongs_api_token_v1") ?? void 0;
+  return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
 function fileNameFromPath(path) {
   const idx = path.lastIndexOf("/");
@@ -90379,9 +91551,9 @@ async function readWorkpieceScript(workpieceId, path) {
   const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
   const text = typeof data?.script_text === "string" ? data.script_text : "";
   const revision = Number(data?.source_file_revision);
-  const hash = readString5(data?.script_content_hash)?.toLowerCase() ?? "";
-  const readyTransitionId = normalizeUuid(data?.ready_transition_id);
-  const scriptApprovalId = normalizeUuid(data?.script_approval_id);
+  const hash = readString6(data?.script_content_hash)?.toLowerCase() ?? "";
+  const readyTransitionId = normalizeUuid2(data?.ready_transition_id);
+  const scriptApprovalId = normalizeUuid2(data?.script_approval_id);
   const scriptApprovalRevision = Number(data?.script_approval_revision);
   if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) return { ok: false, reason: "invalid_response", status: response.status };
   return { ok: true, text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
@@ -90392,7 +91564,7 @@ async function loadWorkpieceScriptOnBoot() {
   if (!shouldAutoloadWorkpieceScript()) return;
   const workpieceId = resolveWorkpieceId();
   if (!workpieceId) return;
-  const workspaceId = resolveWorkspaceId();
+  const workspaceId = resolveWorkspaceId2();
   persistWorkpiece(workspaceId, workpieceId);
   const path = resolveScriptPath();
   const readResult = await readWorkpieceScript(workpieceId, path);
@@ -90466,7 +91638,7 @@ function bootstrapWorkpieceScriptHandoff() {
     run();
   }
 }
-var UUID_RE, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS, WORKPIECE_STORAGE_KEYS, ACTIVE_WORKPIECE_KEY, WORKSPACE_WORKPIECE_PREFIX, booted;
+var UUID_RE2, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, booted;
 var init_workpiece_script_handoff = __esm({
   "src/forge/workpiece-script-handoff.ts"() {
     "use strict";
@@ -90474,16 +91646,16 @@ var init_workpiece_script_handoff = __esm({
     init_app_store();
     init_workpiece_performance_entrypoint();
     init_tongs_user_auth();
-    UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_SCRIPT_PATH = "script/script.md";
-    WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    WORKPIECE_STORAGE_KEYS = [
+    WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKPIECE_STORAGE_KEYS2 = [
       "forge_active_workpiece_id_v1",
       "forge_workpiece_id_v1",
       "tp_workpiece_id"
     ];
-    ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
-    WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
+    ACTIVE_WORKPIECE_KEY2 = "forge_active_workpiece_id_v1";
+    WORKSPACE_WORKPIECE_PREFIX2 = "forge_anvil_recording_workpiece_v1:";
     booted = false;
     if (typeof window !== "undefined") {
       bootstrapWorkpieceScriptHandoff();
@@ -90858,7 +92030,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString6(value, fallback) {
+function readString7(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -90867,14 +92039,14 @@ function readString6(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString6(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString7(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString6(src.color, fallback.color),
-    background: readString6(src.background, fallback.background),
+    color: readString7(src.color, fallback.color),
+    background: readString7(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -92554,26 +93726,26 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString7(value) {
+function readString8(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid2(value) {
-  const str = readString7(value);
+function normalizeUuid3(value) {
+  const str = readString8(value);
   if (!str) return null;
-  return UUID_RE2.test(str) ? str.toLowerCase() : null;
+  return UUID_RE3.test(str) ? str.toLowerCase() : null;
 }
-function readLocalStorage2(key) {
+function readLocalStorage3(key) {
   try {
-    return readString7(localStorage.getItem(key));
+    return readString8(localStorage.getItem(key));
   } catch {
     return null;
   }
 }
 function readSessionStorage(key) {
   try {
-    return readString7(sessionStorage.getItem(key));
+    return readString8(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -92584,11 +93756,11 @@ function writeSessionStorage(key, value) {
   } catch {
   }
 }
-function getQueryParam2(...keys) {
+function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString7(q3.get(key));
+      const value = readString8(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -92601,14 +93773,14 @@ function toPositiveNumber(raw) {
   return parsed;
 }
 function readNumericConfig(key) {
-  const fromQuery = toPositiveNumber(getQueryParam2(key, key.toLowerCase()));
+  const fromQuery = toPositiveNumber(getQueryParam3(key, key.toLowerCase()));
   if (fromQuery != null) return fromQuery;
   try {
     const fromWindow = toPositiveNumber(window?.[key]);
     if (fromWindow != null) return fromWindow;
   } catch {
   }
-  const fromStorage = toPositiveNumber(readLocalStorage2(key) ?? readLocalStorage2(key.toLowerCase()));
+  const fromStorage = toPositiveNumber(readLocalStorage3(key) ?? readLocalStorage3(key.toLowerCase()));
   if (fromStorage != null) return fromStorage;
   return null;
 }
@@ -92661,16 +93833,16 @@ function deriveRecordingTitleFromName(name) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString7(getQueryParam2("forge_lane", "lane"));
+  const fromQuery = readString8(getQueryParam3("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString7(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString8(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString7(readLocalStorage2("forge_lane_v1"));
+  const fromStorage = readString8(readLocalStorage3("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString7(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString8(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -92678,11 +93850,11 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  const fromQuery = readString7(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString7(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  const fromWindow = readString8(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
-  return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
+  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
 }
 function getOrCreateCaptureSessionId() {
   const existing = readSessionStorage(CAPTURE_SESSION_KEY);
@@ -92693,7 +93865,7 @@ function getOrCreateCaptureSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString7(randomUuid) || "";
+    next = readString8(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -92708,7 +93880,7 @@ function beginRecordingCaptureSession() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString7(randomUuid) || "";
+    next = readString8(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -92729,24 +93901,24 @@ function nextCorrelationId(prefix) {
   return `${prefix}:${getOrCreateCaptureSessionId()}:${correlationSeq}`;
 }
 function resolvePlannerRecordingSessionId() {
-  return normalizeUuid2(readLocalStorage2(PLANNER_RECORDING_SESSION_KEY));
+  return normalizeUuid3(readLocalStorage3(PLANNER_RECORDING_SESSION_KEY));
 }
-function resolveWorkspaceId2() {
-  const fromQuery = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId", "workspace"));
+function resolveWorkspaceId3() {
+  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid2(
+  const fromWindow = normalizeUuid3(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS2) {
-    const value = normalizeUuid2(readLocalStorage2(key));
+  for (const key of WORKSPACE_STORAGE_KEYS3) {
+    const value = normalizeUuid3(readLocalStorage3(key));
     if (value) return value;
   }
   return null;
 }
 function inferContentType(contentType, name) {
-  const fromInput = readString7(contentType);
+  const fromInput = readString8(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -92773,7 +93945,7 @@ async function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString7(text);
+  const raw = readString8(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -92789,8 +93961,8 @@ function isCommitAck(body) {
 function extractApiError(body) {
   if (!body || typeof body !== "object") return {};
   const root = body;
-  const code = readString7(root.error?.code);
-  const message = readString7(root.error?.message);
+  const code = readString8(root.error?.code);
+  const message = readString8(root.error?.message);
   return {
     ...code ? { code } : {},
     ...message ? { message } : {}
@@ -92859,14 +94031,14 @@ async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, ap
 function readScriptHash2() {
   try {
     const raw = window.__TP_LAST_APPLIED_HASH;
-    return readString7(raw);
+    return readString8(raw);
   } catch {
     return null;
   }
 }
 function readSessionRunKey(captureSessionId) {
   try {
-    return readString7(window.__tpAsrRunKey) || captureSessionId;
+    return readString8(window.__tpAsrRunKey) || captureSessionId;
   } catch {
     return captureSessionId;
   }
@@ -92910,8 +94082,8 @@ function sleep2(ms) {
 }
 async function resolveRecordingCaptureTarget() {
   const apiToken = getApiToken();
-  const workspaceId = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId"));
-  const workpieceId = normalizeUuid2(getQueryParam2("workpiece_id", "workpieceId"));
+  const workspaceId = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid3(getQueryParam3("workpiece_id", "workpieceId"));
   const plannerRecordingSessionId = resolvePlannerRecordingSessionId();
   if (!workspaceId || !workpieceId) {
     return { ok: false, reason: "explicit_episode_context_required", workspaceId, workpieceId };
@@ -92937,32 +94109,32 @@ async function resolveRecordingCaptureTarget() {
   const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
   const row = data?.capture_authority;
   const execution = data?.venue_execution;
-  const authorityId = normalizeUuid2(row?.id);
-  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString7(data?.outcome) ?? "")) {
+  const authorityId = normalizeUuid3(row?.id);
+  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString8(data?.outcome) ?? "")) {
     const apiError = extractApiError(body);
-    return { ok: false, reason: readString7(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
+    return { ok: false, reason: readString8(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
   }
   const authority = Object.freeze({
     id: authorityId,
-    captureSessionId: normalizeUuid2(execution?.execution_id),
-    workspaceId: normalizeUuid2(row?.workspace_id),
-    workpieceId: normalizeUuid2(row?.workpiece_id),
-    recordingSessionId: normalizeUuid2(row?.recording_session_id),
-    readyTransitionId: normalizeUuid2(row?.ready_transition_id),
+    captureSessionId: normalizeUuid3(execution?.execution_id),
+    workspaceId: normalizeUuid3(row?.workspace_id),
+    workpieceId: normalizeUuid3(row?.workpiece_id),
+    recordingSessionId: normalizeUuid3(row?.recording_session_id),
+    readyTransitionId: normalizeUuid3(row?.ready_transition_id),
     scriptBindingKind: row?.script_binding_kind === "approved_canonical_script" ? "approved_canonical_script" : "none",
-    scriptPath: readString7(row?.script_path),
+    scriptPath: readString8(row?.script_path),
     scriptRevision: row?.script_revision != null && Number.isInteger(Number(row.script_revision)) ? Number(row.script_revision) : null,
-    scriptHash: readString7(row?.script_hash)?.toLowerCase() ?? null,
-    scriptApprovalId: normalizeUuid2(row?.script_approval_id),
+    scriptHash: readString8(row?.script_hash)?.toLowerCase() ?? null,
+    scriptApprovalId: normalizeUuid3(row?.script_approval_id),
     scriptApprovalRevision: row?.script_approval_revision != null && Number.isInteger(Number(row.script_approval_revision)) ? Number(row.script_approval_revision) : null,
-    scriptApprovalHash: readString7(row?.script_approval_hash)?.toLowerCase() ?? null,
-    operationKey: readString7(row?.operation_key),
+    scriptApprovalHash: readString8(row?.script_approval_hash)?.toLowerCase() ?? null,
+    operationKey: readString8(row?.operation_key),
     provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established"
   });
   if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId) {
     return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
   }
-  if (authority.scriptBindingKind === "approved_canonical_script" && (!authority.scriptPath || !authority.scriptRevision || !authority.scriptHash || !authority.scriptApprovalId || !authority.scriptApprovalRevision || authority.scriptApprovalHash !== authority.scriptHash || normalizeUuid2(identity?.scriptApprovalId) !== authority.scriptApprovalId || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision || readString7(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash)) {
+  if (authority.scriptBindingKind === "approved_canonical_script" && (!authority.scriptPath || !authority.scriptRevision || !authority.scriptHash || !authority.scriptApprovalId || !authority.scriptApprovalRevision || authority.scriptApprovalHash !== authority.scriptHash || normalizeUuid3(identity?.scriptApprovalId) !== authority.scriptApprovalId || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision || readString8(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash)) {
     return { ok: false, reason: "displayed_script_approval_mismatch", status: 409, details: body, workspaceId, workpieceId };
   }
   activeCaptureAuthority = authority;
@@ -93388,7 +94560,7 @@ function readAuthorityRowId(value, key) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value[key];
   if (!row || typeof row !== "object" || Array.isArray(row)) return null;
-  return normalizeUuid2(row.id);
+  return normalizeUuid3(row.id);
 }
 async function transitionRecordingCompleted(input) {
   const asr = window.__tpCanonicalAsrAuthority;
@@ -93448,13 +94620,13 @@ async function transitionRecordingCompleted(input) {
       const apiError = extractApiError(body);
       return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
     }
-    const outcome = readString7(data?.outcome);
+    const outcome = readString8(data?.outcome);
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
       return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
     }
     const completionId = readAuthorityRowId(data, "completion");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
-    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
   }
@@ -93465,8 +94637,8 @@ async function transitionRecordingKept(input) {
   const currentIdentity = window.__forgeCanonicalScriptIdentity;
   const ready = window.__forgeCanonicalReadyScript;
   const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
-  const identityWorkpieceId = normalizeUuid2(decisionIdentity?.workpieceId);
-  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid2(decisionIdentity?.workspaceId) ?? resolveWorkspaceId2() : resolveWorkspaceId2();
+  const identityWorkpieceId = normalizeUuid3(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid3(decisionIdentity?.workspaceId) ?? resolveWorkspaceId3() : resolveWorkspaceId3();
   if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
   const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
   try {
@@ -93484,11 +94656,11 @@ async function transitionRecordingKept(input) {
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
-    const outcome = readString7(data?.outcome);
+    const outcome = readString8(data?.outcome);
     const keepId = readAuthorityRowId(data, "keep");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
-    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
   }
@@ -93552,7 +94724,7 @@ async function transitionRecordingDecisionV2(commit, completionId, decision) {
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? `recording_${decision}_unavailable`, details: body };
-    const outcome = readString7(data?.outcome);
+    const outcome = readString8(data?.outcome);
     const rowKey = decision === "keep" ? "keep" : "discard";
     const rowId = readAuthorityRowId(data, rowKey);
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!rowId;
@@ -93562,7 +94734,7 @@ async function transitionRecordingDecisionV2(commit, completionId, decision) {
       outcome,
       ...decision === "keep" && rowId ? { keepId: rowId } : {},
       ...decision === "discard" && rowId ? { discardId: rowId } : {},
-      reason: readString7(data?.reason) ?? void 0,
+      reason: readString8(data?.reason) ?? void 0,
       details: data
     };
   } catch (error) {
@@ -93575,8 +94747,8 @@ async function transitionRecordingDiscarded(input) {
   const currentIdentity = window.__forgeCanonicalScriptIdentity;
   const ready = window.__forgeCanonicalReadyScript;
   const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
-  const identityWorkpieceId = normalizeUuid2(decisionIdentity?.workpieceId);
-  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid2(decisionIdentity?.workspaceId) ?? resolveWorkspaceId2() : resolveWorkspaceId2();
+  const identityWorkpieceId = normalizeUuid3(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid3(decisionIdentity?.workspaceId) ?? resolveWorkspaceId3() : resolveWorkspaceId3();
   if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
   const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
   try {
@@ -93594,19 +94766,19 @@ async function transitionRecordingDiscarded(input) {
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_discard_unavailable", details: body };
-    const outcome = readString7(data?.outcome);
+    const outcome = readString8(data?.outcome);
     const discardId = readAuthorityRowId(data, "discard");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!discardId;
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_discard_response_malformed", details: body };
-    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_discard_unavailable" };
   }
 }
 async function readPendingRecordingDecisions() {
   const ready = window.__forgeCanonicalReadyScript;
-  const workspaceId = normalizeUuid2(ready?.workspaceId) ?? normalizeUuid2(getQueryParam2("workspace_id", "workspaceId"));
-  const workpieceId = normalizeUuid2(ready?.workpieceId) ?? normalizeUuid2(getQueryParam2("workpiece_id", "workpieceId"));
+  const workspaceId = normalizeUuid3(ready?.workspaceId) ?? normalizeUuid3(getQueryParam3("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid3(ready?.workpieceId) ?? normalizeUuid3(getQueryParam3("workpiece_id", "workpieceId"));
   if (!workspaceId || !workpieceId) return [];
   try {
     const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
@@ -93616,26 +94788,26 @@ async function readPendingRecordingDecisions() {
     return data.pending.flatMap((row) => {
       if (!row || typeof row !== "object" || Array.isArray(row)) return [];
       const value = row;
-      const completionId = normalizeUuid2(value.completion_id);
-      const captureSessionId = normalizeUuid2(value.capture_session_id);
-      const captureAuthorityId = normalizeUuid2(value.recording_capture_authority_id);
-      const rowWorkpieceId = normalizeUuid2(value.workpiece_id);
-      const mediaPath = readString7(value.media_path);
+      const completionId = normalizeUuid3(value.completion_id);
+      const captureSessionId = normalizeUuid3(value.capture_session_id);
+      const captureAuthorityId = normalizeUuid3(value.recording_capture_authority_id);
+      const rowWorkpieceId = normalizeUuid3(value.workpiece_id);
+      const mediaPath = readString8(value.media_path);
       return completionId && captureSessionId && captureAuthorityId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, captureAuthorityId, workpieceId, mediaPath }] : [];
     });
   } catch {
     return [];
   }
 }
-var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, CAPTURE_SESSION_KEY, CAPTURE_AUTHORITY_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq, activeCaptureAuthority;
+var UUID_RE3, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS3, CAPTURE_SESSION_KEY, CAPTURE_AUTHORITY_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq, activeCaptureAuthority;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
     init_tongs_user_auth();
-    UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_TOOL_VERSION = "1.8.5";
     DEFAULT_LANE = "forge-managed";
-    WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
     CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
     CAPTURE_AUTHORITY_KEY = "forge_anvil_capture_authority_id_v1";
     PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
@@ -93653,55 +94825,55 @@ var init_workpiece_commit = __esm({
 });
 
 // src/forge/ready-scripts.ts
-function readString8(value) {
+function readString9(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid3(value) {
-  const str = readString8(value);
+function normalizeUuid4(value) {
+  const str = readString9(value);
   if (!str) return null;
-  return UUID_RE3.test(str) ? str.toLowerCase() : null;
+  return UUID_RE4.test(str) ? str.toLowerCase() : null;
 }
-function readLocalStorage3(key) {
+function readLocalStorage4(key) {
   try {
-    return readString8(window.localStorage.getItem(key));
+    return readString9(window.localStorage.getItem(key));
   } catch {
     return null;
   }
 }
-function getQueryParam3(...keys) {
+function getQueryParam4(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString8(q3.get(key));
+      const value = readString9(q3.get(key));
       if (value) return value;
     }
   } catch {
   }
   return null;
 }
-function resolveWorkspaceId3() {
-  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
+function resolveWorkspaceId4() {
+  const fromQuery = normalizeUuid4(getQueryParam4("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid3(
+  const fromWindow = normalizeUuid4(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS3) {
-    const value = normalizeUuid3(readLocalStorage3(key));
+  for (const key of WORKSPACE_STORAGE_KEYS4) {
+    const value = normalizeUuid4(readLocalStorage4(key));
     if (value) return value;
   }
   return null;
 }
 function resolveTongsApiToken2() {
-  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString9(getQueryParam4("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString9(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
-  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
+  return readLocalStorage4("forge_tongs_api_token_v1") ?? void 0;
 }
 function withApiHeaders() {
   const headers = new Headers();
@@ -93712,13 +94884,13 @@ function withApiHeaders() {
   return headers;
 }
 function normalizeScriptPath(value) {
-  const path = readString8(value);
+  const path = readString9(value);
   if (!path) return null;
   if (path.startsWith("/") || path.includes("..")) return null;
   return path;
 }
 function normalizeIso(value) {
-  const iso = readString8(value);
+  const iso = readString9(value);
   if (!iso) return void 0;
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return void 0;
@@ -93748,17 +94920,17 @@ function parseReadyScriptsPayload(payload, workspaceId) {
   for (const row of rowsMaybe) {
     if (!row || typeof row !== "object") continue;
     const item = row;
-    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
-    const workpieceId = normalizeUuid3(item.workpiece_id);
+    const rowWorkspace = normalizeUuid4(item.workspace_id) ?? workspaceId;
+    const workpieceId = normalizeUuid4(item.workpiece_id);
     const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
     const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0 ? item.script_revision : null;
-    const scriptHash = readString8(item.script_hash)?.toLowerCase() ?? null;
-    const transitionId = normalizeUuid3(item.transition_id);
+    const scriptHash = readString9(item.script_hash)?.toLowerCase() ?? null;
+    const transitionId = normalizeUuid4(item.transition_id);
     if (!rowWorkspace || !workpieceId || !path || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString8(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    const title = readString9(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
       id: toReadyScriptId(workpieceId, path),
       workspaceId: rowWorkspace,
@@ -93768,7 +94940,7 @@ function parseReadyScriptsPayload(payload, workspaceId) {
       scriptPaths: normalizedScriptPaths,
       title,
       updatedAt: normalizeIso(item.updated_at),
-      markedReadyBy: normalizeUuid3(item.marked_ready_by) ?? void 0,
+      markedReadyBy: normalizeUuid4(item.marked_ready_by) ?? void 0,
       markedReadyAt: normalizeIso(item.marked_ready_at),
       scriptRevision,
       scriptHash,
@@ -93794,17 +94966,17 @@ function parseRecordingSessionsPayload(payload, workspaceId) {
   for (const row of rowsMaybe) {
     if (!row || typeof row !== "object") continue;
     const item = row;
-    const id = normalizeUuid3(item.id);
-    const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
+    const id = normalizeUuid4(item.id);
+    const rowWorkspace = normalizeUuid4(item.workspace_id) ?? workspaceId;
     if (!id || !rowWorkspace) continue;
-    const title = readString8(item.title) ?? "Recording Session";
+    const title = readString9(item.title) ?? "Recording Session";
     out.push({
       id,
       workspaceId: rowWorkspace,
       title,
       createdAt: normalizeIso(item.created_at),
       updatedAt: normalizeIso(item.updated_at),
-      calendarEventId: normalizeUuid3(item.calendar_event_id)
+      calendarEventId: normalizeUuid4(item.calendar_event_id)
     });
   }
   out.sort((a, b) => {
@@ -93824,7 +94996,7 @@ function parseRecordingSessionDetailPayload(payload) {
   return root.data;
 }
 function toScriptReferenceFromSessionItem(args) {
-  const workpieceId = normalizeUuid3(args.item.episode_id);
+  const workpieceId = normalizeUuid4(args.item.episode_id);
   const path = normalizeScriptPath(args.item.script_path);
   if (!workpieceId || !path) return null;
   const key = `${workpieceId}::${path}`;
@@ -93849,7 +95021,7 @@ function toScriptReferenceFromSessionItem(args) {
   };
 }
 async function listWorkspaceReadyScripts() {
-  const workspaceId = resolveWorkspaceId3();
+  const workspaceId = resolveWorkspaceId4();
   if (!workspaceId) return [];
   const response = await fetchAuthenticatedTongs(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
     method: "GET",
@@ -93870,7 +95042,7 @@ async function listWorkspaceReadyScripts() {
   return parseReadyScriptsPayload(body, workspaceId);
 }
 async function listRecordingSessionsForWorkspace() {
-  const workspaceId = resolveWorkspaceId3();
+  const workspaceId = resolveWorkspaceId4();
   if (!workspaceId) return [];
   const response = await fetchAuthenticatedTongs(
     `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
@@ -93889,7 +95061,7 @@ async function listRecordingSessionsForWorkspace() {
   return parseRecordingSessionsPayload(body, workspaceId);
 }
 async function readRecordingSessionScripts(sessionId) {
-  const safeSessionId = normalizeUuid3(sessionId);
+  const safeSessionId = normalizeUuid4(sessionId);
   if (!safeSessionId) return null;
   const response = await fetchAuthenticatedTongs(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
     method: "GET",
@@ -93904,10 +95076,10 @@ async function readRecordingSessionScripts(sessionId) {
   }
   const detail = parseRecordingSessionDetailPayload(body);
   if (!detail) return null;
-  const workspaceId = normalizeUuid3(detail.workspace_id);
-  const parsedSessionId = normalizeUuid3(detail.id);
+  const workspaceId = normalizeUuid4(detail.workspace_id);
+  const parsedSessionId = normalizeUuid4(detail.id);
   if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString8(detail.title) ?? "Recording Session";
+  const sessionTitle = readString9(detail.title) ?? "Recording Session";
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = /* @__PURE__ */ new Map();
   const readyByKey = /* @__PURE__ */ new Map();
@@ -93959,13 +95131,13 @@ async function readRecordingSessionScripts(sessionId) {
       id: parsedSessionId,
       workspaceId,
       title: sessionTitle,
-      calendarEventId: normalizeUuid3(detail.calendar_event_id)
+      calendarEventId: normalizeUuid4(detail.calendar_event_id)
     },
     scripts
   };
 }
 async function readReadyScriptText(workpieceId, path) {
-  const safeWorkpieceId = normalizeUuid3(workpieceId);
+  const safeWorkpieceId = normalizeUuid4(workpieceId);
   const safePath = normalizeScriptPath(path);
   if (!safeWorkpieceId || !safePath) return null;
   const response = await fetchAuthenticatedTongs(
@@ -93996,13 +95168,13 @@ async function readReadyScriptText(workpieceId, path) {
   }
   return row.script_text;
 }
-var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
+var UUID_RE4, WORKSPACE_STORAGE_KEYS4;
 var init_ready_scripts = __esm({
   "src/forge/ready-scripts.ts"() {
     "use strict";
     init_tongs_user_auth();
-    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    WORKSPACE_STORAGE_KEYS4 = ["forge_workspace_id_v1", "barstock_workspace_id"];
   }
 });
 
@@ -94742,7 +95914,7 @@ var init_recording_decision_dialog = __esm({
 });
 
 // src/recording/recording-name.ts
-function readString9(value) {
+function readString10(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -94754,7 +95926,7 @@ function sanitizeRecordingTitle(title) {
   return sliced || "Script";
 }
 function pickRecordingBaseTitle(args) {
-  return readString9(args.inputTitle) ?? readString9(args.routeEpisodeTitle) ?? readString9(args.storedTitle) ?? "Script";
+  return readString10(args.inputTitle) ?? readString10(args.routeEpisodeTitle) ?? readString10(args.storedTitle) ?? "Script";
 }
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -94778,115 +95950,6 @@ function buildRecordingFilename(args) {
 var init_recording_name = __esm({
   "src/recording/recording-name.ts"() {
     "use strict";
-  }
-});
-
-// src/forge/workpiece-context.ts
-function readString10(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-function normalizeUuid4(value) {
-  const str = readString10(value);
-  if (!str) return null;
-  return UUID_RE4.test(str) ? str.toLowerCase() : null;
-}
-function readLocalStorage4(key) {
-  try {
-    return readString10(window.localStorage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-function writeLocalStorage2(key, value) {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-  }
-}
-function getQueryParam4(...keys) {
-  try {
-    const q3 = new URLSearchParams(window.location.search || "");
-    for (const key of keys) {
-      const value = readString10(q3.get(key));
-      if (value) return value;
-    }
-  } catch {
-  }
-  return null;
-}
-function resolveWorkspaceId4() {
-  const fromQuery = normalizeUuid4(getQueryParam4("workspace_id", "workspaceId", "workspace"));
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = normalizeUuid4(
-    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
-  );
-  if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS4) {
-    const value = normalizeUuid4(readLocalStorage4(key));
-    if (value) return value;
-  }
-  return null;
-}
-function resolveDirectWorkpieceId() {
-  const fromQuery = normalizeUuid4(
-    getQueryParam4("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
-  );
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = normalizeUuid4(
-    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
-  );
-  if (fromWindow) return fromWindow;
-  for (const key of WORKPIECE_STORAGE_KEYS2) {
-    const value = normalizeUuid4(readLocalStorage4(key));
-    if (value) return value;
-  }
-  return null;
-}
-function loadCachedWorkpiece(workspaceId) {
-  if (!workspaceId) return null;
-  return normalizeUuid4(readLocalStorage4(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`));
-}
-function parseReadyScriptWorkpieceId(scriptId) {
-  const id = readString10(scriptId);
-  if (!id) return null;
-  if (!id.toLowerCase().startsWith("ready:")) return null;
-  const rest = id.slice("ready:".length);
-  const separator = rest.indexOf(":");
-  if (separator <= 0) return null;
-  return normalizeUuid4(rest.slice(0, separator));
-}
-function persistActiveWorkpieceFromScriptId(scriptId) {
-  const workpieceId = parseReadyScriptWorkpieceId(scriptId);
-  if (!workpieceId) return null;
-  writeLocalStorage2(ACTIVE_WORKPIECE_KEY2, workpieceId);
-  const workspaceId = resolveWorkspaceId4();
-  if (workspaceId) {
-    writeLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`, workpieceId);
-  }
-  return workpieceId;
-}
-function resolveActiveWorkpieceId() {
-  const direct = resolveDirectWorkpieceId();
-  if (direct) return direct;
-  return loadCachedWorkpiece(resolveWorkspaceId4());
-}
-var UUID_RE4, WORKSPACE_STORAGE_KEYS4, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2;
-var init_workpiece_context = __esm({
-  "src/forge/workpiece-context.ts"() {
-    "use strict";
-    UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    WORKSPACE_STORAGE_KEYS4 = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    WORKPIECE_STORAGE_KEYS2 = [
-      "forge_active_workpiece_id_v1",
-      "forge_workpiece_id_v1",
-      "tp_workpiece_id"
-    ];
-    ACTIVE_WORKPIECE_KEY2 = "forge_active_workpiece_id_v1";
-    WORKSPACE_WORKPIECE_PREFIX2 = "forge_anvil_recording_workpiece_v1:";
   }
 });
 
