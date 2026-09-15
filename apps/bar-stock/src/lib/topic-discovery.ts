@@ -1,19 +1,21 @@
 import { supabase } from "./supabase";
+import { TopicDiscoveryRequestError,type TopicDiscoveryFailure } from "./topic-discovery-refresh";
 
 export type TopicSource = { id:string; title:string; canonical_url:string; publisher:string|null; published_at:string|null; retrieved_at:string };
 export type TopicRevision = { id:string; headline:string; summary:string; suggested_angle:string; timeliness_reason:string; evidence_class:"single_authoritative"|"corroborated"|"limited" };
 export type TopicCard = { ordinal:number; revision:TopicRevision; story:{id:string}; sources:TopicSource[]; accepted:boolean };
 export type DiscoveryPreference = { revision:number; genre:string; topic_interests:string[]; editorial_scope:string|null; language:string|null; region:string|null; enabled:boolean; auto_refresh_authorized:boolean };
-export type DiscoveryContext = { outcome:string; preference:DiscoveryPreference|null; run:{id:string;generated_at:string|null;fresh_until:string|null;status:string}|null; stories:TopicCard[] };
+export type DiscoveryRun = { id:string;preference_revision:number;generated_at:string|null;fresh_until:string|null;status:string };
+export type DiscoveryContext = { outcome:string; preference:DiscoveryPreference|null; run:DiscoveryRun|null; next_eligible_at:string|null; stories:TopicCard[] };
 
 async function call(workspaceId:string, payload?:Record<string,unknown>, signal?:AbortSignal):Promise<DiscoveryContext>{
   const session=await supabase?.auth.getSession();
   const token=session?.data.session?.access_token;
   if(!token) throw new Error("Sign in required.");
   const response=await fetch(`/api/hearth/topic-discovery?workspace_id=${encodeURIComponent(workspaceId)}`,{method:payload?"POST":"GET",headers:{authorization:`Bearer ${token}`,...(payload?{"content-type":"application/json"}:{})},body:payload?JSON.stringify({workspace_id:workspaceId,...payload}):undefined,signal});
-  const body=await response.json().catch(()=>null) as {ok?:boolean;data?:DiscoveryContext;error?:string}|null;
-  if(!response.ok||!body?.ok||!body.data) throw new Error(body?.error||`Discovery request failed (${response.status}).`);
-  return body.data;
+  const body=await response.json().catch(()=>null) as {ok?:boolean;data?:DiscoveryContext|TopicDiscoveryFailure;error?:string}|null;
+  if(!response.ok||!body?.ok||!body.data){const failure=body?.data as TopicDiscoveryFailure|undefined;throw new TopicDiscoveryRequestError(body?.error||`Discovery request failed (${response.status}).`,failure);}
+  return body.data as DiscoveryContext;
 }
 export const readTopicDiscovery=(workspaceId:string,signal?:AbortSignal)=>call(workspaceId,undefined,signal);
 export const saveTopicDiscoveryPreference=(workspaceId:string,input:Record<string,unknown>)=>call(workspaceId,{action:"preferences",...input});

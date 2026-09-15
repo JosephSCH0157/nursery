@@ -6,6 +6,7 @@
     "dev": "pnpm --filter nursery dev",
     "preflight:workspace": "node scripts/verify-workspace-contracts.mjs && node scripts/verify-test-runner-exit.mjs",
     "test:db:anvil-recording": "node scripts/verify-venue-neutral-recording-authority-db.mjs",
+    "test:db:barstock-topic-discovery": "node scripts/verify-barstock-topic-discovery-context-db.mjs",
     "test:db:hammer-history-epoch": "node scripts/verify-hammer-history-epoch-db.mjs",
     "test:db:hammer-history-epoch-head": "node scripts/verify-hammer-history-epoch-head-db.mjs",
     "test:db:hammer-history-atomic-components": "node scripts/verify-hammer-history-atomic-components-db.mjs",

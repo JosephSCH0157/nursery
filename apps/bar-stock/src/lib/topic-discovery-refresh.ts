@@ -14,6 +14,23 @@ export type DailyRefreshOperation = {
   preferenceRevision: number;
 };
 
+export type TopicDiscoveryFailure = {
+  outcome?: string;
+  next_eligible_at?: string | null;
+};
+
+export class TopicDiscoveryRequestError extends Error {
+  readonly outcome: string | null;
+  readonly nextEligibleAt: string | null;
+
+  constructor(message: string, failure?: TopicDiscoveryFailure | null) {
+    super(message);
+    this.name = "TopicDiscoveryRequestError";
+    this.outcome = failure?.outcome ?? null;
+    this.nextEligibleAt = failure?.next_eligible_at ?? null;
+  }
+}
+
 export function localCalendarDateKey(value: Date | string): string | null {
   const date = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(date.getTime())) return null;
@@ -50,4 +67,32 @@ export function getCollapsedTopicBasis(
 ): string | null {
   if (!preference?.enabled || settingsOpen) return null;
   return preference.genre.trim() || null;
+}
+
+export function isPreviousResultSet(
+  preferenceRevision: number | null | undefined,
+  runRevision: number | null | undefined,
+): boolean {
+  return Number.isFinite(preferenceRevision)
+    && Number.isFinite(runRevision)
+    && preferenceRevision !== runRevision;
+}
+
+export function formatNextEligibleAt(
+  value: string | null | undefined,
+  now = new Date(),
+): string | null {
+  if (!value) return null;
+  const eligibleAt = new Date(value);
+  if (!Number.isFinite(eligibleAt.getTime())) return null;
+
+  if (localCalendarDateKey(eligibleAt) === localCalendarDateKey(now)) {
+    return eligibleAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  return eligibleAt.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
