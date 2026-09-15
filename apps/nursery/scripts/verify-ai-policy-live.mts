@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { assertMutableSupabaseTarget } from "./supabase-target-authority.mjs";
 import {
   getAiReasonMessage,
   type AiDecisionType,
@@ -237,6 +238,11 @@ async function main(): Promise<void> {
   if (!supabaseUrl) fail("Missing VITE_SUPABASE_URL or SUPABASE_URL");
   if (!anonKey) fail("Missing VITE_SUPABASE_ANON_KEY or SUPABASE_ANON_KEY");
   if (!serviceRoleKey) fail("Missing TONGS_SERVICE_ROLE_KEY or SUPABASE_SERVICE_ROLE_KEY");
+  assertMutableSupabaseTarget(
+    supabaseUrl,
+    env.FORGE_NONPROD_SUPABASE_PROJECT_REFS,
+    "AI policy live verification",
+  );
 
   const admin = createClient(supabaseUrl, serviceRoleKey, {
     db: { schema: "tongs" },

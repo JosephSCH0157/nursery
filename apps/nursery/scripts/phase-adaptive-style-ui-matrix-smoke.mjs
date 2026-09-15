@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { createClient } from "@supabase/supabase-js";
+import { assertMutableSupabaseTarget } from "./supabase-target-authority.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -76,6 +77,11 @@ async function main() {
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     throw new Error("Missing VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, or TONGS_SERVICE_ROLE_KEY");
   }
+  assertMutableSupabaseTarget(
+    supabaseUrl,
+    env.FORGE_NONPROD_SUPABASE_PROJECT_REFS,
+    "adaptive style UI matrix smoke",
+  );
 
   const externalBaseUrl = env.FORGE_TEST_BASE_URL ?? env.PLAYWRIGHT_BASE_URL ?? null;
   const baseUrl = externalBaseUrl || "http://127.0.0.1:4173";

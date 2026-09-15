@@ -3,6 +3,11 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getNurseryRoot, loadNurseryEnv } from "../playwright/helpers/hearth-phase4-fixtures.ts";
+import {
+  assertMutableSupabaseTarget,
+} from "./supabase-target-authority.mjs";
+
+export { extractSupabaseProjectRef } from "./supabase-target-authority.mjs";
 
 export const BROWSER_FIXTURE_SCHEMA = "forge.browser-fixtures.v1" as const;
 export const BROWSER_FIXTURE_NAMESPACE = "forge-browser-release-v1";
@@ -45,22 +50,8 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-export function extractSupabaseProjectRef(url: string): string {
-  const parsed = new URL(url);
-  if (["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)) return "local";
-  const match = /^([a-z0-9-]+)\.supabase\.co$/i.exec(parsed.hostname);
-  if (!match?.[1]) throw new Error(`Unsupported Supabase host: ${parsed.hostname}`);
-  return match[1].toLowerCase();
-}
-
 export function assertNonProductionTarget(url: string, allowlistRaw: string | null | undefined): string {
-  const projectRef = extractSupabaseProjectRef(url);
-  if (projectRef === "local") return projectRef;
-  const allowlist = String(allowlistRaw ?? "").split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean);
-  if (!allowlist.includes(projectRef)) {
-    throw new Error(`Refusing browser fixture mutation for Supabase project ${projectRef}. Add only an approved non-production ref to FORGE_NONPROD_SUPABASE_PROJECT_REFS.`);
-  }
-  return projectRef;
+  return assertMutableSupabaseTarget(url, allowlistRaw, "browser fixture mutation");
 }
 
 export function deterministicFixtureUuid(key: string): string {

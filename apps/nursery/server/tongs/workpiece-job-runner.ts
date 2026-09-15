@@ -42,8 +42,29 @@ type RunnerDeps = {
 
 type RunnerState = {
   runnerId: string;
+  targetKey: string;
   intervalId: NodeJS.Timeout | null;
   inFlight: boolean;
+  currentTick: Promise<void> | null;
+  disposed: boolean;
+  tick: () => Promise<void>;
+  handle: WorkpieceJobRunnerHandle;
+};
+
+type RunnerGlobal = typeof globalThis & { __forge_workpiece_job_runner__?: RunnerState };
+
+export type WorkpieceJobRunnerHandle = {
+  readonly targetKey: string;
+  isActive(): boolean;
+  dispose(): Promise<void>;
+};
+
+export type WorkpieceJobRunnerStartOptions = {
+  targetKey: string;
+  pollIntervalMs?: number;
+  runImmediately?: boolean;
+  /** Focused-test seam; production callers use the real job tick. */
+  testOnlyTick?: () => Promise<void>;
 };
 
 const MAX_TRANSCRIPT_SOURCE_BYTES = 256 * 1024 * 1024;
@@ -1535,22 +1556,61 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
   }
 }
 
-export function ensureWorkpieceJobRunnerStarted(deps: RunnerDeps): void {
-  type RunnerGlobal = typeof globalThis & { __forge_workpiece_job_runner__?: RunnerState };
+async function disposeRunnerState(state: RunnerState): Promise<void> {
+  if (!state.disposed) {
+    state.disposed = true;
+    if (state.intervalId) clearInterval(state.intervalId);
+    state.intervalId = null;
+  }
+  if (state.currentTick) await state.currentTick.catch(() => undefined);
+  const globalAny = globalThis as RunnerGlobal;
+  if (globalAny.__forge_workpiece_job_runner__ === state) {
+    delete globalAny.__forge_workpiece_job_runner__;
+  }
+}
+
+function queueRunnerTick(state: RunnerState): void {
+  if (state.disposed || state.currentTick) return;
+  state.currentTick = state.tick().finally(() => {
+    state.currentTick = null;
+  });
+  void state.currentTick.catch(() => undefined);
+}
+
+export async function startWorkpieceJobRunner(
+  deps: RunnerDeps,
+  options: WorkpieceJobRunnerStartOptions,
+): Promise<WorkpieceJobRunnerHandle> {
   const globalAny = globalThis as RunnerGlobal;
   const existing = globalAny.__forge_workpiece_job_runner__;
-  if (existing?.intervalId) return;
+  if (existing && !existing.disposed) {
+    if (existing.targetKey === options.targetKey) return existing.handle;
+    await disposeRunnerState(existing);
+  }
 
-  const runnerState: RunnerState = {
+  const runnerState = {} as RunnerState;
+  const handle: WorkpieceJobRunnerHandle = {
+    targetKey: options.targetKey,
+    isActive: () => !runnerState.disposed && runnerState.intervalId !== null,
+    dispose: () => disposeRunnerState(runnerState),
+  };
+  Object.assign(runnerState, {
     runnerId: `nursery:${process.pid}:${crypto.randomUUID()}`,
+    targetKey: options.targetKey,
     intervalId: null,
     inFlight: false,
-  };
+    currentTick: null,
+    disposed: false,
+    tick: options.testOnlyTick ?? (() => tickRunner(deps, runnerState)),
+    handle,
+  } satisfies RunnerState);
   globalAny.__forge_workpiece_job_runner__ = runnerState;
 
   console.info("[workpiece-job-runner] started", { runner_id: runnerState.runnerId });
-  runnerState.intervalId = setInterval(() => {
-    void tickRunner(deps, runnerState);
-  }, 1500);
-  void tickRunner(deps, runnerState);
+  runnerState.intervalId = setInterval(
+    () => queueRunnerTick(runnerState),
+    options.pollIntervalMs ?? 1500,
+  );
+  if (options.runImmediately !== false) queueRunnerTick(runnerState);
+  return handle;
 }

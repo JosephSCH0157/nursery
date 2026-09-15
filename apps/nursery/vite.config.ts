@@ -220,13 +220,19 @@ export default defineConfig({
     },
     {
       name: "nursery:tongs-commit-api",
-      configureServer(server) {
+      async configureServer(server) {
         if (DISPOSABLE_BROWSER) server.middlewares.use(disposableRuntimeMiddleware(DISPOSABLE_BROWSER));
         server.middlewares.use(createAnvilSourceMiddleware());
-        server.middlewares.use(createNurseryTongsMiddleware({
+        const tongsMiddleware = await createNurseryTongsMiddleware({
           routePrefix: "/tongs",
           testOnlyOptionsOverride: OPENAI_BROWSER_CERTIFICATION?.tongs,
-        }));
+        });
+        server.middlewares.use(tongsMiddleware);
+        const disposeTongsMiddleware = () => {
+          void tongsMiddleware.dispose();
+        };
+        server.httpServer?.once("close", disposeTongsMiddleware);
+        server.watcher.once("close", disposeTongsMiddleware);
         server.middlewares.use(mwHearthChatApi(OPENAI_BROWSER_CERTIFICATION?.hearth));
         server.middlewares.use(mwAnvilWhisperApi());
         server.middlewares.use(createHammerDevMediaMiddleware());

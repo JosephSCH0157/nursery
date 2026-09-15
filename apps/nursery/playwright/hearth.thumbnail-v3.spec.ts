@@ -4,6 +4,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 import { expect, test } from "playwright/test";
 import { createTongsCommitService } from "../../../packages/tongs/src/workpiece-commit-api";
 import { canonicalSerialize } from "../../hearth/src/lib/episode-package-v3";
+import { assertMutableSupabaseTarget } from "../scripts/supabase-target-authority.mjs";
 
 const BLUE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const ORANGE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=", "base64");
@@ -36,7 +37,8 @@ async function config() {
   }));
   return { url: values.TONGS_SUPABASE_URL || values.VITE_SUPABASE_URL,
     anonKey: values.VITE_SUPABASE_ANON_KEY, serviceKey: values.TONGS_SERVICE_ROLE_KEY,
-    bucket: values.TONGS_WORKPIECE_BUCKET || "forge-workpieces" };
+    bucket: values.TONGS_WORKPIECE_BUCKET || "forge-workpieces",
+    allowlist: process.env.FORGE_NONPROD_SUPABASE_PROJECT_REFS || values.FORGE_NONPROD_SUPABASE_PROJECT_REFS };
 }
 
 function episodePackage(workpieceId: string) {
@@ -83,6 +85,7 @@ let fixture: Fixture;
 test.beforeAll(async () => {
   const env = await config();
   if (!env.url || !env.anonKey || !env.serviceKey) throw new Error("Live thumbnail browser verification requires linked Supabase credentials.");
+  assertMutableSupabaseTarget(env.url, env.allowlist, "thumbnail browser verification");
   const admin = createClient(env.url, env.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const orgId = randomUUID(); const workspaceId = randomUUID(); const workpieceId = randomUUID();
   const email = `forge-thumbnail-browser-${randomUUID()}@example.invalid`; const password = `${randomUUID()}Aa1!`;

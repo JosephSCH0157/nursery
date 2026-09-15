@@ -6,6 +6,7 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import { expect, test } from "playwright/test";
+import { assertMutableSupabaseTarget } from "../scripts/supabase-target-authority.mjs";
 
 type Revision = {
   id: string;
@@ -63,6 +64,9 @@ async function env() {
     url: values.TONGS_SUPABASE_URL || values.VITE_SUPABASE_URL,
     anon: values.VITE_SUPABASE_ANON_KEY,
     service: values.TONGS_SERVICE_ROLE_KEY,
+    allowlist:
+      process.env.FORGE_NONPROD_SUPABASE_PROJECT_REFS ||
+      values.FORGE_NONPROD_SUPABASE_PROJECT_REFS,
   };
 }
 const rules = (name: string) => ({
@@ -139,6 +143,7 @@ test.beforeAll(async () => {
   const config = await env();
   if (!config.url || !config.anon || !config.service)
     throw new Error("Live Supabase credentials unavailable");
+  assertMutableSupabaseTarget(config.url, config.allowlist, "brand media live verification");
   const admin = createClient(config.url, config.service, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
