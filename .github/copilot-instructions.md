@@ -16,45 +16,13 @@ If code behavior contradicts these documents, the code is wrong.
 
 Forge has ONE customer financial system.
 
-Development, testing, beta, and production MUST use the same application paths for:
-
-- subscriptions and purchases
-- customer credits/value and entitlements
-- pricing
-- model/provider selection
-- reservations and admission
-- spend controls
-- settlement
-- refunds
-- accounting and journals
-- storage and AI purchases
-- failure handling
-
-During development and beta, customer money flows through Stripe Test credentials.
-At launch, the same system runs through Stripe Live credentials.
-
-Test and Live may differ only where external providers require environment-specific
-credentials or identifiers. Those differences MUST enter through configuration,
-not separate product logic.
-
-A customer using Stripe Test MUST exercise the same Forge product behavior that a
-customer using Stripe Live will exercise.
-
-Provider execution during testing may incur real Forge wholesale cost. That does
-not justify a separate customer financial path.
-
-Go-live MUST NOT require new billing, pricing, reservation, settlement, accounting,
-entitlement, or customer-funding implementation. It is an environment activation,
-not a product rewrite.
-
-If proposed work introduces separate Test and Live financial behavior:
-
-STOP.
-
-Do not patch around it.
-Raise an architecture issue.
-
-If existing code contradicts this rule, the code is wrong.
+- Development, testing, beta, and production MUST use the same application paths for subscriptions, purchases, customer credits, pricing, reservations, spend controls, settlement, accounting, and failure handling.
+- Development and beta run through Stripe Test credentials; launch runs through Stripe Live credentials.
+- Test and Live may differ only where external providers require environment-specific credentials or identifiers (keys, webhook secrets, Stripe price IDs). Those differences MUST enter through configuration, not separate product logic.
+- A customer using Stripe Test MUST exercise the same Forge product behavior that a customer using Stripe Live will exercise.
+- Go-live MUST NOT require new billing, pricing, reservation, settlement, accounting, or entitlement implementation. It is an environment activation, not a product rewrite.
+- If proposed work introduces separate Test and Live financial behavior: **STOP**, do not patch around it, and raise an architecture issue.
+- If code behavior contradicts this rule, the code is wrong.
 
 See `docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md` for the full canonical manifest.
 
