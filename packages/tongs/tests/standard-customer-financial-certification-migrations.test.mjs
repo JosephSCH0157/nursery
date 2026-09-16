@@ -19,6 +19,32 @@ test("standard-customer aggregate certification is exact, scoped, and service-on
   assert.doesNotMatch(sql, /grant execute[\s\S]*to authenticated/);
 });
 
+test("Forge Credit denomination, packs, allowance, markup, and rounding are exact", async () => {
+  const economy = await migration("20261011160000_tongs_forge_credit_economy.sql");
+  const pricing = await migration("20261011170000_tongs_standard_customer_luna_catalog.sql");
+  assert.match(economy, /'forge\.credit-economy\.v1', 1, 'active', 5000, 'USD', 3300/);
+  assert.match(economy, /'pre_tax_customer_value'/);
+  assert.match(economy, /'ai_small','forge_credits_2000'.*10000000,2000/s);
+  assert.match(economy, /'ai_medium','forge_credits_5000'.*25000000,5000/s);
+  assert.match(economy, /'ai_large','forge_credits_10000'.*50000000,10000/s);
+  assert.match(economy, /select contract\.id,environment,'creator','monthly','forge\.creator-monthly\.allowance\.v1',[\s\S]*?1000,5000000,3759398/);
+  assert.match(economy, /gross_amount_micros \/ 5000/);
+  assert.match(pricing, /forge-standard-customer-hearth-luna-v1:11015:14650:350:15000:3/);
+});
+
+test("Test and Live Stripe mappings carry identical logical pack quantities", async () => {
+  const catalog = await readFile(new URL("supabase/functions/_shared/stripe-catalog.ts", root), "utf8");
+  for (const [offer, units] of [
+    ["forge_credits_2000", "2_000"],
+    ["forge_credits_5000", "5_000"],
+    ["forge_credits_10000", "10_000"],
+  ]) {
+    assert.match(catalog, new RegExp(`offerId: "${offer}"[\\s\\S]*?creditAmount: ${units}`));
+  }
+  assert.match(catalog, /testProductId:/);
+  assert.match(catalog, /liveProductId:/);
+});
+
 test("aggregate selection uses canonical reservation environment", async () => {
   const sql = await migration("20261011220000_tongs_aggregate_financial_environment_selection.sql");
   assert.match(sql, /r\.funding_environment=''test''/);
