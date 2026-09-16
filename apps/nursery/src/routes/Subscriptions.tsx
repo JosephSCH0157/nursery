@@ -42,7 +42,7 @@ type AiPack = {
   offerId: string;
   label: string;
   amountLabel: string;
-  tokensLabel: string;
+  creditsLabel: string;
   priceId: string;
 };
 
@@ -399,25 +399,25 @@ function getConfiguredAiPacks(): AiPack[] {
     {
       key: "base",
       offerId: STRIPE_CATALOG.packs.ai_credits.ai_small.offerId,
-      label: "AI Credits 2,000",
+      label: "Forge Credits 2,000",
       amountLabel: "$10",
-      tokensLabel: "2,000",
+      creditsLabel: "2,000",
       priceId: getConfiguredAiPriceId("base"),
     },
     {
       key: "mid",
       offerId: STRIPE_CATALOG.packs.ai_credits.ai_medium.offerId,
-      label: "AI Credits 6,000",
+      label: "Forge Credits 5,000",
       amountLabel: "$25",
-      tokensLabel: "6,000",
+      creditsLabel: "5,000",
       priceId: getConfiguredAiPriceId("mid"),
     },
     {
       key: "high",
       offerId: STRIPE_CATALOG.packs.ai_credits.ai_large.offerId,
-      label: "AI Credits 15,000",
+      label: "Forge Credits 10,000",
       amountLabel: "$50",
-      tokensLabel: "15,000",
+      creditsLabel: "10,000",
       priceId: getConfiguredAiPriceId("high"),
     },
   ];
@@ -1670,7 +1670,7 @@ export default function SubscriptionsRoute() {
             </article>
 
             <article className="subscriptions-card subscriptions-card--wide">
-              <h3>AI Credits</h3>
+              <h3>Forge Credits</h3>
               <p className="subscriptions-card__copy">
                 AI access requires active membership (Creator, Pro, Studio, or Founder), including BYO lane.
               </p>
@@ -1686,7 +1686,7 @@ export default function SubscriptionsRoute() {
                   >
                     {pendingPackKey === pack.key
                       ? "Redirecting..."
-                      : `Add ${pack.amountLabel} (${pack.tokensLabel} credits)`}
+                      : `Add ${pack.amountLabel} (${pack.creditsLabel} credits)`}
                   </button>
                 ))}
               </div>

@@ -79,8 +79,8 @@ test_product_id=prod_UFwmKEgTP2jQeO
 live_price_id=price_1THR9o1OSG3CCNl8GCAAHU1F
 test_price_id=price_1THQsk1OSG3CCNl87K8KXFmQ
 
-# One-time AI credit pack products
-forge_offer_id=forge_ai_credits_2000
+# One-time Forge Credit pack products
+forge_offer_id=forge_credits_2000
 forge_pack_type=ai_credits
 forge_pack_id=ai_small
 forge_interval=one_time
@@ -93,8 +93,9 @@ legacy_test_product_ids=prod_TndF1ENQTGet4Q
 legacy_live_price_ids=price_1T7Iry1OSG3CCNl8VQ86l8Ff
 legacy_test_price_ids=price_1T7MSt1OSG3CCNl8p7bTPKE8
 legacy_pack_aliases=forge_ai_credits_2000
+legacy_credit_amounts=forge_ai_credits_2000:2000
 
-forge_offer_id=forge_ai_credits_6000
+forge_offer_id=forge_credits_5000
 forge_pack_type=ai_credits
 forge_pack_id=ai_medium
 forge_interval=one_time
@@ -107,8 +108,9 @@ legacy_test_product_ids=prod_TndF1ENQTGet4Q
 legacy_live_price_ids=price_1T7Iry1OSG3CCNl8Oo8Myfhw
 legacy_test_price_ids=price_1Sq1zI1OSG3CCNl8w823S5rR
 legacy_pack_aliases=forge_ai_credits_6000
+legacy_credit_amounts=forge_ai_credits_6000:6000
 
-forge_offer_id=forge_ai_credits_15000
+forge_offer_id=forge_credits_10000
 forge_pack_type=ai_credits
 forge_pack_id=ai_large
 forge_interval=one_time
@@ -121,6 +123,7 @@ legacy_test_product_ids=prod_TndF1ENQTGet4Q
 legacy_live_price_ids=price_1T7Iry1OSG3CCNl8QjxT3OiY
 legacy_test_price_ids=price_1T83vg1OSG3CCNl8MQMqUTR0
 legacy_pack_aliases=forge_ai_credits_15000
+legacy_credit_amounts=forge_ai_credits_15000:15000
 
 # Storage add-on products (explicit products per offer)
 forge_offer_id=forge_storage_50gb

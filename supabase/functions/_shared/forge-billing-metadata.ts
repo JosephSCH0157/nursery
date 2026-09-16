@@ -38,7 +38,10 @@ const OFFER_IDS = new Set([
     Object.values(intervals).map((entry) => entry.offerId)
   ),
   ...Object.values(STRIPE_CATALOG.packs).flatMap((packs) =>
-    Object.values(packs).map((entry) => entry.offerId)
+    Object.values(packs).flatMap((entry) => [
+      entry.offerId,
+      ...(entry.legacyCreditGrants ?? []).map((grant) => grant.offerId),
+    ])
   ),
   ...Object.values(STRIPE_CATALOG.storage).map((entry) => entry.offerId),
 ]);

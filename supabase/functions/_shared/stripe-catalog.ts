@@ -43,8 +43,11 @@ type StripePackCatalogEntry = StripeCatalogIds & {
   packType: StripePackType;
   packId: StripePackId;
   interval: StripePackInterval;
-  tokenAmount: number;
-  legacyPackAliases?: readonly string[];
+  creditAmount: number;
+  legacyCreditGrants?: readonly {
+    offerId: string;
+    creditAmount: number;
+  }[];
 };
 
 type StripeStorageCatalogEntry = StripeCatalogIds & {
@@ -185,11 +188,11 @@ export const STRIPE_CATALOG = {
   packs: {
     ai_credits: {
       ai_small: {
-        offerId: "forge_ai_credits_2000",
+        offerId: "forge_credits_2000",
         packType: "ai_credits",
         packId: "ai_small",
         interval: "one_time",
-        tokenAmount: 2_000,
+        creditAmount: 2_000,
         liveProductId: "prod_UFw2TIryedKAqv",
         testProductId: "prod_UFwW61glKzQWEO",
         livePriceId: "price_1THR9p1OSG3CCNl89Pm2J7BR",
@@ -199,14 +202,16 @@ export const STRIPE_CATALOG = {
         legacyTestProductIds: ["prod_TndF1ENQTGet4Q"],
         legacyLivePriceIds: ["price_1T7Iry1OSG3CCNl8VQ86l8Ff"],
         legacyTestPriceIds: ["price_1T7MSt1OSG3CCNl8p7bTPKE8"],
-        legacyPackAliases: ["forge_ai_credits_2000"],
+        legacyCreditGrants: [
+          { offerId: "forge_ai_credits_2000", creditAmount: 2_000 },
+        ],
       },
       ai_medium: {
-        offerId: "forge_ai_credits_6000",
+        offerId: "forge_credits_5000",
         packType: "ai_credits",
         packId: "ai_medium",
         interval: "one_time",
-        tokenAmount: 6_000,
+        creditAmount: 5_000,
         liveProductId: "prod_UFw2Enfc7CgIsd",
         testProductId: "prod_UFwWSwnxAMF7S8",
         livePriceId: "price_1THR9q1OSG3CCNl8IKWwVQLY",
@@ -216,14 +221,16 @@ export const STRIPE_CATALOG = {
         legacyTestProductIds: ["prod_TndF1ENQTGet4Q"],
         legacyLivePriceIds: ["price_1T7Iry1OSG3CCNl8Oo8Myfhw"],
         legacyTestPriceIds: ["price_1Sq1zI1OSG3CCNl8w823S5rR"],
-        legacyPackAliases: ["forge_ai_credits_6000"],
+        legacyCreditGrants: [
+          { offerId: "forge_ai_credits_6000", creditAmount: 6_000 },
+        ],
       },
       ai_large: {
-        offerId: "forge_ai_credits_15000",
+        offerId: "forge_credits_10000",
         packType: "ai_credits",
         packId: "ai_large",
         interval: "one_time",
-        tokenAmount: 15_000,
+        creditAmount: 10_000,
         liveProductId: "prod_UFw2NvKZbPGj9Q",
         testProductId: "prod_UFwWVhvFehtYC2",
         livePriceId: "price_1THR9q1OSG3CCNl8KnKj1lHI",
@@ -233,7 +240,9 @@ export const STRIPE_CATALOG = {
         legacyTestProductIds: ["prod_TndF1ENQTGet4Q"],
         legacyLivePriceIds: ["price_1T7Iry1OSG3CCNl8QjxT3OiY"],
         legacyTestPriceIds: ["price_1T83vg1OSG3CCNl8MQMqUTR0"],
-        legacyPackAliases: ["forge_ai_credits_15000"],
+        legacyCreditGrants: [
+          { offerId: "forge_ai_credits_15000", creditAmount: 15_000 },
+        ],
       },
     },
   },
@@ -417,8 +426,8 @@ const STRIPE_CATALOG_AI_PACK_INDEX = (() => {
   for (const entry of Object.values(STRIPE_CATALOG.packs.ai_credits)) {
     index.set(entry.packId, entry);
     index.set(entry.offerId, entry);
-    for (const alias of entry.legacyPackAliases ?? []) {
-      index.set(alias, entry);
+    for (const legacyGrant of entry.legacyCreditGrants ?? []) {
+      index.set(legacyGrant.offerId, entry);
     }
   }
   return index;
@@ -458,5 +467,19 @@ export function findStripeCatalogAiPackById(
   const normalized = normalizeCatalogKey(packId);
   if (!normalized) return null;
   return STRIPE_CATALOG_AI_PACK_INDEX.get(normalized) ?? null;
+}
+
+export function resolveStripeCatalogAiPackCreditAmount(
+  packId: unknown,
+  offerId: unknown,
+): number | null {
+  const pack = findStripeCatalogAiPackById(packId);
+  const normalizedOfferId = normalizeCatalogKey(offerId);
+  if (!pack || !normalizedOfferId) return null;
+
+  if (normalizedOfferId === pack.offerId) return pack.creditAmount;
+  return pack.legacyCreditGrants?.find((grant) =>
+    grant.offerId === normalizedOfferId
+  )?.creditAmount ?? null;
 }
 

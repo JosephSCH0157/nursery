@@ -135,6 +135,14 @@ serve(async (req) => {
     };
     const tongsRpc = supabaseAdmin.schema("tongs") as unknown as TongsRpcClient;
     const financialEnvironment = await readTrustedFinancialEnvironment(tongsRpc);
+    const currentPriceId = financialEnvironment === "live"
+      ? catalogPrice.livePriceId
+      : catalogPrice.testPriceId;
+    if (priceId !== currentPriceId) {
+      return json(400, {
+        error: "Historical Forge Credit prices cannot be used for new purchases.",
+      });
+    }
     const { data: identifierData, error: identifierError } = await tongsRpc.rpc(
       "read_stripe_customer_environment_identifier",
       { p_user_id: user.id, p_financial_environment: financialEnvironment },

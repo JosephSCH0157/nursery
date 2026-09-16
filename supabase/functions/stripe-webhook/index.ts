@@ -2,9 +2,9 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  findStripeCatalogAiPackById,
   findStripeCatalogPriceById,
   findStripeCatalogPriceByProductId,
+  resolveStripeCatalogAiPackCreditAmount,
 } from "../_shared/stripe-catalog.ts";
 import {
   buildForgeCheckoutMetadata,
@@ -204,13 +204,6 @@ function mergeMetadataWithResolvedUserId(
     supabase_user_id: userId,
     forge_user_id: userId,
   };
-}
-
-function resolveAiPackTokens(itemId: string): number | null {
-  const pack = findStripeCatalogAiPackById(itemId);
-  if (!pack) return null;
-  if (!Number.isFinite(pack.tokenAmount) || pack.tokenAmount <= 0) return null;
-  return Math.trunc(pack.tokenAmount);
 }
 
 function logCheckoutFulfillmentBranch(
@@ -793,9 +786,14 @@ async function fulfillAiCreditsCheckout(
 ): Promise<void> {
   logCheckoutFulfillmentBranch("ai_credits", context);
 
-  const tokens = resolveAiPackTokens(context.itemId);
-  if (!tokens) {
-    throw new Error(`Unsupported AI credits forge_item_id: ${context.itemId}`);
+  const credits = resolveStripeCatalogAiPackCreditAmount(
+    context.itemId,
+    context.offerId,
+  );
+  if (!credits) {
+    throw new Error(
+      `Unsupported Forge Credit grant: item=${context.itemId} offer=${context.offerId ?? "missing"}`,
+    );
   }
   if (context.paymentStatus !== "paid") {
     throw new Error(`AI credits checkout is not paid: ${context.paymentStatus ?? "unknown"}`);
@@ -833,7 +831,7 @@ async function fulfillAiCreditsCheckout(
     itemId: context.itemId,
     amountTotal,
     currency,
-    creditUnits: tokens,
+    creditUnits: credits,
   });
 
   // Record the durable purchase/read-model evidence before fee enrichment. A
@@ -893,7 +891,7 @@ async function fulfillAiCreditsCheckout(
     await grantAiCredits(supabase, {
       userId: context.supabaseUserId,
       itemId: context.itemId,
-      tokens,
+      tokens: credits,
       eventId: context.eventId,
       sessionId: context.sessionId,
       amountTotal: context.amountTotal,
