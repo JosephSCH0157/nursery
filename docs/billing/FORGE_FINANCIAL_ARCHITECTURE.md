@@ -123,7 +123,131 @@ Provider execution during development, testing, and beta may incur real Forge wh
 
 ---
 
-## 4. Go-Live Protocol: Environment Activation
+## 4. Forge Credit Economy
+
+### 4.1 Customer denomination
+
+The customer monetary abstraction is **Forge Credits**. "Tokens" describes
+provider usage telemetry only and is never the name of customer currency.
+
+The canonical denomination is invariant across Test and Live:
+
+```
+1 Forge Credit = 5,000 USD micros = $0.005 pre-tax customer value
+200 Forge Credits = $1.00 pre-tax customer value
+```
+
+Pack size never changes the value of a Forge Credit. The approved logical pack
+terms are:
+
+| Pre-tax purchase price | Forge Credits |
+| ---: | ---: |
+| $10.00 | 2,000 |
+| $25.00 | 5,000 |
+| $50.00 | 10,000 |
+
+Stripe Test and Live objects implement paired versions of these same logical
+offers. Their external Product and Price identifiers may differ, but their
+currency, pre-tax amount, credit grant, and Forge offer identity must agree.
+
+### 4.2 Forge-provided AI price calculation
+
+Forge-provided AI uses a fixed **33% cost-plus** base markup. Every calculation
+uses deterministic integer arithmetic:
+
+```
+target_customer_value_micros = ceil(wholesale_cost_micros * 133 / 100)
+customer_credit_charge       = ceil(target_customer_value_micros / 5,000)
+settled_customer_value_micros = customer_credit_charge * 5,000
+credit_rounding_adjustment_micros =
+  settled_customer_value_micros - target_customer_value_micros
+```
+
+The rounding adjustment is evidence separate from the 33% base markup. It must
+not be represented as additional markup. Arithmetic must fail closed on invalid,
+negative, fractional, or unsafe inputs.
+
+### 4.3 Tax boundary
+
+Forge Credits represent pre-tax customer value. Applicable transaction tax is
+calculated and preserved on the Stripe purchase transaction. Consuming Forge
+Credits never calculates a second sales-tax charge, and the same operation burns
+the same number of credits in every customer tax jurisdiction.
+
+Stripe tax evidence belongs with the purchase receipt. Stripe Tax must not be
+enabled merely by code: the applicable Stripe environment must also have the
+merchant's confirmed active registrations and tax configuration.
+
+### 4.4 Customer and operator views
+
+Ordinary customers may see their Forge Credit balance, purchased credits,
+included subscription credits where useful, usage, and legitimate purchase or
+billing history. They must not receive provider wholesale cost, provider token
+economics, markup calculations, supplier-cost ceilings, margin, internal
+currency micros, owner funding concepts, or raw database/pricing errors.
+
+Internal evidence must preserve the provider, route/model/service, verified
+wholesale cost, base markup, target customer value, whole-credit rounding
+adjustment, final credit charge, Stripe purchase/payment and tax identities,
+financial environment, funding source, reservation, settlement, and provider
+request/execution identities.
+
+---
+
+## 5. Subscription Allowances
+
+Subscription allowances are versioned product terms backed by canonical Stripe
+cycle receipts. They use the same grant, reservation, consumption, settlement,
+and journal state machine in Test and Live. A receipt's financial environment is
+immutable and an inactive environment cannot grant or spend an allowance.
+
+The current **provisional Creator testing term** is:
+
+- 1,000 Forge Credits per eligible monthly renewal;
+- 5,000,000 allocated pre-tax customer-value micros; and
+- 3,759,398 maximum wholesale AI exposure micros.
+
+This is a testing term, not a final launch promise. Changes require a new
+versioned term; application hardcoding and silent reinterpretation are
+forbidden. No Pro or Studio allowance economics are approved by this term.
+
+---
+
+## 6. Legacy Credit Evidence
+
+Historical token-labelled grants, simulated Test units, legacy `ai_credits`, and
+earlier pack denominations are preserved as historical evidence. They are not
+spendable Forge Credits unless an append-only reconciliation proves trustworthy
+remaining customer-value micros and records an explicit conversion under the
+current credit contract.
+
+Conversions use whole credits derived from remaining customer value:
+
+```
+canonical_credits = floor(remaining_customer_value_micros / 5,000)
+unconverted_remainder_micros = remaining_customer_value_micros % 5,000
+```
+
+The source units, calculation inputs, remainder, evidence, and resulting
+canonical balance must remain auditable. A conversion never fabricates a Stripe
+purchase, revenue, or a claim that historical units were already Forge Credits.
+
+---
+
+## 7. Accounting Boundary
+
+The present boundary is **capture now, report later**. Operational financial
+facts and immutable journal evidence must be accurate enough for future
+reconciliation and export. Ledger will eventually reconcile provider invoices
+and export suitable data to an external accounting system such as QuickBooks.
+
+Ledger is not QuickBooks. Forge does not implement a general ledger UI, P&L,
+tax filing, chart-of-accounts management, accountant seats, vendor invoice
+import, or QuickBooks workflows in this financial slice.
+
+---
+
+## 8. Go-Live Protocol: Environment Activation
 
 Go-live for Podcaster's Forge financial capabilities is an **environment activation**, not a product development phase.
 
@@ -136,7 +260,7 @@ At launch:
 
 ---
 
-## 5. Architectural Guardrails & Enforcement
+## 9. Architectural Guardrails & Enforcement
 
 Whenever an engineer, contributor, or AI agent encounters:
 - A proposal to add a "test-only" balance bypass or mock settlement path in production code;
