@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CUSTOMER_RESEARCH_CREDITS,
+  CUSTOMER_RESEARCH_MODEL,
   OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
   OWNER_RESEARCH_MODEL_TERMS,
   OwnerResearchSubmissionUnknownError,
+  buildCustomerResearchPlan,
   buildOwnerResearchPlan,
+  createCustomerHearthResearchFetch,
   createOwnerHearthResearchFetch,
+  fingerprintCustomerResearchPlan,
   fingerprintOwnerResearchPlan,
   freezeOwnerHearthResearchSynthesis,
   ownerHearthResearchExecutionGate,
@@ -88,6 +93,14 @@ test("the shared confirmation parser exposes only customer-safe credit terms", (
   assert.equal("limits" in (valid ?? {}), false);
 });
 
+const customerPlan = buildCustomerResearchPlan({
+  workspaceId: "00000000-0000-4000-8000-000000000010",
+  workpieceId: "00000000-0000-4000-8000-000000000020",
+  userAuthoredText: "Why are we seeing record layoffs right now",
+  query: "record layoffs right now",
+  briefFingerprint: "d".repeat(64),
+});
+
 test("the accepted plan fingerprint excludes source content that does not exist yet", async () => {
   const plan = sessionPlan;
   assert.equal(fingerprintOwnerResearchPlan(plan), fingerprintOwnerResearchPlan({ ...plan }));
@@ -100,6 +113,36 @@ test("the accepted plan fingerprint excludes source content that does not exist 
   assert.equal(canaryPlan.maximum_sources, 2);
   assert.equal(canaryPlan.maximum_input_tokens, 8_000);
   assert.equal(canaryPlan.maximum_output_tokens, 1_000);
+});
+
+test("the standard customer plan fixes Luna, 21 credits, and the proven bounded research limits", async () => {
+  assert.equal(CUSTOMER_RESEARCH_CREDITS, 21);
+  assert.equal(customerPlan.requested_model, CUSTOMER_RESEARCH_MODEL);
+  assert.equal(customerPlan.limit_profile, "standard_customer");
+  assert.equal(customerPlan.maximum_search_requests, 6);
+  assert.equal(customerPlan.maximum_sources, 6);
+  assert.equal(customerPlan.maximum_http_attempts, 24);
+  assert.equal(customerPlan.maximum_input_tokens, 128_000);
+  assert.equal(customerPlan.maximum_output_tokens, 16_384);
+  assert.equal("sources" in customerPlan, false);
+  assert.equal(fingerprintCustomerResearchPlan(customerPlan), await fingerprintOpenAiTextPaidRequest(customerPlan));
+});
+
+test("standard customer retrieval uses the customer stage ledger", async () => {
+  const mocked = mockGate(({ name }) => name === "begin_customer_hearth_research_stage"
+    ? { replay: false, authorized: true }
+    : { replay: false });
+  const boundedFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl: async () => new Response("current evidence", { status: 200 }),
+  });
+  assert.equal(await (await boundedFetch("https://api.search.brave.com/res/v1/web/search?q=layoffs")).text(), "current evidence");
+  assert.equal(mocked.calls[0]?.name, "begin_customer_hearth_research_stage");
+  assert.equal(mocked.calls.at(-1)?.name, "complete_customer_hearth_research_stage");
+  assert.equal(mocked.calls[0]?.args.p_maximum_supplier_cost_micros, 5_000);
 });
 
 test("captured retrieval is persisted before delivery and replays without a supplier call", async () => {

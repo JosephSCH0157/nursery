@@ -17,9 +17,14 @@ const NO_ARTIFACT_RE = /\b(?:do not|don't|dont|not asking (?:you )?to|didn't ask
 const DISCUSSION_RE = /\b(?:how|what|where|whether|should|could|would)\b[^.!?\n]{0,100}\b(?:change|changes|update|revise|rewrite|move|frame|strengthen|get .* across)\b/i;
 const READINESS_RE = /\b(?:are we ready|ready to record|record now|can i record|good to record|ready for anvil|ship this|go live)\b/i;
 const RESEARCH_RE = /\b(?:browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|news|reports?|reporting|sources?|citations?|evidence|verify|fact[- ]?check|corroborat)\b/i;
+const NO_RESEARCH_RE = /\b(?:do not|don't|dont|without|no need to|please avoid)\b[^.!?\n]{0,100}\b(?:browse|look up|lookup|search|research|check (?:the )?(?:web|news|current)|use (?:the )?(?:web|internet)|find sources?|verify)\b|\b(?:just|only)\b[^.!?\n]{0,40}\b(?:explain|answer)\b[^.!?\n]{0,50}\b(?:generally|from general knowledge|without (?:browsing|research))\b/i;
 const URL_RE = /\bhttps?:\/\//i;
 const FACT_QUESTION_RE = /\b(?:who|what|when|where|why|how (?:much|many|long|often)|what caused|what led to)\b/i;
 const NON_RESEARCH_QUESTION_RE = /\b(?:what do you think|how does this (?:sound|read|feel)|should (?:i|we)|can (?:i|we)|help me (?:write|draft|revise|rewrite)|are you with me|do you follow)\b/i;
+const EVERGREEN_RE = /\b(?:generally|in general|typically|usually|as a rule|evergreen|conceptually)\b/i;
+const HISTORICAL_PERIOD_RE = /\b(?:19|20)\d{2}\b|\b(?:historically|history of|during the|in the past|previous century)\b/i;
+const CURRENT_TIME_RE = /\b(?:right now|currently|today|this (?:week|month|year)|recently|lately|at the moment|breaking|latest|current|ongoing|newly|record (?:high|low)s?)\b/i;
+const CURRENT_OBSERVATION_RE = /\b(?:why|how come)\s+(?:are|is)\s+(?:(?:we|people|creators?|companies|customers?|audiences?)\s+)?(?:seeing|experiencing|getting|reporting|noticing|facing)\b|\bwhat\s+(?:is|are)\s+(?:driving|causing|behind)\b/i;
 const CROSS_EPISODE_RE = /\b(?:other|another|previous|prior|earlier|last)\b[^.!?\n]{0,80}\b(?:episode|project|draft|script|conversation)\b|\b(?:episode|project|draft|script|conversation)\b[^.!?\n]{0,80}\b(?:other|another|previous|prior|earlier|last)\b|\b(?:workspace)\b[^.!?\n]{0,100}\b(?:compare|reference|use|pull|find|load|open)\b|\b(?:compare|reference|use|pull|find|load|open)\b[^.!?\n]{0,100}\bworkspace\b/i;
 const NEW_SCRIPT_RE = /\b(?:write|create|make|build|give me|draft)\b[^.!?\n]{0,80}\b(?:full )?script\b|\b(?:turn|shape|make)\b[^.!?\n]{0,40}\b(?:this|that|it)\b[^.!?\n]{0,30}\binto\b[^.!?\n]{0,20}\bscript\b/i;
 const DIRECT_SCRIPT_FIX_RE = /\b(?:fix|repair|polish|tighten)\b[^.!?\n]{0,50}\b(?:this|the|my|our)?\s*script\b/i;
@@ -112,10 +117,19 @@ export function resolveHearthTurnDecision(args: {
       } else if (mutation.targetsScriptBody || DIRECT_SCRIPT_FIX_RE.test(creatorText)) {
         mode = "script_mutate";
         reasons.push("affirmative_script_mutation");
-      } else if (URL_RE.test(creatorText) || RESEARCH_RE.test(creatorText)
-        || (creatorText.includes("?") && FACT_QUESTION_RE.test(creatorText) && !NON_RESEARCH_QUESTION_RE.test(creatorText))) {
+      } else if (NO_RESEARCH_RE.test(creatorText)) {
+        mode = "conversation";
+        reasons.push("creator_declined_research");
+      } else if (URL_RE.test(creatorText) || RESEARCH_RE.test(creatorText)) {
         mode = "research";
         reasons.push("creator_requested_research");
+      } else if (!HISTORICAL_PERIOD_RE.test(creatorText)
+        && !EVERGREEN_RE.test(creatorText)
+        && (CURRENT_TIME_RE.test(creatorText) || CURRENT_OBSERVATION_RE.test(creatorText))
+        && FACT_QUESTION_RE.test(creatorText)
+        && !NON_RESEARCH_QUESTION_RE.test(creatorText)) {
+        mode = "research";
+        reasons.push("current_evidence_required");
       } else {
         reasons.push("ordinary_conversation");
       }

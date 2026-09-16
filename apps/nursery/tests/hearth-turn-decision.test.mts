@@ -46,6 +46,19 @@ test("explicit artifact and mutation language receives one authoritative mode", 
   assert.equal(decide("Research the current figures and cite the sources.").mode, "research");
 });
 
+test("current-evidence semantics route without punctuation while evergreen, historical, and refused browsing do not", () => {
+  const current = decide("Why are we seeing record layoffs right now");
+  assert.equal(current.mode, "research");
+  assert.ok(current.reasons.includes("current_evidence_required"));
+
+  assert.equal(decide("What factors generally affect employment cycles?").mode, "conversation");
+  assert.equal(decide("What caused the employment contraction in 2008?").mode, "conversation");
+
+  const declined = decide("Explain what is happening currently, but do not browse or search the web.");
+  assert.equal(declined.mode, "conversation");
+  assert.ok(declined.reasons.includes("creator_declined_research"));
+});
+
 test("explicit UI actions are intent inputs but creator negation remains authoritative", () => {
   assert.equal(decide("Use these notes.", { kind: "generate_outline" }).mode, "outline_generate");
   assert.equal(decide("Use these notes.", { kind: "generate_script" }).mode, "script_generate");

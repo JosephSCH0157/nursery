@@ -544,7 +544,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             }
           >
             <option value="browser" disabled={!props.hasBrowserSpeech}>
-              Browser (Free)
+              Browser speech-to-text (Free)
             </option>
             <option value="ai">AI</option>
           </select>

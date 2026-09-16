@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import {
+  boundedProviderRequestEvidence,
   buildBoundedOpenAiProviderRequest,
   type BoundedProviderRequest,
 } from "../../../../packages/tongs/src/providers/bounded-provider-request";
@@ -24,6 +25,9 @@ export const OWNER_RESEARCH_PLATFORM_CEILING_MICROS = 1_456;
 export const OWNER_RESEARCH_AGGREGATE_RISK_MICROS = 3;
 export const OWNER_RESEARCH_MAX_CAPTURE_BYTES = 256 * 1024;
 export const OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES = 1024 * 1024;
+export const CUSTOMER_RESEARCH_PLAN_SCHEMA = "forge.hearth.customer-research-plan.v1" as const;
+export const CUSTOMER_RESEARCH_MODEL = "gpt-5.6-luna" as const;
+export const CUSTOMER_RESEARCH_CREDITS = 21;
 
 export const OWNER_RESEARCH_LIMIT_PROFILES = Object.freeze({
   canary: {
@@ -83,6 +87,12 @@ export type OwnerResearchPlan = {
   query_policy_revision: string;
   extraction_policy_revision: string;
   persistence_revision: string;
+};
+
+export type CustomerResearchPlan = Omit<OwnerResearchPlan, "schema" | "requested_model" | "limit_profile"> & {
+  schema: typeof CUSTOMER_RESEARCH_PLAN_SCHEMA;
+  requested_model: typeof CUSTOMER_RESEARCH_MODEL;
+  limit_profile: "standard_customer";
 };
 
 export type OwnerResearchQuote = {
@@ -197,6 +207,40 @@ export function buildOwnerResearchPlan(args: {
 }
 
 export function fingerprintOwnerResearchPlan(plan: OwnerResearchPlan): string {
+  return sha256Canonical(plan);
+}
+
+export function buildCustomerResearchPlan(args: {
+  workspaceId: string;
+  workpieceId: string;
+  userAuthoredText: string;
+  query: string;
+  briefFingerprint: string;
+}): CustomerResearchPlan {
+  const limits = OWNER_RESEARCH_LIMIT_PROFILES.creator_session;
+  return {
+    schema: CUSTOMER_RESEARCH_PLAN_SCHEMA,
+    route_code: OWNER_RESEARCH_ROUTE,
+    workspace_id: args.workspaceId,
+    workpiece_id: args.workpieceId,
+    user_authored_text: args.userAuthoredText.trim(),
+    query: args.query.trim(),
+    brief_fingerprint: args.briefFingerprint.trim(),
+    requested_model: CUSTOMER_RESEARCH_MODEL,
+    limit_profile: "standard_customer",
+    maximum_search_requests: limits.maximumSearches,
+    maximum_sources: limits.maximumSources,
+    maximum_http_attempts: limits.maximumHttpAttempts,
+    maximum_input_tokens: limits.maximumInputTokens,
+    maximum_output_tokens: limits.maximumOutputTokens,
+    instruction_revision: OWNER_RESEARCH_INSTRUCTION_REVISION,
+    query_policy_revision: OWNER_RESEARCH_QUERY_POLICY_REVISION,
+    extraction_policy_revision: OWNER_RESEARCH_EXTRACTION_POLICY_REVISION,
+    persistence_revision: OWNER_RESEARCH_PERSISTENCE_REVISION,
+  };
+}
+
+export function fingerprintCustomerResearchPlan(plan: CustomerResearchPlan): string {
   return sha256Canonical(plan);
 }
 
@@ -408,11 +452,17 @@ async function readCaptureBytes(response: Response): Promise<Uint8Array> {
   return merged;
 }
 
-export function createOwnerHearthResearchFetch(args: {
+function createBoundedHearthResearchFetch(args: {
   gate: OpenAiTextGateClient;
   handle: HearthPaidExecutionHandle;
   deadlineAt: number;
-  plan: OwnerResearchPlan;
+  plan: Pick<OwnerResearchPlan, "maximum_http_attempts" | "maximum_search_requests">;
+  rpcNames: {
+    begin: string;
+    complete: string;
+    fail: string;
+    unknown: string;
+  };
   fetchImpl?: typeof fetch;
 }): typeof fetch {
   let attemptOrdinal = 0;
@@ -427,7 +477,7 @@ export function createOwnerHearthResearchFetch(args: {
     if (Date.now() >= args.deadlineAt) throw new Error("owner_research_deadline_exhausted");
     const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const stageKey = `${args.handle.operationId}:${attemptOrdinal}:${sha256Canonical({ method, url })}`;
-    const begun = await rpc(args.gate, "begin_owner_hearth_research_stage", {
+    const begun = await rpc(args.gate, args.rpcNames.begin, {
       p_reservation_id: args.handle.reservationId,
       p_stage_key: stageKey,
       p_stage_type: kind,
@@ -445,7 +495,7 @@ export function createOwnerHearthResearchFetch(args: {
     try {
       response = await (args.fetchImpl ?? fetch)(input, init);
     } catch (error) {
-      await rpc(args.gate, "mark_owner_hearth_research_stage_unknown", {
+      await rpc(args.gate, args.rpcNames.unknown, {
         p_reservation_id: args.handle.reservationId,
         p_stage_key: stageKey,
         p_evidence_json: { error: error instanceof Error ? error.message : String(error) },
@@ -459,7 +509,7 @@ export function createOwnerHearthResearchFetch(args: {
         throw new Error("owner_research_capture_total_size_exceeded");
       }
     } catch {
-      await rpc(args.gate, "fail_owner_hearth_research_stage", {
+      await rpc(args.gate, args.rpcNames.fail, {
         p_reservation_id: args.handle.reservationId,
         p_stage_key: stageKey,
         p_failure_code: "capture_size_exceeded",
@@ -475,7 +525,7 @@ export function createOwnerHearthResearchFetch(args: {
       body_base64: Buffer.from(bytes).toString("base64"),
       response_bytes: bytes.byteLength,
     };
-    await rpc(args.gate, "complete_owner_hearth_research_stage", {
+    await rpc(args.gate, args.rpcNames.complete, {
       p_reservation_id: args.handle.reservationId,
       p_stage_key: stageKey,
       p_actual_supplier_cost_micros: kind === "search" ? OWNER_RESEARCH_SEARCH_REQUEST_MICROS : 0,
@@ -483,6 +533,80 @@ export function createOwnerHearthResearchFetch(args: {
     });
     return response;
   };
+}
+
+export function createOwnerHearthResearchFetch(args: {
+  gate: OpenAiTextGateClient;
+  handle: HearthPaidExecutionHandle;
+  deadlineAt: number;
+  plan: OwnerResearchPlan;
+  fetchImpl?: typeof fetch;
+}): typeof fetch {
+  return createBoundedHearthResearchFetch({
+    ...args,
+    rpcNames: {
+      begin: "begin_owner_hearth_research_stage",
+      complete: "complete_owner_hearth_research_stage",
+      fail: "fail_owner_hearth_research_stage",
+      unknown: "mark_owner_hearth_research_stage_unknown",
+    },
+  });
+}
+
+export function createCustomerHearthResearchFetch(args: {
+  gate: OpenAiTextGateClient;
+  handle: HearthPaidExecutionHandle;
+  deadlineAt: number;
+  plan: CustomerResearchPlan;
+  fetchImpl?: typeof fetch;
+}): typeof fetch {
+  return createBoundedHearthResearchFetch({
+    ...args,
+    rpcNames: {
+      begin: "begin_customer_hearth_research_stage",
+      complete: "complete_customer_hearth_research_stage",
+      fail: "fail_customer_hearth_research_stage",
+      unknown: "mark_customer_hearth_research_stage_unknown",
+    },
+  });
+}
+
+export async function bindCustomerHearthResearchSynthesis(args: {
+  gate: OpenAiTextGateClient;
+  handle: HearthPaidExecutionHandle;
+  bounded: BoundedProviderRequest;
+}): Promise<void> {
+  const evidence = boundedProviderRequestEvidence(args.bounded);
+  const bound = await rpc(args.gate, "bind_customer_hearth_research_quote_request", {
+    p_reservation_id: args.handle.reservationId,
+    p_request_fingerprint: args.handle.requestFingerprint,
+    p_model: args.bounded.model,
+    p_service_tier: args.bounded.serviceTier,
+    p_estimator_revision: args.bounded.estimatorRevision,
+    p_tokenizer_revision: args.bounded.tokenizerRevision,
+    p_serialized_body_sha256: evidence.serialized_body_sha256,
+    p_serialized_bytes: evidence.serialized_bytes,
+    p_tokenizer_input_tokens: evidence.tokenizer_input_tokens,
+    p_protocol_overhead_tokens: evidence.protocol_overhead_tokens,
+    p_utf8_byte_token_upper_bound: evidence.utf8_byte_token_upper_bound,
+    p_bounded_input_tokens: evidence.bounded_input_tokens,
+    p_maximum_output_tokens: args.bounded.maximumOutputTokens,
+    p_maximum_attempts: args.bounded.maximumAttempts,
+  });
+  if (bound.authorized !== true) throw new Error(`customer_research_bind_denied:${String(bound.reason ?? "unknown")}`);
+}
+
+export async function settleCustomerHearthResearchBeforeSynthesis(args: {
+  gate: OpenAiTextGateClient;
+  reservationId: string;
+  failureClass: string;
+  evidence?: JsonRow;
+}): Promise<void> {
+  await rpc(args.gate, "settle_customer_hearth_research_before_synthesis", {
+    p_reservation_id: args.reservationId,
+    p_failure_class: args.failureClass,
+    p_evidence_json: args.evidence ?? {},
+  });
 }
 
 export async function freezeOwnerHearthResearchSynthesis(args: {

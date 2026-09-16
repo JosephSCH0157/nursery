@@ -197,7 +197,7 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
   assert.equal(providerCalls, 0);
 });
 
-test("research without pricing and execution authority is explicitly unavailable before retrieval", async () => {
+test("research with an inactive customer price is unavailable before retrieval", async () => {
   const workspaceId = "55555555-5555-4555-8555-555555555555";
   const routeReads: string[] = [];
   const gateCalls: string[] = [];
@@ -222,6 +222,9 @@ test("research without pricing and execution authority is explicitly unavailable
     openAiTextGate: {
       async rpc(name: string, args: Record<string, unknown>) {
         gateCalls.push(name);
+        if (name === "read_openai_execution_requirement") {
+          return { data: { mode: "inactive", funding_context_required: false }, error: null };
+        }
         if (name === "read_openai_text_route_execution_requirement") {
           const route = String(args.p_route_code ?? "");
           routeReads.push(route);
@@ -272,14 +275,9 @@ test("research without pricing and execution authority is explicitly unavailable
     }),
   }));
   const researchPayload = await researchResponse.json() as Record<string, any>;
-  assert.equal(researchResponse.status, 422, JSON.stringify(researchPayload));
-  assert.equal(researchPayload.code, "supporting_service_not_priced");
-  assert.equal(researchPayload.turn_result.decision.mode, "research");
-  assert.equal(researchPayload.turn_result.artifact, null);
-  assert.deepEqual(researchPayload.turn_result.operations, []);
-  assert.equal(researchPayload.turn_result.validation.failureKind, "admission_failure");
-  assert.match(researchPayload.turn_result.validation.message, /no active pricing and execution authority/i);
-  assert.match(researchPayload.turn_result.validation.message, /no provider request was sent/i);
+  assert.equal(researchResponse.status, 503, JSON.stringify(researchPayload));
+  assert.equal(researchPayload.code, "customer_research_unavailable");
+  assert.match(researchPayload.error, /pricing is not active/i);
   assert.deepEqual(routeReads, []);
   assert.equal(gateCalls.includes("quote_owner_hearth_research_operation"), false);
   assert.equal(gateCalls.includes("authorize_owner_hearth_research_openai_attempt"), false);

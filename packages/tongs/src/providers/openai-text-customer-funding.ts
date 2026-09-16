@@ -270,6 +270,13 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   serviceGate: OpenAiTextGateClient;
   userGate: OpenAiTextGateClient;
   quoteLifetimeSeconds?: number;
+  /**
+   * Research is priced from an immutable retrieval plan before any paid search
+   * occurs. Its final provider-visible synthesis body can only be frozen after
+   * those bounded sources are captured, so that one route binds the body later
+   * and still before provider transmission.
+   */
+  deferProviderRequestBinding?: boolean;
   prepareBoundedRequest?: (limits: {
     model: string;
     maximumInputTokens: number;
@@ -312,6 +319,13 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     || args.routeCode === "anvil.realtime_transcription"
     || args.routeCode === "hammer.transcript_prep"
     || args.routeCode === "hammer.transcript_regeneration";
+  if (args.deferProviderRequestBinding && args.routeCode !== "hearth.research_synthesis") {
+    throw new OpenAiTextFundingPreparationError(
+      422,
+      "deferred_provider_binding_not_allowed",
+      "Deferred provider-request binding is allowed only for bounded Hearth research.",
+    );
+  }
   const selection = normalizeModelSelection(await rpc(args.serviceGate, transcriptionRoute
     ? "resolve_openai_transcription_model_for_quote"
     : "resolve_openai_text_model_for_funding_quote", {
@@ -352,7 +366,7 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   // multipart output contract through the dedicated transcription authority.
   // JSON text routes additionally bind the complete provider-visible payload
   // to the quote before it can be shown or accepted.
-  if (!transcriptionRoute) {
+  if (!transcriptionRoute && !args.deferProviderRequestBinding) {
     if (!args.prepareBoundedRequest) {
       throw new OpenAiTextFundingPreparationError(
         503,

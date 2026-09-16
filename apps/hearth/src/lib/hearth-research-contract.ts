@@ -340,7 +340,7 @@ export function buildHearthResearchRequest(input: {
     intent: input.intent ?? inferHearthResearchIntent(rawQuery),
     recencyPreference: input.recencyPreference ?? inferHearthResearchRecency(rawQuery),
     maxSources: boundedSourceCount,
-    requireDates: input.requireDates ?? /\b(today|latest|recent|this week|this month|timeline|when)\b/i.test(rawQuery),
+    requireDates: input.requireDates ?? /\b(today|right now|currently|latest|recent|this week|this month|timeline|when|ongoing)\b/i.test(rawQuery),
     requireFullExtraction: input.requireFullExtraction ?? false,
   };
 }
@@ -375,8 +375,8 @@ function inferHearthResearchIntent(query: string): HearthResearchIntent {
 
 function inferHearthResearchRecency(query: string): HearthResearchRequest["recencyPreference"] {
   const normalized = query.toLowerCase();
-  if (/\btoday|this week|this month|latest|breaking\b/.test(normalized)) return "strict_recent";
-  if (/\brecent|new|current\b/.test(normalized)) return "recent";
+  if (/\btoday|right now|currently|at the moment|this week|this month|latest|breaking|ongoing\b/.test(normalized)) return "strict_recent";
+  if (/\brecent|recently|new|current|lately\b/.test(normalized)) return "recent";
   return "none";
 }
 

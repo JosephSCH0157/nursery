@@ -69,6 +69,7 @@ const migrations = [
   "20261011270000_tongs_internal_quote_credit_units.sql",
   "20261011280000_tongs_normal_customer_provider_authority.sql",
   "20261011290000_tongs_credit_pack_availability_caller_role.sql",
+  "20261011300000_standard_customer_hearth_research.sql",
 ];
 
 const historicalBackfillFixture = `
@@ -458,6 +459,25 @@ try {
     );
   `, "normal rollout and beta credit fixtures");
 
+  const researchQuote = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.create_customer_openai_text_quote(
+      'aa000000-0000-4000-8000-000000000050',
+      'aa000000-0000-4000-8000-000000000099',
+      'isolated-standard-customer-hearth-research',
+      'hearth.research_synthesis',
+      'aa000000-0000-4000-8000-000000000010',
+      'aa000000-0000-4000-8000-000000000020',repeat('a',64),
+      'gpt-5.6-luna','forge',now()+interval '10 minutes'
+    );
+  `, "standard customer Hearth research quote"));
+  if (researchQuote.customer_credit_units !== 21
+    || researchQuote.maximum_customer_charge_micros !== 105000
+    || researchQuote.failure_customer_charge_micros !== 0
+    || researchQuote.funding_eligible !== false) {
+    throw new Error(`Unexpected Hearth research quote: ${JSON.stringify(researchQuote)}`);
+  }
+
   const proof = JSON.parse(psql(`
     set request.jwt.claim.role='service_role';
     select jsonb_build_object(
@@ -473,6 +493,11 @@ try {
       'internal_quote_credit_units', (select prosrc like '%customer_credit_units%v_quote.customer_credit_units%' from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='tongs' and p.proname='create_customer_openai_text_quote'),
       'normal_rollout', (select count(*) from tongs.financial_environment_configuration_revisions where environment='test' and lifecycle_state='customer_rollout_active' and maximum_operation_count is null and rolling_window_seconds is null),
       'normal_authorization', (select count(*) from tongs.customer_paid_execution_scope_authorizations where id='aa000000-0000-4000-8000-000000000030' and authorization_kind='normal_customer' and financial_environment='test' and maximum_operation_count is null and rolling_window_seconds is null and valid_until is null),
+      'research_authorization', (select count(*) from tongs.customer_paid_execution_scope_authorizations where user_id='aa000000-0000-4000-8000-000000000099' and workspace_id='aa000000-0000-4000-8000-000000000010' and authorization_kind='normal_customer' and financial_environment='test' and route_code='hearth.research_synthesis' and maximum_customer_charge_micros=105000 and maximum_wholesale_exposure_micros=76717),
+      'live_research_authorization', (select count(*) from tongs.customer_paid_execution_scope_authorizations where financial_environment='live' and route_code='hearth.research_synthesis' and status='active'),
+      'research_rollout', (select count(*) from tongs.openai_text_rollout_revisions where route_code='hearth.research_synthesis' and revision=3 and mode='enforce' and funding_scope='forge' and cost_policy_revision_id='12000000-0000-4000-8000-000000000001'),
+      'research_cost_policy', (select count(*) from tongs.openai_text_cost_policy_revisions where id='12000000-0000-4000-8000-000000000001' and direct_provider_ceiling_micros=45261 and supporting_cost_ceiling_micros=31456 and full_cost_ceiling_micros=76717 and cost_coverage='complete'),
+      'overhead_evidence', (select count(*) from tongs.openai_text_supporting_cost_inventory where cost_policy_revision_id='12000000-0000-4000-8000-000000000001' and disposition in ('platform_overhead','workspace_entitlement')),
       'beta_grant_count', (select count(*) from tongs.beta_credit_grants where id='aa000000-0000-4000-8000-000000000040' and credit_units=9 and financial_environment='test'),
       'beta_grant_journal_balanced', (select coalesce(sum(amount_micros),0)=0 from tongs.accounting_journal_entries where event_id='aa000000-0000-4000-8000-000000000040'),
       'beta_purchase_enabled', (select (tongs.read_credit_pack_purchase_availability()->>'purchase_enabled')::boolean)
@@ -489,6 +514,11 @@ try {
     || proof.internal_quote_credit_units !== true
     || proof.normal_rollout !== 1
     || proof.normal_authorization !== 1
+    || proof.research_authorization !== 1
+    || proof.live_research_authorization !== 0
+    || proof.research_rollout !== 1
+    || proof.research_cost_policy !== 1
+    || proof.overhead_evidence !== 3
     || proof.beta_grant_count !== 1
     || proof.beta_grant_journal_balanced !== true
     || proof.beta_purchase_enabled !== false) {
@@ -506,7 +536,7 @@ try {
     beta_credit_controls: "passed",
     historical_backfill_links: "8_of_8_exact_and_idempotent",
     historical_economic_state: "unchanged",
-    commercial_price_publication: "not_performed",
+    hearth_research_price_publication: "21_credits_variable_cost_only",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

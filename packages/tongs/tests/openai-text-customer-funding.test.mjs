@@ -142,6 +142,24 @@ test("an exact acceptance is atomically reserved and returned as an opaque handl
     < service.calls.findIndex((call) => call.name === "reserve_customer_openai_text_quote"));
 });
 
+test("bounded Hearth research may reserve from its immutable plan before the final synthesis body exists", async () => {
+  const service = makeGate("enforce", "gpt-5.6-luna");
+  const user = makeGate();
+  const args = input(service, user, {
+    operationId: "ordinary-operation-1",
+    quoteId,
+    quoteHash,
+    requestFingerprint: fingerprint,
+  });
+  args.routeCode = "hearth.research_synthesis";
+  args.deferProviderRequestBinding = true;
+  const result = await resolveOrdinaryOpenAiTextFunding(args);
+  assert.equal(result?.reservationId, reservationId);
+  assert.equal(service.calls.some((call) => call.name === "bind_bounded_provider_quote_request"), false);
+  assert.ok(service.calls.findIndex((call) => call.name === "create_customer_openai_text_quote")
+    < service.calls.findIndex((call) => call.name === "reserve_customer_openai_text_quote"));
+});
+
 test("changed inputs cannot use an accepted quote", async () => {
   const service = makeGate();
   await assert.rejects(resolveOrdinaryOpenAiTextFunding(input(service, makeGate(), {

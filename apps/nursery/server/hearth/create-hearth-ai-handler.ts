@@ -123,18 +123,26 @@ import {
 } from "./owner-hearth-paid-execution";
 import {
   OwnerResearchSubmissionUnknownError,
+  CUSTOMER_RESEARCH_CREDITS,
+  CUSTOMER_RESEARCH_MODEL,
   OWNER_RESEARCH_DEADLINE_MS,
   acceptOwnerHearthResearchOperation,
   acquireOwnerHearthResearchAdmission,
+  bindCustomerHearthResearchSynthesis,
+  buildCustomerResearchPlan,
   buildOwnerResearchPlan,
+  createCustomerHearthResearchFetch,
   createOwnerHearthResearchFetch,
+  fingerprintCustomerResearchPlan,
   fingerprintOwnerResearchPlan,
   freezeOwnerHearthResearchSynthesis,
   ownerHearthResearchExecutionGate,
   quoteOwnerHearthResearchOperation,
   readOwnerHearthResearchExecutionRequirement,
+  settleCustomerHearthResearchBeforeSynthesis,
   settleOwnerHearthResearchBeforeSynthesis,
   sha256Canonical,
+  type CustomerResearchPlan,
   type OwnerResearchModel,
   type OwnerResearchPlan,
 } from "./owner-hearth-research-execution";
@@ -4412,7 +4420,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // Search/extraction is a distinct supporting service. An accepted text
       // quote never authorizes it implicitly. No research adapter may run
       // without the complete owner-research pricing and execution authority.
-      if (researchModeRequested && openAiTextGate && !ownerResearchRequirement) {
+      if (researchModeRequested && openAiTextGate && !ownerResearchRequirement
+        && effectiveLane === AI_USAGE_LANE.BYO) {
         const earlyRequirement = researchExecutionRequirement!;
         const earlyRow = isRecord(earlyRequirement.data)
           ? earlyRequirement.data
@@ -4446,7 +4455,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         ? buildHearthResearchRequest({ query: researchQuery })
         : null;
       let ownerResearchPlan: OwnerResearchPlan | null = null;
+      let customerResearchPlan: CustomerResearchPlan | null = null;
       let ownerResearchDeadlineAt: number | null = null;
+      let customerResearchDeadlineAt: number | null = null;
       let ownerResearchMaximumOutputTokens: number | null = null;
       let ownerResearchFetch: typeof fetch | undefined;
       if (researchModeRequested && ownerResearchRequirement) {
@@ -4549,6 +4560,110 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           plan: ownerResearchPlan,
         });
       }
+      if (researchModeRequested && !ownerResearchRequirement
+        && effectiveLane === AI_USAGE_LANE.FORGE) {
+        if (!researchBrief || !researchRequest || !userId || !bearerToken
+          || !openAiTextGate || !isUuid(episodeContext.workspaceId)) {
+          return jsonResponse(422, {
+            ok: false,
+            error: "Hearth research requires a complete workspace-bound plan.",
+            code: "customer_research_plan_incomplete",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        customerResearchPlan = buildCustomerResearchPlan({
+          workspaceId: episodeContext.workspaceId,
+          workpieceId: episodeContext.episodeId,
+          userAuthoredText: requestText,
+          query: researchRequest.query,
+          briefFingerprint: researchBrief.briefFingerprint,
+        });
+        const planFingerprint = fingerprintCustomerResearchPlan(customerResearchPlan);
+        const operationId = deriveHearthCustomerPaidIdentifiers({
+          userId,
+          workspaceId: episodeContext.workspaceId,
+          requestFingerprint: planFingerprint,
+        }).operationId;
+        try {
+          paidExecutionHandle = await resolveOrdinaryOpenAiTextFunding({
+            routeCode: "hearth.research_synthesis",
+            operationId,
+            userId,
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            requestFingerprint: planFingerprint,
+            model: CUSTOMER_RESEARCH_MODEL,
+            credentialFunding: "forge",
+            acceptance: spendingAcceptance,
+            serviceGate: openAiTextGate,
+            deferProviderRequestBinding: true,
+            userGate: {
+              rpc: async (name, payload) => {
+                const result = await callUserScopedTongsRpc({
+                  accessToken: bearerToken,
+                  fn: name,
+                  payload,
+                });
+                return result.ok
+                  ? { data: result.data, error: null }
+                  : { data: null, error: { message: result.error } };
+              },
+            },
+          });
+        } catch (error) {
+          if (error instanceof OpenAiTextQuoteRequiredError) {
+            return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
+              ok: false,
+              error: error.quote.fundingEligible
+                ? `Current verification requires Research with Hearth. Review and accept up to ${CUSTOMER_RESEARCH_CREDITS} Forge Credits before search begins.`
+                : "Not enough Forge Credits are available for this research operation.",
+              code: error.quote.fundingEligible
+                ? "hearth_spending_confirmation_required"
+                : "hearth_insufficient_verified_funds",
+              billing_quote: {
+                quote_id: error.quote.quoteId,
+                operation_id: error.quote.operationId,
+                quote_hash: error.quote.quoteHash,
+                request_fingerprint: error.quote.requestFingerprint,
+                credit_charge: error.quote.customerCreditUnits,
+                failure_terms: error.quote.failureTerms,
+                funding_eligible: error.quote.fundingEligible,
+                funding_label: error.quote.fundingLabel,
+                model_display_name: "Hearth Research",
+                model_tradeoff_summary: "Current sources with bounded evidence synthesis.",
+                expires_at: error.quote.expiresAt,
+              },
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (error instanceof OpenAiTextFundingPreparationError) {
+            return jsonResponse(error.status, {
+              ok: false,
+              error: error.message,
+              code: error.code,
+              ...error.details,
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          throw error;
+        }
+        if (!paidExecutionHandle) {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Hearth research pricing is not active.",
+            code: "customer_research_unavailable",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        model = CUSTOMER_RESEARCH_MODEL;
+        customerResearchDeadlineAt = Date.now() + OWNER_RESEARCH_DEADLINE_MS;
+        ownerResearchFetch = createCustomerHearthResearchFetch({
+          gate: openAiTextGate,
+          handle: paidExecutionHandle,
+          deadlineAt: customerResearchDeadlineAt,
+          plan: customerResearchPlan,
+        });
+      }
       let researchResult: HearthResearchResult | null = null;
       if (linkModeRequested) {
         const linkSources = await Promise.all(
@@ -4592,6 +4707,26 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...buildBillingSnapshot(lane),
             });
           }
+          if (customerResearchPlan && paidExecutionHandle && openAiTextGate) {
+            await settleCustomerHearthResearchBeforeSynthesis({
+              gate: openAiTextGate,
+              reservationId: paidExecutionHandle.reservationId,
+              failureClass: "research_retrieval_failed",
+              evidence: { error: error instanceof Error ? error.message : String(error) },
+            });
+            const safeMessage = "I couldn't verify current information right now. No Forge Credits were charged. I can still offer general background, but it would not be current verification.";
+            return jsonResponse(503, {
+              ok: false,
+              error: safeMessage,
+              code: "current_verification_unavailable",
+              turn_result: buildTurnResult({
+                assistantMessage: "",
+                failureKind: "provider_failure",
+                failureMessage: safeMessage,
+              }),
+              ...buildBillingSnapshot(lane),
+            });
+          }
           researchResult = {
             ...buildEmptyHearthResearchResult({
               mode: "knowledge_first",
@@ -4603,6 +4738,31 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             artifact: null,
           };
         }
+      }
+      if (customerResearchPlan && paidExecutionHandle && openAiTextGate
+        && (!researchResult || researchResult.runtimeStatus === "error"
+          || researchResult.runtimeStatus === "no_results" || researchResult.sources.length === 0)) {
+        await settleCustomerHearthResearchBeforeSynthesis({
+          gate: openAiTextGate,
+          reservationId: paidExecutionHandle.reservationId,
+          failureClass: "research_no_verifiable_sources",
+          evidence: {
+            runtime_status: researchResult?.runtimeStatus ?? "missing",
+            source_count: researchResult?.sources.length ?? 0,
+          },
+        });
+        const safeMessage = "I couldn't verify current information right now. No Forge Credits were charged. I can still offer general background, but it would not be current verification.";
+        return jsonResponse(503, {
+          ok: false,
+          error: safeMessage,
+          code: "current_verification_unavailable",
+          turn_result: buildTurnResult({
+            assistantMessage: "",
+            failureKind: "provider_failure",
+            failureMessage: safeMessage,
+          }),
+          ...buildBillingSnapshot(lane),
+        });
       }
       if (researchResult && researchBrief) {
         researchResult = appendSavedEpisodeSourceProvenance(researchResult, episodeContext, researchBrief);
@@ -4902,7 +5062,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           && !crossProjectReference.detected
           && (paidRouteCode === "hearth.chat_completion"
             || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
-              && (Boolean(ownerResearchRequirement) || linkModeRequested)));
+              && (Boolean(ownerResearchRequirement) || Boolean(customerResearchPlan) || linkModeRequested)));
         const paidFingerprintPayload = paidRouteCode === "hearth.chat_completion"
           ? {
               schema: "forge.hearth.paid-chat-request.v1",
@@ -4914,7 +5074,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               user_authored_text: requestText,
               behavior: bodyRaw.behavior ?? null,
             }
-          : ownerResearchPlan ?? {
+          : ownerResearchPlan ?? customerResearchPlan ?? {
               schema: "forge.hearth.research-synthesis.paid.v1",
               route_code: "hearth.research_synthesis",
               workspace_id: episodeContext.workspaceId,
@@ -4934,7 +5094,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             };
         const actualRequestFingerprint = paidRouteCode === "hearth.chat_completion"
           ? fingerprintPaidHearthChatRequest(paidFingerprintPayload)
-          : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
+          : customerResearchPlan
+            ? fingerprintCustomerResearchPlan(customerResearchPlan)
+            : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
         let paidRequirementRow: Record<string, unknown> = {};
         if (openAiTextGate) {
           if (ownerResearchRequirement && paidRouteCode === "hearth.research_synthesis") {
@@ -5301,6 +5463,69 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     ok: false,
                     error: "The bounded research deadline expired before OpenAI submission.",
                     code: "owner_research_deadline_exhausted",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                deadlineTimer = setTimeout(() => upstreamAbort.abort(), remainingMs);
+              } else if (customerResearchPlan) {
+                if (!customerResearchDeadlineAt) {
+                  throw new Error("Customer research accepted authority is incomplete.");
+                }
+                const researchBytes = new TextEncoder().encode(JSON.stringify(researchResult ?? {})).byteLength;
+                if (researchBytes > 768 * 1024) {
+                  await settleCustomerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "research_package_size_exceeded",
+                    evidence: { research_bytes: researchBytes, maximum_research_bytes: 768 * 1024 },
+                  });
+                  return jsonResponse(422, {
+                    ok: false,
+                    error: "The retrieved research package exceeded its accepted bound. No Forge Credits were charged and OpenAI was not called.",
+                    code: "customer_research_package_size_exceeded",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                try {
+                  frozenResearchRequest = await buildBoundedPaidJsonOpenAiRequest({
+                    body: { model: CUSTOMER_RESEARCH_MODEL, messages: completionMessages },
+                    model: CUSTOMER_RESEARCH_MODEL,
+                    maximumOutputTokens: customerResearchPlan.maximum_output_tokens,
+                    maximumAttempts: 1,
+                  });
+                  if (frozenResearchRequest.boundedInputTokens > customerResearchPlan.maximum_input_tokens) {
+                    throw new Error("customer_research_frozen_request_out_of_bounds");
+                  }
+                  await bindCustomerHearthResearchSynthesis({
+                    gate: openAiTextGate,
+                    handle: paidExecutionHandle,
+                    bounded: frozenResearchRequest,
+                  });
+                } catch (error) {
+                  await settleCustomerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "frozen_synthesis_request_rejected",
+                    evidence: { error: error instanceof Error ? error.message : String(error) },
+                  });
+                  return jsonResponse(422, {
+                    ok: false,
+                    error: "The final synthesis request did not fit the accepted research bounds. No Forge Credits were charged and OpenAI was not called.",
+                    code: "customer_research_frozen_request_rejected",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                const remainingMs = customerResearchDeadlineAt - Date.now();
+                if (remainingMs <= 0) {
+                  await settleCustomerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "research_deadline_exhausted",
+                  });
+                  return jsonResponse(408, {
+                    ok: false,
+                    error: "The bounded research deadline expired before synthesis. No Forge Credits were charged.",
+                    code: "customer_research_deadline_exhausted",
                     ...buildBillingSnapshot(lane),
                   });
                 }
