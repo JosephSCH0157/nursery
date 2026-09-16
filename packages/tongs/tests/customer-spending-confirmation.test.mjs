@@ -11,25 +11,23 @@ function quote(fundingEligible) {
     operation_id: "customer-operation-1",
     quote_hash: "a".repeat(64),
     request_fingerprint: "b".repeat(64),
-    currency: "USD",
-    maximum_customer_charge_micros: 20000,
-    failure_customer_charge_micros: 0,
-    failure_terms: "Provider and Forge failures cost you $0.",
+    credit_charge: 3,
+    failure_terms: "Failed operations do not consume Forge Credits.",
     funding_eligible: fundingEligible,
-    funding_source: fundingEligible ? "customer_deposit" : "none",
-    funding_label: fundingEligible ? "Verified AI credit purchase" : "No verified eligible funds",
+    funding_label: fundingEligible ? "Forge Credits" : "Not enough Forge Credits",
     model_display_name: "GPT test model",
-    provider_model_id: "gpt-test-snapshot",
     model_tradeoff_summary: "Bounded test model.",
-    catalog_revision: 1,
-    estimated_customer_charge_micros: 20000,
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   };
 }
 
 test("an eligible quote returns only its exact acceptance fields", () => {
   const originalConfirm = globalThis.confirm;
-  globalThis.confirm = () => true;
+  let customerPrompt = "";
+  globalThis.confirm = (message) => {
+    customerPrompt = String(message);
+    return true;
+  };
   try {
     assert.deepEqual(requestCustomerSpendingAcceptance(quote(true)), {
       quote_id: "11111111-1111-4111-8111-111111111111",
@@ -37,12 +35,16 @@ test("an eligible quote returns only its exact acceptance fields", () => {
       quote_hash: "a".repeat(64),
       request_fingerprint: "b".repeat(64),
     });
+    assert.match(customerPrompt, /Model: GPT test model/);
+    assert.match(customerPrompt, /Cost: 3 Credits/);
+    assert.match(customerPrompt, /Funding: Forge Credits/);
+    assert.doesNotMatch(customerPrompt, /\$|micros|wholesale|markup/i);
   } finally {
     globalThis.confirm = originalConfirm;
   }
 });
 
-test("insufficient funding opens Add Credits without accepting or executing the old quote", () => {
+test("insufficient funding opens billing without implying beta credit purchases", () => {
   const originalConfirm = globalThis.confirm;
   const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
   let assigned = "";

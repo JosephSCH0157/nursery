@@ -798,29 +798,18 @@ export function useChatWorkspaceRuntime<
           operation_id: quote.operationId,
           quote_hash: quote.quoteHash,
           request_fingerprint: quote.requestFingerprint,
-          currency: quote.currency,
-          maximum_customer_charge_micros: quote.maximumCustomerChargeMicros,
-          failure_customer_charge_micros: quote.failureCustomerChargeMicros,
+          credit_charge: quote.creditCharge,
           failure_terms: quote.failureTerms,
           funding_eligible: quote.fundingEligible,
-          funding_source: quote.fundingSource,
           funding_label: quote.fundingLabel,
           model_display_name: quote.modelDisplayName,
-          provider_model_id: quote.providerModelId,
           model_tradeoff_summary: quote.modelTradeoffSummary,
-          catalog_revision: quote.catalogRevision,
-          estimated_customer_charge_micros: quote.estimatedCustomerChargeMicros,
-          ...(quote.maximumOwnerCommitmentMicros == null ? {} : {
-            maximum_owner_commitment_micros: quote.maximumOwnerCommitmentMicros,
-          }),
-          ...(quote.costComponents ? { cost_components: quote.costComponents } : {}),
-          ...(quote.limits ? { limits: quote.limits } : {}),
           expires_at: quote.expiresAt,
         });
         if (!acceptance) {
           args.setChatError(quote.fundingEligible
             ? "The price was not accepted. No funds were reserved and no provider request was sent."
-            : "Add verified Live credits, then repeat this action to receive and accept a fresh quote.");
+            : "Not enough Forge Credits. Repeat this action after funding is available to review a fresh quote.");
           return;
         }
         result = await args.requestHearthChatReply(requestMessages, episodeContext, {

@@ -57,21 +57,12 @@ export type HearthCustomerBillingQuote = {
   operationId: string;
   quoteHash: string;
   requestFingerprint: string;
-  currency: "USD";
-  maximumCustomerChargeMicros: number;
-  failureCustomerChargeMicros: 0;
+  creditCharge: number;
   failureTerms: string;
   fundingEligible: boolean;
-  fundingSource: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
   fundingLabel: string;
   modelDisplayName: string | null;
-  providerModelId: string | null;
   modelTradeoffSummary: string | null;
-  catalogRevision: number | null;
-  estimatedCustomerChargeMicros: number;
-  maximumOwnerCommitmentMicros: number | null;
-  costComponents: Record<string, number> | null;
-  limits: Record<string, number> | null;
   expiresAt: string;
 };
 
@@ -103,55 +94,20 @@ export type HearthChatResult =
     };
 
 function normalizeCustomerBillingQuote(payload: unknown): HearthCustomerBillingQuote | undefined {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
-  const envelope = payload as Record<string, unknown>;
-  const raw = envelope.billing_quote;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const quote = raw as Record<string, unknown>;
-  const quoteId = typeof quote.quote_id === "string" ? quote.quote_id.trim() : "";
-  const operationId = typeof quote.operation_id === "string" ? quote.operation_id.trim() : "";
-  const quoteHash = typeof quote.quote_hash === "string" ? quote.quote_hash.trim().toLowerCase() : "";
-  const requestFingerprint = typeof quote.request_fingerprint === "string"
-    ? quote.request_fingerprint.trim().toLowerCase()
-    : "";
-  const maximum = Number(quote.maximum_customer_charge_micros);
-  const failure = Number(quote.failure_customer_charge_micros);
-  const fundingSource = quote.funding_source;
-  const expiresAt = typeof quote.expires_at === "string" ? quote.expires_at.trim() : "";
-  if (!/^[0-9a-f-]{36}$/i.test(quoteId) || operationId.length < 8
-    || !/^[0-9a-f]{64}$/i.test(quoteHash) || !/^[0-9a-f]{64}$/i.test(requestFingerprint)
-    || quote.currency !== "USD" || !Number.isSafeInteger(maximum) || maximum < 0
-    || failure !== 0 || !["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(String(fundingSource))
-    || !expiresAt) return undefined;
+  const quote = readCustomerSpendingQuote(payload);
+  if (!quote) return undefined;
   return {
-    quoteId,
-    operationId,
-    quoteHash,
-    requestFingerprint,
-    currency: "USD",
-    maximumCustomerChargeMicros: maximum,
-    failureCustomerChargeMicros: 0,
-    failureTerms: typeof quote.failure_terms === "string" ? quote.failure_terms : "Failures caused by Forge or its provider cost you $0.",
-    fundingEligible: quote.funding_eligible === true,
-    fundingSource: fundingSource as HearthCustomerBillingQuote["fundingSource"],
-    fundingLabel: typeof quote.funding_label === "string" ? quote.funding_label : "No verified eligible funds",
-    modelDisplayName: typeof quote.model_display_name === "string" ? quote.model_display_name : null,
-    providerModelId: typeof quote.provider_model_id === "string" ? quote.provider_model_id : null,
-    modelTradeoffSummary: typeof quote.model_tradeoff_summary === "string" ? quote.model_tradeoff_summary : null,
-    catalogRevision: Number.isSafeInteger(Number(quote.catalog_revision)) ? Number(quote.catalog_revision) : null,
-    estimatedCustomerChargeMicros: Number.isSafeInteger(Number(quote.estimated_customer_charge_micros))
-      ? Number(quote.estimated_customer_charge_micros) : maximum,
-    maximumOwnerCommitmentMicros: Number.isSafeInteger(Number(quote.maximum_owner_commitment_micros)) && Number(quote.maximum_owner_commitment_micros) >= 0
-      ? Number(quote.maximum_owner_commitment_micros) : null,
-    costComponents: quote.cost_components && typeof quote.cost_components === "object" && !Array.isArray(quote.cost_components)
-      ? Object.fromEntries(Object.entries(quote.cost_components as Record<string, unknown>).flatMap(([key, value]) => (
-          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
-        ))) : null,
-    limits: quote.limits && typeof quote.limits === "object" && !Array.isArray(quote.limits)
-      ? Object.fromEntries(Object.entries(quote.limits as Record<string, unknown>).flatMap(([key, value]) => (
-          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
-        ))) : null,
-    expiresAt,
+    quoteId: quote.quote_id,
+    operationId: quote.operation_id,
+    quoteHash: quote.quote_hash,
+    requestFingerprint: quote.request_fingerprint,
+    creditCharge: quote.credit_charge,
+    failureTerms: quote.failure_terms,
+    fundingEligible: quote.funding_eligible,
+    fundingLabel: quote.funding_label,
+    modelDisplayName: quote.model_display_name,
+    modelTradeoffSummary: quote.model_tradeoff_summary,
+    expiresAt: quote.expires_at,
   };
 }
 

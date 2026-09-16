@@ -71,22 +71,21 @@ test("research ceilings preserve the exact component arithmetic", () => {
   assert.equal(144_072 + 9 * 2_138_272 + 2_138_268, 21_526_788);
 });
 
-test("the shared confirmation parser preserves owner commitment and component bounds", () => {
+test("the shared confirmation parser exposes only customer-safe credit terms", () => {
   const valid = readCustomerSpendingQuote({ billing_quote: {
     quote_id: "00000000-0000-4000-8000-000000000001",
     operation_id: "owner-research:operation-0001",
-    quote_hash: "d".repeat(64), request_fingerprint: "e".repeat(64), currency: "USD",
-    maximum_customer_charge_micros: 0, failure_customer_charge_micros: 0,
-    funding_eligible: true, funding_source: "owner_budget", funding_label: "Owner research budget",
-    maximum_owner_commitment_micros: 144_072, estimated_customer_charge_micros: 0,
+    quote_hash: "d".repeat(64), request_fingerprint: "e".repeat(64),
+    credit_charge: 0, funding_eligible: true, funding_label: "Owner research budget",
     expires_at: "2026-10-10T12:10:00Z",
     cost_components: { openai_synthesis_micros: 130_000, brave_search_micros: 5_000, platform_support_micros: 1_456, continuing_storage_micros: 7_616 },
     limits: { profile: "canary", search_requests: 1, http_attempts: 24, retained_sources: 2, input_tokens: 8_000, output_tokens: 1_000 },
   } });
-  assert.equal(valid?.maximum_owner_commitment_micros, 144_072);
-  assert.equal(valid?.cost_components?.platform_support_micros, 1_456);
-  assert.equal(valid?.cost_components?.continuing_storage_micros, 7_616);
-  assert.equal(valid?.limits?.http_attempts, 24);
+  assert.equal(valid?.credit_charge, 0);
+  assert.equal(valid?.funding_label, "Owner research budget");
+  assert.equal("maximum_owner_commitment_micros" in (valid ?? {}), false);
+  assert.equal("cost_components" in (valid ?? {}), false);
+  assert.equal("limits" in (valid ?? {}), false);
 });
 
 test("the accepted plan fingerprint excludes source content that does not exist yet", async () => {

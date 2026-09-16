@@ -39,11 +39,11 @@ test("server resolves an exact model before quote creation and model identity ch
   assert.match(funding, /p_model: selection\.runtimeModelId/);
 });
 
-test("customer quote shows model, estimate, and maximum without wholesale or markup", () => {
+test("customer quote shows model and Forge Credits without dollar or internal economics", () => {
   assert.match(customerQuote, /Model: \$\{quote\.model_display_name\}/);
-  assert.match(customerQuote, /Conservative estimate:/);
-  assert.match(customerQuote, /Maximum charge:/);
-  assert.doesNotMatch(customerQuote, /provider_cost|wholesale|markup_basis_points/);
+  assert.match(customerQuote, /Cost: \$\{quote\.credit_charge/);
+  assert.match(customerQuote, /Funding: \$\{quote\.funding_label\}/);
+  assert.doesNotMatch(customerQuote, /maximum_customer_charge_micros|estimated_customer_charge_micros|provider_cost|wholesale|markup_basis_points/);
 });
 
 test("authoritative reconciliation uses the tongs profile and a replacement delta", () => {

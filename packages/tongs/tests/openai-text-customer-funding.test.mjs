@@ -39,6 +39,7 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
         request_fingerprint: fingerprint,
         currency: "USD",
         maximum_customer_charge_micros: 20000,
+        customer_credit_units: 4,
         failure_customer_charge_micros: 0,
         failure_terms: "Forge-caused and provider-caused failures cost you $0.",
         funding_eligible: true,
@@ -108,6 +109,7 @@ test("enforced routes return only a customer-safe quote before acceptance", asyn
   await assert.rejects(resolveOrdinaryOpenAiTextFunding(input(service, makeGate())), (error) => {
     assert.ok(error instanceof OpenAiTextQuoteRequiredError);
     assert.equal(error.quote.maximumCustomerChargeMicros, 20000);
+    assert.equal(error.quote.customerCreditUnits, 4);
     assert.equal(error.quote.failureCustomerChargeMicros, 0);
     assert.equal("provider_cost" in error.quote, false);
     assert.equal("markup" in error.quote, false);

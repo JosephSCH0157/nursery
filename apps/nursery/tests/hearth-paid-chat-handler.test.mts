@@ -168,6 +168,7 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
         if (name === "create_customer_openai_text_quote") return { data: {
           quote_id: QUOTE_ID, operation_id: OPERATION_ID, quote_hash: "b".repeat(64),
           request_fingerprint: "a".repeat(64), currency: "USD", maximum_customer_charge_micros: 20000,
+          customer_credit_units: 4,
           failure_customer_charge_micros: 0, funding_eligible: false, funding_source: "none",
           funding_environment: "test",
           payer_kind: "personal", funding_label: "No verified eligible funds", expires_at: new Date(Date.now() + 60_000).toISOString(),
@@ -326,6 +327,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           request_fingerprint: args.p_request_fingerprint,
           currency: "USD",
           maximum_customer_charge_micros: 20000,
+          customer_credit_units: 4,
           failure_customer_charge_micros: 0,
           funding_eligible: true, funding_source: "customer_deposit", payer_kind: "personal",
           funding_environment: "test",
@@ -448,8 +450,12 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     }));
     const quoted = await quotedResponse.json() as Record<string, any>;
     assert.equal(quotedResponse.status, 409, JSON.stringify(quoted));
-    assert.equal(quoted.billing_quote.maximum_customer_charge_micros, 20000);
-    assert.equal(quoted.billing_quote.failure_customer_charge_micros, 0);
+    assert.equal(quoted.billing_quote.credit_charge, 4, JSON.stringify(quoted));
+    for (const internalKey of [
+      "currency", "maximum_customer_charge_micros", "failure_customer_charge_micros",
+      "funding_source", "payer_kind", "provider_model_id", "catalog_revision",
+      "estimated_customer_charge_micros", "cost_components", "limits",
+    ]) assert.equal(internalKey in quoted.billing_quote, false, internalKey);
     assert.equal(providerCalls, 0);
 
     const acceptedBody = {

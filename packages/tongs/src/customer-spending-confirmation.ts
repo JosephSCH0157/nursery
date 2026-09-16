@@ -3,21 +3,12 @@ export type CustomerSpendingQuote = {
   operation_id: string;
   quote_hash: string;
   request_fingerprint: string;
-  currency: "USD";
-  maximum_customer_charge_micros: number;
-  failure_customer_charge_micros: 0;
+  credit_charge: number;
   failure_terms: string;
   funding_eligible: boolean;
-  funding_source: string;
   funding_label: string;
   model_display_name: string | null;
-  provider_model_id: string | null;
   model_tradeoff_summary: string | null;
-  catalog_revision: number | null;
-  estimated_customer_charge_micros: number;
-  maximum_owner_commitment_micros?: number;
-  cost_components?: Record<string, number>;
-  limits?: Record<string, number>;
   expires_at: string;
 };
 
@@ -44,43 +35,22 @@ export function readCustomerSpendingQuote(payload: unknown): CustomerSpendingQuo
   const details = object(error?.details);
   const row = object(error?.billing_quote) ?? object(details?.billing_quote) ?? object(root?.billing_quote);
   if (!row) return null;
-  const maximum = Number(row.maximum_customer_charge_micros);
-  const failure = Number(row.failure_customer_charge_micros);
+  const creditCharge = Number(row.credit_charge);
   const expiresAt = string(row.expires_at);
   if (!string(row.quote_id) || !string(row.operation_id) || !string(row.quote_hash)
-    || !string(row.request_fingerprint) || row.currency !== "USD"
-    || !Number.isSafeInteger(maximum) || maximum < 0 || failure !== 0 || !expiresAt) return null;
+    || !string(row.request_fingerprint)
+    || !Number.isSafeInteger(creditCharge) || creditCharge < 0 || !expiresAt) return null;
   return {
     quote_id: string(row.quote_id),
     operation_id: string(row.operation_id),
     quote_hash: string(row.quote_hash),
     request_fingerprint: string(row.request_fingerprint),
-    currency: "USD",
-    maximum_customer_charge_micros: maximum,
-    failure_customer_charge_micros: 0,
-    failure_terms: string(row.failure_terms) || "Forge-caused and provider-caused failures cost you $0.",
+    credit_charge: creditCharge,
+    failure_terms: string(row.failure_terms) || "Failed operations do not consume Forge Credits.",
     funding_eligible: row.funding_eligible === true,
-    funding_source: string(row.funding_source) || "none",
-    funding_label: string(row.funding_label) || "No verified eligible funds",
+    funding_label: string(row.funding_label) || "Not enough Forge Credits",
     model_display_name: string(row.model_display_name) || null,
-    provider_model_id: string(row.provider_model_id) || null,
     model_tradeoff_summary: string(row.model_tradeoff_summary) || null,
-    catalog_revision: Number.isSafeInteger(Number(row.catalog_revision)) ? Number(row.catalog_revision) : null,
-    estimated_customer_charge_micros: Number.isSafeInteger(Number(row.estimated_customer_charge_micros))
-      ? Number(row.estimated_customer_charge_micros) : maximum,
-    ...(Number.isSafeInteger(Number(row.maximum_owner_commitment_micros)) && Number(row.maximum_owner_commitment_micros) >= 0
-      ? { maximum_owner_commitment_micros: Number(row.maximum_owner_commitment_micros) }
-      : {}),
-    ...(object(row.cost_components)
-      ? { cost_components: Object.fromEntries(Object.entries(object(row.cost_components)!).flatMap(([key, value]) => (
-          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
-        ))) }
-      : {}),
-    ...(object(row.limits)
-      ? { limits: Object.fromEntries(Object.entries(object(row.limits)!).flatMap(([key, value]) => (
-          Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : []
-        ))) }
-      : {}),
     expires_at: expiresAt,
   };
 }
@@ -96,33 +66,10 @@ export function customerSpendingAcceptance(quote: CustomerSpendingQuote): Custom
 
 export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): boolean {
   if (!quote.funding_eligible) return false;
-  const maximum = (quote.maximum_customer_charge_micros / 1_000_000).toLocaleString("en-US", {
-    style: "currency",
-    currency: quote.currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  });
-  const estimate = (quote.estimated_customer_charge_micros / 1_000_000).toLocaleString("en-US", {
-    style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
-  });
-  const ownerMaximum = quote.maximum_owner_commitment_micros == null ? null
-    : (quote.maximum_owner_commitment_micros / 1_000_000).toLocaleString("en-US", {
-        style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
-      });
-  const componentLines = quote.cost_components
-    ? Object.entries(quote.cost_components).map(([key, micros]) => (
-        `${key === "aggregate_risk_micros" ? "shared aggregate risk exposure (not an owner expense)" : key.replaceAll("_", " ")}: ${(micros / 1_000_000).toLocaleString("en-US", {
-          style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
-        })}`
-      ))
-    : [];
   return globalThis.confirm([
     quote.model_display_name ? `Model: ${quote.model_display_name}` : null,
     quote.model_tradeoff_summary || null,
-    `Conservative estimate: ${estimate}`,
-    `Maximum charge: ${maximum}`,
-    ownerMaximum ? `Maximum owner research commitment: ${ownerMaximum}` : null,
-    ...componentLines,
+    `Cost: ${quote.credit_charge.toLocaleString("en-US")} ${quote.credit_charge === 1 ? "Credit" : "Credits"}`,
     `Funding: ${quote.funding_label}`,
     quote.failure_terms,
     `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,
@@ -146,10 +93,10 @@ export function requestCustomerSpendingAcceptance(
   }
 
   const shouldOpenBilling = globalThis.confirm([
-    "This operation needs verified purchased credits or a funded paid-plan allowance.",
+    "Not enough Forge Credits for this operation.",
     quote.funding_label,
-    "Only verified funding from the active financial environment can fund this provider call. Legacy compatibility balances are historical and non-spendable.",
-    "Open Account & Billing to add credits? You will need to retry this action and accept a fresh quote after the payment is recorded.",
+    "Legacy balances are historical and cannot fund provider calls.",
+    "Review Account & Billing? You will need to retry this action and accept a fresh quote after funding is available.",
   ].join("\n\n"));
   if (!shouldOpenBilling) return null;
 

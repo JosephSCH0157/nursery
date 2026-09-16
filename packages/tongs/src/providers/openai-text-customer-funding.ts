@@ -32,10 +32,11 @@ export type CustomerOpenAiTextQuote = {
   requestFingerprint: string;
   currency: "USD";
   maximumCustomerChargeMicros: number;
+  customerCreditUnits: number;
   failureCustomerChargeMicros: 0;
   failureTerms: string;
   fundingEligible: boolean;
-  fundingSource: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
+  fundingSource: "customer_deposit" | "paid_allowance" | "beta_grant" | "owner_budget" | "none";
   fundingEnvironment: "test" | "live" | "owner_internal";
   payerKind: "personal" | "organization_shared" | "owner_testing";
   fundingLabel: string;
@@ -72,17 +73,20 @@ export class OpenAiTextFundingPreparationError extends Error {
   readonly status: number;
   readonly code: string;
   readonly details: JsonObject;
+  readonly diagnosticMessage: string | null;
   constructor(
     status: number,
     code: string,
     message: string,
     details: JsonObject = {},
+    diagnosticMessage: string | null = null,
   ) {
     super(message);
     this.name = "OpenAiTextFundingPreparationError";
     this.status = status;
     this.code = code;
     this.details = details;
+    this.diagnosticMessage = diagnosticMessage;
   }
 }
 
@@ -108,23 +112,40 @@ async function rpc(
 ): Promise<unknown> {
   const result = await client.rpc(name, args);
   if (result.error) {
-    const message = result.error.message || `${name} failed`;
-    const lower = message.toLowerCase();
+    const diagnosticMessage = result.error.message || `${name} failed`;
+    const lower = diagnosticMessage.toLowerCase();
     const code = lower.includes("expired")
       ? "quote_expired"
       : lower.includes("replay conflict") || lower.includes("request changed")
         ? "quote_request_changed"
       : lower.includes("insufficient")
         ? "insufficient_verified_funds"
+        : lower.includes("concurrency") || lower.includes("already active")
+          ? "operation_already_in_progress"
         : lower.includes("pricing_not_configured") || lower.includes("pricing is required")
           ? "pricing_not_configured"
-          : lower.includes("halt") || lower.includes("not active")
+          : lower.includes("halt") || lower.includes("not active") || lower.includes("operation limit")
+              || lower.includes("not authorized for this scope")
             ? "paid_execution_halted"
             : "funding_preparation_failed";
+    const customerMessage = code === "insufficient_verified_funds"
+      ? "Not enough Forge Credits for this operation."
+      : code === "operation_already_in_progress"
+        ? "Another AI operation is already in progress."
+        : code === "quote_expired"
+          ? "The quote expired. Review and accept a new quote."
+          : code === "quote_request_changed"
+            ? "The request changed after pricing. Review and accept a new quote."
+            : code === "pricing_not_configured" || code === "paid_execution_halted"
+              ? "AI is temporarily unavailable."
+              : "AI could not be prepared. Please try again.";
     throw new OpenAiTextFundingPreparationError(
-      code === "quote_expired" || code === "quote_request_changed" ? 409 : code === "insufficient_verified_funds" ? 402 : 503,
+      code === "quote_expired" || code === "quote_request_changed" || code === "operation_already_in_progress"
+        ? 409 : code === "insufficient_verified_funds" ? 402 : 503,
       code,
-      message,
+      customerMessage,
+      {},
+      diagnosticMessage,
     );
   }
   return result.data;
@@ -196,6 +217,7 @@ function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): Cu
   const quoteHash = string(row.quote_hash).toLowerCase();
   const requestFingerprint = string(row.request_fingerprint).toLowerCase();
   const maximum = integer(row.maximum_customer_charge_micros);
+  const customerCreditUnits = integer(row.customer_credit_units);
   const failure = integer(row.failure_customer_charge_micros);
   const fundingSource = string(row.funding_source);
   const fundingEnvironment = string(row.funding_environment);
@@ -203,10 +225,10 @@ function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): Cu
   const expiresAt = string(row.expires_at);
   if (!UUID_RE.test(quoteId) || operationId.length < 8 || !SHA256_RE.test(quoteHash)
     || !SHA256_RE.test(requestFingerprint) || row.currency !== "USD" || maximum < 0
-    || failure !== 0 || !["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(fundingSource)
+    || failure !== 0 || !["customer_deposit", "paid_allowance", "beta_grant", "owner_budget", "none"].includes(fundingSource)
     || !["test", "live", "owner_internal"].includes(fundingEnvironment)
     || (payerKind && !["personal", "organization_shared", "owner_testing"].includes(payerKind))
-    || !expiresAt) {
+    || customerCreditUnits < 0 || !expiresAt) {
     throw new OpenAiTextFundingPreparationError(502, "invalid_customer_quote", "The billing service returned an invalid customer quote.");
   }
   return {
@@ -216,13 +238,14 @@ function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): Cu
     requestFingerprint,
     currency: "USD",
     maximumCustomerChargeMicros: maximum,
+    customerCreditUnits,
     failureCustomerChargeMicros: 0,
-    failureTerms: string(row.failure_terms) || "Forge-caused and provider-caused failures cost you $0.",
+    failureTerms: "Failed operations do not consume Forge Credits.",
     fundingEligible: row.funding_eligible === true,
     fundingSource: fundingSource as CustomerOpenAiTextQuote["fundingSource"],
     fundingEnvironment: fundingEnvironment as CustomerOpenAiTextQuote["fundingEnvironment"],
     payerKind: (payerKind || "personal") as CustomerOpenAiTextQuote["payerKind"],
-    fundingLabel: string(row.funding_label) || "No verified eligible funds",
+    fundingLabel: row.funding_eligible === true ? "Forge Credits" : "Not enough Forge Credits",
     modelDisplayName: selection.displayName,
     providerModelId: selection.providerModelId,
     modelTradeoffSummary: selection.tradeoffSummary,
@@ -403,9 +426,7 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     throw new OpenAiTextFundingPreparationError(409, "quote_expired", "The quote expired. Review and accept a new quote.");
   }
   if (!quote.fundingEligible) {
-    throw new OpenAiTextFundingPreparationError(402, "insufficient_verified_funds", "No verified eligible funding can cover this maximum charge.", {
-      funding_source: quote.fundingSource,
-      payer_kind: quote.payerKind,
+    throw new OpenAiTextFundingPreparationError(402, "insufficient_verified_funds", "Not enough Forge Credits for this operation.", {
       funding_label: quote.fundingLabel,
     });
   }

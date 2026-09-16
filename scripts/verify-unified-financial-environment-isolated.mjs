@@ -55,6 +55,20 @@ const migrations = [
   "20261010130000_tongs_owner_hearth_research_permissions.sql",
   "20261011140000_tongs_unified_financial_environment.sql",
   "20261011150000_tongs_historical_backfill_link_repair.sql",
+  "20261011160000_tongs_forge_credit_economy.sql",
+  "20261011170000_tongs_standard_customer_luna_catalog.sql",
+  "20261011180000_tongs_settled_customer_price_quote.sql",
+  "20261011190000_tongs_standard_customer_aggregate_admission.sql",
+  "20261011200000_tongs_standard_customer_certification_aggregate.sql",
+  "20261011210000_tongs_standard_customer_certification_scope_price.sql",
+  "20261011220000_tongs_aggregate_financial_environment_selection.sql",
+  "20261011230000_tongs_deposit_fee_allocation_catchup.sql",
+  "20261011240000_tongs_standard_customer_rollout.sql",
+  "20261011250000_tongs_beta_credit_controls.sql",
+  "20261011260000_tongs_credit_pack_purchase_availability.sql",
+  "20261011270000_tongs_internal_quote_credit_units.sql",
+  "20261011280000_tongs_normal_customer_provider_authority.sql",
+  "20261011290000_tongs_credit_pack_availability_caller_role.sql",
 ];
 
 const historicalBackfillFixture = `
@@ -275,12 +289,119 @@ try {
       returns jsonb language sql stable as $$ select jsonb_build_object('contract_version','forge.owner-purchase-activity.v1','stripe_mode',p_stripe_mode,'purchases','[]'::jsonb) $$;
   `, "compatibility baseline");
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
+  psql(`
+    insert into auth.users(id,role,email,created_at,updated_at)
+    values ('aa000000-0000-4000-8000-000000000099','authenticated','operator@isolated.invalid',now(),now());
+    insert into tongs.platform_operators(user_id,reason,granted_by)
+    values ('aa000000-0000-4000-8000-000000000099','isolated migration verifier',null);
+  `, "operator fixture");
 
   let historicalRepairBefore = null;
   for (const migration of migrations) {
     if (migration === "20261011150000_tongs_historical_backfill_link_repair.sql") {
       psql(historicalBackfillFixture, "historical backfill fixture");
       historicalRepairBefore = JSON.parse(psql(historicalRepairProofSql, "historical backfill pre-proof"));
+    }
+    if (migration === "20261011160000_tongs_forge_credit_economy.sql") {
+      psql(`
+        insert into tongs.private_pricing_policies(
+          id,policy_code,scope_kind,provider,sku,created_by
+        ) values (
+          '709b5ec9-c486-4693-a209-9cf29f586f8e',
+          'owner-openai-hearth-chat-luna-bounded-pilot','sku','openai','gpt-5.6-luna',
+          'aa000000-0000-4000-8000-000000000099'
+        );
+        insert into tongs.private_pricing_revisions(
+          id,policy_id,revision,previous_revision_id,lifecycle_state,currency,
+          markup_basis_points,full_cost_ceiling_micros,failure_cost_ceiling_micros,
+          customer_price_ceiling_micros,billable_failure_ceiling_micros,
+          customer_credit_units,billable_failure_classes,free_failure_classes,
+          included_quantity,retention_policy,change_reason,content_hash,actor_id
+        ) values (
+          '109b5ec9-c486-4693-a209-9cf29f586f8e',
+          '709b5ec9-c486-4693-a209-9cf29f586f8e',1,null,'review_ready','USD',3300,
+          11015,0,20000,0,2,'[]','["provider_failure","forge_failure","unknown_fault"]',
+          '{"input_tokens":2000,"output_tokens":512,"attempts":1,"concurrency":1}',
+          '{"kind":"none"}','isolated exact bounded Luna pricing fixture',repeat('1',64),
+          'aa000000-0000-4000-8000-000000000099'
+        );
+        insert into tongs.private_pricing_cost_components(
+          pricing_revision_id,ordinal,component_code,component_kind,credential_funding,
+          provider_label,success_ceiling_micros,failure_ceiling_micros,
+          cost_policy_revision,tail_policy,tail_policy_details
+        ) values
+          ('109b5ec9-c486-4693-a209-9cf29f586f8e',1,'openai_text','direct_provider','forge',
+           'OpenAI',1015,0,'openai-text:hearth-chat:luna-bounded-pilot-v1','none','{}'),
+          ('109b5ec9-c486-4693-a209-9cf29f586f8e',2,'bounded_support','compute','forge',
+           'Forge validation and persistence',10000,0,
+           'openai-text:hearth-chat:luna-bounded-pilot-v1','none','{}');
+        insert into tongs.private_markup_rule_revisions(
+          id,revision,previous_revision_id,default_markup_basis_points,overrides_json,
+          change_reason,content_hash,actor_id
+        ) values (
+          '719b5ec9-c486-4693-a209-9cf29f586f8e',1,null,3300,'[]',
+          'isolated markup fixture',repeat('2',64),
+          'aa000000-0000-4000-8000-000000000099'
+        );
+        insert into tongs.private_pricing_revision_markup_sources(
+          pricing_revision_id,markup_rule_revision_id,effective_markup_basis_points
+        ) values (
+          '109b5ec9-c486-4693-a209-9cf29f586f8e',
+          '719b5ec9-c486-4693-a209-9cf29f586f8e',3300
+        );
+      `, "bounded Luna pricing fixture");
+    }
+    if (migration === "20261011170000_tongs_standard_customer_luna_catalog.sql") {
+      psql(`
+        set session_replication_role=replica;
+        update tongs.private_pricing_cost_components
+          set pricing_revision_id='309b5ec9-c486-4693-a209-9cf29f586f8e'
+          where pricing_revision_id=(select id from tongs.private_pricing_revisions
+            where policy_id='709b5ec9-c486-4693-a209-9cf29f586f8e' and revision=2);
+        update tongs.private_pricing_revision_markup_sources
+          set pricing_revision_id='309b5ec9-c486-4693-a209-9cf29f586f8e'
+          where pricing_revision_id=(select id from tongs.private_pricing_revisions
+            where policy_id='709b5ec9-c486-4693-a209-9cf29f586f8e' and revision=2);
+        update tongs.private_pricing_publications
+          set pricing_revision_id='309b5ec9-c486-4693-a209-9cf29f586f8e'
+          where policy_id='709b5ec9-c486-4693-a209-9cf29f586f8e' and publication_revision=2;
+        update tongs.financial_environment_configuration_revisions
+          set pricing_revision_id='309b5ec9-c486-4693-a209-9cf29f586f8e'
+          where pricing_revision_id=(select id from tongs.private_pricing_revisions
+            where policy_id='709b5ec9-c486-4693-a209-9cf29f586f8e' and revision=2);
+        update tongs.private_pricing_revisions
+          set id='309b5ec9-c486-4693-a209-9cf29f586f8e'
+          where policy_id='709b5ec9-c486-4693-a209-9cf29f586f8e' and revision=2;
+        set session_replication_role=origin;
+        insert into tongs.openai_text_model_catalog_revisions(
+          id,revision,lifecycle_state,quality_method,source_checked_at,content_hash,actor_id
+        ) values (
+          '89000000-0000-4000-8000-000000000003',3,'active',
+          'isolated generation-compatible Luna source catalog','2026-09-15T00:00:00Z',
+          repeat('3',64),'aa000000-0000-4000-8000-000000000099'
+        );
+        insert into tongs.openai_text_model_catalog_entries(
+          id,catalog_revision_id,runtime_model_id,provider_model_id,display_name,
+          tradeoff_summary,quality_rank,quality_basis,supported_apis,
+          availability_status,availability_evidence,lifecycle_state,rate_revision_id
+        ) values (
+          '89000000-0000-4000-8000-000000000103',
+          '89000000-0000-4000-8000-000000000003','gpt-5.6-luna','gpt-5.6-luna',
+          'GPT-5.6 Luna','Fast, bounded standard-customer model.',60,
+          'Isolated migration-chain fixture','["responses"]','generation_compatible',
+          '{"generation_verified":true}','active','56560000-0000-4000-8000-000000000001'
+        );
+        insert into tongs.openai_text_model_route_compatibility(
+          id,catalog_entry_id,route_code,compatibility_status,maximum_input_tokens,
+          maximum_output_tokens,maximum_attempts,supporting_cost_coverage,
+          cost_policy_revision_id,evidence_json
+        ) values (
+          '89000000-0000-4000-8000-000000000203',
+          '89000000-0000-4000-8000-000000000103','hearth.chat_completion',
+          'generation_verified',2000,512,1,'complete',
+          '10000000-0000-4000-8000-000000000010','{"isolated_fixture":true}'
+        );
+      `, "connected bounded Luna pricing identity fixture");
     }
     psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
   }
@@ -306,7 +427,39 @@ try {
     throw new Error(`Historical provenance repair proof failed: ${JSON.stringify({ historicalRepairBefore, historicalRepairAfter, historicalRepairReplay })}`);
   }
 
+  psql(`
+    insert into tongs.workspaces(id,name,created_by)
+    values ('aa000000-0000-4000-8000-000000000010','Isolated rollout workspace',
+      'aa000000-0000-4000-8000-000000000099');
+    insert into tongs.workspace_members(workspace_id,user_id,role)
+    values ('aa000000-0000-4000-8000-000000000010',
+      'aa000000-0000-4000-8000-000000000099','owner');
+    set request.jwt.claim.role='service_role';
+    select tongs.create_normal_customer_paid_execution_authorization(
+      'aa000000-0000-4000-8000-000000000030',
+      'aa000000-0000-4000-8000-000000000099',
+      'aa000000-0000-4000-8000-000000000099',
+      'aa000000-0000-4000-8000-000000000010','test',
+      'isolated normal customer authorization proof'
+    );
+    select tongs.provision_beta_test_credits(
+      'aa000000-0000-4000-8000-000000000040',
+      'aa000000-0000-4000-8000-000000000099',
+      'aa000000-0000-4000-8000-000000000099',
+      'aa000000-0000-4000-8000-000000000010',9,
+      'isolated-beta-credit-grant','isolated beta grant proof','{}'
+    );
+    select tongs.provision_beta_test_credits(
+      'aa000000-0000-4000-8000-000000000040',
+      'aa000000-0000-4000-8000-000000000099',
+      'aa000000-0000-4000-8000-000000000099',
+      'aa000000-0000-4000-8000-000000000010',9,
+      'isolated-beta-credit-grant','isolated beta grant proof','{}'
+    );
+  `, "normal rollout and beta credit fixtures");
+
   const proof = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
     select jsonb_build_object(
       'current_environment', tongs._current_financial_environment(),
       'configuration_count', (select count(*) from tongs.financial_environment_configuration_revisions),
@@ -316,17 +469,29 @@ try {
       'live_configuration', (select lifecycle_state from tongs.financial_environment_configuration_revisions where environment='live' order by revision desc limit 1),
       'legacy_case_count', (select count(*) from tongs.legacy_credit_reconciliation_cases),
       'simulator_execute_grants', (select count(*) from information_schema.routine_privileges where specific_schema='tongs' and grantee='service_role' and privilege_type='EXECUTE' and routine_name not like 'read_%' and (routine_name like '%hearth_chat_test%' or routine_name like '%openai_text_test_certification%')),
-      'funding_contract', (select prosrc like '%forge.customer-funding.v2%' from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='tongs' and p.proname='read_my_customer_funding')
+      'funding_contract', (select prosrc like '%forge.customer-funding.v4%' from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='tongs' and p.proname='read_my_customer_funding'),
+      'internal_quote_credit_units', (select prosrc like '%customer_credit_units%v_quote.customer_credit_units%' from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='tongs' and p.proname='create_customer_openai_text_quote'),
+      'normal_rollout', (select count(*) from tongs.financial_environment_configuration_revisions where environment='test' and lifecycle_state='customer_rollout_active' and maximum_operation_count is null and rolling_window_seconds is null),
+      'normal_authorization', (select count(*) from tongs.customer_paid_execution_scope_authorizations where id='aa000000-0000-4000-8000-000000000030' and authorization_kind='normal_customer' and financial_environment='test' and maximum_operation_count is null and rolling_window_seconds is null and valid_until is null),
+      'beta_grant_count', (select count(*) from tongs.beta_credit_grants where id='aa000000-0000-4000-8000-000000000040' and credit_units=9 and financial_environment='test'),
+      'beta_grant_journal_balanced', (select coalesce(sum(amount_micros),0)=0 from tongs.accounting_journal_entries where event_id='aa000000-0000-4000-8000-000000000040'),
+      'beta_purchase_enabled', (select (tongs.read_credit_pack_purchase_availability()->>'purchase_enabled')::boolean)
     );
   `, "parity proof"));
   if (proof.current_environment !== "test"
-    || proof.configuration_count !== 2
+    || proof.configuration_count !== 7
     || proof.baseline_count !== 1
     || proof.live_identifier_slots !== 3
-    || proof.test_configuration !== "structurally_ready"
-    || proof.live_configuration !== "structurally_ready"
+    || proof.test_configuration !== "customer_rollout_active"
+    || proof.live_configuration !== "inactive_ready"
     || proof.simulator_execute_grants !== 0
-    || proof.funding_contract !== true) {
+    || proof.funding_contract !== true
+    || proof.internal_quote_credit_units !== true
+    || proof.normal_rollout !== 1
+    || proof.normal_authorization !== 1
+    || proof.beta_grant_count !== 1
+    || proof.beta_grant_journal_balanced !== true
+    || proof.beta_purchase_enabled !== false) {
     throw new Error(`Unexpected parity proof: ${JSON.stringify(proof)}`);
   }
 
@@ -336,7 +501,9 @@ try {
     test_runtime_selected: "passed",
     live_configuration_present_inactive: "passed",
     simulator_authority_revoked: "passed",
-    customer_funding_v2: "passed",
+    customer_funding_v4: "passed",
+    normal_customer_rollout: "credit_bounded_without_certification_quota",
+    beta_credit_controls: "passed",
     historical_backfill_links: "8_of_8_exact_and_idempotent",
     historical_economic_state: "unchanged",
     commercial_price_publication: "not_performed",
