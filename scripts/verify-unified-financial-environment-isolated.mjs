@@ -73,6 +73,11 @@ const migrations = [
   "20261011310000_standard_customer_hearth_research_failure_loss.sql",
   "20261011320000_standard_customer_hearth_research_full_failure_exposure.sql",
   "20261011330000_customer_operation_relief_balance_restoration.sql",
+  "20261011340000_tongs_existing_openai_funding_handle_environment.sql",
+  "20261011350000_settled_openai_replay_relief_safety.sql",
+  "20261011360000_customer_operation_relief_corrections.sql",
+  "20261011370000_customer_operation_relief_canonical_binding_evidence.sql",
+  "20261011380000_openai_failure_loss_environment_isolation.sql",
 ];
 
 const historicalBackfillFixture = `
@@ -407,6 +412,33 @@ try {
         );
       `, "connected bounded Luna pricing identity fixture");
     }
+    if (migration === "20261011380000_openai_failure_loss_environment_isolation.sql") {
+      psql(`
+        with latest as(
+          select distinct on(policy.route_code) policy.*
+          from tongs.openai_text_failure_loss_policy_revisions policy
+          order by policy.route_code,policy.revision desc
+        )
+        insert into tongs.openai_text_failure_loss_policy_revisions(
+          id,route_code,environment,revision,per_operation_limit_micros,
+          aggregate_limit_micros,rolling_window_seconds,maximum_concurrency,
+          lifecycle_state,reason,actor_id
+        )
+        select
+          extensions.uuid_generate_v5(latest.id,'isolated-active-production-source'),
+          latest.route_code,'production',latest.revision+1,
+          latest.per_operation_limit_micros,latest.aggregate_limit_micros,
+          latest.rolling_window_seconds,latest.maximum_concurrency,'active',
+          'Isolated active source policy for Test/Live environment proof.',null
+        from latest
+        where not exists(
+          select 1 from tongs.openai_text_failure_loss_policy_revisions active_policy
+          where active_policy.route_code=latest.route_code
+            and active_policy.environment='production'
+            and active_policy.lifecycle_state='active'
+        );
+      `, "active failure-loss source policy compatibility");
+    }
     psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
   }
 
@@ -461,6 +493,183 @@ try {
       'isolated-beta-credit-grant','isolated beta grant proof','{}'
     );
   `, "normal rollout and beta credit fixtures");
+
+  psql(`
+    insert into tongs.openai_text_rollout_revisions(
+      route_code,revision,mode,cost_policy_revision_id,reason,funding_scope
+    ) select
+      cost_policy.route_code,
+      (select coalesce(max(existing.revision),0)+1
+       from tongs.openai_text_rollout_revisions existing
+       where existing.route_code=cost_policy.route_code),
+      'enforce',cost_policy.id,
+      'Isolated setup route rearm for pre-provider release proof.',
+      'forge'
+    from tongs.openai_text_cost_policy_revisions cost_policy
+    where cost_policy.id='10000000-0000-4000-8000-000000000010';
+    insert into tongs.openai_text_failure_loss_rollout_revisions(
+      route_code,financial_environment,revision,mode,loss_policy_revision_id,reason
+    ) select
+      'hearth.chat_completion','test',
+      coalesce(max(rollout.revision),0)+1,'enforce',policy.id,
+      'Isolated setup rearm for pre-provider release proof.'
+    from tongs.openai_text_failure_loss_policy_revisions policy
+    left join tongs.openai_text_failure_loss_rollout_revisions rollout
+      on rollout.route_code=policy.route_code and rollout.financial_environment='test'
+    where policy.id=(
+      select current_policy.id
+      from tongs.openai_text_failure_loss_policy_revisions current_policy
+      where current_policy.route_code='hearth.chat_completion'
+        and current_policy.environment='test' and current_policy.lifecycle_state='active'
+      order by current_policy.revision desc limit 1
+    )
+    group by policy.id;
+  `, "isolated Test risk setup rearm");
+  const riskQuote = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.create_customer_openai_text_quote(
+      'aa000000-0000-4000-8000-000000000080',
+      'aa000000-0000-4000-8000-000000000099',
+      'isolated-preprovider-risk-release',
+      'hearth.chat_completion',
+      'aa000000-0000-4000-8000-000000000010',
+      'isolated-risk-workpiece',repeat('8',64),
+      'gpt-5.6-luna','forge',now()+interval '10 minutes'
+    );
+  `, "environment-isolated platform-risk quote"));
+  if (riskQuote.customer_credit_units !== 3 || riskQuote.funding_eligible !== true) {
+    throw new Error(`Unexpected platform-risk quote: ${JSON.stringify(riskQuote)}`);
+  }
+  psql(`
+    set request.jwt.claim.role='authenticated';
+    set request.jwt.claim.sub='aa000000-0000-4000-8000-000000000099';
+    select tongs.accept_quote(
+      'aa000000-0000-4000-8000-000000000080',
+      'aa000000-0000-4000-8000-000000000081',
+      'accept-isolated-platform-risk',
+      (tongs.read_my_spending_quote('aa000000-0000-4000-8000-000000000080')->>'quote_hash')
+    );
+  `, "environment-isolated platform-risk acceptance");
+  psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.reserve_customer_openai_text_quote(
+      'aa000000-0000-4000-8000-000000000080',
+      'aa000000-0000-4000-8000-000000000082',
+      'aa000000-0000-4000-8000-000000000099',
+      'isolated-preprovider-risk-release','hearth.chat_completion',
+      'aa000000-0000-4000-8000-000000000010','isolated-risk-workpiece',repeat('8',64),
+      'gpt-5.6-luna','forge','reserve-isolated-platform-risk'
+    );
+    insert into tongs.openai_text_failure_loss_rollout_revisions(
+      route_code,financial_environment,revision,mode,loss_policy_revision_id,reason
+    ) select
+      'hearth.chat_completion','test',
+      coalesce(max(rollout.revision),0)+1,'halt_new',policy.id,
+      'Isolated Test-only pre-provider denial proof.'
+    from tongs.openai_text_failure_loss_policy_revisions policy
+    left join tongs.openai_text_failure_loss_rollout_revisions rollout
+      on rollout.route_code=policy.route_code and rollout.financial_environment='test'
+    where policy.id=(
+      select current_policy.id
+      from tongs.openai_text_failure_loss_policy_revisions current_policy
+      where current_policy.route_code='hearth.chat_completion'
+        and current_policy.environment='test' and current_policy.lifecycle_state='active'
+      order by current_policy.revision desc limit 1
+    )
+    group by policy.id;
+    insert into tongs.openai_text_failure_loss_rollout_revisions(
+      route_code,financial_environment,revision,mode,loss_policy_revision_id,reason
+    ) select
+      'hearth.research_synthesis','live',
+      coalesce(max(rollout.revision),0)+1,'halt_new',policy.id,
+      'Isolated Live-only halt proof.'
+    from tongs.openai_text_failure_loss_policy_revisions policy
+    left join tongs.openai_text_failure_loss_rollout_revisions rollout
+      on rollout.route_code=policy.route_code and rollout.financial_environment='live'
+    where policy.id=(
+      select current_policy.id
+      from tongs.openai_text_failure_loss_policy_revisions current_policy
+      where current_policy.route_code='hearth.research_synthesis'
+        and current_policy.environment='live' and current_policy.lifecycle_state='active'
+      order by current_policy.revision desc limit 1
+    )
+    group by policy.id;
+  `, "environment-specific risk halt fixtures");
+
+  const riskSetupProof = JSON.parse(psql(`
+    select jsonb_build_object(
+      'reservation_environment',(select funding_environment from tongs.funding_reservations where id='aa000000-0000-4000-8000-000000000082'),
+      'binding_route',(select route_code from tongs.openai_text_funding_bindings where reservation_id='aa000000-0000-4000-8000-000000000082'),
+      'active_policy',(select id from tongs.openai_text_failure_loss_policy_revisions where route_code='hearth.chat_completion' and environment='test' and lifecycle_state='active' order by revision desc limit 1),
+      'risk_policy',(select loss_policy_revision_id from tongs._current_openai_text_failure_loss_rollout('hearth.chat_completion','test')),
+      'risk_mode',(select mode from tongs._current_openai_text_failure_loss_rollout('hearth.chat_completion','test'))
+    );
+  `, "environment-risk setup proof"));
+  if (riskSetupProof.active_policy !== riskSetupProof.risk_policy || riskSetupProof.risk_mode !== "halt_new") {
+    throw new Error(`Environment-risk setup mismatch: ${JSON.stringify(riskSetupProof)}`);
+  }
+  const riskDenial = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs._authorize_openai_text_provider_attempt_before_customer_test_scope(
+      'aa000000-0000-4000-8000-000000000082',
+      'isolated-platform-risk-attempt',1::smallint,11015::bigint,120,
+      '{"isolated":true}'::jsonb
+    );
+  `, "pre-provider environment-risk denial"));
+  const release = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.release_operation(
+      'aa000000-0000-4000-8000-000000000082',
+      'isolated-platform-risk-release','failure_loss_environment_halted',
+      '{"provider":"openai","transmitted":false}'::jsonb
+    );
+  `, "pre-provider risk release"));
+  const releaseReplay = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.release_operation(
+      'aa000000-0000-4000-8000-000000000082',
+      'isolated-platform-risk-release','failure_loss_environment_halted',
+      '{"provider":"openai","transmitted":false}'::jsonb
+    );
+  `, "pre-provider risk release replay"));
+  const riskProof = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select jsonb_build_object(
+      'reservation_state',tongs._funding_reservation_state('aa000000-0000-4000-8000-000000000082'),
+      'release_events',(select count(*) from tongs.funding_reservation_events where reservation_id='aa000000-0000-4000-8000-000000000082' and event_type='released'),
+      'settlement_events',(select count(*) from tongs.funding_reservation_events where reservation_id='aa000000-0000-4000-8000-000000000082' and event_type='settled'),
+      'beta_consumptions',(select count(*) from tongs.beta_credit_consumptions where operation_id='isolated-preprovider-risk-release'),
+      'usage_rows',(select count(*) from tongs.openai_text_usage_evidence where reservation_id='aa000000-0000-4000-8000-000000000082'),
+      'supplier_expenses',(select count(*) from tongs.supplier_expenses where reservation_id='aa000000-0000-4000-8000-000000000082'),
+      'customer_reliefs',(select count(*) from tongs.customer_operation_reliefs where reservation_id='aa000000-0000-4000-8000-000000000082'),
+      'failure_holds',(select count(*) from tongs.openai_text_failure_exposure_holds where reservation_id='aa000000-0000-4000-8000-000000000082'),
+      'test_chat_mode',(select mode from tongs._current_openai_text_failure_loss_rollout('hearth.chat_completion','test')),
+      'live_chat_mode',(select mode from tongs._current_openai_text_failure_loss_rollout('hearth.chat_completion','live')),
+      'test_research_mode',(select mode from tongs._current_openai_text_failure_loss_rollout('hearth.research_synthesis','test')),
+      'live_research_mode',(select mode from tongs._current_openai_text_failure_loss_rollout('hearth.research_synthesis','live'))
+    );
+  `, "environment-isolation and release proof"));
+  if (riskDenial.provider_execution_authorized !== false
+    || riskDenial.reason !== "failure_loss_environment_halted"
+    || riskDenial.denial_class !== "platform_risk"
+    || riskDenial.preprovider_release_required !== true
+    || riskDenial.financial_environment !== "test"
+    || release.replay !== false
+    || releaseReplay.replay !== true
+    || riskProof.reservation_state !== "released"
+    || riskProof.release_events !== 1
+    || riskProof.settlement_events !== 0
+    || riskProof.beta_consumptions !== 0
+    || riskProof.usage_rows !== 0
+    || riskProof.supplier_expenses !== 0
+    || riskProof.customer_reliefs !== 0
+    || riskProof.failure_holds !== 0
+    || riskProof.test_chat_mode !== "halt_new"
+    || riskProof.live_chat_mode !== "enforce"
+    || riskProof.test_research_mode !== "enforce"
+    || riskProof.live_research_mode !== "halt_new") {
+    throw new Error(`Environment isolation or release proof failed: ${JSON.stringify({ riskDenial, release, releaseReplay, riskProof })}`);
+  }
 
   const researchQuote = JSON.parse(psql(`
     set request.jwt.claim.role='service_role';
@@ -640,6 +849,8 @@ try {
     historical_economic_state: "unchanged",
     hearth_research_price_publication: "21_credits_variable_cost_only",
     customer_operation_relief_balance: "restored_once_and_replay_safe",
+    failure_loss_environment_isolation: "test_and_live_independent",
+    preprovider_platform_risk_release: "released_once_without_charge_or_relief",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

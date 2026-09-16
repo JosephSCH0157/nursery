@@ -187,7 +187,23 @@ export class PaidOpenAiTextExecutionCoordinator {
             credential_funding: input.credentialFunding,
           },
         });
-      if (attempt.provider_execution_authorized !== true) throw new OpenAiTextBoundaryError("funding_context_required");
+      if (attempt.provider_execution_authorized !== true) {
+        const reason = typeof attempt.reason === "string" && attempt.reason.trim()
+          ? attempt.reason.trim()
+          : "provider_authorization_denied";
+        const platformRiskDenial = attempt.denial_class === "platform_risk"
+          || [
+            "aggregate_failure_limit",
+            "operation_failure_limit",
+            "failure_loss_concurrency_limit",
+            "failure_loss_environment_halted",
+          ].includes(reason);
+        if (platformRiskDenial && attempt.preprovider_release_required !== false) {
+          await this.releaseBeforeProvider(input, `${currentAttemptKey}:platform-risk-denied-release`, reason);
+          throw new OpenAiTextBoundaryError("platform_risk_unavailable");
+        }
+        throw new OpenAiTextBoundaryError("funding_context_required");
+      }
 
       let result: OpenAiTextProviderResult<T>;
       try {

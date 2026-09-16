@@ -197,8 +197,27 @@ test("a denied failure-loss hold cannot reach OpenAI", async () => {
   });
   await assert.rejects(() => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
     executeProvider: async () => { providerCalls += 1; return {}; },
+  })), /platform_risk_unavailable/);
+  assert.equal(providerCalls, 0);
+  const release = g.calls.find((call) => call.name === "release_operation");
+  assert.equal(release.args.p_release_key, "operation-key:attempt:1:platform-risk-denied-release");
+  assert.equal(release.args.p_reason, "aggregate_failure_limit");
+  assert.deepEqual(release.args.p_evidence_json, { provider: "openai", transmitted: false });
+  assert.equal(g.calls.some((call) => call.name.includes("relief")), false);
+});
+
+test("a genuine funding-authority denial remains distinct and does not claim a platform-risk release", async () => {
+  let providerCalls = 0;
+  const g = gate({
+    authorize_openai_text_provider_attempt_with_aggregate: async () => ({
+      data: { provider_execution_authorized: false, reason: "funding_authority_denied" }, error: null,
+    }),
+  });
+  await assert.rejects(() => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    executeProvider: async () => { providerCalls += 1; return {}; },
   })), /funding_context_required/);
   assert.equal(providerCalls, 0);
+  assert.equal(g.calls.some((call) => call.name === "release_operation"), false);
 });
 
 test("an enabled aggregate denial releases funding before the provider callback", async () => {

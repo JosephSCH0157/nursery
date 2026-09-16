@@ -22,6 +22,7 @@ import { routeForgeAiRequest } from "../../../../packages/tongs/src/ai-router";
 import {
   executeOpenAiTextTransport,
   configuredOpenAiTextMode,
+  OpenAiTextBoundaryError,
   type OpenAiTextRouteCode,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import {
@@ -5863,14 +5864,19 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             if (clientAborted || upstreamAbort.signal.aborted) {
               return new Response(null, { status: 499 });
             }
-            const code = error instanceof Error && error.message.includes("byo_credential_required")
+            const boundaryCode = error instanceof OpenAiTextBoundaryError ? error.code : null;
+            const code = boundaryCode === "byo_credential_required"
               ? "byo_credential_required"
-              : "paid_execution_denied";
-            return jsonResponse(code === "byo_credential_required" ? 422 : 403, {
+              : boundaryCode === "platform_risk_unavailable"
+                ? "platform_risk_unavailable"
+                : "paid_execution_denied";
+            return jsonResponse(code === "byo_credential_required" ? 422 : code === "platform_risk_unavailable" ? 503 : 403, {
               ok: false,
               error: code === "byo_credential_required"
                 ? "The exact customer-owned OpenAI credential required by this quote is unavailable."
-                : "The accepted funding context did not authorize this provider call.",
+                : code === "platform_risk_unavailable"
+                  ? "Hearth is temporarily unable to start this AI operation. No credits were charged."
+                  : "The accepted funding context did not authorize this provider call.",
               code,
               ...buildBillingSnapshot(lane),
             });

@@ -41,8 +41,8 @@ export function clearOpenAiTextExecutionAdapterForTests(): void {
 }
 
 export class OpenAiTextBoundaryError extends Error {
-  readonly code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured";
-  constructor(code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured") {
+  readonly code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured" | "platform_risk_unavailable";
+  constructor(code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured" | "platform_risk_unavailable") {
     super(code);
     this.code = code;
     this.name = "OpenAiTextBoundaryError";
