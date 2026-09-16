@@ -501,6 +501,7 @@ async function grantAiCredits(
   params: {
     userId: string;
     itemId: string;
+    offerId: string;
     tokens: number;
     eventId: string;
     sessionId: string;
@@ -551,6 +552,7 @@ async function recordCustomerDepositAccounting(
     p_metadata_json: {
       source: "stripe_webhook",
       event_type: params.event.type,
+      forge_offer_id: params.offerId,
     },
   });
   const row = result && typeof result === "object" ? result as Record<string, unknown> : null;
@@ -829,6 +831,7 @@ async function fulfillAiCreditsCheckout(
     sessionId: context.sessionId,
     paymentIntentId: context.paymentIntentId,
     itemId: context.itemId,
+    offerId: context.offerId!,
     amountTotal,
     currency,
     creditUnits: credits,
@@ -1071,6 +1074,13 @@ async function handleInvoiceLifecycleEvent(
       subscription,
       metadata,
     });
+    if (accountingReceipt && metadata.purchaseType === "subscription") {
+      await runTongsRpc(
+        supabase,
+        "grant_subscription_allowance_from_receipt",
+        { p_receipt_id: accountingReceipt.receiptId },
+      );
+    }
     if (
       accountingReceipt
       && accountingReceipt.stripeMode === "live"
