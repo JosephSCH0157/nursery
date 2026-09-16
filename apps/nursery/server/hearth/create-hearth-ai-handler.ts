@@ -1965,6 +1965,28 @@ function summarizeResearchResult(result: HearthResearchResult): Record<string, n
   };
 }
 
+export function hasSufficientCustomerResearchEvidence(result: HearthResearchResult | null): boolean {
+  if (!result || result.runtimeStatus === "error" || result.runtimeStatus === "no_results") return false;
+  const brief = result.brief;
+  const inspectedSourceIds = new Set(result.sources
+    .filter((source) => (
+      source.extractionStatus === "extracted"
+      && source.provenance?.inspectionStatus === "inspected"
+      && source.provenance.verifiedInCurrentRequest
+      && (!brief || source.provenance.briefFingerprint === brief.briefFingerprint)
+    ))
+    .map((source) => source.sourceId));
+  return (result.evidence ?? []).some((entry) => (
+    entry.state === "inspected"
+    && Boolean(entry.excerpt?.trim())
+    && inspectedSourceIds.has(entry.sourceId)
+    && (!brief || (
+      entry.briefFingerprint === brief.briefFingerprint
+      && entry.workpieceId === brief.workpieceId
+    ))
+  ));
+}
+
 function cleanResearchPresentationText(input: string | null | undefined): string {
   return condenseWhitespace(String(input ?? "")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -4739,8 +4761,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         }
       }
       if (customerResearchPlan && paidExecutionHandle && openAiTextGate
-        && (!researchResult || researchResult.runtimeStatus === "error"
-          || researchResult.runtimeStatus === "no_results" || researchResult.sources.length === 0)) {
+        && !hasSufficientCustomerResearchEvidence(researchResult)) {
         await settleCustomerHearthResearchBeforeSynthesis({
           gate: openAiTextGate,
           reservationId: paidExecutionHandle.reservationId,
@@ -4748,6 +4769,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           evidence: {
             runtime_status: researchResult?.runtimeStatus ?? "missing",
             source_count: researchResult?.sources.length ?? 0,
+            inspected_evidence_count: (researchResult?.evidence ?? []).filter((entry) => (
+              entry.state === "inspected" && Boolean(entry.excerpt?.trim())
+            )).length,
           },
         });
         const safeMessage = "I couldn't verify current information right now. No Forge Credits were charged. I can still offer general background, but it would not be current verification.";

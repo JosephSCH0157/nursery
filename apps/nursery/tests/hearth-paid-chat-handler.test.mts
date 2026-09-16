@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
+import {
+  createHearthAiHandler,
+  hasSufficientCustomerResearchEvidence,
+} from "../server/hearth/create-hearth-ai-handler";
 import { fingerprintPaidHearthChatRequest } from "../server/hearth/hearth-paid-chat-execution";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 
@@ -283,6 +286,190 @@ test("research with an inactive customer price is unavailable before retrieval",
   assert.equal(providerCalls, 0);
 });
 
+test("insufficient inspected customer research evidence releases the reservation with no Luna call or charge", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const quoteHash = "c".repeat(64);
+  let quoteArgs: Record<string, unknown> = {};
+  let reserveArgs: Record<string, unknown> = {};
+  let providerCalls = 0;
+  let releaseCalls = 0;
+  let settlementCalls = 0;
+  const gate = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "read_openai_execution_requirement") {
+        return { data: { mode: "enforce", funding_context_required: true }, error: null };
+      }
+      if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+      if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+        catalog_revision_id: "77777777-7777-4777-8777-777777777777",
+        catalog_revision: 1,
+        model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        runtime_model_id: "gpt-5.6-luna",
+        provider_model_id: "gpt-5.6-luna",
+        display_name: "Hearth Research",
+        tradeoff_summary: "Current sources with bounded evidence synthesis.",
+      }, error: null };
+      if (name === "create_customer_openai_text_quote") {
+        quoteArgs = args;
+        return { data: {
+          quote_id: args.p_quote_id,
+          operation_id: args.p_operation_id,
+          quote_hash: quoteHash,
+          request_fingerprint: args.p_request_fingerprint,
+          currency: "USD",
+          maximum_customer_charge_micros: 105000,
+          customer_credit_units: 21,
+          failure_customer_charge_micros: 0,
+          funding_eligible: true,
+          funding_source: "customer_deposit",
+          payer_kind: "personal",
+          funding_environment: "test",
+          funding_label: "Forge Credits",
+          included_quantity: { input_tokens: 128000, output_tokens: 16384, attempts: 1 },
+          expires_at: args.p_expires_at,
+          provider_funding_summary: [{ component: "research", provider_label: "Forge Research", credential_source: "forge" }],
+        }, error: null };
+      }
+      if (name === "reserve_customer_openai_text_quote") {
+        reserveArgs = args;
+        return { data: { paid_execution: {
+          operation_id: args.p_operation_id,
+          reservation_id: args.p_reservation_id,
+          request_fingerprint: args.p_request_fingerprint,
+          funding_environment: "test",
+        } }, error: null };
+      }
+      if (name === "settle_customer_hearth_research_before_synthesis") {
+        releaseCalls += 1;
+        assert.equal(args.p_failure_class, "research_no_verifiable_sources");
+        return { data: { reservation_state: "released", customer_charge_micros: 0 }, error: null };
+      }
+      if (name === "settle_operation") settlementCalls += 1;
+      return { data: {}, error: null };
+    },
+  };
+  const prompt = "As of today, how has the war with Iran affected U.S. oil prices? Use current sources.";
+  const body = {
+    lane: "forge",
+    messages: [{ role: "user", content: prompt }],
+    user_authored_text: prompt,
+    attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+    episode_context: {
+      episodeId: "episode-1",
+      workspaceId,
+      title: "Current oil prices",
+      titleVariants: { A: "", B: "", C: "" },
+      outline: "",
+      body: "",
+      tonePreset: null,
+      sources: [],
+      sparks: [],
+    },
+  };
+  const config = {
+    textApiKey: "fake-forge-key",
+    imageApiKey: null,
+    researchApiKey: "fake-brave-key",
+    apiKey: "fake-forge-key",
+    model: "gpt-5.6-luna",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge" as const,
+    initialTokenBalance: 42,
+    supabaseUrl: "https://example.supabase.co",
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: "fake-publishable-key",
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: gate,
+    resolveUserIdForAccessToken: async () => USER_ID,
+    researchRuntime: {
+      async run(args: any) {
+        return {
+          mode: "partial_retrieval" as const,
+          runtimeStatus: "partial" as const,
+          providerStatus: "configured_and_operational" as const,
+          brief: args.brief,
+          sources: [{
+            sourceId: "retrieval-1",
+            title: "Oversized report",
+            url: "https://example.test/oversized",
+            domain: "example.test",
+            publishedAt: null,
+            snippet: null,
+            extractedText: null,
+            extractionStatus: "skipped" as const,
+            extractionError: "Aggregate evidence budget exhausted before this source could be retained",
+            provenance: {
+              origin: "search" as const,
+              briefFingerprint: args.brief.briefFingerprint,
+              inspectedAt: null,
+              inspectionStatus: "inaccessible" as const,
+              accessFailureReason: "extraction_failed" as const,
+              verifiedInCurrentRequest: false,
+            },
+          }],
+          evidence: [{
+            evidenceId: "evidence-1",
+            briefFingerprint: args.brief.briefFingerprint,
+            workpieceId: args.brief.workpieceId,
+            sourceId: "retrieval-1",
+            excerpt: null,
+            authority: "unassessed" as const,
+            state: "inaccessible" as const,
+            uncertainty: "Aggregate evidence budget exhausted",
+          }],
+          artifact: null,
+          synthesis: { summary: "Limited", keyPoints: [], uncertainties: [], coverageNote: "0/1" },
+        };
+      },
+    },
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      return new Response();
+    },
+  } satisfies HearthRuntimeConfig;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const handler = createHearthAiHandler(config);
+    const quoteResponse = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+    const quote = await quoteResponse.json() as Record<string, any>;
+    assert.equal(quoteResponse.status, 409, JSON.stringify(quote));
+    assert.equal(quote.billing_quote.credit_charge, 21);
+
+    const failedResponse = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        ...body,
+        spending_acceptance: {
+          operation_id: quote.billing_quote.operation_id,
+          quote_id: quote.billing_quote.quote_id,
+          quote_hash: quote.billing_quote.quote_hash,
+          request_fingerprint: quote.billing_quote.request_fingerprint,
+        },
+      }),
+    }));
+    const failed = await failedResponse.json() as Record<string, any>;
+    assert.equal(failedResponse.status, 503, JSON.stringify(failed));
+    assert.equal(failed.code, "current_verification_unavailable");
+    assert.match(String(failed.error), /No Forge Credits were charged/i);
+    assert.equal(String(quoteArgs.p_operation_id), String(reserveArgs.p_operation_id));
+    assert.equal(releaseCalls, 1);
+    assert.equal(settlementCalls, 0);
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("customer quote acceptance reserves, executes, settles, closes, and replays without a second charge or provider call", async () => {
   const workspaceId = "55555555-5555-4555-8555-555555555555";
   const depositId = "66666666-6666-4666-8666-666666666666";
@@ -544,6 +731,84 @@ test("explicit owner Hearth authority fails closed without exposing or falling b
   assert.equal(payload.error, "Private owner AI is unavailable in this runtime.");
   assert.equal(JSON.stringify(payload).includes("OPENAI_HEARTH_OWNER_API_KEY"), false);
   assert.equal(providerCalls, 0);
+});
+
+test("customer research synthesis admission requires current inspected evidence, not merely a source row", () => {
+  const brief = {
+    schema: "forge.hearth.research-brief.v1" as const,
+    workspaceId: "55555555-5555-4555-8555-555555555555",
+    workpieceId: "episode-1",
+    briefFingerprint: "f".repeat(64),
+    creatorRequest: "Verify current evidence",
+    episodeTitle: "Current evidence",
+    goals: ["Verify current evidence"],
+    queries: ["current evidence"],
+    sourcePriorities: ["Primary records"],
+  };
+  const skippedOnly = {
+    mode: "partial_retrieval" as const,
+    runtimeStatus: "partial" as const,
+    brief,
+    sources: [{
+      sourceId: "retrieval-1",
+      title: "Oversized source",
+      url: "https://example.test/oversized",
+      domain: "example.test",
+      publishedAt: null,
+      snippet: null,
+      extractedText: null,
+      extractionStatus: "skipped" as const,
+      extractionError: "Aggregate evidence budget exhausted before this source could be retained",
+      provenance: {
+        origin: "search" as const,
+        briefFingerprint: brief.briefFingerprint,
+        inspectedAt: null,
+        inspectionStatus: "inaccessible" as const,
+        accessFailureReason: "extraction_failed" as const,
+        verifiedInCurrentRequest: false,
+      },
+    }],
+    evidence: [{
+      evidenceId: "evidence-1",
+      briefFingerprint: brief.briefFingerprint,
+      workpieceId: brief.workpieceId,
+      sourceId: "retrieval-1",
+      excerpt: null,
+      authority: "unassessed" as const,
+      state: "inaccessible" as const,
+      uncertainty: "Aggregate evidence budget exhausted",
+    }],
+    artifact: null,
+    synthesis: { summary: "Limited", keyPoints: [], uncertainties: [], coverageNote: "0/1" },
+  };
+  assert.equal(hasSufficientCustomerResearchEvidence(skippedOnly), false);
+
+  const inspected = {
+    ...skippedOnly,
+    sources: [{
+      ...skippedOnly.sources[0],
+      extractedText: "Current inspected evidence",
+      extractionStatus: "extracted" as const,
+      extractionError: null,
+      provenance: {
+        ...skippedOnly.sources[0].provenance,
+        inspectedAt: "2026-09-16T00:00:00.000Z",
+        inspectionStatus: "inspected" as const,
+        verifiedInCurrentRequest: true,
+      },
+    }],
+    evidence: [{
+      ...skippedOnly.evidence[0],
+      excerpt: "Current inspected evidence",
+      state: "inspected" as const,
+      uncertainty: null,
+    }],
+  };
+  assert.equal(hasSufficientCustomerResearchEvidence(inspected), true);
+  assert.equal(hasSufficientCustomerResearchEvidence({
+    ...inspected,
+    evidence: [{ ...inspected.evidence[0], briefFingerprint: "0".repeat(64) }],
+  }), false);
 });
 
 test("explicit owner Hearth authority uses only the isolated credential and bypasses neither coordinator nor persistence", async (t) => {

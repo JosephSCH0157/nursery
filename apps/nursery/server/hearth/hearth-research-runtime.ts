@@ -15,6 +15,10 @@ import {
   type HearthTranscriptSegment,
 } from "../../../hearth/src/lib/hearth-research-contract";
 import { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
+import {
+  CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
+  CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER,
+} from "./owner-hearth-research-execution";
 export { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
 
 export type HearthResearchRuntimeRunArgs = {
@@ -875,6 +879,16 @@ async function fetchReadableSource(args: {
 
     const resolvedUrl = readText(response.url) || args.candidate.url;
     const contentType = compactWhitespace(response.headers.get("content-type") || "").toLowerCase();
+    const evidenceLimitation = response.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER);
+    if (evidenceLimitation === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED) {
+      addWarning("Source skipped because the bounded aggregate evidence budget was exhausted.");
+      return {
+        ...base,
+        resolvedUrl,
+        extractionStatus: "skipped",
+        extractionError: "Aggregate evidence budget exhausted before this source could be retained",
+      };
+    }
 
     if (!response.ok) {
       return {
@@ -1274,6 +1288,13 @@ function buildSynthesis(args: {
   });
   const noDateCount = args.sources.filter((source) => !source.publishedAt).length;
   const uncertainties: string[] = [];
+  const aggregateLimitedCount = args.sources.filter((source) => (
+    source.extractionStatus === "skipped"
+    && /aggregate evidence budget exhausted/i.test(source.extractionError ?? "")
+  )).length;
+  if (aggregateLimitedCount > 0) {
+    uncertainties.push(`${aggregateLimitedCount} source(s) were skipped because the bounded aggregate evidence budget was exhausted.`);
+  }
   if (args.extractionFailureCount > 0) {
     uncertainties.push(`${args.extractionFailureCount} source fetch/extraction step(s) were partial, failed, or skipped.`);
   }

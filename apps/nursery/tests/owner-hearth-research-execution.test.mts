@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
   CUSTOMER_RESEARCH_CREDITS,
+  CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER,
   CUSTOMER_RESEARCH_MODEL,
+  CUSTOMER_RESEARCH_SOURCE_CAPTURE_TRUNCATED,
   OWNER_RESEARCH_MAX_CAPTURE_BYTES,
   OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
   OWNER_RESEARCH_MODEL_TERMS,
@@ -19,6 +22,8 @@ import {
 } from "../server/hearth/owner-hearth-research-execution";
 import { readCustomerSpendingQuote } from "../../../packages/tongs/src/customer-spending-confirmation";
 import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import { createHearthResearchRuntime } from "../server/hearth/hearth-research-runtime";
+import { hasSufficientCustomerResearchEvidence } from "../server/hearth/create-hearth-ai-handler";
 
 type RpcCall = { name: string; args: Record<string, unknown> };
 
@@ -217,6 +222,7 @@ test("oversized retrieval evidence fails only that source and replays the same b
   assert.equal((await (await boundedFetch("https://example.test/oversized-source")).arrayBuffer()).byteLength, oversizedBody.byteLength);
   assert.equal(supplierCalls, 1);
   assert.equal(capture?.body_truncated, true);
+  assert.equal(capture?.capture_outcome, CUSTOMER_RESEARCH_SOURCE_CAPTURE_TRUNCATED);
   assert.equal(capture?.response_bytes, OWNER_RESEARCH_MAX_CAPTURE_BYTES);
   assert.equal(mocked.calls.at(-1)?.name, "complete_customer_hearth_research_stage");
 
@@ -233,6 +239,152 @@ test("oversized retrieval evidence fails only that source and replays the same b
   });
   assert.equal((await (await replayFetch("https://example.test/oversized-source")).arrayBuffer()).byteLength, OWNER_RESEARCH_MAX_CAPTURE_BYTES + 1);
   assert.equal(supplierCalls, 1);
+});
+
+test("standard customer aggregate exhaustion skips only the over-budget source and replays without suppliers", async () => {
+  const retainedBody = new Uint8Array(240 * 1024).fill(65);
+  const overRemainingBody = new Uint8Array(70 * 1024).fill(66);
+  const captures = new Map<string, Record<string, unknown>>();
+  let replay = false;
+  let supplierCalls = 0;
+  const mocked = mockGate(({ name, args }) => {
+    const stageKey = String(args.p_stage_key ?? "");
+    if (name === "begin_customer_hearth_research_stage") {
+      return replay
+        ? { replay: true, event_type: "captured", capture: captures.get(stageKey) ?? null }
+        : { replay: false, authorized: true };
+    }
+    if (name === "complete_customer_hearth_research_stage") {
+      captures.set(stageKey, args.p_capture_json as Record<string, unknown>);
+    }
+    return { replay: false };
+  });
+  const fetchImpl = async () => {
+    supplierCalls += 1;
+    return new Response(supplierCalls <= 4 ? retainedBody : overRemainingBody, {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    });
+  };
+  const urls = Array.from({ length: 5 }, (_, index) => `https://example.test/source-${index + 1}`);
+  const boundedFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl,
+  });
+  for (const url of urls.slice(0, 4)) {
+    assert.equal((await (await boundedFetch(url)).arrayBuffer()).byteLength, retainedBody.byteLength);
+  }
+  const limited = await boundedFetch(urls[4]);
+  assert.equal(limited.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER), CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED);
+  assert.equal(supplierCalls, 5);
+  const retainedBytes = Array.from(captures.values()).reduce((total, capture) => total + Number(capture.response_bytes ?? 0), 0);
+  assert.equal(retainedBytes, 4 * retainedBody.byteLength);
+  assert.ok(retainedBytes <= OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES);
+  const limitedCapture = Array.from(captures.values()).find((capture) => (
+    capture.capture_outcome === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED
+  ));
+  assert.equal(limitedCapture?.retained_bytes, 0);
+  assert.equal(limitedCapture?.aggregate_retained_bytes, retainedBytes);
+
+  replay = true;
+  const replayFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl,
+  });
+  for (const url of urls.slice(0, 4)) await (await replayFetch(url)).arrayBuffer();
+  const replayLimited = await replayFetch(urls[4]);
+  assert.equal(replayLimited.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER), CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED);
+  assert.equal(supplierCalls, 5);
+});
+
+test("owner research preserves fail-closed aggregate capture semantics", async () => {
+  const retainedBody = new Uint8Array(240 * 1024).fill(65);
+  const overRemainingBody = new Uint8Array(70 * 1024).fill(66);
+  let supplierCalls = 0;
+  const mocked = mockGate(({ name }) => name === "begin_owner_hearth_research_stage"
+    ? { replay: false, authorized: true }
+    : { replay: false });
+  const boundedFetch = createOwnerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: sessionPlan,
+    fetchImpl: async () => {
+      supplierCalls += 1;
+      return new Response(supplierCalls <= 4 ? retainedBody : overRemainingBody, {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    },
+  });
+  for (let index = 0; index < 4; index += 1) {
+    await (await boundedFetch(`https://example.test/owner-${index + 1}`)).arrayBuffer();
+  }
+  await assert.rejects(() => boundedFetch("https://example.test/owner-5"), /owner_research_capture_size_exceeded/);
+  assert.equal(supplierCalls, 5);
+  const failure = mocked.calls.find((call) => call.name === "fail_owner_hearth_research_stage");
+  assert.equal(failure?.args.p_failure_code, CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED);
+});
+
+test("aggregate evidence limitation remains an explicit skipped source while usable evidence survives", async () => {
+  const runtime = createHearthResearchRuntime({ braveApiKey: "fake-brave-key" });
+  const brief = {
+    schema: "forge.hearth.research-brief.v1" as const,
+    workspaceId: "00000000-0000-4000-8000-000000000010",
+    workpieceId: "00000000-0000-4000-8000-000000000020",
+    briefFingerprint: "d".repeat(64),
+    creatorRequest: "Verify current energy prices",
+    episodeTitle: "Energy prices",
+    goals: ["Verify current energy prices"],
+    queries: ["current energy prices"],
+    sourcePriorities: ["Primary records"],
+  };
+  const result = await runtime.run({
+    request: {
+      query: "current energy prices",
+      intent: "news",
+      recencyPreference: "strict_recent",
+      maxSources: 2,
+      requireDates: true,
+      requireFullExtraction: true,
+    },
+    brief,
+    fetchImpl: async (input) => {
+      const url = String(input);
+      if (url.startsWith("https://api.search.brave.com/")) {
+        return new Response(JSON.stringify({ web: { results: [
+          { title: "Official energy update", url: "https://energy.example.test/update", description: "Current official data" },
+          { title: "Large supporting report", url: "https://report.example.test/large", description: "Additional context" },
+        ] } }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("energy.example.test")) {
+        return new Response("<html><title>Official energy update</title><article>Current energy prices rose after a documented supply disruption.</article></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response(null, {
+        status: 200,
+        headers: {
+          "content-type": "text/plain",
+          [CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER]: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
+        },
+      });
+    },
+  });
+  assert.equal(result.runtimeStatus, "partial");
+  assert.equal(result.sources.filter((source) => source.extractionStatus === "extracted").length, 1);
+  const skipped = result.sources.find((source) => source.extractionStatus === "skipped");
+  assert.match(skipped?.extractionError ?? "", /aggregate evidence budget exhausted/i);
+  assert.ok(skipped?.warnings?.some((warning) => /aggregate evidence budget/i.test(warning)));
+  assert.ok(result.synthesis.uncertainties.some((warning) => /bounded aggregate evidence budget/i.test(warning)));
+  assert.equal(hasSufficientCustomerResearchEvidence(result), true);
 });
 
 test("an ambiguous supplier call is recorded and is never automatically retried", async () => {

@@ -25,6 +25,9 @@ export const OWNER_RESEARCH_PLATFORM_CEILING_MICROS = 1_456;
 export const OWNER_RESEARCH_AGGREGATE_RISK_MICROS = 3;
 export const OWNER_RESEARCH_MAX_CAPTURE_BYTES = 256 * 1024;
 export const OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES = 1024 * 1024;
+export const CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED = "aggregate_capture_budget_exhausted" as const;
+export const CUSTOMER_RESEARCH_SOURCE_CAPTURE_TRUNCATED = "source_capture_truncated" as const;
+export const CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER = "x-forge-hearth-evidence-limitation" as const;
 export const CUSTOMER_RESEARCH_PLAN_SCHEMA = "forge.hearth.customer-research-plan.v1" as const;
 export const CUSTOMER_RESEARCH_MODEL = "gpt-5.6-luna" as const;
 export const CUSTOMER_RESEARCH_CREDITS = 21;
@@ -427,6 +430,15 @@ function stageType(url: string): "search" | "retrieval" {
 }
 
 function capturedResponse(capture: JsonRow): Response | null {
+  if (capture.capture_outcome === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED) {
+    return new Response(null, {
+      status: 200,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        [CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER]: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
+      },
+    });
+  }
   const bodyBase64 = typeof capture.body_base64 === "string" ? capture.body_base64 : "";
   const status = Number(capture.status);
   if (!bodyBase64 || !Number.isInteger(status) || status < 100 || status > 599) return null;
@@ -448,6 +460,7 @@ function capturedResponse(capture: JsonRow): Response | null {
 async function readCaptureBytes(
   response: Response,
   truncateOversizedCapture: boolean,
+  maximumBytes = OWNER_RESEARCH_MAX_CAPTURE_BYTES,
 ): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   if (!response.body) return { bytes: new Uint8Array(), truncated: false };
   const reader = response.body.getReader();
@@ -458,7 +471,7 @@ async function readCaptureBytes(
     while (true) {
       const next = await reader.read();
       if (next.done) break;
-      const remaining = OWNER_RESEARCH_MAX_CAPTURE_BYTES - total;
+      const remaining = maximumBytes - total;
       if (next.value.byteLength > remaining) {
         if (!truncateOversizedCapture) {
           await reader.cancel("owner_research_capture_size_exceeded").catch(() => undefined);
@@ -499,6 +512,7 @@ function createBoundedHearthResearchFetch(args: {
     unknown: string;
   };
   truncateOversizedCapture?: boolean;
+  aggregateCaptureBudgetAsEvidenceLimitation?: boolean;
   fetchImpl?: typeof fetch;
 }): typeof fetch {
   let attemptOrdinal = 0;
@@ -513,6 +527,12 @@ function createBoundedHearthResearchFetch(args: {
     if (Date.now() >= args.deadlineAt) throw new Error("owner_research_deadline_exhausted");
     const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const stageKey = `${args.handle.operationId}:${attemptOrdinal}:${sha256Canonical({ method, url })}`;
+    const aggregateRemainingBytes = Math.max(0, OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES - capturedBytes);
+    if (args.aggregateCaptureBudgetAsEvidenceLimitation === true
+      && kind === "retrieval"
+      && aggregateRemainingBytes === 0) {
+      return capturedResponse({ capture_outcome: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED })!;
+    }
     const begun = await rpc(args.gate, args.rpcNames.begin, {
       p_reservation_id: args.handle.reservationId,
       p_stage_key: stageKey,
@@ -523,8 +543,16 @@ function createBoundedHearthResearchFetch(args: {
       p_maximum_supplier_cost_micros: kind === "search" ? OWNER_RESEARCH_SEARCH_REQUEST_MICROS : 0,
     });
     if (begun.replay === true) {
-      const replay = capturedResponse(row(begun.capture));
-      if (replay) return replay;
+      const capture = row(begun.capture);
+      const replay = capturedResponse(capture);
+      if (replay) {
+        const replayBytes = integer(capture.response_bytes ?? 0, "response_bytes");
+        if (capturedBytes + replayBytes > OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES) {
+          throw new Error("owner_research_capture_total_size_exceeded");
+        }
+        capturedBytes += replayBytes;
+        return replay;
+      }
       throw new OwnerResearchSubmissionUnknownError(stageKey, "A prior research stage has no replayable capture");
     }
     let response: Response;
@@ -541,19 +569,58 @@ function createBoundedHearthResearchFetch(args: {
     let bytes: Uint8Array;
     let bodyTruncated = false;
     try {
-      const captured = await readCaptureBytes(response.clone(), args.truncateOversizedCapture === true);
+      const maximumCaptureBytes = args.aggregateCaptureBudgetAsEvidenceLimitation === true && kind === "retrieval"
+        ? Math.min(OWNER_RESEARCH_MAX_CAPTURE_BYTES, aggregateRemainingBytes)
+        : OWNER_RESEARCH_MAX_CAPTURE_BYTES;
+      const captured = await readCaptureBytes(
+        response.clone(),
+        args.truncateOversizedCapture === true,
+        maximumCaptureBytes,
+      );
       bytes = captured.bytes;
       bodyTruncated = captured.truncated;
+      if (args.aggregateCaptureBudgetAsEvidenceLimitation === true
+        && kind === "retrieval"
+        && bodyTruncated
+        && maximumCaptureBytes < OWNER_RESEARCH_MAX_CAPTURE_BYTES) {
+        const capture = {
+          status: response.status,
+          headers: responseHeaders(response),
+          body_base64: "",
+          response_bytes: 0,
+          capture_outcome: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
+          retained_bytes: 0,
+          aggregate_retained_bytes: capturedBytes,
+          aggregate_maximum_bytes: OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
+          source_observed_bytes_at_least: maximumCaptureBytes + 1,
+        };
+        await rpc(args.gate, args.rpcNames.complete, {
+          p_reservation_id: args.handle.reservationId,
+          p_stage_key: stageKey,
+          p_actual_supplier_cost_micros: 0,
+          p_capture_json: capture,
+        });
+        void response.body?.cancel(CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED).catch(() => undefined);
+        return capturedResponse(capture)!;
+      }
       if (capturedBytes + bytes.byteLength > OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES) {
         throw new Error("owner_research_capture_total_size_exceeded");
       }
-    } catch {
+    } catch (error) {
+      const failureCode = error instanceof Error && error.message === "owner_research_capture_total_size_exceeded"
+        ? CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED
+        : "source_capture_size_exceeded";
       await rpc(args.gate, args.rpcNames.fail, {
         p_reservation_id: args.handle.reservationId,
         p_stage_key: stageKey,
-        p_failure_code: "capture_size_exceeded",
+        p_failure_code: failureCode,
         p_actual_supplier_cost_micros: kind === "search" ? OWNER_RESEARCH_SEARCH_REQUEST_MICROS : 0,
-        p_evidence_json: { maximum_bytes: OWNER_RESEARCH_MAX_CAPTURE_BYTES },
+        p_evidence_json: failureCode === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED
+          ? {
+              aggregate_retained_bytes: capturedBytes,
+              aggregate_maximum_bytes: OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
+            }
+          : { maximum_bytes: OWNER_RESEARCH_MAX_CAPTURE_BYTES },
       });
       throw new Error("owner_research_capture_size_exceeded");
     }
@@ -563,7 +630,10 @@ function createBoundedHearthResearchFetch(args: {
       headers: responseHeaders(response),
       body_base64: Buffer.from(bytes).toString("base64"),
       response_bytes: bytes.byteLength,
-      ...(bodyTruncated ? { body_truncated: true } : {}),
+      ...(bodyTruncated ? {
+        body_truncated: true,
+        capture_outcome: CUSTOMER_RESEARCH_SOURCE_CAPTURE_TRUNCATED,
+      } : {}),
     };
     await rpc(args.gate, args.rpcNames.complete, {
       p_reservation_id: args.handle.reservationId,
@@ -603,6 +673,7 @@ export function createCustomerHearthResearchFetch(args: {
   return createBoundedHearthResearchFetch({
     ...args,
     truncateOversizedCapture: true,
+    aggregateCaptureBudgetAsEvidenceLimitation: true,
     rpcNames: {
       begin: "begin_customer_hearth_research_stage",
       complete: "complete_customer_hearth_research_stage",
