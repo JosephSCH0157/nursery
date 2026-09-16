@@ -54,7 +54,171 @@ const migrations = [
   "20261010120000_tongs_owner_funded_hearth_research.sql",
   "20261010130000_tongs_owner_hearth_research_permissions.sql",
   "20261011140000_tongs_unified_financial_environment.sql",
+  "20261011150000_tongs_historical_backfill_link_repair.sql",
 ];
+
+const historicalBackfillFixture = `
+  set session_replication_role = replica;
+  create temp table link_fixture(
+    ordinal integer primary key,
+    source_kind text not null,
+    source_id uuid not null,
+    reservation_id uuid not null,
+    operation_record_id uuid,
+    term_id uuid,
+    operation_id text not null,
+    route_code text not null,
+    model text,
+    units bigint not null,
+    revenue bigint not null,
+    consumed_at timestamptz not null
+  );
+  insert into link_fixture values
+    (1,'hearth_test_simulator','ab000000-0000-4000-8000-000000000001','ac000000-0000-4000-8000-000000000001',null,null,'fixture:hearth.chat_completion:success','hearth.chat_completion',null,2,20000,'2026-09-08 20:30:47+00'),
+    (2,'openai_test_certification','ab000000-0000-4000-8000-000000000002','ac000000-0000-4000-8000-000000000002','ad000000-0000-4000-8000-000000000002','ae000000-0000-4000-8000-000000000002','fixture:hearth.research_synthesis:success','hearth.research_synthesis','gpt-5.3',1,10000,'2026-09-09 00:50:42+00'),
+    (3,'openai_test_certification','ab000000-0000-4000-8000-000000000003','ac000000-0000-4000-8000-000000000003','ad000000-0000-4000-8000-000000000003','ae000000-0000-4000-8000-000000000003','fixture:visual.unified_plan:success','visual.unified_plan','gpt-5-mini',1,10000,'2026-09-09 00:50:43+00'),
+    (4,'openai_test_certification','ab000000-0000-4000-8000-000000000004','ac000000-0000-4000-8000-000000000004','ad000000-0000-4000-8000-000000000004','ae000000-0000-4000-8000-000000000004','fixture:visual.narrative_interpretation:success','visual.narrative_interpretation','gpt-5-mini',1,10000,'2026-09-09 00:50:45+00'),
+    (5,'openai_test_certification','ab000000-0000-4000-8000-000000000005','ac000000-0000-4000-8000-000000000005','ad000000-0000-4000-8000-000000000005','ae000000-0000-4000-8000-000000000005','fixture:motion.broll_interpretation:success','motion.broll_interpretation','gpt-5-mini',1,10000,'2026-09-09 00:50:47+00'),
+    (6,'openai_test_certification','ab000000-0000-4000-8000-000000000006','ac000000-0000-4000-8000-000000000006','ad000000-0000-4000-8000-000000000006','ae000000-0000-4000-8000-000000000006','fixture:hammer.transcript_cleanup:success','hammer.transcript_cleanup','gpt-5.3',1,10000,'2026-09-09 00:50:48+00'),
+    (7,'openai_test_certification','ab000000-0000-4000-8000-000000000007','ac000000-0000-4000-8000-000000000007','ad000000-0000-4000-8000-000000000007','ae000000-0000-4000-8000-000000000007','fixture:shorts.discovery:success','shorts.discovery','gpt-5.3',1,10000,'2026-09-09 00:50:50+00'),
+    (8,'openai_test_certification','ab000000-0000-4000-8000-000000000008','ac000000-0000-4000-8000-000000000008','ad000000-0000-4000-8000-000000000008','ae000000-0000-4000-8000-000000000008','fixture:quench.metadata:success','quench.metadata','gpt-5.3',1,10000,'2026-09-09 00:50:52+00');
+
+  insert into tongs.test_customer_spending_quotes(
+    id, authorization_id, user_id, workspace_id, operation_id, request_fingerprint,
+    quote_hash, currency, normal_maximum_charge_micros,
+    billable_failure_maximum_charge_micros, customer_credit_units, expires_at
+  ) select
+    'af000000-0000-4000-8000-000000000001',
+    'b1000000-0000-4000-8000-000000000001',
+    'aa000000-0000-4000-8000-000000000001',
+    'aa000000-0000-4000-8000-000000000010', operation_id,
+    repeat('a',64), repeat('b',64), 'USD', 20000, 0, 2, now()+interval '1 day'
+  from link_fixture where ordinal=1;
+  insert into tongs.test_funding_reservations(
+    id, quote_id, deposit_id, user_id, operation_id,
+    reserved_customer_charge_micros, reserved_credit_units, idempotency_key, execution_kind
+  ) select reservation_id, 'af000000-0000-4000-8000-000000000001',
+    'aa000000-0000-4000-8000-000000000020',
+    'aa000000-0000-4000-8000-000000000001', operation_id,
+    20000, 2, 'fixture-hearth-reservation', 'simulated_test'
+  from link_fixture where ordinal=1;
+
+  insert into tongs.openai_text_test_certification_batches(
+    id,user_id,workspace_id,deposit_id,invocation_token_hash,maximum_operation_count,
+    maximum_aggregate_charge_micros,maximum_aggregate_failure_exposure_micros,
+    expires_at,created_by,reason
+  ) values (
+    'b0000000-0000-4000-8000-000000000001',
+    'aa000000-0000-4000-8000-000000000001',
+    'aa000000-0000-4000-8000-000000000010',
+    'aa000000-0000-4000-8000-000000000020',repeat('c',64),14,70000,0,
+    now()+interval '1 day','aa000000-0000-4000-8000-000000000099',
+    'isolated historical provenance fixture'
+  );
+  insert into tongs.openai_text_test_certification_terms(
+    id,batch_id,route_code,revision,model,maximum_input_units,maximum_output_units,
+    maximum_attempts,input_micros_per_million_tokens,output_micros_per_million_tokens,
+    direct_provider_ceiling_micros,supporting_cost_ceiling_micros,
+    failure_exposure_ceiling_micros,markup_basis_points,customer_price_ceiling_micros,
+    customer_credit_units,rate_evidence_status,supporting_cost_policy
+  ) select term_id,'b0000000-0000-4000-8000-000000000001',route_code,1,model,
+    2000,512,1,0,0,0,10000,0,3300,10000,1,'synthetic_test','{}'::jsonb
+  from link_fixture where ordinal>1;
+  insert into tongs.openai_text_test_certification_operations(
+    id,batch_id,term_id,route_code,scenario,operation_id,workpiece_id,
+    request_fingerprint,request_json,quote_hash,accepted_by,
+    normal_maximum_charge_micros,billable_failure_maximum_charge_micros,
+    reserved_credit_units,expires_at
+  ) select operation_record_id,'b0000000-0000-4000-8000-000000000001',term_id,
+    route_code,'success',operation_id,'fixture-workpiece-'||ordinal,
+    repeat('d',64),'{}'::jsonb,repeat('e',64),
+    'aa000000-0000-4000-8000-000000000099',10000,0,1,now()+interval '1 day'
+  from link_fixture where ordinal>1;
+  insert into tongs.openai_text_test_certification_reservations(
+    id,operation_record_id,batch_id,deposit_id,user_id,operation_id,
+    reserved_customer_charge_micros,reserved_credit_units,idempotency_key,execution_kind
+  ) select reservation_id,operation_record_id,
+    'b0000000-0000-4000-8000-000000000001',
+    'aa000000-0000-4000-8000-000000000020',
+    'aa000000-0000-4000-8000-000000000001',operation_id,
+    10000,1,'fixture-cert-reservation-'||ordinal,'simulated_test'
+  from link_fixture where ordinal>1;
+
+  insert into tongs.accounting_journal_events(
+    id,idempotency_key,event_type,environment,source_type,source_id,currency,
+    user_id,workspace_id,actor_id,payload_hash,metadata_json,occurred_at,created_at
+  ) select source_id,'fixture-journal-'||ordinal,'test_customer_deposit_consumed',
+    'test','simulated_forge_operation',operation_id,'USD',
+    'aa000000-0000-4000-8000-000000000001',null,null,repeat('f',64),
+    case when source_kind='hearth_test_simulator' then jsonb_build_object(
+      'credit_units_consumed',units,'operation_id',operation_id,
+      'recognized_test_revenue_micros',revenue,'reservation_id',reservation_id,
+      'simulated',true
+    ) else jsonb_build_object(
+      'credit_units_consumed',units,'recognized_test_revenue_micros',revenue,
+      'route_code',route_code,'simulated',true
+    ) end,
+    consumed_at,consumed_at
+  from link_fixture;
+  insert into tongs.test_customer_deposit_consumptions(
+    id,reservation_id,deposit_id,user_id,operation_id,
+    recognized_test_revenue_micros,credit_units_consumed,journal_event_id,consumed_at
+  ) select source_id,reservation_id,'aa000000-0000-4000-8000-000000000020',
+    'aa000000-0000-4000-8000-000000000001',operation_id,revenue,units,source_id,consumed_at
+  from link_fixture where ordinal=1;
+  insert into tongs.openai_text_test_certification_consumptions(
+    id,reservation_id,deposit_id,user_id,operation_id,
+    recognized_test_revenue_micros,credit_units_consumed,journal_event_id,consumed_at
+  ) select source_id,reservation_id,'aa000000-0000-4000-8000-000000000020',
+    'aa000000-0000-4000-8000-000000000001',operation_id,revenue,units,source_id,consumed_at
+  from link_fixture where ordinal>1;
+  insert into tongs.customer_deposit_consumptions(
+    id,deposit_id,user_id,allocation_key,operation_id,recognized_revenue_micros,
+    credit_units_consumed,allocated_processor_fee_micros,journal_event_id,
+    metadata_json,consumed_at,created_at
+  ) select source_id,'aa000000-0000-4000-8000-000000000020',
+    'aa000000-0000-4000-8000-000000000001',
+    'legacy-simulator:'||source_kind||':'||source_id::text,operation_id,revenue,
+    units,0,source_id,jsonb_build_object(
+      'legacy_source_kind',source_kind,'legacy_source_id',source_id,'journal_reused',true
+    ),consumed_at,consumed_at
+  from link_fixture;
+  set session_replication_role = origin;
+`;
+
+const historicalRepairProofSql = `
+  with canonical_snapshot as (
+    select coalesce(jsonb_agg(to_jsonb(row) order by id),'[]'::jsonb) value
+    from tongs.customer_deposit_consumptions row
+  ), simulator_snapshot as (
+    select coalesce(jsonb_agg(row_value order by source_kind,source_id),'[]'::jsonb) value
+    from (
+      select 'hearth_test_simulator' source_kind,id source_id,to_jsonb(row) row_value
+      from tongs.test_customer_deposit_consumptions row
+      union all
+      select 'openai_test_certification',id,to_jsonb(row)
+      from tongs.openai_text_test_certification_consumptions row
+    ) source
+  ), journal_snapshot as (
+    select coalesce(jsonb_agg(to_jsonb(row) order by id),'[]'::jsonb) value
+    from tongs.accounting_journal_events row
+  )
+  select jsonb_build_object(
+    'canonical_count',(select jsonb_array_length(value) from canonical_snapshot),
+    'canonical_units',(select coalesce(sum(credit_units_consumed),0) from tongs.customer_deposit_consumptions),
+    'canonical_hash',(select encode(extensions.digest(convert_to(value::text,'utf8'),'sha256'),'hex') from canonical_snapshot),
+    'simulator_count',(select jsonb_array_length(value) from simulator_snapshot),
+    'simulator_units',(select (select coalesce(sum(credit_units_consumed),0) from tongs.test_customer_deposit_consumptions)+(select coalesce(sum(credit_units_consumed),0) from tongs.openai_text_test_certification_consumptions)),
+    'simulator_hash',(select encode(extensions.digest(convert_to(value::text,'utf8'),'sha256'),'hex') from simulator_snapshot),
+    'journal_count',(select jsonb_array_length(value) from journal_snapshot),
+    'journal_hash',(select encode(extensions.digest(convert_to(value::text,'utf8'),'sha256'),'hex') from journal_snapshot),
+    'backfill_count',(select count(*) from tongs.legacy_simulator_consumption_backfills),
+    'conversion_count',(select count(*) from tongs.legacy_credit_conversion_mappings where source_kind in ('hearth_test_simulator','openai_test_certification')),
+    'distinct_backfill_sources',(select count(distinct (source_kind,source_id)) from tongs.legacy_simulator_consumption_backfills),
+    'distinct_backfill_canonical',(select count(distinct canonical_consumption_id) from tongs.legacy_simulator_consumption_backfills),
+    'evidence_hash_count',(select count(*) from tongs.legacy_credit_conversion_mappings where source_kind in ('hearth_test_simulator','openai_test_certification') and evidence_json->>'evidence_hash' ~ '^[0-9a-f]{64}$')
+  );
+`;
 
 function docker(args, input) {
   return spawnSync("docker", args, { input, encoding: "utf8", maxBuffer: 80 * 1024 * 1024 });
@@ -112,8 +276,34 @@ try {
   `, "compatibility baseline");
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
 
+  let historicalRepairBefore = null;
   for (const migration of migrations) {
+    if (migration === "20261011150000_tongs_historical_backfill_link_repair.sql") {
+      psql(historicalBackfillFixture, "historical backfill fixture");
+      historicalRepairBefore = JSON.parse(psql(historicalRepairProofSql, "historical backfill pre-proof"));
+    }
     psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
+  }
+
+  const historicalRepairAfter = JSON.parse(psql(historicalRepairProofSql, "historical backfill post-proof"));
+  psql(
+    readFileSync("supabase/migrations/20261011150000_tongs_historical_backfill_link_repair.sql", "utf8"),
+    "historical backfill idempotent replay",
+  );
+  const historicalRepairReplay = JSON.parse(psql(historicalRepairProofSql, "historical backfill replay proof"));
+  for (const field of ["canonical_count","canonical_units","canonical_hash","simulator_count","simulator_units","simulator_hash","journal_count","journal_hash"]) {
+    if (historicalRepairBefore[field] !== historicalRepairAfter[field]
+      || historicalRepairAfter[field] !== historicalRepairReplay[field]) {
+      throw new Error(`Historical economic state changed at ${field}: ${JSON.stringify({ historicalRepairBefore, historicalRepairAfter, historicalRepairReplay })}`);
+    }
+  }
+  if (historicalRepairAfter.backfill_count !== 8
+    || historicalRepairAfter.conversion_count !== 8
+    || historicalRepairAfter.distinct_backfill_sources !== 8
+    || historicalRepairAfter.distinct_backfill_canonical !== 8
+    || historicalRepairAfter.evidence_hash_count !== 8
+    || JSON.stringify(historicalRepairAfter) !== JSON.stringify(historicalRepairReplay)) {
+    throw new Error(`Historical provenance repair proof failed: ${JSON.stringify({ historicalRepairBefore, historicalRepairAfter, historicalRepairReplay })}`);
   }
 
   const proof = JSON.parse(psql(`
@@ -147,6 +337,8 @@ try {
     live_configuration_present_inactive: "passed",
     simulator_authority_revoked: "passed",
     customer_funding_v2: "passed",
+    historical_backfill_links: "8_of_8_exact_and_idempotent",
+    historical_economic_state: "unchanged",
     commercial_price_publication: "not_performed",
   }));
 } finally {
