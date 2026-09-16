@@ -135,6 +135,23 @@ serve(async (req) => {
     };
     const tongsRpc = supabaseAdmin.schema("tongs") as unknown as TongsRpcClient;
     const financialEnvironment = await readTrustedFinancialEnvironment(tongsRpc);
+    const { data: availabilityData, error: availabilityError } = await tongsRpc.rpc(
+      "read_credit_pack_purchase_availability",
+    );
+    if (availabilityError) {
+      throw new Error(
+        availabilityError.message ?? "Failed to read Forge Credit purchase availability.",
+      );
+    }
+    const availability = availabilityData && typeof availabilityData === "object"
+      ? availabilityData as Record<string, unknown>
+      : {};
+    if (availability.purchase_enabled !== true) {
+      return json(403, {
+        error: "FORGE_CREDIT_PURCHASES_UNAVAILABLE",
+        reason_code: normalizeString(availability.reason_code) || "financial_environment_inactive",
+      });
+    }
     const currentPriceId = financialEnvironment === "live"
       ? catalogPrice.livePriceId
       : catalogPrice.testPriceId;

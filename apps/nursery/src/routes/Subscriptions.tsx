@@ -27,6 +27,15 @@ type PlanInterval = "monthly" | "quarterly";
 type StorageLevel = keyof typeof STRIPE_CATALOG.storage;
 type FinancialEnvironment = "test" | "live";
 
+type CreditPackPurchaseAvailability = {
+  contract_version: "forge.product-availability.v1";
+  product_code: "forge_credit_pack_purchase";
+  financial_environment: FinancialEnvironment;
+  purchase_enabled: boolean;
+  reason_code: "available" | "beta_admin_provisioned_only" | "financial_environment_inactive";
+  revision?: number;
+};
+
 type PlanChoice = {
   key: PlanKey;
   interval: PlanInterval;
@@ -94,10 +103,14 @@ type CustomerFundingEnvironmentSummary = {
   allowances: CustomerFundingBucket & {
     available_wholesale_micros?: number;
   };
+  beta_grants: CustomerFundingBucket & {
+    available_customer_value_micros?: number;
+    available_wholesale_micros?: number;
+  };
 };
 
 type CustomerFundingSnapshot = {
-  contract_version: "forge.customer-funding.v2";
+  contract_version: "forge.customer-funding.v4";
   active_environment: FinancialEnvironment;
   environments: Record<FinancialEnvironment, CustomerFundingEnvironmentSummary>;
   active_spendable: CustomerFundingEnvironmentSummary;
@@ -772,6 +785,12 @@ async function fetchCustomerFundingSnapshot(): Promise<CustomerFundingSnapshot> 
   return data as CustomerFundingSnapshot;
 }
 
+async function fetchCreditPackPurchaseAvailability(): Promise<CreditPackPurchaseAvailability> {
+  const { data, error } = await tongsBillingDb.rpc("read_credit_pack_purchase_availability");
+  if (error) throw new Error(error.message || "Failed to load Forge Credit purchase availability.");
+  return data as CreditPackPurchaseAvailability;
+}
+
 function buildReturnUrl(): string {
   const currentUrl = new URL(window.location.href);
   const params = new URLSearchParams(currentUrl.search);
@@ -884,6 +903,7 @@ export default function SubscriptionsRoute() {
   const [customerFunding, setCustomerFunding] = useState<CustomerFundingSnapshot | null>(null);
   const [customerFundingLoading, setCustomerFundingLoading] = useState(false);
   const [customerFundingError, setCustomerFundingError] = useState<string | null>(null);
+  const [creditPurchaseAvailability, setCreditPurchaseAvailability] = useState<CreditPackPurchaseAvailability | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -942,11 +962,17 @@ export default function SubscriptionsRoute() {
       setCustomerFunding(null);
       setCustomerFundingError(null);
       setCustomerFundingLoading(false);
+      setCreditPurchaseAvailability(null);
       return;
     }
     setCustomerFundingLoading(true);
     try {
-      setCustomerFunding(await fetchCustomerFundingSnapshot());
+      const [funding, availability] = await Promise.all([
+        fetchCustomerFundingSnapshot(),
+        fetchCreditPackPurchaseAvailability(),
+      ]);
+      setCustomerFunding(funding);
+      setCreditPurchaseAvailability(availability);
       setCustomerFundingError(null);
     } catch (error) {
       setCustomerFunding(null);
@@ -981,6 +1007,7 @@ export default function SubscriptionsRoute() {
       setAiError(null);
       setAiLoading(false);
       setCustomerFunding(null);
+      setCreditPurchaseAvailability(null);
       setCustomerFundingError(null);
       setCustomerFundingLoading(false);
       return () => {
@@ -1133,7 +1160,8 @@ export default function SubscriptionsRoute() {
   }
 
   async function handleAiCheckout(pack: AiPack): Promise<void> {
-    if (!user || aiLocked || !isConfiguredPriceId(pack.priceId) || pendingPackKey) return;
+    if (!user || aiLocked || creditPurchaseAvailability?.purchase_enabled !== true
+      || !isConfiguredPriceId(pack.priceId) || pendingPackKey) return;
     setPendingPackKey(pack.key);
     setAiMessage(null);
     try {
@@ -1675,8 +1703,9 @@ export default function SubscriptionsRoute() {
                 AI access requires active membership (Creator, Pro, Studio, or Founder), including BYO lane.
               </p>
 
-              <div className="subscriptions-pack-row">
-                {aiPacks.map((pack) => (
+              {creditPurchaseAvailability?.purchase_enabled ? (
+                <div className="subscriptions-pack-row">
+                  {aiPacks.map((pack) => (
                   <button
                     key={pack.key}
                     type="button"
@@ -1688,8 +1717,13 @@ export default function SubscriptionsRoute() {
                       ? "Redirecting..."
                       : `Add ${pack.amountLabel} (${pack.creditsLabel} credits)`}
                   </button>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="subscriptions-status subscriptions-status--info" role="status">
+                  During beta, Forge Credits are provisioned by the Forge administrator. Additional credit-pack purchases are unavailable.
+                </p>
+              )}
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
                 <div>
@@ -1709,6 +1743,12 @@ export default function SubscriptionsRoute() {
                   <dd>{customerFundingLoading
                     ? "Loading..."
                     : `${formatCurrencyMicros(customerFunding?.active_spendable.allowances.available_revenue_micros)} · ${formatTokenBalance(customerFunding?.active_spendable.allowances.available_entitlement_units ?? 0)} units available`}</dd>
+                </div>
+                <div>
+                  <dt>Admin-provisioned beta credits</dt>
+                  <dd>{customerFundingLoading
+                    ? "Loading..."
+                    : `${formatTokenBalance(customerFunding?.active_spendable.beta_grants.available_credit_units ?? 0)} credits available`}</dd>
                 </div>
                 <div>
                   <dt>Legacy historical balance</dt>

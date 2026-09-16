@@ -74,6 +74,7 @@ export type PaidOpenAiTextRouteContext = {
   fundingSourceType:
     | "customer_deposit"
     | "paid_allowance"
+    | "beta_grant"
     | "owner_budget"
     | "none";
   fundingSourceId: string | null;
@@ -190,7 +191,7 @@ function parseContext(value: unknown): PaidOpenAiTextRouteContext {
   const fundingEnvironment = requiredString(row, "funding_environment");
   const credentialFunding = requiredString(row, "credential_funding");
   if (
-    !["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(
+    !["customer_deposit", "paid_allowance", "beta_grant", "owner_budget", "none"].includes(
       fundingSourceType,
     ) ||
     !["test", "live", "owner_internal"].includes(fundingEnvironment) ||

@@ -9,6 +9,7 @@ const webhook = readFileSync(resolve(root, "supabase/functions/stripe-webhook/in
 const recovery = readFileSync(resolve(root, "supabase/functions/recover-pending-deposit-fees/index.ts"), "utf8");
 const financialEnvironment = readFileSync(resolve(root, "supabase/functions/_shared/financial-environment.ts"), "utf8");
 const parityMigration = readFileSync(resolve(root, "supabase/migrations/20261011140000_tongs_unified_financial_environment.sql"), "utf8");
+const availabilityMigration = readFileSync(resolve(root, "supabase/migrations/20261011260000_tongs_credit_pack_purchase_availability.sql"), "utf8");
 
 test("AI-credit checkout is authenticated, catalog-bound, and cannot itself grant funds", () => {
   assert.match(checkout, /supabaseAdmin\.auth\.getUser\(\s*token/);
@@ -52,6 +53,16 @@ test("delayed processor-fee evidence is signed, bounded, and idempotent", () => 
   assert.match(recovery, /Math\.min\(requested, 50\)/);
   assert.match(recovery, /record_customer_deposit_processor_fee/);
   assert.match(recovery, /read_pending_customer_deposits_for_fee_recovery/);
+});
+
+test("beta credit-pack checkout is denied before Stripe mutation by versioned server authority", () => {
+  const gate = checkout.indexOf('"read_credit_pack_purchase_availability"');
+  const customerMutation = checkout.indexOf("stripe.customers.create");
+  const sessionCreate = checkout.indexOf("stripe.checkout.sessions.create");
+  assert.ok(gate >= 0 && gate < customerMutation && gate < sessionCreate);
+  assert.match(checkout, /FORGE_CREDIT_PURCHASES_UNAVAILABLE/);
+  assert.match(availabilityMigration, /'test','forge_credit_pack_purchase',1,'disabled','beta_admin_provisioned_only'/);
+  assert.match(availabilityMigration, /revoke all on function tongs\.read_credit_pack_purchase_availability\(\) from public, anon/);
 });
 
 test("Test and Live use one trusted, environment-parameterized financial path", () => {
