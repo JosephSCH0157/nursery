@@ -98,7 +98,6 @@ const customerPlan = buildCustomerResearchPlan({
   workpieceId: "00000000-0000-4000-8000-000000000020",
   userAuthoredText: "Why are we seeing record layoffs right now",
   query: "record layoffs right now",
-  briefFingerprint: "d".repeat(64),
 });
 
 test("the accepted plan fingerprint excludes source content that does not exist yet", async () => {
@@ -126,6 +125,17 @@ test("the standard customer plan fixes Luna, 21 credits, and the proven bounded 
   assert.equal(customerPlan.maximum_output_tokens, 16_384);
   assert.equal("sources" in customerPlan, false);
   assert.equal(fingerprintCustomerResearchPlan(customerPlan), await fingerprintOpenAiTextPaidRequest(customerPlan));
+});
+
+test("the standard customer billing identity is stable across per-click chat actions", () => {
+  const replay = buildCustomerResearchPlan({
+    workspaceId: customerPlan.workspace_id,
+    workpieceId: customerPlan.workpiece_id,
+    userAuthoredText: `  ${customerPlan.user_authored_text}  `,
+    query: `  ${customerPlan.query}  `,
+  });
+  assert.equal(replay.brief_fingerprint, customerPlan.brief_fingerprint);
+  assert.equal(fingerprintCustomerResearchPlan(replay), fingerprintCustomerResearchPlan(customerPlan));
 });
 
 test("standard customer retrieval uses the customer stage ledger", async () => {

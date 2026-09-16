@@ -70,6 +70,9 @@ const migrations = [
   "20261011280000_tongs_normal_customer_provider_authority.sql",
   "20261011290000_tongs_credit_pack_availability_caller_role.sql",
   "20261011300000_standard_customer_hearth_research.sql",
+  "20261011310000_standard_customer_hearth_research_failure_loss.sql",
+  "20261011320000_standard_customer_hearth_research_full_failure_exposure.sql",
+  "20261011330000_customer_operation_relief_balance_restoration.sql",
 ];
 
 const historicalBackfillFixture = `
@@ -478,6 +481,103 @@ try {
     throw new Error(`Unexpected Hearth research quote: ${JSON.stringify(researchQuote)}`);
   }
 
+  psql(`
+    set request.jwt.claim.role='service_role';
+    set session_replication_role=replica;
+    insert into tongs.accounting_journal_events(
+      id,idempotency_key,event_type,environment,source_type,source_id,currency,
+      user_id,payload_hash,metadata_json,occurred_at
+    ) values
+      ('aa000000-0000-4000-8000-000000000071','isolated-relief-deposit',
+       'customer_deposit_received','test','stripe','isolated-relief-deposit','USD',
+       'aa000000-0000-4000-8000-000000000099',repeat('7',64),'{}',now()),
+      ('aa000000-0000-4000-8000-000000000073','isolated-relief-fee',
+       'customer_deposit_fee_recorded','test','stripe','isolated-relief-fee','USD',
+       'aa000000-0000-4000-8000-000000000099',repeat('8',64),'{}',now());
+    insert into tongs.customer_deposits(
+      id,user_id,stripe_mode,stripe_event_id,stripe_session_id,
+      stripe_payment_intent_id,pack_id,currency,gross_amount_micros,credit_units,
+      journal_event_id,metadata_json,received_at
+    ) values (
+      'aa000000-0000-4000-8000-000000000070',
+      'aa000000-0000-4000-8000-000000000099','test',
+      'evt_isolated_relief','cs_isolated_relief','pi_isolated_relief',
+      'isolated-relief-pack','USD',5000000,1000,
+      'aa000000-0000-4000-8000-000000000071',
+      '{"forge_offer_id":"isolated-relief-offer"}',now()
+    );
+    insert into tongs.customer_deposit_processor_fees(
+      id,deposit_id,provider_fee_reference,fee_amount_micros,journal_event_id,
+      evidence_json,recorded_at
+    ) values (
+      'aa000000-0000-4000-8000-000000000072',
+      'aa000000-0000-4000-8000-000000000070',
+      'fee_isolated_relief',0,'aa000000-0000-4000-8000-000000000073','{}',now()
+    );
+    insert into tongs.funding_reservations(
+      id,quote_id,user_id,operation_id,funding_source_type,funding_source_id,
+      currency,reserved_customer_charge_micros,reserved_credit_units,
+      reserved_wholesale_spend_micros,idempotency_key,funding_environment
+    ) values (
+      'ac000000-0000-4000-8000-000000000060',
+      'aa000000-0000-4000-8000-000000000050',
+      'aa000000-0000-4000-8000-000000000099',
+      'isolated-operation-relief-balance-proof','customer_deposit',
+      'aa000000-0000-4000-8000-000000000070','USD',10000,2,0,
+      'isolated-operation-relief-balance-proof','test'
+    );
+    set session_replication_role=origin;
+    select tongs.consume_customer_deposit(
+      'aa000000-0000-4000-8000-000000000061',
+      'aa000000-0000-4000-8000-000000000070',
+      'isolated-operation-relief-balance-proof',
+      'isolated-operation-relief-balance-proof',10000,2,now(),'{}'
+    );
+    set session_replication_role=replica;
+    insert into tongs.funding_reservation_events(
+      id,reservation_id,sequence,event_type,event_key,customer_charge_micros,
+      credit_units,wholesale_spend_micros,evidence_json
+    ) values (
+      'aa000000-0000-4000-8000-000000000062',
+      'ac000000-0000-4000-8000-000000000060',1,'settled',
+      'isolated-operation-relief-balance-proof:settled',10000,2,0,'{}'
+    );
+    set session_replication_role=origin;
+  `, "operation relief balance fixture");
+  const balanceBeforeRelief = Number(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs._available_deposit_credit_units('aa000000-0000-4000-8000-000000000070');
+  `, "purchased-credit balance before operation relief"));
+  const operationRelief = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.relieve_failed_customer_operation(
+      'aa000000-0000-4000-8000-000000000060',
+      'ac000000-0000-4000-8000-000000000060',
+      'isolated-operation-relief-balance-restoration',
+      'isolated operation relief balance proof','{}'
+    );
+  `, "operation relief balance restoration"));
+  const operationReliefReplay = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.relieve_failed_customer_operation(
+      'aa000000-0000-4000-8000-000000000060',
+      'ac000000-0000-4000-8000-000000000060',
+      'isolated-operation-relief-balance-restoration',
+      'isolated operation relief balance proof','{}'
+    );
+  `, "operation relief replay"));
+  const balanceAfterRelief = Number(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs._available_deposit_credit_units('aa000000-0000-4000-8000-000000000070');
+  `, "purchased-credit balance after operation relief"));
+  if (operationRelief.restored_units !== 2 || operationRelief.replay !== false
+    || operationReliefReplay.replay !== true
+    || balanceAfterRelief - balanceBeforeRelief !== 2) {
+    throw new Error(`Operation relief did not restore exactly once: ${JSON.stringify({
+      balanceBeforeRelief, balanceAfterRelief, operationRelief, operationReliefReplay,
+    })}`);
+  }
+
   const proof = JSON.parse(psql(`
     set request.jwt.claim.role='service_role';
     select jsonb_build_object(
@@ -497,6 +597,7 @@ try {
       'live_research_authorization', (select count(*) from tongs.customer_paid_execution_scope_authorizations where financial_environment='live' and route_code='hearth.research_synthesis' and status='active'),
       'research_rollout', (select count(*) from tongs.openai_text_rollout_revisions where route_code='hearth.research_synthesis' and revision=3 and mode='enforce' and funding_scope='forge' and cost_policy_revision_id='12000000-0000-4000-8000-000000000001'),
       'research_cost_policy', (select count(*) from tongs.openai_text_cost_policy_revisions where id='12000000-0000-4000-8000-000000000001' and direct_provider_ceiling_micros=45261 and supporting_cost_ceiling_micros=31456 and full_cost_ceiling_micros=76717 and cost_coverage='complete'),
+      'research_failure_policy', (select count(*) from tongs.openai_text_failure_loss_policy_revisions where route_code='hearth.research_synthesis' and revision=2 and per_operation_limit_micros=76717 and aggregate_limit_micros=76717 and lifecycle_state='active'),
       'overhead_evidence', (select count(*) from tongs.openai_text_supporting_cost_inventory where cost_policy_revision_id='12000000-0000-4000-8000-000000000001' and disposition in ('platform_overhead','workspace_entitlement')),
       'beta_grant_count', (select count(*) from tongs.beta_credit_grants where id='aa000000-0000-4000-8000-000000000040' and credit_units=9 and financial_environment='test'),
       'beta_grant_journal_balanced', (select coalesce(sum(amount_micros),0)=0 from tongs.accounting_journal_entries where event_id='aa000000-0000-4000-8000-000000000040'),
@@ -518,6 +619,7 @@ try {
     || proof.live_research_authorization !== 0
     || proof.research_rollout !== 1
     || proof.research_cost_policy !== 1
+    || proof.research_failure_policy !== 1
     || proof.overhead_evidence !== 3
     || proof.beta_grant_count !== 1
     || proof.beta_grant_journal_balanced !== true
@@ -537,6 +639,7 @@ try {
     historical_backfill_links: "8_of_8_exact_and_idempotent",
     historical_economic_state: "unchanged",
     hearth_research_price_publication: "21_credits_variable_cost_only",
+    customer_operation_relief_balance: "restored_once_and_replay_safe",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

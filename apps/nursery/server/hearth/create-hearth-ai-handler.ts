@@ -4576,7 +4576,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           workpieceId: episodeContext.episodeId,
           userAuthoredText: requestText,
           query: researchRequest.query,
-          briefFingerprint: researchBrief.briefFingerprint,
         });
         const planFingerprint = fingerprintCustomerResearchPlan(customerResearchPlan);
         const operationId = deriveHearthCustomerPaidIdentifiers({
@@ -5619,6 +5618,22 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   };
                 },
                 });
+              } catch (error) {
+                if (customerResearchPlan) {
+                  await settleCustomerHearthResearchBeforeSynthesis({
+                    gate: openAiTextGate,
+                    reservationId: paidExecutionHandle.reservationId,
+                    failureClass: "synthesis_authorization_or_execution_failed",
+                    evidence: { error: error instanceof Error ? error.message : String(error) },
+                  });
+                  return jsonResponse(503, {
+                    ok: false,
+                    error: "Hearth could not complete the accepted research synthesis. No Forge Credits were charged.",
+                    code: "customer_research_synthesis_failed",
+                    ...buildBillingSnapshot(lane),
+                  });
+                }
+                throw error;
               } finally {
                 if (deadlineTimer) clearTimeout(deadlineTimer);
               }

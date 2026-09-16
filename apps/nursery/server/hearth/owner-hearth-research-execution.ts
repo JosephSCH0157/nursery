@@ -215,17 +215,30 @@ export function buildCustomerResearchPlan(args: {
   workpieceId: string;
   userAuthoredText: string;
   query: string;
-  briefFingerprint: string;
 }): CustomerResearchPlan {
   const limits = OWNER_RESEARCH_LIMIT_PROFILES.creator_session;
+  const userAuthoredText = args.userAuthoredText.trim();
+  const query = args.query.trim();
+  // Customer billing identity must not inherit the research brief's
+  // requestAuthority. That authority is a per-submission chat action id, so
+  // including it turns an otherwise exact replay into a second paid operation.
+  // Keep the owner plan unchanged and bind customer execution to only the
+  // stable, workspace-scoped inputs that determine this research request.
+  const briefFingerprint = sha256Canonical({
+    schema: "forge.hearth.customer-research-brief-identity.v1",
+    workspace_id: args.workspaceId,
+    workpiece_id: args.workpieceId,
+    user_authored_text: userAuthoredText,
+    query,
+  });
   return {
     schema: CUSTOMER_RESEARCH_PLAN_SCHEMA,
     route_code: OWNER_RESEARCH_ROUTE,
     workspace_id: args.workspaceId,
     workpiece_id: args.workpieceId,
-    user_authored_text: args.userAuthoredText.trim(),
-    query: args.query.trim(),
-    brief_fingerprint: args.briefFingerprint.trim(),
+    user_authored_text: userAuthoredText,
+    query,
+    brief_fingerprint: briefFingerprint,
     requested_model: CUSTOMER_RESEARCH_MODEL,
     limit_profile: "standard_customer",
     maximum_search_requests: limits.maximumSearches,
