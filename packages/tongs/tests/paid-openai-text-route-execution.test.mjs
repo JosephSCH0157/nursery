@@ -4,6 +4,7 @@ import {
   estimateOpenAiTextDirectCostMicros,
   executePaidOpenAiTextRoute,
   fingerprintOpenAiTextPaidRequest,
+  readSettledOpenAiTextRouteReplay,
 } from "../dist/providers/paid-openai-text-route-execution.js";
 import { OpenAiTextProviderError } from "../dist/providers/paid-openai-text-execution-coordinator.js";
 
@@ -173,6 +174,58 @@ test("settled replay returns canonical result without provider execution or debi
   assert.equal(result.state, "settled_replay");
   assert.equal(submissions, 0);
   assert.equal(gate.calls.some((call) => call.name === "settle_operation"), false);
+});
+
+test("settled replay lookup is read-only and returns the authorized canonical result", async () => {
+  const storedResult = { route: "hearth.research_synthesis", domain_result_id: "result-original" };
+  const gate = makeGate({
+    state: "settled",
+    stored: {
+      result_json: storedResult,
+      provider_request_id: "req-original",
+      customer_charge_micros: 105000,
+    },
+  });
+  const args = await argsFor("hearth.research_synthesis", {}, () => true, gate);
+  const replay = await readSettledOpenAiTextRouteReplay(args);
+  assert.equal(replay.state, "settled_replay");
+  assert.equal(replay.result, storedResult);
+  assert.equal(replay.customerChargeMicros, 105000);
+  assert.deepEqual(gate.calls.map(({ name }) => name), [
+    "resolve_openai_text_paid_execution_context",
+    "read_openai_text_paid_result",
+  ]);
+});
+
+test("settled replay lookup returns null for an unsettled operation without supplier work", async () => {
+  const gate = makeGate({ state: "reserved" });
+  const args = await argsFor("hearth.research_synthesis", {}, () => true, gate);
+  const replay = await readSettledOpenAiTextRouteReplay(args);
+  assert.equal(replay, null);
+  assert.deepEqual(gate.calls.map(({ name }) => name), ["resolve_openai_text_paid_execution_context"]);
+});
+
+test("settled replay lookup rejects a changed immutable request fingerprint", async () => {
+  const gate = makeGate({ state: "settled" });
+  const args = await argsFor("hearth.research_synthesis", {}, () => true, gate);
+  args.requestFingerprintPayload = { schema: "changed" };
+  await assert.rejects(
+    () => readSettledOpenAiTextRouteReplay(args),
+    /funding_context_required/,
+  );
+  assert.equal(gate.calls.some(({ name }) => name === "read_openai_text_paid_result"), false);
+});
+
+test("settled replay lookup fails closed when user or workspace authorization is denied", async () => {
+  const gate = makeGate({ state: "settled" });
+  gate.rpc = async (name) => name === "resolve_openai_text_paid_execution_context" || name === "resolve_openai_text_recovery_context"
+    ? { data: null, error: { message: "current workspace access required" } }
+    : { data: {}, error: null };
+  const args = await argsFor("hearth.research_synthesis", {}, () => true, gate);
+  await assert.rejects(
+    () => readSettledOpenAiTextRouteReplay(args),
+    /current workspace access required/,
+  );
 });
 
 test("concurrent authorization permits one provider boundary only", async () => {

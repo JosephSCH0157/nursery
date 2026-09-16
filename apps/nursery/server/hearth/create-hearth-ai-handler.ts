@@ -24,7 +24,11 @@ import {
   configuredOpenAiTextMode,
   type OpenAiTextRouteCode,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
-import { executePaidOpenAiTextRoute, fingerprintOpenAiTextPaidRequest } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import {
+  executePaidOpenAiTextRoute,
+  fingerprintOpenAiTextPaidRequest,
+  readSettledOpenAiTextRouteReplay,
+} from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import {
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
@@ -4673,6 +4677,45 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ok: false,
             error: "Hearth research pricing is not active.",
             code: "customer_research_unavailable",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        const settledReplay = await readSettledOpenAiTextRouteReplay({
+          gate: openAiTextGate,
+          routeCode: "hearth.research_synthesis",
+          handle: paidExecutionHandle,
+          userId,
+          workspaceId: episodeContext.workspaceId,
+          workpieceId: episodeContext.episodeId,
+          credentialSource: resolvedCredentials.keySource,
+          requestFingerprintPayload: customerResearchPlan,
+        });
+        if (settledReplay) {
+          const replayResult = settledReplay.result;
+          const assistantText = readOptionalString(replayResult.assistant_text) ?? "";
+          const replayResearchResult = isRecord(replayResult.research_result)
+            ? replayResult.research_result
+            : null;
+          const billingReceipt = {
+            operation_id: settledReplay.context.operationId,
+            reservation_id: settledReplay.context.reservationId,
+            status: settledReplay.state,
+            funding_source: settledReplay.context.fundingSourceType,
+            customer_charge_micros: settledReplay.customerChargeMicros,
+            provider_request_id: settledReplay.requestId,
+          };
+          return jsonResponse(200, {
+            ok: true,
+            ...replayResult,
+            reply: assistantText,
+            turn_result: buildTurnResult({
+              assistantMessage: assistantText,
+              artifact: replayResearchResult && isRecord(replayResearchResult.artifact)
+                ? { kind: "research", value: replayResearchResult as unknown as HearthResearchResult }
+                : null,
+              operations: normalizeOps(replayResult.ops),
+            }),
+            billing_receipt: billingReceipt,
             ...buildBillingSnapshot(lane),
           });
         }

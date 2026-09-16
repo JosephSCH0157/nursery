@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   OpenAiTextFundingPreparationError,
@@ -12,6 +13,23 @@ const quoteId = "11111111-1111-4111-8111-111111111111";
 const reservationId = "22222222-2222-4222-8222-222222222222";
 const fingerprint = "a".repeat(64);
 const quoteHash = "b".repeat(64);
+
+test("existing funding handle SQL returns the strict environment-bound shape without weakening delivery authority", () => {
+  const repair = readFileSync(new URL(
+    "../../../supabase/migrations/20261011340000_tongs_existing_openai_funding_handle_environment.sql",
+    import.meta.url,
+  ), "utf8");
+  const original = readFileSync(new URL(
+    "../../../supabase/migrations/20260928120000_tongs_openai_text_ordinary_customer_funding.sql",
+    import.meta.url,
+  ), "utf8");
+  assert.match(repair, /'funding_environment',\s*v_res\.funding_environment/);
+  assert.match(repair, /v_quote_binding\.user_id\s*<>\s*p_user_id/);
+  assert.match(repair, /v_quote_binding\.request_fingerprint\s*<>\s*p_request_fingerprint/);
+  assert.match(repair, /v_res\.funding_environment\s+not in\s*\('test', 'live', 'owner_internal'\)/);
+  assert.match(original, /v_qb\.workspace_id<>p_workspace_id/);
+  assert.match(original, /v_qb\.workpiece_id<>btrim\(p_workpiece_id\)/);
+});
 
 function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
   const calls = [];
@@ -186,6 +204,47 @@ test("an existing reservation is replayed without accepting or reserving again",
   };
   const result = await resolveOrdinaryOpenAiTextFunding(input(service, makeGate()));
   assert.equal(result?.reservationId, reservationId);
+});
+
+test("an existing authority missing its immutable funding environment fails closed", async () => {
+  const service = makeGate();
+  service.rpc = async function rpc(name) {
+    this.calls.push({ name });
+    if (name === "read_openai_execution_requirement") return { data: { mode: "enforce" }, error: null };
+    if (name === "read_existing_openai_text_funding_handle") return { data: {
+      operation_id: "ordinary-operation-1",
+      reservation_id: reservationId,
+      request_fingerprint: fingerprint,
+      reservation_state: "settled",
+    }, error: null };
+    throw new Error(`unexpected ${name}`);
+  };
+  await assert.rejects(
+    resolveOrdinaryOpenAiTextFunding(input(service, makeGate())),
+    (error) => error instanceof OpenAiTextFundingPreparationError
+      && error.code === "invalid_funding_handle",
+  );
+});
+
+test("an existing authority for a different operation or fingerprint fails closed", async () => {
+  const service = makeGate();
+  service.rpc = async function rpc(name) {
+    this.calls.push({ name });
+    if (name === "read_openai_execution_requirement") return { data: { mode: "enforce" }, error: null };
+    if (name === "read_existing_openai_text_funding_handle") return { data: {
+      operation_id: "ordinary-operation-other",
+      reservation_id: reservationId,
+      request_fingerprint: "f".repeat(64),
+      funding_environment: "test",
+      reservation_state: "settled",
+    }, error: null };
+    throw new Error(`unexpected ${name}`);
+  };
+  await assert.rejects(
+    resolveOrdinaryOpenAiTextFunding(input(service, makeGate())),
+    (error) => error instanceof OpenAiTextFundingPreparationError
+      && error.code === "invalid_funding_handle",
+  );
 });
 
 test("server model resolution is customer-visible and a changed model produces a different quote identity", async () => {

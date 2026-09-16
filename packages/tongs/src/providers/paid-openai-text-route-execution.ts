@@ -147,6 +147,18 @@ type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string,
   } | null>;
 };
 
+type ReadSettledOpenAiTextRouteReplayArgs = {
+  gate: OpenAiTextGateClient;
+  routeCode: Exclude<CoordinatedOpenAiRouteCode, "hearth.chat_completion">;
+  handle: OpenAiTextPaidExecutionHandle;
+  userId: string;
+  workspaceId: string | null;
+  workpieceId: string;
+  credentialSource: OpenAiTextCredentialSource;
+  /** Exact canonical caller inputs used to create the accepted operation. */
+  requestFingerprintPayload: unknown;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -298,6 +310,78 @@ export function estimateOpenAiTextDirectCostMicros(
     throw new OpenAiTextBoundaryError("pricing_not_configured");
   }
   return amount;
+}
+
+/**
+ * Reads an already-settled canonical result before a caller reconstructs any
+ * mutable or supplier-backed execution inputs. The paid execution context RPC
+ * remains the authorization boundary: it verifies the operation, reservation,
+ * user, workspace, workpiece, and immutable request fingerprint together.
+ *
+ * This lookup is deliberately read-only. In particular it does not bind a new
+ * provider request, acquire admission, write aggregate state, settle, or grant
+ * failure relief. Unsettled operations return null and continue through their
+ * normal execution lifecycle.
+ */
+export async function readSettledOpenAiTextRouteReplay<
+  TCanonical extends Record<string, unknown>,
+>(
+  args: ReadSettledOpenAiTextRouteReplayArgs,
+): Promise<(
+  Omit<Extract<PaidOpenAiTextRouteOutcome<TCanonical>, { state: "settled" | "settled_replay" }>, "state">
+  & { state: "settled_replay" }
+) | null> {
+  const binding = {
+    p_route_code: args.routeCode,
+    p_operation_id: args.handle.operationId,
+    p_reservation_id: args.handle.reservationId,
+    p_user_id: args.userId,
+    p_workspace_id: args.workspaceId,
+    p_workpiece_id: args.workpieceId,
+    p_request_fingerprint: args.handle.requestFingerprint,
+  };
+  const initial = await args.gate.rpc("resolve_openai_text_paid_execution_context", binding);
+  const resolved = initial.error
+    ? await rpc(args.gate, "resolve_openai_text_recovery_context", binding)
+    : initial.data;
+  const context = parseContext(resolved);
+  if (
+    context.routeCode !== args.routeCode ||
+    context.fundingEnvironment !== args.handle.fundingEnvironment
+  ) {
+    throw new OpenAiTextBoundaryError("funding_context_required");
+  }
+  const expectedRequestFingerprint = await sha256Hex(args.requestFingerprintPayload);
+  if (expectedRequestFingerprint !== args.handle.requestFingerprint) {
+    throw new OpenAiTextBoundaryError("funding_context_required");
+  }
+  const credentialMatches = context.credentialFunding === "forge"
+    ? args.credentialSource === "forge_managed"
+    : args.credentialSource === "user_byo";
+  if (!credentialMatches) {
+    throw new OpenAiTextBoundaryError(
+      context.credentialFunding === "byo_customer"
+        ? "byo_credential_required"
+        : "funding_context_required",
+    );
+  }
+  if (context.reservationState !== "settled") return null;
+
+  const stored = asRecord(await rpc(args.gate, "read_openai_text_paid_result", {
+    p_route_code: args.routeCode,
+    p_operation_id: context.operationId,
+    p_reservation_id: context.reservationId,
+    p_user_id: args.userId,
+    p_request_fingerprint: args.handle.requestFingerprint,
+  }));
+  return {
+    state: "settled_replay",
+    result: asRecord(stored.result_json) as TCanonical,
+    requestId: nullableString(stored, "provider_request_id"),
+    attempts: 0,
+    customerChargeMicros: boundedInteger(stored, "customer_charge_micros"),
+    context,
+  };
 }
 
 /**

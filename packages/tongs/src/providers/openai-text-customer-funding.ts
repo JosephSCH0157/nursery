@@ -306,7 +306,10 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   }));
   if (Object.keys(existing).length > 0) {
     const handle = normalizeOpenAiTextPaidExecutionHandle(existing);
-    if (!handle) throw new OpenAiTextFundingPreparationError(502, "invalid_funding_handle", "Stored funding authority is invalid.");
+    if (!handle || handle.operationId !== args.operationId
+      || handle.requestFingerprint !== args.requestFingerprint) {
+      throw new OpenAiTextFundingPreparationError(502, "invalid_funding_handle", "Stored funding authority is invalid.");
+    }
     return handle;
   }
 

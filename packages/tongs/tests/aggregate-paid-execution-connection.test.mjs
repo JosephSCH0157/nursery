@@ -7,6 +7,7 @@ const coordinatorUrl = new URL("../src/providers/paid-openai-text-execution-coor
 const runwayUrl = new URL("../src/providers/runway-paid-execution-boundary.ts", import.meta.url);
 const workpieceUrl = new URL("../src/workpiece-commit-api.ts", import.meta.url);
 const repairMigrationUrl = new URL("../../../supabase/migrations/20261007120000_tongs_non_spending_financial_repairs.sql", import.meta.url);
+const settledReplayReliefSafetyMigrationUrl = new URL("../../../supabase/migrations/20261011350000_settled_openai_replay_relief_safety.sql", import.meta.url);
 
 test("all eight OpenAI text routes map to aggregate capability terms", async () => {
   const sql = await readFile(migrationUrl, "utf8");
@@ -106,4 +107,21 @@ test("repair migration changes no rollout, price publication, budget, or aggrega
   assert.doesNotMatch(sql, /insert\s+into\s+tongs\.paid_execution_aggregate_assignments/i);
   assert.doesNotMatch(sql, /insert\s+into\s+tongs\.owner_operating_budget_revisions/i);
   assert.doesNotMatch(sql, /lifecycle_state\s*=\s*'published'/i);
+});
+
+test("settled canonical results block automatic failure relief while genuine failures retain relief", async () => {
+  const sql = await readFile(settledReplayReliefSafetyMigrationUrl, "utf8");
+  const canonicalResultGuard = sql.indexOf("from tongs.openai_text_persisted_results result");
+  const preservedReturn = sql.indexOf("'state','settled_result_preserved'");
+  const reliefCall = sql.indexOf("relief:=tongs.relieve_failed_customer_operation");
+  assert.ok(canonicalResultGuard >= 0);
+  assert.ok(preservedReturn > canonicalResultGuard);
+  assert.ok(reliefCall > preservedReturn);
+  assert.match(sql, /binding\.reservation_id=result\.reservation_id/);
+  assert.match(sql, /binding\.operation_id=result\.operation_id/);
+  assert.match(sql, /binding\.route_code=result\.route_code/);
+  assert.match(sql, /'customer_relief',null/);
+  assert.match(sql, /'reason','canonical_result_already_persisted'/);
+  assert.match(sql, /Preserve the existing customer-protection path for a genuinely failed/);
+  assert.doesNotMatch(sql, /delete\s+from|update\s+tongs\.customer_operation_reliefs/i);
 });

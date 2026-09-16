@@ -339,6 +339,29 @@ test("insufficient inspected customer research evidence releases the reservation
           funding_environment: "test",
         } }, error: null };
       }
+      if (name === "resolve_openai_text_paid_execution_context") {
+        return { data: {
+          operation_id: quoteArgs.p_operation_id,
+          reservation_id: reserveArgs.p_reservation_id,
+          quote_id: quoteArgs.p_quote_id,
+          route_code: "hearth.research_synthesis",
+          funding_source_type: "customer_deposit",
+          funding_source_id: "66666666-6666-4666-8666-666666666666",
+          funding_environment: "test",
+          credential_funding: "forge",
+          model: "gpt-5.6-luna",
+          maximum_input_units: 128000,
+          maximum_output_units: 16384,
+          maximum_attempts: 1,
+          maximum_failure_exposure_micros: 16759,
+          direct_provider_ceiling_micros: 16759,
+          supporting_cost_ceiling_micros: 0,
+          input_micros_per_million_tokens: 200000,
+          cached_input_micros_per_million_tokens: 20000,
+          output_micros_per_million_tokens: 1200000,
+          reservation_state: "reserved",
+        }, error: null };
+      }
       if (name === "settle_customer_hearth_research_before_synthesis") {
         releaseCalls += 1;
         assert.equal(args.p_failure_class, "research_no_verifiable_sources");
@@ -465,6 +488,239 @@ test("insufficient inspected customer research evidence releases the reservation
     assert.equal(releaseCalls, 1);
     assert.equal(settlementCalls, 0);
     assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("settled customer research replay returns its canonical result without new funding or supplier work", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const workpieceId = "21d16d6a-905b-491e-8761-028789612ae5";
+  const reservationId = "3d6eb033-d322-4b9e-8287-ec0d95fe94eb";
+  const domainResultId = "9daad93b-fc07-447b-90aa-64a73e7b85f2";
+  const prompt = "For a September 16, 2026 update, explain how the Iran war is changing U.S. crude oil and gasoline prices and how Venezuela is affecting supply and prices. Use current sources, cite each factual claim, and state any evidence limitations.";
+  const canonicalAssistantText = "Persisted current-evidence synthesis with citations.";
+  const gateCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  let quoteCalls = 0;
+  let reservationCalls = 0;
+  let settlementCalls = 0;
+  let openAiCalls = 0;
+  let supplierNetworkCalls = 0;
+  let replayedCaptureReads = 0;
+  let quoteBindingCalls = 0;
+  let reliefCalls = 0;
+  let aggregateWrites = 0;
+  let creditBalance = 7_928;
+
+  const gate = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      gateCalls.push({ name, args });
+      if (name === "read_openai_execution_requirement") {
+        return { data: { mode: "enforce", funding_context_required: true }, error: null };
+      }
+      if (name === "read_existing_openai_text_funding_handle") {
+        return { data: {
+          operation_id: args.p_operation_id,
+          reservation_id: reservationId,
+          request_fingerprint: args.p_request_fingerprint,
+          funding_environment: "test",
+          reservation_state: "settled",
+        }, error: null };
+      }
+      if (name === "begin_customer_hearth_research_stage") {
+        replayedCaptureReads += 1;
+        const search = args.p_stage_type === "search";
+        const body = search
+          ? JSON.stringify({ web: { results: [{ title: "Current source", url: "https://example.test/current" }] } })
+          : "Current inspected evidence about oil and gasoline prices.";
+        return { data: {
+          replay: true,
+          event_type: "captured",
+          capture: {
+            status: 200,
+            headers: { "content-type": search ? "application/json" : "text/plain" },
+            body_base64: Buffer.from(body).toString("base64"),
+            response_bytes: Buffer.byteLength(body),
+          },
+        }, error: null };
+      }
+      if (name === "bind_customer_hearth_research_quote_request") {
+        quoteBindingCalls += 1;
+        return { data: null, error: { message: "bounded provider quote request replay conflict" } };
+      }
+      if (name === "resolve_openai_text_paid_execution_context") {
+        return { data: {
+          operation_id: args.p_operation_id,
+          reservation_id: reservationId,
+          quote_id: "1aba576b-6927-4aff-b2c3-3d08be2df0ea",
+          route_code: "hearth.research_synthesis",
+          funding_source_type: "customer_deposit",
+          funding_source_id: "66666666-6666-4666-8666-666666666666",
+          funding_environment: "test",
+          credential_funding: "forge",
+          model: "gpt-5.6-luna",
+          maximum_input_units: 128000,
+          maximum_output_units: 16384,
+          maximum_attempts: 1,
+          maximum_failure_exposure_micros: 36759,
+          direct_provider_ceiling_micros: 16759,
+          supporting_cost_ceiling_micros: 20000,
+          input_micros_per_million_tokens: 200000,
+          cached_input_micros_per_million_tokens: 20000,
+          output_micros_per_million_tokens: 1200000,
+          reservation_state: "settled",
+        }, error: null };
+      }
+      if (name === "read_openai_text_paid_result") {
+        return { data: {
+          provider_request_id: "req_original_luna",
+          input_units: 7244,
+          output_units: 586,
+          customer_charge_micros: 105000,
+          result_json: {
+            assistant_text: canonicalAssistantText,
+            ops: [],
+            script_text: null,
+            tag_audit: null,
+            research_result: { sources: [{ sourceId: "original-source" }] },
+            domain_result_id: domainResultId,
+          },
+        }, error: null };
+      }
+      if (name === "record_paid_operation_aggregate_outcome") {
+        aggregateWrites += 1;
+        return { data: { replay: true }, error: null };
+      }
+      if (name === "settle_customer_hearth_research_before_synthesis") {
+        reliefCalls += 1;
+        creditBalance += 21;
+        return { data: { state: "relieved" }, error: null };
+      }
+      if (name === "create_customer_openai_text_quote") quoteCalls += 1;
+      if (name === "reserve_customer_openai_text_quote") reservationCalls += 1;
+      if (name === "settle_operation") {
+        settlementCalls += 1;
+        creditBalance -= 21;
+      }
+      return { data: {}, error: null };
+    },
+  };
+  const config = {
+    textApiKey: "fake-forge-key",
+    imageApiKey: null,
+    researchApiKey: "fake-brave-key",
+    apiKey: "fake-forge-key",
+    model: "gpt-5.6-luna",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge" as const,
+    initialTokenBalance: creditBalance,
+    supabaseUrl: "https://example.supabase.co",
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: "fake-publishable-key",
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: gate,
+    resolveUserIdForAccessToken: async () => USER_ID,
+    researchRuntime: {
+      async run(args: any) {
+        assert.equal(await (await args.fetchImpl("https://api.search.brave.com/res/v1/web/search?q=current")).text() !== "", true);
+        assert.equal(await (await args.fetchImpl("https://example.test/current")).text() !== "", true);
+        return {
+          mode: "knowledge_first" as const,
+          runtimeStatus: "complete" as const,
+          providerStatus: "configured_and_operational" as const,
+          brief: args.brief,
+          sources: [{
+            sourceId: "retrieval-1",
+            title: "Current source",
+            url: "https://example.test/current",
+            domain: "example.test",
+            publishedAt: "2026-09-16",
+            snippet: "Current evidence",
+            extractedText: "Current inspected evidence about oil and gasoline prices.",
+            extractionStatus: "extracted" as const,
+            extractionError: null,
+            provenance: {
+              origin: "search" as const,
+              briefFingerprint: args.brief.briefFingerprint,
+              inspectedAt: "2026-09-16T12:00:00.000Z",
+              inspectionStatus: "inspected" as const,
+              accessFailureReason: null,
+              verifiedInCurrentRequest: true,
+            },
+          }],
+          evidence: [{
+            evidenceId: "evidence-1",
+            briefFingerprint: args.brief.briefFingerprint,
+            workpieceId: args.brief.workpieceId,
+            sourceId: "retrieval-1",
+            excerpt: "Current inspected evidence about oil and gasoline prices.",
+            authority: "secondary" as const,
+            state: "inspected" as const,
+            uncertainty: null,
+          }],
+          artifact: null,
+          synthesis: { summary: "Current evidence", keyPoints: [], uncertainties: [], coverageNote: "1/1" },
+        };
+      },
+    },
+    openAiProviderFetch: async () => {
+      openAiCalls += 1;
+      throw new Error("settled replay must not call Luna");
+    },
+  } satisfies HearthRuntimeConfig;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes("api.search.brave.com") || url.includes("example.test/current")) {
+      supplierNetworkCalls += 1;
+      throw new Error("settled replay must use captured evidence only");
+    }
+    return new Response("{}", { status: 503, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const handler = createHearthAiHandler(config);
+    const response = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        lane: "forge",
+        messages: [{ role: "user", content: prompt }],
+        user_authored_text: prompt,
+        attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+        episode_context: {
+          episodeId: workpieceId,
+          workspaceId,
+          title: "Current oil and gasoline prices",
+          titleVariants: { A: "", B: "", C: "" },
+          outline: "",
+          body: "",
+          tonePreset: null,
+          sources: [],
+          sparks: [],
+        },
+      }),
+    }));
+    const replay = await response.json() as Record<string, any>;
+    assert.equal(response.status, 200, JSON.stringify(replay));
+    assert.equal(replay.billing_receipt.status, "settled_replay");
+    assert.equal(replay.billing_receipt.customer_charge_micros, 105000);
+    assert.equal(replay.domain_result_id, domainResultId);
+    assert.equal(replay.assistant_text, canonicalAssistantText);
+    assert.equal(replayedCaptureReads, 0);
+    assert.equal(quoteBindingCalls, 0);
+    assert.equal(quoteCalls, 0);
+    assert.equal(reservationCalls, 0);
+    assert.equal(settlementCalls, 0);
+    assert.equal(creditBalance, 7_928);
+    assert.equal(supplierNetworkCalls, 0);
+    assert.equal(openAiCalls, 0);
+    assert.equal(reliefCalls, 0);
+    assert.equal(aggregateWrites, 0);
+    assert.equal(gateCalls.some((call) => call.name === "read_openai_text_paid_result"), true);
   } finally {
     globalThis.fetch = originalFetch;
   }
