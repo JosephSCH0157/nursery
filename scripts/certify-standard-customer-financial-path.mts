@@ -27,7 +27,9 @@ const REPO_ROOT = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 loadDotEnv({ path: path.join(REPO_ROOT, "apps", "nursery", ".env.local"), override: false });
 loadDotEnv({ path: path.join(REPO_ROOT, "apps", "nursery", ".env"), override: false });
 
-const EXECUTE = process.argv.includes("--execute");
+const REAL_EXECUTE = process.argv.includes("--execute");
+const VERIFY_SETTLED_REPLAY = process.argv.includes("--verify-settled-replay");
+const EXECUTE = REAL_EXECUTE || VERIFY_SETTLED_REPLAY;
 const RESUME = process.argv.includes("--resume");
 const INSTALL_AGGREGATE_RECOVERY = process.argv.includes("--install-aggregate-recovery");
 const ACQUIRE_AGGREGATE = process.argv.includes("--acquire-aggregate");
@@ -82,8 +84,8 @@ const openAiApiKey = process.env.OPENAI_TEXT_API_KEY?.trim()
 if (!supabaseUrl || !serviceRoleKey || !publishableKey) {
   throw new Error("Supabase URL, service-role key, and publishable key are required");
 }
-if (EXECUTE && !openAiApiKey) throw new Error("A Forge-managed OpenAI API key is required");
-if (EXECUTE && process.env.CERTIFICATION_CONFIRMATION !== "ONE_REAL_OPENAI_CALL") {
+if (REAL_EXECUTE && !openAiApiKey) throw new Error("A Forge-managed OpenAI API key is required");
+if (REAL_EXECUTE && process.env.CERTIFICATION_CONFIRMATION !== "ONE_REAL_OPENAI_CALL") {
   throw new Error("Set CERTIFICATION_CONFIRMATION=ONE_REAL_OPENAI_CALL to use --execute");
 }
 
@@ -336,7 +338,7 @@ const beforeAllowance = object(beforeSpendable.allowances);
 const beforeReservations = object(fundingBefore.active_reservations);
 const purchasedCreditsBefore = integer(beforePurchased.available_credit_units)
   + (RESUME ? integer(beforeReservations.reserved_credit_units) : 0);
-assert.equal(purchasedCreditsBefore, 7_982);
+assert.equal(purchasedCreditsBefore, VERIFY_SETTLED_REPLAY ? 7_979 : 7_982);
 assert.equal(integer(beforeAllowance.available_entitlement_units), 1_000);
 
 const messages = [
@@ -463,6 +465,49 @@ if (RESUME) {
 }
 assert.equal(handle.operationId, identifiers.operationId);
 assert.equal(handle.requestFingerprint, requestFingerprint);
+
+if (VERIFY_SETTLED_REPLAY) {
+  let replayProviderCallCount = 0;
+  const replay = await executePaidHearthChatCompletion({
+    gate: serviceGate,
+    handle,
+    userId,
+    workspaceId,
+    workpieceId,
+    credentialSource: "forge_managed",
+    apiKey: "unused-on-settled-replay",
+    messages,
+    signal: AbortSignal.timeout(30_000),
+    providerFetch: async () => {
+      replayProviderCallCount += 1;
+      throw new Error("settled replay attempted a forbidden provider request");
+    },
+    validateAndNormalize: (rawReply: string) => ({
+      assistantText: rawReply.trim(), ops: [], scriptText: null,
+      tagAudit: { certification: "forge.standard-customer-financial-path.v1" },
+    }),
+  });
+  assert.equal(replay.state, "settled_replay");
+  assert.equal(replay.attempts, 0);
+  assert.equal(replay.customerChargeMicros, CUSTOMER_CHARGE_MICROS);
+  assert.equal(replayProviderCallCount, 0);
+  const fundingAfterReplay = object(await rpc(userGate, "read_my_customer_funding"));
+  const replaySpendable = object(fundingAfterReplay.active_spendable);
+  const replayPurchased = object(replaySpendable.purchased);
+  const replayAllowance = object(replaySpendable.allowances);
+  assert.equal(integer(replayPurchased.available_credit_units), 7_979);
+  assert.equal(integer(replayAllowance.available_entitlement_units), 1_000);
+  process.stdout.write(`${JSON.stringify({
+    ok: true,
+    state: replay.state,
+    attempts: replay.attempts,
+    provider_call_count: replayProviderCallCount,
+    customer_charge_micros: replay.customerChargeMicros,
+    purchased_credits: replayPurchased.available_credit_units,
+    allowance_credits: replayAllowance.available_entitlement_units,
+  }, null, 2)}\n`);
+  process.exit(0);
+}
 
 let providerCallCount = 0;
 const exactlyOneProviderFetch: typeof fetch = async (input, init) => {
