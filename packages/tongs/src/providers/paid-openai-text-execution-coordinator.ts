@@ -63,7 +63,7 @@ export type PaidOpenAiTextExecutionInput<T> = {
   routeCode: CoordinatedOpenAiRouteCode;
   reservationId: string;
   quoteId: string;
-  fundingSourceType: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
+  fundingSourceType: "customer_deposit" | "paid_allowance" | "beta_grant" | "owner_budget" | "none";
   fundingSourceId: string | null;
   reservationKey: string;
   attemptKey: string;
@@ -150,7 +150,14 @@ export class PaidOpenAiTextExecutionCoordinator {
       callerClass: input.aggregateCallerClass,
       providerMode: input.aggregateProviderMode,
     });
-    if (((input.credentialFunding === "forge" || (input.supportingCostCeilingMicros ?? 0) > 0) && (!admission.enforcementEnabled || !admission.holdId))
+    const normalCustomerCreditAdmission = !admission.enforcementEnabled
+      && admission.authorized
+      && admission.reason === "normal_customer_credit_bounded"
+      && admission.holdId === null;
+    const aggregateAdmissionSatisfied = normalCustomerCreditAdmission
+      || (admission.enforcementEnabled && admission.authorized && Boolean(admission.holdId));
+    if (((input.credentialFunding === "forge" || (input.supportingCostCeilingMicros ?? 0) > 0)
+        && !aggregateAdmissionSatisfied)
       || (admission.enforcementEnabled && !admission.authorized)) {
       await this.releaseBeforeProvider(input, `${input.attemptKey}:aggregate-admission-denied`, admission.reason);
       throw new OpenAiTextBoundaryError("funding_context_required");

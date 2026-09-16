@@ -217,6 +217,53 @@ test("an enabled aggregate denial releases funding before the provider callback"
   assert.equal(g.calls.some((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate"), false);
 });
 
+test("the explicit normal-customer credit admission reaches the existing provider-attempt boundary", async () => {
+  let providerCalls = 0;
+  const g = gate({
+    acquire_openai_text_aggregate_admission: async () => ({
+      data: {
+        enforcement_enabled: false,
+        authorized: true,
+        hold_id: null,
+        reason: "normal_customer_credit_bounded",
+      },
+      error: null,
+    }),
+  });
+  const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    executeProvider: async () => {
+      providerCalls += 1;
+      return {
+        value: { text: "usable" }, requestId: "req_normal", inputUnits: 8, outputUnits: 4,
+        supplierCostMicros: 1200, supplierCostAuthoritative: true,
+      };
+    },
+  }));
+  assert.equal(result.state, "settled");
+  assert.equal(providerCalls, 1);
+  assert.equal(g.calls.some((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate"), true);
+});
+
+test("a generic inactive aggregate cannot masquerade as normal-customer credit authority", async () => {
+  let providerCalls = 0;
+  const g = gate({
+    acquire_openai_text_aggregate_admission: async () => ({
+      data: {
+        enforcement_enabled: false,
+        authorized: true,
+        hold_id: null,
+        reason: "aggregate_assignment_inactive",
+      },
+      error: null,
+    }),
+  });
+  await assert.rejects(() => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    executeProvider: async () => { providerCalls += 1; return {}; },
+  })), /funding_context_required/);
+  assert.equal(providerCalls, 0);
+  assert.equal(g.calls.some((call) => call.name === "release_operation"), true);
+});
+
 test("BYO never falls back to Forge credentials", async () => {
   const g = gate();
   let providerCalls = 0;
