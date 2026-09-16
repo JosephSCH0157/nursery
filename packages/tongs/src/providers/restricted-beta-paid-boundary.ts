@@ -12,7 +12,7 @@ export type RestrictedBetaPaidCapability = typeof RESTRICTED_BETA_PAID_CAPABILIT
 export type RestrictedBetaCallerClass = "interactive" | "background" | "retry" | "recovery";
 export type RestrictedBetaProviderMode = "real" | "simulated" | "byo";
 export type RestrictedBetaFundingClass = "verified_customer_deposit" | "economically_backed_allowance"
-  | "owner_operating_budget" | "test_customer" | "byo" | "none";
+  | "owner_operating_budget" | "byo" | "none";
 
 export type RestrictedBetaAdmission = {
   enrolled: boolean;
@@ -32,7 +32,7 @@ export type RestrictedBetaAdmission = {
 
 export class RestrictedBetaBoundaryError extends Error {
   readonly code: "restricted_beta_capability_blocked" | "restricted_beta_funding_required"
-    | "restricted_beta_binding_invalid" | "restricted_beta_real_provider_forbidden"
+    | "restricted_beta_binding_invalid"
     | "restricted_beta_retry_forbidden";
   constructor(code: RestrictedBetaBoundaryError["code"], detail?: string) {
     super(detail ? `${code}:${detail}` : code);
@@ -50,9 +50,6 @@ function requireExactAuthorization(admission: RestrictedBetaAdmission): void {
   }
   if ((admission.attemptNumber ?? 1) > (admission.maximumAttempts ?? 1)) {
     throw new RestrictedBetaBoundaryError("restricted_beta_retry_forbidden", "attempt_ceiling");
-  }
-  if (admission.providerMode === "real" && admission.fundingClass === "test_customer") {
-    throw new RestrictedBetaBoundaryError("restricted_beta_real_provider_forbidden", "test_funding");
   }
   if (admission.providerMode !== "byo" && (admission.fundingClass === "none" || !admission.fundingClass)) {
     throw new RestrictedBetaBoundaryError("restricted_beta_funding_required");

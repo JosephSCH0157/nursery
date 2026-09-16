@@ -36,6 +36,7 @@ export type CustomerOpenAiTextQuote = {
   failureTerms: string;
   fundingEligible: boolean;
   fundingSource: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
+  fundingEnvironment: "test" | "live" | "owner_internal";
   payerKind: "personal" | "organization_shared" | "owner_testing";
   fundingLabel: string;
   modelDisplayName: string;
@@ -197,11 +198,13 @@ function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): Cu
   const maximum = integer(row.maximum_customer_charge_micros);
   const failure = integer(row.failure_customer_charge_micros);
   const fundingSource = string(row.funding_source);
+  const fundingEnvironment = string(row.funding_environment);
   const payerKind = string(row.payer_kind);
   const expiresAt = string(row.expires_at);
   if (!UUID_RE.test(quoteId) || operationId.length < 8 || !SHA256_RE.test(quoteHash)
     || !SHA256_RE.test(requestFingerprint) || row.currency !== "USD" || maximum < 0
     || failure !== 0 || !["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(fundingSource)
+    || !["test", "live", "owner_internal"].includes(fundingEnvironment)
     || (payerKind && !["personal", "organization_shared", "owner_testing"].includes(payerKind))
     || !expiresAt) {
     throw new OpenAiTextFundingPreparationError(502, "invalid_customer_quote", "The billing service returned an invalid customer quote.");
@@ -217,6 +220,7 @@ function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): Cu
     failureTerms: string(row.failure_terms) || "Forge-caused and provider-caused failures cost you $0.",
     fundingEligible: row.funding_eligible === true,
     fundingSource: fundingSource as CustomerOpenAiTextQuote["fundingSource"],
+    fundingEnvironment: fundingEnvironment as CustomerOpenAiTextQuote["fundingEnvironment"],
     payerKind: (payerKind || "personal") as CustomerOpenAiTextQuote["payerKind"],
     fundingLabel: string(row.funding_label) || "No verified eligible funds",
     modelDisplayName: selection.displayName,

@@ -15,6 +15,10 @@ import {
   resolveInvoiceServicePeriod,
   resolveInvoiceSubscriptionId,
 } from "../_shared/stripe-invoice-compat.ts";
+import {
+  assertStripeModeMatchesEnvironment,
+  readTrustedFinancialEnvironment,
+} from "../_shared/financial-environment.ts";
 
 type SupabaseAdminClient = ReturnType<typeof createClient>;
 
@@ -269,41 +273,25 @@ async function fetchStripeCustomerContext(
 async function resolveUserIdByCustomerId(
   supabase: SupabaseAdminClient,
   customerId: string,
+  livemode: boolean,
 ): Promise<string | null> {
   const tongs = getTongsTableClient(supabase);
 
-  const { data: billingCustomer, error: billingCustomerError } = await tongs
-    .from("billing_customers")
+  const { data: environmentCustomer, error: environmentCustomerError } = await tongs
+    .from("stripe_customer_environment_identifiers")
     .select("user_id")
+    .eq("financial_environment", livemode ? "live" : "test")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
-
-  if (billingCustomerError) {
-    throw new Error(
-      `billing_customers lookup failed for stripe_customer_id=${customerId}: ${billingCustomerError.message}`,
-    );
+  if (environmentCustomerError) {
+    throw new Error(`environment-scoped Stripe customer lookup failed: ${environmentCustomerError.message}`);
   }
+  if (environmentCustomer?.user_id) return environmentCustomer.user_id;
 
-  if (billingCustomer?.user_id) {
-    return billingCustomer.user_id;
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("user_id")
-    .eq("stripe_customer_id", customerId)
-    .maybeSingle();
-
-  if (profileError) {
-    throw new Error(
-      `profiles lookup failed for stripe_customer_id=${customerId}: ${profileError.message}`,
-    );
-  }
-
-  if (profile?.user_id) {
-    return profile.user_id;
-  }
-
+  // The generic compatibility identifiers do not carry a trustworthy Stripe
+  // mode. Fall back only to metadata fetched through this event's validated
+  // Stripe runtime so a Test identifier can never be interpreted as Live (or
+  // vice versa).
   const stripeCustomer = await fetchStripeCustomerContext(customerId);
   return stripeCustomer.userId;
 }
@@ -363,7 +351,7 @@ async function resolveSubscriptionMetadata(
 
   const metadataUserId = readMetadataUserId(subscription.metadata);
   const resolvedUserId = metadataUserId
-    ?? await resolveUserIdByCustomerId(supabase, customerId);
+    ?? await resolveUserIdByCustomerId(supabase, customerId, subscription.livemode);
 
   if (!resolvedUserId) {
     throw new Error(
@@ -401,7 +389,7 @@ async function parseCheckoutFulfillmentContext(
 
   const resolvedUserId = readMetadataUserId(session.metadata)
     ?? normalizeString(session.client_reference_id)
-    ?? await resolveUserIdByCustomerId(supabase, customerId);
+    ?? await resolveUserIdByCustomerId(supabase, customerId, event.livemode);
 
   if (!resolvedUserId) {
     throw new Error(
@@ -1062,7 +1050,7 @@ async function handleInvoiceLifecycleEvent(
   }
 
   const subscriptionId = resolveInvoiceSubscriptionId(invoice);
-  const userId = await resolveUserIdByCustomerId(supabase, customerId);
+  const userId = await resolveUserIdByCustomerId(supabase, customerId, event.livemode);
 
   if (subscriptionId) {
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
@@ -1275,6 +1263,9 @@ serve(async (req) => {
   );
 
   try {
+    const tongsRpc = supabase.schema("tongs") as unknown as TongsRpcClient;
+    const financialEnvironment = await readTrustedFinancialEnvironment(tongsRpc);
+    assertStripeModeMatchesEnvironment(financialEnvironment, event.livemode);
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;

@@ -37,6 +37,7 @@ function makeGate({ state = "reserved", authorize = true, stored = null } = {}) 
           operation_id: "operation-123", reservation_id: "11111111-1111-4111-8111-111111111111",
           quote_id: "22222222-2222-4222-8222-222222222222", route_code: args.p_route_code,
           funding_source_type: "customer_deposit", funding_source_id: "33333333-3333-4333-8333-333333333333",
+          funding_environment: "test",
           credential_funding: "forge", model: "gpt-test", maximum_input_units: 10000,
           maximum_output_units: 1000, maximum_attempts: 1, maximum_failure_exposure_micros: 5000,
           direct_provider_ceiling_micros: 4000, supporting_cost_ceiling_micros: 1000,
@@ -71,6 +72,16 @@ test("missing aggregate assignment rejects before provider execution", async () 
   assert.equal(submissions, 0);
 });
 
+test("a funding handle cannot cross financial environments", async () => {
+  const gate = makeGate();
+  const args = await argsFor("quench.metadata", { title: "test" }, () => true, gate);
+  args.handle.fundingEnvironment = "live";
+  let submissions = 0;
+  args.executeProvider = async () => { submissions++; throw new Error("must not execute"); };
+  await assert.rejects(executePaidOpenAiTextRoute(args), /funding_context_required/);
+  assert.equal(submissions, 0);
+});
+
 test("halted recovery settles captured canonical result but revoked member cannot receive it", async () => {
   const gate = makeGate();
   const original = gate.rpc.bind(gate);
@@ -94,7 +105,7 @@ async function argsFor(route, value, validator, gate) {
   const requestFingerprint = await fingerprintOpenAiTextPaidRequest(requestFingerprintPayload);
   return {
     gate, routeCode: route,
-    handle: { operationId: "operation-123", reservationId: "11111111-1111-4111-8111-111111111111", requestFingerprint },
+    handle: { operationId: "operation-123", reservationId: "11111111-1111-4111-8111-111111111111", requestFingerprint, fundingEnvironment: "test" },
     userId: "44444444-4444-4444-8444-444444444444", workspaceId: "55555555-5555-4555-8555-555555555555",
     workpieceId: "workpiece-1", credentialSource: "forge_managed",
     inputUnitUpperBound: 100, requestFingerprintPayload,

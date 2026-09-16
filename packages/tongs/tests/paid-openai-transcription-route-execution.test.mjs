@@ -22,6 +22,7 @@ function makeGate({ state = "reserved", authorize = true, aggregateAuthorize = t
           operation_id: "transcription-operation", reservation_id: reservationId,
           quote_id: "22222222-2222-4222-8222-222222222222", route_code: args.p_route_code,
           funding_source_type: "customer_deposit", funding_source_id: "33333333-3333-4333-8333-333333333333",
+          funding_environment: "test",
           credential_funding: "forge", model: "gpt-4o-mini-transcribe",
           maximum_input_units: 16_000, maximum_output_units: 2_000, maximum_attempts: 1,
           maximum_failure_exposure_micros: 30_000, direct_provider_ceiling_micros: 30_000,
@@ -52,7 +53,7 @@ async function routeArgs(gate, overrides = {}) {
   return {
     gate,
     routeCode: "hearth.speech_transcription",
-    handle: { operationId: "transcription-operation", reservationId, requestFingerprint },
+    handle: { operationId: "transcription-operation", reservationId, requestFingerprint, fundingEnvironment: "test" },
     userId: "44444444-4444-4444-8444-444444444444",
     workspaceId: "55555555-5555-4555-8555-555555555555",
     workpieceId: "speech-asset-1",

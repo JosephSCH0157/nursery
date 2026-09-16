@@ -728,13 +728,6 @@ export function resolveDefaultVisualProviderFromStorage(): VisualProviderId {
   return resolveAiSettingsFromStorage().defaultVisualProvider;
 }
 
-function parseCreditsPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {
-  if (Array.isArray(payload) && payload.length > 0) {
-    return readRuntimeFromPayload(payload[0], fallbackLane);
-  }
-  return readRuntimeFromPayload(payload, fallbackLane);
-}
-
 function runtimeFromResponse(payload: {
   billing_mode: HearthAiLane;
   token_balance: number | null;
@@ -752,6 +745,38 @@ function runtimeFromResponse(payload: {
         reasonCode: payload.owner_chat_capability.reason_code,
       },
     } : {}),
+  };
+}
+
+function parseCustomerFundingPayload(payload: unknown, fallbackLane: HearthAiLane): HearthAiRuntimeSnapshot {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { billingMode: fallbackLane, tokenBalance: null };
+  }
+  const funding = payload as Record<string, unknown>;
+  if (funding.contract_version !== "forge.customer-funding.v2") {
+    return { billingMode: fallbackLane, tokenBalance: null };
+  }
+  const active = funding.active_spendable && typeof funding.active_spendable === "object"
+    ? funding.active_spendable as Record<string, unknown>
+    : {};
+  const purchased = active.purchased && typeof active.purchased === "object"
+    ? active.purchased as Record<string, unknown>
+    : {};
+  const allowances = active.allowances && typeof active.allowances === "object"
+    ? active.allowances as Record<string, unknown>
+    : {};
+  const purchasedUnits = typeof purchased.available_credit_units === "number"
+    ? purchased.available_credit_units
+    : Number(purchased.available_credit_units ?? 0);
+  const allowanceUnits = typeof allowances.available_entitlement_units === "number"
+    ? allowances.available_entitlement_units
+    : Number(allowances.available_entitlement_units ?? 0);
+  return {
+    billingMode: "forge",
+    tokenBalance: Number.isSafeInteger(purchasedUnits) && purchasedUnits >= 0
+      && Number.isSafeInteger(allowanceUnits) && allowanceUnits >= 0
+      ? purchasedUnits + allowanceUnits
+      : null,
   };
 }
 
@@ -960,7 +985,7 @@ export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
 
   let response: Response;
   try {
-    response = await fetch(`${config.url}/rest/v1/rpc/get_my_ai_credits`, {
+    response = await fetch(`${config.url}/rest/v1/rpc/read_my_customer_funding`, {
       method: "POST",
       headers: {
         apikey: config.anonKey,
@@ -988,7 +1013,7 @@ export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
     payload = null;
   }
 
-  const runtime = parseCreditsPayload(payload, lane);
+  const runtime = parseCustomerFundingPayload(payload, lane);
   if (!response.ok) {
     return {
       ok: false,

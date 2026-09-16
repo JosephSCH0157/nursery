@@ -43,6 +43,7 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
         failure_terms: "Forge-caused and provider-caused failures cost you $0.",
         funding_eligible: true,
         funding_source: "customer_deposit",
+        funding_environment: "test",
         funding_label: "Verified prepaid balance",
         expires_at: new Date(Date.now() + 60_000).toISOString(),
       }, error: null };
@@ -57,6 +58,7 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
         operation_id: "ordinary-operation-1",
         reservation_id: reservationId,
         request_fingerprint: fingerprint,
+        funding_environment: "test",
       } }, error: null };
       if (name === "accept_quote") return { data: { accepted: true }, error: null };
       return { data: {}, error: null };
@@ -72,6 +74,7 @@ function input(serviceGate, userGate, acceptance = null) {
     workspaceId: "44444444-4444-4444-8444-444444444444",
     workpieceId: "workpiece-1",
     requestFingerprint: fingerprint,
+    fundingEnvironment: "test",
     model: "gpt-5-mini",
     credentialFunding: "forge",
     acceptance,
@@ -128,6 +131,7 @@ test("an exact acceptance is atomically reserved and returned as an opaque handl
     operationId: "ordinary-operation-1",
     reservationId,
     requestFingerprint: fingerprint,
+    fundingEnvironment: "test",
   });
   assert.equal(user.calls.filter((call) => call.name === "accept_quote").length, 1);
   assert.equal(service.calls.filter((call) => call.name === "reserve_customer_openai_text_quote").length, 1);
@@ -156,6 +160,7 @@ test("an existing reservation is replayed without accepting or reserving again",
       operation_id: "ordinary-operation-1",
       reservation_id: reservationId,
       request_fingerprint: fingerprint,
+      funding_environment: "test",
     }, error: null };
     throw new Error(`unexpected ${name}`);
   };

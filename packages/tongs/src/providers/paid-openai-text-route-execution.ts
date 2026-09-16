@@ -21,6 +21,7 @@ export type OpenAiTextPaidExecutionHandle = {
   operationId: string;
   reservationId: string;
   requestFingerprint: string;
+  fundingEnvironment: "test" | "live" | "owner_internal";
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -38,10 +39,19 @@ export function normalizeOpenAiTextPaidExecutionHandle(
     typeof row.request_fingerprint === "string"
       ? row.request_fingerprint.trim().toLowerCase()
       : "";
+  const fundingEnvironment = typeof row.funding_environment === "string"
+    ? row.funding_environment.trim()
+    : "";
   return operationId.length >= 8 &&
     UUID_RE.test(reservationId) &&
-    SHA256_RE.test(requestFingerprint)
-    ? { operationId, reservationId, requestFingerprint }
+    SHA256_RE.test(requestFingerprint) &&
+    ["test", "live", "owner_internal"].includes(fundingEnvironment)
+    ? {
+        operationId,
+        reservationId,
+        requestFingerprint,
+        fundingEnvironment: fundingEnvironment as OpenAiTextPaidExecutionHandle["fundingEnvironment"],
+      }
     : null;
 }
 
@@ -67,6 +77,7 @@ export type PaidOpenAiTextRouteContext = {
     | "owner_budget"
     | "none";
   fundingSourceId: string | null;
+  fundingEnvironment: "test" | "live" | "owner_internal";
   credentialFunding: OpenAiCredentialFunding;
   model: string;
   maximumInputUnits: number;
@@ -176,11 +187,13 @@ function parseContext(value: unknown): PaidOpenAiTextRouteContext {
   const row = asRecord(value);
   const routeCode = requiredString(row, "route_code") as CoordinatedOpenAiRouteCode;
   const fundingSourceType = requiredString(row, "funding_source_type");
+  const fundingEnvironment = requiredString(row, "funding_environment");
   const credentialFunding = requiredString(row, "credential_funding");
   if (
     !["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(
       fundingSourceType,
     ) ||
+    !["test", "live", "owner_internal"].includes(fundingEnvironment) ||
     (credentialFunding !== "forge" && credentialFunding !== "byo_customer")
   ) {
     throw new OpenAiTextBoundaryError("funding_context_required");
@@ -193,6 +206,7 @@ function parseContext(value: unknown): PaidOpenAiTextRouteContext {
     fundingSourceType:
       fundingSourceType as PaidOpenAiTextRouteContext["fundingSourceType"],
     fundingSourceId: nullableString(row, "funding_source_id"),
+    fundingEnvironment: fundingEnvironment as PaidOpenAiTextRouteContext["fundingEnvironment"],
     credentialFunding,
     model: requiredString(row, "model"),
     maximumInputUnits: boundedInteger(row, "maximum_input_units", 1),
@@ -314,7 +328,8 @@ async function executePaidOpenAiTextRouteInternal<
     recoveryOnly = true;
   }
   const context = parseContext(resolved);
-  if (context.routeCode !== args.routeCode) {
+  if (context.routeCode !== args.routeCode ||
+      context.fundingEnvironment !== args.handle.fundingEnvironment) {
     throw new OpenAiTextBoundaryError("funding_context_required");
   }
   const expectedRequestFingerprint = await sha256Hex(

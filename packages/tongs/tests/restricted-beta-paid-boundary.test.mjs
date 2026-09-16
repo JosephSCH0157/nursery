@@ -37,8 +37,8 @@ test("authorized execution receives only the exact opaque server binding", async
   assert.deepEqual(value, { operationIdentity: "operation-00000001", requestFingerprint: "a".repeat(64), opaqueFundingHandle: "opaque-server-handle-0001", callerClass: "background" });
 });
 
-test("test funding cannot reach a real provider and BYO does not require Forge funding", async () => {
-  await assert.rejects(() => executeRestrictedBetaPaidBoundary({ admission: exact({ fundingClass: "test_customer" }), callerClass: "interactive", executeExisting: async () => "legacy", executeAuthorized: async () => "provider" }), /restricted_beta_real_provider_forbidden/);
+test("verified funding can reach the shared provider path and BYO does not require Forge funding", async () => {
+  assert.equal(await executeRestrictedBetaPaidBoundary({ admission: exact({ fundingClass: "verified_customer_deposit" }), callerClass: "interactive", executeExisting: async () => "legacy", executeAuthorized: async () => "provider" }), "provider");
   const byo = await executeRestrictedBetaPaidBoundary({ admission: exact({ fundingClass: "byo", providerMode: "byo" }), callerClass: "interactive", executeExisting: async () => "legacy", executeAuthorized: async () => "byo" });
   assert.equal(byo, "byo");
 });

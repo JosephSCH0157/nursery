@@ -169,6 +169,7 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
           quote_id: QUOTE_ID, operation_id: OPERATION_ID, quote_hash: "b".repeat(64),
           request_fingerprint: "a".repeat(64), currency: "USD", maximum_customer_charge_micros: 20000,
           failure_customer_charge_micros: 0, funding_eligible: false, funding_source: "none",
+          funding_environment: "test",
           payer_kind: "personal", funding_label: "No verified eligible funds", expires_at: new Date(Date.now() + 60_000).toISOString(),
         }, error: null };
         if (name === "read_openai_text_quote_bounding_context") return { data: {
@@ -305,6 +306,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           operation_id: quoteArgs.p_operation_id,
           reservation_id: reserveArgs.p_reservation_id,
           request_fingerprint: quoteArgs.p_request_fingerprint,
+          funding_environment: "test",
         }, error: null } : { data: {}, error: null };
       }
       if (name === "resolve_openai_text_model_for_funding_quote") {
@@ -326,6 +328,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           maximum_customer_charge_micros: 20000,
           failure_customer_charge_micros: 0,
           funding_eligible: true, funding_source: "customer_deposit", payer_kind: "personal",
+          funding_environment: "test",
           funding_label: "Verified AI credit purchase",
           included_quantity: { input_tokens: 2000, output_tokens: 512, attempts: 1 },
           expires_at: args.p_expires_at,
@@ -344,6 +347,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           operation_id: args.p_operation_id,
           reservation_id: args.p_reservation_id,
           request_fingerprint: args.p_request_fingerprint,
+          funding_environment: "test",
         }, funding_source: "customer_deposit", reservation_state: reservationState }, error: null };
       }
       if (name === "resolve_openai_text_paid_execution_context") {
@@ -354,6 +358,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           route_code: "hearth.chat_completion",
           funding_source_type: "customer_deposit",
           funding_source_id: depositId,
+          funding_environment: "test",
           credential_funding: "forge",
           model: "gpt-5.6-luna",
           maximum_input_units: 20000,

@@ -148,7 +148,7 @@ export function requestCustomerSpendingAcceptance(
   const shouldOpenBilling = globalThis.confirm([
     "This operation needs verified purchased credits or a funded paid-plan allowance.",
     quote.funding_label,
-    "Stripe Test credits and legacy compatibility balances cannot fund a real provider call.",
+    "Only verified funding from the active financial environment can fund this provider call. Legacy compatibility balances are historical and non-spendable.",
     "Open Account & Billing to add credits? You will need to retry this action and accept a fresh quote after the payment is recorded.",
   ].join("\n\n"));
   if (!shouldOpenBilling) return null;

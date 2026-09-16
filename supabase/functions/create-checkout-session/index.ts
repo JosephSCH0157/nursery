@@ -6,6 +6,10 @@ import {
   stripeCatalogEntryHasProductId,
 } from "../_shared/stripe-catalog.ts";
 import { buildForgeCheckoutMetadata } from "../_shared/forge-billing-metadata.ts";
+import {
+  assertStripeModeMatchesEnvironment,
+  readTrustedFinancialEnvironment,
+} from "../_shared/financial-environment.ts";
 
 type CreateCheckoutSessionBody = {
   priceId?: string;
@@ -21,24 +25,6 @@ type TongsRpcClient = {
     fn: string,
     args?: Record<string, unknown>,
   ) => Promise<{ data: unknown; error: { message?: string } | null }>;
-};
-
-type TongsBillingCustomersTableClient = {
-  from: (
-    relation: "billing_customers",
-  ) => {
-    select: (columns: string) => {
-      eq: (
-        column: "user_id",
-        value: string,
-      ) => {
-        maybeSingle: () => Promise<{
-          data: { stripe_customer_id: string | null } | null;
-          error: { message?: string } | null;
-        }>;
-      };
-    };
-  };
 };
 
 type ErrorResponseArgs = {
@@ -259,7 +245,7 @@ serve(async (req) => {
   });
 
   let stripeCustomerId = "";
-  let existingCustomerSource: "billing_customers" | "profiles" | "created" | "none" = "none";
+  let existingCustomerSource: "environment_identifier" | "created" | "none" = "none";
 
   const customerName = typeof user.user_metadata?.full_name === "string"
     ? user.user_metadata.full_name.trim()
@@ -270,60 +256,28 @@ serve(async (req) => {
     forge_product: "podcasters_forge",
   };
 
-  const billingCustomers = supabaseAdmin.schema("tongs") as unknown as TongsBillingCustomersTableClient;
   const tongsRpc = supabaseAdmin.schema("tongs") as unknown as TongsRpcClient;
-
-  const { data: billingCustomerRow, error: billingCustomerLookupError } = await billingCustomers
-    .from("billing_customers")
-    .select("stripe_customer_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (billingCustomerLookupError) {
+  let financialEnvironment: "test" | "live";
+  try {
+    financialEnvironment = await readTrustedFinancialEnvironment(tongsRpc);
+    const { data: identifierData, error: identifierError } = await tongsRpc.rpc(
+      "read_stripe_customer_environment_identifier",
+      { p_user_id: user.id, p_financial_environment: financialEnvironment },
+    );
+    if (identifierError) throw new Error(identifierError.message ?? "Environment-scoped Stripe customer lookup failed.");
+    stripeCustomerId = normalizeString(
+      identifierData && typeof identifierData === "object"
+        ? (identifierData as Record<string, unknown>).stripe_customer_id
+        : null,
+    );
+    if (stripeCustomerId) existingCustomerSource = "environment_identifier";
+  } catch (error) {
     return errorResponse(500, {
-      code: "BILLING_CUSTOMER_LOOKUP_FAILED",
-      stage: "billing_customer_lookup",
-      message: `Failed to read tongs.billing_customers: ${billingCustomerLookupError.message}`,
+      code: "FINANCIAL_ENVIRONMENT_LOOKUP_FAILED",
+      stage: "financial_environment_lookup",
+      message: describeError(error).message,
       details: { userId: user.id, priceId, catalogKind: catalogPrice.kind, storageLevel },
     });
-  }
-
-  stripeCustomerId = normalizeString(billingCustomerRow?.stripe_customer_id);
-  if (stripeCustomerId) {
-    existingCustomerSource = "billing_customers";
-  }
-
-  if (!stripeCustomerId) {
-    try {
-      const { data: profileRow, error: profileError } = await supabaseAdmin
-        .from("profiles")
-        .select("stripe_customer_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (profileError) {
-        logWarn("legacy_profile_lookup_failed", {
-          userId: user.id,
-          priceId,
-          catalogKind: catalogPrice.kind,
-          storageLevel,
-          profileError: profileError.message,
-        });
-      } else {
-        stripeCustomerId = normalizeString(profileRow?.stripe_customer_id);
-        if (stripeCustomerId) {
-          existingCustomerSource = "profiles";
-        }
-      }
-    } catch (error) {
-      logWarn("legacy_profile_lookup_exception", {
-        userId: user.id,
-        priceId,
-        catalogKind: catalogPrice.kind,
-        storageLevel,
-        ...describeError(error),
-      });
-    }
   }
 
   logStage("stripe_customer_resolved", {
@@ -399,6 +353,24 @@ serve(async (req) => {
     }
   }
 
+  const { error: environmentIdentifierWriteError } = await tongsRpc.rpc(
+    "record_stripe_customer_environment_identifier",
+    {
+      p_user_id: user.id,
+      p_financial_environment: financialEnvironment,
+      p_stripe_customer_id: stripeCustomerId,
+      p_evidence_json: { source: "checkout_runtime" },
+    },
+  );
+  if (environmentIdentifierWriteError) {
+    return errorResponse(500, {
+      code: "STRIPE_CUSTOMER_ENVIRONMENT_WRITE_FAILED",
+      stage: "financial_environment_customer_write",
+      message: environmentIdentifierWriteError.message ?? "Failed to record environment-scoped Stripe customer.",
+      details: { userId: user.id, financialEnvironment },
+    });
+  }
+
   try {
     const { error: profileWriteError } = await supabaseAdmin
       .from("profiles")
@@ -464,6 +436,7 @@ serve(async (req) => {
   let price: Stripe.Price;
   try {
     price = await stripe.prices.retrieve(priceId);
+    assertStripeModeMatchesEnvironment(financialEnvironment, price.livemode);
   } catch (error) {
     const described = describeError(error);
     return errorResponse(500, {

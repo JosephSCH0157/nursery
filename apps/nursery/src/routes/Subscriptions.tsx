@@ -25,6 +25,7 @@ type AiPackKey = "base" | "mid" | "high";
 type PlanKey = "creator" | "pro" | "studio";
 type PlanInterval = "monthly" | "quarterly";
 type StorageLevel = keyof typeof STRIPE_CATALOG.storage;
+type FinancialEnvironment = "test" | "live";
 
 type PlanChoice = {
   key: PlanKey;
@@ -60,35 +61,14 @@ type AiCreditsSnapshot = {
   tokenBalance: number | null;
 };
 
-type TestBillingDeposit = {
+type CustomerFundingDeposit = {
   deposit_id: string;
+  financial_environment: FinancialEnvironment;
   pack_id: string;
   currency: string;
   gross_amount_micros: number;
   credit_units: number;
   received_at: string;
-  label: "Stripe Test";
-};
-
-type TestBillingReceipt = {
-  operation_id: string;
-  route_code?: string;
-  customer_charge_micros: number;
-  outcome: string;
-  failure_class?: string | null;
-  certification?: boolean;
-  settled_at: string;
-  execution_kind: "simulated_test";
-};
-
-type TestBillingSnapshot = {
-  contract_version: "forge.customer-test-billing.v1";
-  stripe_mode: "test";
-  test_credit_balance: number;
-  live_provider_eligible: false;
-  live_revenue: false;
-  deposits: TestBillingDeposit[];
-  receipts: TestBillingReceipt[];
 };
 
 type CustomerFundingBucket = {
@@ -102,22 +82,32 @@ type CustomerFundingBucket = {
   deposit_count?: number;
   available_revenue_micros?: number;
   available_entitlement_units?: number;
-  live_provider_eligible: boolean;
+  provider_execution_eligible: boolean;
   reason?: string;
 };
 
+type CustomerFundingEnvironmentSummary = {
+  purchased: CustomerFundingBucket & {
+    pending_fee_deposit_count?: number;
+    pending_fee_micros?: number;
+  };
+  allowances: CustomerFundingBucket & {
+    available_wholesale_micros?: number;
+  };
+};
+
 type CustomerFundingSnapshot = {
-  contract_version: "forge.customer-funding.v1";
-  live_verified_purchases: CustomerFundingBucket;
-  live_pending_fee_evidence: CustomerFundingBucket;
-  paid_allowances: CustomerFundingBucket;
-  test_funding: CustomerFundingBucket;
+  contract_version: "forge.customer-funding.v2";
+  active_environment: FinancialEnvironment;
+  environments: Record<FinancialEnvironment, CustomerFundingEnvironmentSummary>;
+  active_spendable: CustomerFundingEnvironmentSummary;
   legacy_unverified: CustomerFundingBucket;
   active_reservations: {
     reservation_count: number;
     reserved_customer_charge_micros: number;
     reserved_credit_units: number;
   };
+  deposits: CustomerFundingDeposit[];
 };
 
 type ForgeProfile = {
@@ -776,12 +766,6 @@ async function fetchAiCreditsSnapshot(): Promise<AiCreditsSnapshot> {
   };
 }
 
-async function fetchTestBillingSnapshot(userId: string): Promise<TestBillingSnapshot> {
-  const { data, error } = await tongsBillingDb.rpc("read_customer_test_billing", { p_user_id: userId });
-  if (error) throw new Error(error.message || "Failed to load Stripe Test funding.");
-  return data as TestBillingSnapshot;
-}
-
 async function fetchCustomerFundingSnapshot(): Promise<CustomerFundingSnapshot> {
   const { data, error } = await tongsBillingDb.rpc("read_my_customer_funding");
   if (error) throw new Error(error.message || "Failed to load eligible customer funding.");
@@ -897,9 +881,6 @@ export default function SubscriptionsRoute() {
   const [aiSnapshot, setAiSnapshot] = useState<AiCreditsSnapshot | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [testBilling, setTestBilling] = useState<TestBillingSnapshot | null>(null);
-  const [testBillingLoading, setTestBillingLoading] = useState(false);
-  const [testBillingError, setTestBillingError] = useState<string | null>(null);
   const [customerFunding, setCustomerFunding] = useState<CustomerFundingSnapshot | null>(null);
   const [customerFundingLoading, setCustomerFundingLoading] = useState(false);
   const [customerFundingError, setCustomerFundingError] = useState<string | null>(null);
@@ -956,25 +937,6 @@ export default function SubscriptionsRoute() {
     }
   }, [user]);
 
-  const refreshTestBilling = useCallback(async () => {
-    if (!user) {
-      setTestBilling(null);
-      setTestBillingError(null);
-      setTestBillingLoading(false);
-      return;
-    }
-    setTestBillingLoading(true);
-    try {
-      setTestBilling(await fetchTestBillingSnapshot(user.id));
-      setTestBillingError(null);
-    } catch (error) {
-      setTestBilling(null);
-      setTestBillingError(error instanceof Error ? error.message : "Failed to load Stripe Test funding.");
-    } finally {
-      setTestBillingLoading(false);
-    }
-  }, [user]);
-
   const refreshCustomerFunding = useCallback(async () => {
     if (!user) {
       setCustomerFunding(null);
@@ -1018,9 +980,6 @@ export default function SubscriptionsRoute() {
       setAiSnapshot(null);
       setAiError(null);
       setAiLoading(false);
-      setTestBilling(null);
-      setTestBillingError(null);
-      setTestBillingLoading(false);
       setCustomerFunding(null);
       setCustomerFundingError(null);
       setCustomerFundingLoading(false);
@@ -1050,13 +1009,12 @@ export default function SubscriptionsRoute() {
 
     void refreshAccountOverview();
     void refreshAiCredits();
-    void refreshTestBilling();
     void refreshCustomerFunding();
 
     return () => {
       cancelled = true;
     };
-  }, [refreshAccountOverview, refreshAiCredits, refreshCustomerFunding, refreshTestBilling, user]);
+  }, [refreshAccountOverview, refreshAiCredits, refreshCustomerFunding, user]);
 
   useEffect(() => {
     if (checkoutStatus !== "success") return;
@@ -1065,11 +1023,10 @@ export default function SubscriptionsRoute() {
     const timers = [2500, 5000, 10000, 20000].map((delay) => window.setTimeout(() => {
       void refreshAccountOverview();
       void refreshAiCredits();
-      void refreshTestBilling();
       void refreshCustomerFunding();
     }, delay));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [checkoutStatus, refreshAccountOverview, refreshAiCredits, refreshCustomerFunding, refreshTestBilling]);
+  }, [checkoutStatus, refreshAccountOverview, refreshAiCredits, refreshCustomerFunding]);
 
   useEffect(() => {
     if (profileEditOpen) return;
@@ -1124,7 +1081,6 @@ export default function SubscriptionsRoute() {
     choice.key === (accountOverview?.planItemId ?? "")
     && choice.interval === (accountOverview?.planInterval === "quarterly" ? "quarterly" : "monthly")
   );
-  const aiBalance = accountOverview?.aiCreditBalance ?? aiSnapshot?.tokenBalance ?? null;
   const avatarUrl = buildAvatarUrl(user);
   const avatarInitials = buildInitials(displayName, user?.email);
   const aiAccessEligible = Boolean(accountOverview?.planEntitled || founderAccessLabel);
@@ -1737,10 +1693,10 @@ export default function SubscriptionsRoute() {
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
                 <div>
-                  <dt>Verified Live purchased funds</dt>
+                  <dt>Active {customerFunding?.active_environment === "live" ? "Live" : "Test"} purchased funds</dt>
                   <dd>{customerFundingLoading
                     ? "Loading..."
-                    : `${formatCurrencyMicros(customerFunding?.live_verified_purchases.available_micros)} · ${formatTokenBalance(customerFunding?.live_verified_purchases.available_credit_units ?? 0)} credits available`}</dd>
+                    : `${formatCurrencyMicros(customerFunding?.active_spendable.purchased.available_micros)} · ${formatTokenBalance(customerFunding?.active_spendable.purchased.available_credit_units ?? 0)} credits available`}</dd>
                 </div>
                 <div>
                   <dt>Currently reserved</dt>
@@ -1749,14 +1705,14 @@ export default function SubscriptionsRoute() {
                     : `${formatCurrencyMicros(customerFunding?.active_reservations.reserved_customer_charge_micros)} · ${formatTokenBalance(customerFunding?.active_reservations.reserved_credit_units ?? 0)} credits`}</dd>
                 </div>
                 <div>
-                  <dt>Paid-plan allowance</dt>
+                  <dt>Active-environment paid-plan allowance</dt>
                   <dd>{customerFundingLoading
                     ? "Loading..."
-                    : `${formatCurrencyMicros(customerFunding?.paid_allowances.available_revenue_micros)} · ${formatTokenBalance(customerFunding?.paid_allowances.available_entitlement_units ?? 0)} units available`}</dd>
+                    : `${formatCurrencyMicros(customerFunding?.active_spendable.allowances.available_revenue_micros)} · ${formatTokenBalance(customerFunding?.active_spendable.allowances.available_entitlement_units ?? 0)} units available`}</dd>
                 </div>
                 <div>
-                  <dt>Legacy display balance</dt>
-                  <dd>{aiLoading ? "Loading..." : `${formatTokenBalance(aiBalance)} credits · not eligible for the shared Live spending gate`}</dd>
+                  <dt>Legacy historical balance</dt>
+                  <dd>{customerFundingLoading ? "Loading..." : `${formatTokenBalance(customerFunding?.legacy_unverified.credit_units ?? 0)} credits · non-spendable`}</dd>
                 </div>
                 <div>
                   <dt>Billing mode</dt>
@@ -1765,11 +1721,11 @@ export default function SubscriptionsRoute() {
               </dl>
 
               <p className="subscriptions-status subscriptions-status--info">
-                A completed Live AI Credit purchase becomes eligible only after its signed Stripe webhook and processor-fee evidence are recorded. Published pricing and route enforcement are separate controls. Test receipts and legacy compatibility credits cannot fund a real provider call.
+                Test and Live purchases use the same financial workflow. Only verified funding from the active environment is spendable; the other environment and legacy history remain separate. Published pricing and route authorization are independent controls.
               </p>
-              {(customerFunding?.live_pending_fee_evidence.deposit_count ?? 0) > 0 ? (
+              {(customerFunding?.active_spendable.purchased.pending_fee_deposit_count ?? 0) > 0 ? (
                 <p className="subscriptions-status subscriptions-status--info" role="status">
-                  {customerFunding?.live_pending_fee_evidence.deposit_count} Live purchase(s), totaling {formatCurrencyMicros(customerFunding?.live_pending_fee_evidence.gross_amount_micros)}, are recorded but not spendable while Stripe fee evidence is pending.
+                  {customerFunding?.active_spendable.purchased.pending_fee_deposit_count} active-environment purchase(s), totaling {formatCurrencyMicros(customerFunding?.active_spendable.purchased.pending_fee_micros)}, are recorded but not spendable while Stripe fee evidence is pending.
                 </p>
               ) : null}
               {customerFundingError ? (
@@ -1777,22 +1733,21 @@ export default function SubscriptionsRoute() {
                   Eligible funding is unavailable: {customerFundingError}
                 </p>
               ) : null}
-              <section aria-label="Stripe Test funding" className="subscriptions-status subscriptions-status--info">
-                <strong>Stripe Test funding</strong>
-                <p>
-                  {testBillingLoading
-                    ? "Loading Test activity..."
-                    : `${formatTokenBalance(testBilling?.test_credit_balance ?? 0)} Test credits · never eligible for a real provider call or Live revenue.`}
-                </p>
-                {testBillingError ? <p>Test activity unavailable: {testBillingError}</p> : null}
-                {testBilling?.deposits.map((deposit) => (
+              <section aria-label="Financial environment balances" className="subscriptions-status subscriptions-status--info">
+                <strong>Environment-separated funding</strong>
+                {(["test", "live"] as const).map((environment) => {
+                  const summary = customerFunding?.environments[environment];
+                  const active = customerFunding?.active_environment === environment;
+                  return (
+                    <p key={environment}>
+                      <strong>{environment === "live" ? "Live" : "Test"}{active ? " · active" : " · inactive"}</strong>
+                      {` · ${formatCurrencyMicros(summary?.purchased.available_micros)} · ${formatTokenBalance(summary?.purchased.available_credit_units ?? 0)} purchased credits · ${formatTokenBalance(summary?.allowances.available_entitlement_units ?? 0)} allowance units`}
+                    </p>
+                  );
+                })}
+                {customerFunding?.deposits.map((deposit) => (
                   <p key={deposit.deposit_id}>
-                    <strong>Test</strong> · {deposit.pack_id.replaceAll("_", " ")} · {formatTokenBalance(deposit.credit_units)} credits · {new Intl.NumberFormat("en-US", { style: "currency", currency: deposit.currency }).format(deposit.gross_amount_micros / 1_000_000)} · {new Date(deposit.received_at).toLocaleString()}
-                  </p>
-                ))}
-                {testBilling?.receipts.map((receipt) => (
-                  <p key={receipt.operation_id}>
-                    <strong>Test</strong> · {receipt.route_code ? receipt.route_code.replaceAll("_", " ") : "simulated operation"} · {receipt.outcome.replaceAll("_", " ")} · {(receipt.customer_charge_micros / 1_000_000).toLocaleString("en-US", { style: "currency", currency: "USD" })}{receipt.failure_class ? ` · ${receipt.failure_class.replaceAll("_", " ")}` : ""}
+                    <strong>{deposit.financial_environment === "live" ? "Live" : "Test"}</strong> · {deposit.pack_id.replaceAll("_", " ")} · {formatTokenBalance(deposit.credit_units)} credits · {new Intl.NumberFormat("en-US", { style: "currency", currency: deposit.currency }).format(deposit.gross_amount_micros / 1_000_000)} · {new Date(deposit.received_at).toLocaleString()}
                   </p>
                 ))}
               </section>

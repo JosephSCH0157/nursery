@@ -26,7 +26,7 @@ test("Hearth uses the customer-safe quote acceptance contract without browser co
   assert.doesNotMatch(hook, /window\.confirm/);
   assert.match(panel, /Normal maximum charge/);
   assert.match(panel, /Billable-failure maximum/);
-  assert.match(panel, /Test and legacy credits cannot be used/);
+  assert.match(panel, /Only funding from the active financial environment can be used/);
   assert.match(panel, /A pending receipt is not a confirmed charge/);
 });
 
@@ -53,17 +53,20 @@ test("Stripe fee evidence is finalized before a Live compatibility grant can be 
   assert.match(webhook, /Test deposit processor fee remains pending/);
 });
 
-test("Stripe Test deposits and simulated receipts are visibly isolated from Live funding", () => {
+test("Test and Live funding are displayed separately while using one canonical financial path", () => {
   const subscriptions = read("apps/nursery/src/routes/Subscriptions.tsx");
   const ledger = read("apps/nursery/src/routes/Ledger.tsx");
-  const migration = read("supabase/migrations/20260924120000_tongs_test_customer_paid_execution.sql");
-  assert.match(subscriptions, /Stripe Test funding/);
-  assert.match(subscriptions, /never eligible for a real provider call or Live revenue/);
+  const migration = read("supabase/migrations/20261011140000_tongs_unified_financial_environment.sql");
+  assert.match(subscriptions, /Environment-separated funding/);
+  assert.match(subscriptions, /Test and Live purchases use the same financial workflow/);
+  assert.match(subscriptions, /active_spendable/);
+  assert.match(subscriptions, /legacy historical balance/i);
   assert.match(ledger, /AI credits/);
-  assert.match(migration, /execution_kind text not null check \(execution_kind = 'simulated_test'\)/);
-  assert.match(migration, /real_provider_authorized',false/);
-  assert.match(migration, /test_ai_consumption_revenue/);
-  assert.doesNotMatch(migration, /insert into tongs\.customer_deposit_consumptions/);
+  assert.match(migration, /forge\.customer-financial-path\.v2/);
+  assert.match(migration, /forge\.customer-funding\.v2/);
+  assert.match(migration, /provider_execution_eligible/);
+  assert.match(migration, /insert into tongs\.customer_deposit_consumptions/);
+  assert.match(migration, /revoke all on function %s from public, anon, authenticated, service_role/);
 });
 
 test("the migration adds no operator identity, markup value, budget, or control activation", () => {
