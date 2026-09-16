@@ -429,6 +429,48 @@ function stageType(url: string): "search" | "retrieval" {
   return new URL(url).hostname.toLowerCase() === "api.search.brave.com" ? "search" : "retrieval";
 }
 
+export type CustomerHearthResearchCaptureBudgetState = {
+  retainedBytes: number;
+  remainingBytes: number;
+  maximumBytes: number;
+  maximumCaptureBytes: number;
+  canAdmitMaximumCapture: boolean;
+};
+
+const CUSTOMER_RESEARCH_CAPTURE_BUDGET_STATE = Symbol("forge.customer-research-capture-budget-state");
+
+type CustomerResearchBudgetedFetch = typeof fetch & {
+  [CUSTOMER_RESEARCH_CAPTURE_BUDGET_STATE]?: () => CustomerHearthResearchCaptureBudgetState;
+};
+
+export function readCustomerHearthResearchCaptureBudgetState(
+  fetchImpl: typeof fetch,
+): CustomerHearthResearchCaptureBudgetState | null {
+  return (fetchImpl as CustomerResearchBudgetedFetch)[CUSTOMER_RESEARCH_CAPTURE_BUDGET_STATE]?.() ?? null;
+}
+
+function aggregateCaptureBudgetMarker(args: {
+  retainedBytes: number;
+  supplierCallSkipped: boolean;
+  observedBytesAtLeast?: number;
+}): JsonRow {
+  return {
+    status: 200,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+    body_base64: "",
+    response_bytes: 0,
+    capture_outcome: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
+    retained_bytes: 0,
+    aggregate_retained_bytes: args.retainedBytes,
+    aggregate_remaining_bytes: Math.max(0, OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES - args.retainedBytes),
+    aggregate_maximum_bytes: OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
+    supplier_call_skipped: args.supplierCallSkipped,
+    ...(args.observedBytesAtLeast === undefined
+      ? {}
+      : { source_observed_bytes_at_least: args.observedBytesAtLeast }),
+  };
+}
+
 function capturedResponse(capture: JsonRow): Response | null {
   if (capture.capture_outcome === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED) {
     return new Response(null, {
@@ -512,13 +554,13 @@ function createBoundedHearthResearchFetch(args: {
     unknown: string;
   };
   truncateOversizedCapture?: boolean;
-  aggregateCaptureBudgetAsEvidenceLimitation?: boolean;
+  customerCaptureBudgetPolicy?: boolean;
   fetchImpl?: typeof fetch;
 }): typeof fetch {
   let attemptOrdinal = 0;
   let searchCount = 0;
   let capturedBytes = 0;
-  return async (input, init) => {
+  const boundedFetch: CustomerResearchBudgetedFetch = async (input, init) => {
     const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
     const kind = stageType(url);
     attemptOrdinal += 1;
@@ -528,10 +570,11 @@ function createBoundedHearthResearchFetch(args: {
     const method = String(init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const stageKey = `${args.handle.operationId}:${attemptOrdinal}:${sha256Canonical({ method, url })}`;
     const aggregateRemainingBytes = Math.max(0, OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES - capturedBytes);
-    if (args.aggregateCaptureBudgetAsEvidenceLimitation === true
-      && kind === "retrieval"
-      && aggregateRemainingBytes === 0) {
-      return capturedResponse({ capture_outcome: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED })!;
+    if (args.customerCaptureBudgetPolicy === true && aggregateRemainingBytes === 0) {
+      return capturedResponse(aggregateCaptureBudgetMarker({
+        retainedBytes: capturedBytes,
+        supplierCallSkipped: true,
+      }))!;
     }
     const begun = await rpc(args.gate, args.rpcNames.begin, {
       p_reservation_id: args.handle.reservationId,
@@ -569,7 +612,7 @@ function createBoundedHearthResearchFetch(args: {
     let bytes: Uint8Array;
     let bodyTruncated = false;
     try {
-      const maximumCaptureBytes = args.aggregateCaptureBudgetAsEvidenceLimitation === true && kind === "retrieval"
+      const maximumCaptureBytes = args.customerCaptureBudgetPolicy === true
         ? Math.min(OWNER_RESEARCH_MAX_CAPTURE_BYTES, aggregateRemainingBytes)
         : OWNER_RESEARCH_MAX_CAPTURE_BYTES;
       const captured = await readCaptureBytes(
@@ -579,25 +622,18 @@ function createBoundedHearthResearchFetch(args: {
       );
       bytes = captured.bytes;
       bodyTruncated = captured.truncated;
-      if (args.aggregateCaptureBudgetAsEvidenceLimitation === true
-        && kind === "retrieval"
+      if (args.customerCaptureBudgetPolicy === true
         && bodyTruncated
         && maximumCaptureBytes < OWNER_RESEARCH_MAX_CAPTURE_BYTES) {
-        const capture = {
-          status: response.status,
-          headers: responseHeaders(response),
-          body_base64: "",
-          response_bytes: 0,
-          capture_outcome: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
-          retained_bytes: 0,
-          aggregate_retained_bytes: capturedBytes,
-          aggregate_maximum_bytes: OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
-          source_observed_bytes_at_least: maximumCaptureBytes + 1,
-        };
+        const capture = aggregateCaptureBudgetMarker({
+          retainedBytes: capturedBytes,
+          supplierCallSkipped: false,
+          observedBytesAtLeast: maximumCaptureBytes + 1,
+        });
         await rpc(args.gate, args.rpcNames.complete, {
           p_reservation_id: args.handle.reservationId,
           p_stage_key: stageKey,
-          p_actual_supplier_cost_micros: 0,
+          p_actual_supplier_cost_micros: kind === "search" ? OWNER_RESEARCH_SEARCH_REQUEST_MICROS : 0,
           p_capture_json: capture,
         });
         void response.body?.cancel(CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED).catch(() => undefined);
@@ -643,6 +679,21 @@ function createBoundedHearthResearchFetch(args: {
     });
     return response;
   };
+  if (args.customerCaptureBudgetPolicy === true) {
+    Object.defineProperty(boundedFetch, CUSTOMER_RESEARCH_CAPTURE_BUDGET_STATE, {
+      value: (): CustomerHearthResearchCaptureBudgetState => {
+        const remainingBytes = Math.max(0, OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES - capturedBytes);
+        return {
+          retainedBytes: capturedBytes,
+          remainingBytes,
+          maximumBytes: OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
+          maximumCaptureBytes: OWNER_RESEARCH_MAX_CAPTURE_BYTES,
+          canAdmitMaximumCapture: remainingBytes >= OWNER_RESEARCH_MAX_CAPTURE_BYTES,
+        };
+      },
+    });
+  }
+  return boundedFetch;
 }
 
 export function createOwnerHearthResearchFetch(args: {
@@ -673,7 +724,7 @@ export function createCustomerHearthResearchFetch(args: {
   return createBoundedHearthResearchFetch({
     ...args,
     truncateOversizedCapture: true,
-    aggregateCaptureBudgetAsEvidenceLimitation: true,
+    customerCaptureBudgetPolicy: true,
     rpcNames: {
       begin: "begin_customer_hearth_research_stage",
       complete: "complete_customer_hearth_research_stage",

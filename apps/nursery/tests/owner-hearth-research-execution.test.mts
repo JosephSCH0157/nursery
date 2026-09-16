@@ -19,6 +19,7 @@ import {
   freezeOwnerHearthResearchSynthesis,
   ownerHearthResearchExecutionGate,
   ownerResearchCostCeiling,
+  readCustomerHearthResearchCaptureBudgetState,
 } from "../server/hearth/owner-hearth-research-execution";
 import { readCustomerSpendingQuote } from "../../../packages/tongs/src/customer-spending-confirmation";
 import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
@@ -301,6 +302,198 @@ test("standard customer aggregate exhaustion skips only the over-budget source a
   const replayLimited = await replayFetch(urls[4]);
   assert.equal(replayLimited.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER), CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED);
   assert.equal(supplierCalls, 5);
+});
+
+test("operation-wide aggregate policy bounds a search response after retrieval captures and replays it", async () => {
+  const retainedBody = new Uint8Array(245 * 1024).fill(65);
+  const oversizedSearchBody = new Uint8Array(70 * 1024).fill(66);
+  const captures = new Map<string, Record<string, unknown>>();
+  let replay = false;
+  let supplierCalls = 0;
+  const mocked = mockGate(({ name, args }) => {
+    const stageKey = String(args.p_stage_key ?? "");
+    if (name === "begin_customer_hearth_research_stage") {
+      return replay
+        ? { replay: true, event_type: "captured", capture: captures.get(stageKey) ?? null }
+        : { replay: false, authorized: true };
+    }
+    if (name === "complete_customer_hearth_research_stage") {
+      captures.set(stageKey, args.p_capture_json as Record<string, unknown>);
+    }
+    return { replay: false };
+  });
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    supplierCalls += 1;
+    return new Response(String(input).includes("api.search.brave.com") ? oversizedSearchBody : retainedBody, {
+      status: 200,
+      headers: { "content-type": String(input).includes("api.search.brave.com") ? "application/json" : "text/html" },
+    });
+  };
+  const retrievalUrls = Array.from({ length: 4 }, (_, index) => `https://example.test/source-${index + 1}`);
+  const searchUrl = "https://api.search.brave.com/res/v1/web/search?q=refinement";
+  const boundedFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl,
+  });
+  for (const url of retrievalUrls) await (await boundedFetch(url)).arrayBuffer();
+  const beforeSearch = readCustomerHearthResearchCaptureBudgetState(boundedFetch);
+  assert.equal(beforeSearch?.retainedBytes, 4 * retainedBody.byteLength);
+  assert.equal(beforeSearch?.canAdmitMaximumCapture, false);
+
+  const limitedSearch = await boundedFetch(searchUrl);
+  assert.equal(limitedSearch.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER), CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED);
+  assert.equal(supplierCalls, 5);
+  const aggregateCapture = Array.from(captures.values()).find((capture) => (
+    capture.capture_outcome === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED
+  ));
+  assert.equal(aggregateCapture?.supplier_call_skipped, false);
+  assert.equal(aggregateCapture?.aggregate_retained_bytes, 4 * retainedBody.byteLength);
+  assert.equal(aggregateCapture?.response_bytes, 0);
+  assert.ok(Array.from(captures.values()).reduce((total, capture) => (
+    total + Number(capture.response_bytes ?? 0)
+  ), 0) <= OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES);
+  const searchCompletion = mocked.calls.find((call) => (
+    call.name === "complete_customer_hearth_research_stage"
+    && String(call.args.p_stage_key).includes(":5:")
+  ));
+  assert.equal(searchCompletion?.args.p_actual_supplier_cost_micros, 5_000);
+
+  replay = true;
+  const replayFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl,
+  });
+  for (const url of retrievalUrls) await (await replayFetch(url)).arrayBuffer();
+  const replayLimitedSearch = await replayFetch(searchUrl);
+  assert.equal(replayLimitedSearch.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER), CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED);
+  assert.equal(supplierCalls, 5);
+});
+
+test("runtime skips optional refinement before Brave when retained evidence leaves less than one bounded capture", async () => {
+  const captures = new Map<string, Record<string, unknown>>();
+  let replay = false;
+  let supplierCalls = 0;
+  const mocked = mockGate(({ name, args }) => {
+    const stageKey = String(args.p_stage_key ?? "");
+    if (name === "begin_customer_hearth_research_stage") {
+      return replay
+        ? { replay: true, event_type: "captured", capture: captures.get(stageKey) ?? null }
+        : { replay: false, authorized: true };
+    }
+    if (name === "complete_customer_hearth_research_stage") {
+      captures.set(stageKey, args.p_capture_json as Record<string, unknown>);
+    }
+    return { replay: false };
+  });
+  const searchBody = JSON.stringify({ web: { results: Array.from({ length: 4 }, (_, index) => ({
+    title: `Current energy source ${index + 1}`,
+    url: `https://energy.example.test/source-${index + 1}`,
+    description: "Current evidence about U.S. oil and gasoline supply.",
+  })) } });
+  const fetchImpl = async (input: RequestInfo | URL) => {
+    supplierCalls += 1;
+    if (String(input).includes("api.search.brave.com")) {
+      return new Response(searchBody, { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const sourceNumber = String(input).match(/source-(\d+)/)?.[1] ?? "0";
+    const articlePrefix = `<html><title>Current energy evidence ${sourceNumber}</title><article>Current inspected evidence ${sourceNumber} shows U.S. oil and gasoline supply pressure after a documented disruption.</article>`;
+    const articleBody = `${articlePrefix}${" ".repeat((240 * 1024) - articlePrefix.length)}</html>`;
+    return new Response(articleBody, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  const brief = {
+    schema: "forge.hearth.research-brief.v1" as const,
+    workspaceId: "00000000-0000-4000-8000-000000000010",
+    workpieceId: "00000000-0000-4000-8000-000000000020",
+    briefFingerprint: "e".repeat(64),
+    creatorRequest: "Verify current energy prices and quantify Venezuela's effect",
+    episodeTitle: "Current U.S. energy prices",
+    goals: ["Verify current energy supply evidence", "How much did Venezuela change U.S. prices?"],
+    queries: ["current U.S. energy prices"],
+    sourcePriorities: ["Primary records"],
+  };
+  const request = {
+    query: "current U.S. energy prices",
+    intent: "news" as const,
+    recencyPreference: "strict_recent" as const,
+    maxSources: 4,
+    requireDates: true,
+    requireFullExtraction: true,
+  };
+  const run = async () => {
+    const boundedFetch = createCustomerHearthResearchFetch({
+      gate: mocked.gate,
+      handle,
+      deadlineAt: Date.now() + 60_000,
+      plan: customerPlan,
+      fetchImpl,
+    });
+    const result = await createHearthResearchRuntime({ braveApiKey: "fake-brave-key" }).run({
+      request,
+      brief,
+      fetchImpl: boundedFetch,
+    });
+    return { result, budget: readCustomerHearthResearchCaptureBudgetState(boundedFetch) };
+  };
+
+  const first = await run();
+  assert.equal(supplierCalls, 5, "one search plus four retrievals; refinement must be skipped before Brave");
+  assert.equal(first.result.sources.filter((source) => source.extractionStatus === "extracted").length, 4);
+  assert.equal(hasSufficientCustomerResearchEvidence(first.result), true);
+  assert.equal(first.budget?.canAdmitMaximumCapture, false);
+  assert.ok((first.budget?.retainedBytes ?? 0) <= OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES);
+  assert.ok(first.result.synthesis.uncertainties.some((entry) => /aggregate evidence budget/i.test(entry)));
+  assert.match(first.result.synthesis.coverageNote, /optional refinement stopped/i);
+  assert.equal(first.result.synthesis.refinementQueries?.length ?? 0, 0);
+
+  replay = true;
+  const replayed = await run();
+  assert.equal(supplierCalls, 5);
+  assert.equal(replayed.result.sources.filter((source) => source.extractionStatus === "extracted").length, 4);
+  assert.equal(hasSufficientCustomerResearchEvidence(replayed.result), true);
+  assert.match(replayed.result.synthesis.coverageNote, /optional refinement stopped/i);
+});
+
+test("runtime treats aggregate exhaustion during search as a bounded no-results condition", async () => {
+  const runtime = createHearthResearchRuntime({ braveApiKey: "fake-brave-key" });
+  const brief = {
+    schema: "forge.hearth.research-brief.v1" as const,
+    workspaceId: "00000000-0000-4000-8000-000000000010",
+    workpieceId: "00000000-0000-4000-8000-000000000020",
+    briefFingerprint: "9".repeat(64),
+    creatorRequest: "Verify current energy prices",
+    episodeTitle: "Energy prices",
+    goals: ["Verify current energy prices"],
+    queries: ["current energy prices"],
+    sourcePriorities: ["Primary records"],
+  };
+  const result = await runtime.run({
+    request: {
+      query: "current energy prices",
+      intent: "news",
+      recencyPreference: "strict_recent",
+      maxSources: 2,
+      requireDates: true,
+      requireFullExtraction: true,
+    },
+    brief,
+    fetchImpl: async () => new Response(null, {
+      status: 200,
+      headers: {
+        "content-type": "text/plain",
+        [CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER]: CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
+      },
+    }),
+  });
+  assert.equal(result.runtimeStatus, "no_results");
+  assert.equal(result.providerStatus, "configured_and_operational");
+  assert.ok(result.synthesis.uncertainties.some((entry) => /aggregate evidence budget/i.test(entry)));
+  assert.equal(hasSufficientCustomerResearchEvidence(result), false);
 });
 
 test("owner research preserves fail-closed aggregate capture semantics", async () => {

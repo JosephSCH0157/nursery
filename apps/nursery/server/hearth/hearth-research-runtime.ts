@@ -18,6 +18,7 @@ import { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy
 import {
   CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED,
   CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER,
+  readCustomerHearthResearchCaptureBudgetState,
 } from "./owner-hearth-research-execution";
 export { classifyResearchSourceAuthority } from "./hearth-source-evidence-policy";
 
@@ -768,7 +769,7 @@ async function searchWithBrave(args: {
   request: HearthResearchRequest;
   signal?: AbortSignal;
   fetchImpl: typeof fetch;
-}): Promise<BraveSearchResult[]> {
+}): Promise<{ results: BraveSearchResult[]; aggregateCaptureBudgetExhausted: boolean }> {
   const count = Math.max(3, Math.min(12, args.request.maxSources + 2));
   const url = `${BRAVE_SEARCH_URL}?q=${encodeURIComponent(args.request.query)}&count=${count}&result_filter=web`;
   const response = await args.fetchImpl(url, {
@@ -780,6 +781,10 @@ async function searchWithBrave(args: {
     },
     signal: args.signal,
   });
+  if (response.headers.get(CUSTOMER_RESEARCH_EVIDENCE_LIMITATION_HEADER)
+    === CUSTOMER_RESEARCH_AGGREGATE_CAPTURE_BUDGET_EXHAUSTED) {
+    return { results: [], aggregateCaptureBudgetExhausted: true };
+  }
   if (!response.ok) {
     throw new BraveSearchError(response.status);
   }
@@ -810,7 +815,7 @@ async function searchWithBrave(args: {
     deduped.push(result);
     if (deduped.length >= args.request.maxSources) break;
   }
-  return deduped;
+  return { results: deduped, aggregateCaptureBudgetExhausted: false };
 }
 
 async function fetchReadableSource(args: {
@@ -1380,6 +1385,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
 
       const candidates: BraveSearchResult[] = [];
       let providerError: unknown = null;
+      let aggregateCaptureBudgetExhausted = false;
       try {
         const queries = Array.from(new Set([args.request.query, ...args.brief.queries]
           .map((query) => compactWhitespace(query))
@@ -1387,13 +1393,17 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           .slice(0, 3);
         for (const query of queries) {
           if (args.signal?.aborted) break;
-          const queryCandidates = await searchWithBrave({
+          const searchOutcome = await searchWithBrave({
             apiKey: braveApiKey,
             request: { ...args.request, query, maxSources: args.request.maxSources },
             signal: args.signal,
             fetchImpl: args.fetchImpl ?? fetch,
           });
-          candidates.push(...queryCandidates);
+          candidates.push(...searchOutcome.results);
+          if (searchOutcome.aggregateCaptureBudgetExhausted) {
+            aggregateCaptureBudgetExhausted = true;
+            break;
+          }
           if (candidates.length >= args.request.maxSources * 2) break;
         }
       } catch (error) {
@@ -1442,8 +1452,12 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           synthesis: {
             summary: `No strong retrieval results were found for "${args.request.query}".`,
             keyPoints: ["Try broadening keywords or reducing recency constraints."],
-            uncertainties: ["Search provider returned no web candidates for this query."],
-            coverageNote: "No candidate sources returned by the search provider.",
+            uncertainties: [aggregateCaptureBudgetExhausted
+              ? "The bounded aggregate evidence budget was exhausted before another search result could be retained."
+              : "Search provider returned no web candidates for this query."],
+            coverageNote: aggregateCaptureBudgetExhausted
+              ? "No candidate sources were retained before the aggregate evidence budget was exhausted."
+              : "No candidate sources returned by the search provider.",
           },
         });
       }
@@ -1483,20 +1497,41 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         })
         .slice(0, 3);
       const refinementSources: HearthResearchSource[] = [];
+      const attemptedRefinementQueries: string[] = [];
+      let refinementSkippedForCaptureBudget = false;
       const knownUrls = new Set(uniqueSources.map((source) => canonicalizeResearchUrl(source.canonicalUrl || source.resolvedUrl || source.url)));
 
       for (let index = 0; index < refinementQueries.length; index += 1) {
         if (args.signal?.aborted) break;
+        const searchBudget = readCustomerHearthResearchCaptureBudgetState(args.fetchImpl ?? fetch);
+        if (searchBudget && !searchBudget.canAdmitMaximumCapture) {
+          aggregateCaptureBudgetExhausted = true;
+          refinementSkippedForCaptureBudget = true;
+          break;
+        }
         try {
-          const refinementCandidates = await searchWithBrave({
+          const refinementQuery = refinementQueries[index];
+          attemptedRefinementQueries.push(refinementQuery);
+          const refinementOutcome = await searchWithBrave({
             apiKey: braveApiKey,
-            request: { ...args.request, query: refinementQueries[index], maxSources: Math.min(args.request.maxSources, 3) },
+            request: { ...args.request, query: refinementQuery, maxSources: Math.min(args.request.maxSources, 3) },
             signal: args.signal,
             fetchImpl: args.fetchImpl ?? fetch,
           });
-          const candidate = refinementCandidates.find((item) => !knownUrls.has(canonicalizeResearchUrl(item.url)));
+          if (refinementOutcome.aggregateCaptureBudgetExhausted) {
+            aggregateCaptureBudgetExhausted = true;
+            refinementSkippedForCaptureBudget = true;
+            break;
+          }
+          const candidate = refinementOutcome.results.find((item) => !knownUrls.has(canonicalizeResearchUrl(item.url)));
           if (!candidate) continue;
           knownUrls.add(canonicalizeResearchUrl(candidate.url));
+          const retrievalBudget = readCustomerHearthResearchCaptureBudgetState(args.fetchImpl ?? fetch);
+          if (retrievalBudget && !retrievalBudget.canAdmitMaximumCapture) {
+            aggregateCaptureBudgetExhausted = true;
+            refinementSkippedForCaptureBudget = true;
+            break;
+          }
           refinementSources.push(await inspectResearchCandidate({
             candidate,
             sourceId: `refinement-${index + 1}`,
@@ -1518,8 +1553,8 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           ...refinementSources.filter((source) => source.extractionStatus !== "extracted"),
         ]).slice(0, args.request.maxSources);
       }
-      const effectiveBrief: HearthResearchBrief = refinementQueries.length > 0
-        ? { ...args.brief, queries: Array.from(new Set([...args.brief.queries, ...refinementQueries])) }
+      const effectiveBrief: HearthResearchBrief = attemptedRefinementQueries.length > 0
+        ? { ...args.brief, queries: Array.from(new Set([...args.brief.queries, ...attemptedRefinementQueries])) }
         : args.brief;
       const remainingGoals = effectiveBrief.goals.filter((goal) => !isResearchGoalCovered(effectiveBrief, goal, uniqueSources));
       const extractionSuccessCount = uniqueSources.filter((source) => source.extractionStatus === "extracted").length;
@@ -1536,9 +1571,16 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         extractionSuccessCount,
         extractionFailureCount,
       });
-      if (refinementQueries.length > 0) {
-        synthesis.coverageNote = `${synthesis.coverageNote} Bounded refinements attempted: ${refinementQueries.length}.`;
-        synthesis.refinementQueries = refinementQueries;
+      if (attemptedRefinementQueries.length > 0) {
+        synthesis.coverageNote = `${synthesis.coverageNote} Bounded refinements attempted: ${attemptedRefinementQueries.length}.`;
+        synthesis.refinementQueries = attemptedRefinementQueries;
+      }
+      if (refinementSkippedForCaptureBudget) {
+        synthesis.coverageNote = `${synthesis.coverageNote} Optional refinement stopped when the bounded aggregate evidence budget could not admit another capture.`;
+      }
+      if (aggregateCaptureBudgetExhausted
+        && !synthesis.uncertainties.some((entry) => /aggregate evidence budget/i.test(entry))) {
+        synthesis.uncertainties.push("Additional research was skipped because the bounded aggregate evidence budget was exhausted.");
       }
       if (remainingGoals.length > 0) {
         synthesis.uncertainties.push(`Unresolved explicit goals after bounded refinement: ${remainingGoals.join("; ")}.`);
