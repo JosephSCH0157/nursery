@@ -23,6 +23,7 @@
     "test:db:openai-cost-reconciliation": "node scripts/verify-aggregate-paid-execution-isolated.mjs",
     "test:db:openai-transcription": "node scripts/verify-openai-transcription-financial-coordination-isolated.mjs",
     "test:db:customer-funding": "node scripts/verify-customer-funding-flow-isolated.mjs",
+    "test:db:relief-corrections": "node scripts/verify-customer-operation-relief-corrections-isolated.mjs",
     "test:db:hearth-access-funding": "node scripts/verify-hearth-access-funding-isolated.mjs",
     "test:db:owner-hearth-research": "node scripts/verify-hearth-access-funding-isolated.mjs",
     "test:release:owner-hearth-research": "node scripts/test-owner-hearth-research-release-candidate.mjs",

@@ -78,3 +78,28 @@ test("the migration adds no operator identity, markup value, budget, or control 
   assert.match(migration, /platform operator required/);
   assert.match(migration, /insufficient verified funding/);
 });
+
+test("relief correction is append-only, operator-bound, idempotent, and balance-derived", () => {
+  const migration = read("supabase/migrations/20261011360000_customer_operation_relief_corrections.sql");
+  const evidenceRepair = read("supabase/migrations/20261011370000_customer_operation_relief_canonical_binding_evidence.sql");
+  assert.match(migration, /create table tongs\.customer_operation_relief_corrections/);
+  assert.match(migration, /trg_customer_operation_relief_corrections_append_only/);
+  assert.match(migration, /_reject_accounting_mutation/);
+  assert.match(migration, /_require_accounting_service_role/);
+  assert.match(migration, /is_platform_operator\(p_operator_user_id\)/);
+  assert.match(migration, /customer-operation relief correction replay conflict/);
+  assert.match(migration, /cumulative corrections cannot|v_prior_units\+p_corrected_credit_units/i);
+  assert.match(migration, /qualifying canonical paid result not found/);
+  assert.match(migration, /corrected_credit_units/);
+  assert.match(migration, /corrected_revenue_micros/);
+  assert.match(migration, /customer_operation_relief_corrected/);
+  assert.match(migration, /-p_corrected_revenue_micros/);
+  assert.match(migration, /-p_corrected_credit_units/);
+  assert.doesNotMatch(migration, /912313d9-94b4-5cbf-a05c-521627b13e4a/i);
+  assert.doesNotMatch(migration, /update\s+tongs\.customer_operation_reliefs/i);
+  assert.doesNotMatch(migration, /delete\s+from\s+tongs\.customer_operation_reliefs/i);
+  assert.doesNotMatch(migration, /insert\s+into\s+tongs\.customer_operation_relief_corrections[\s\S]*e0000000/i);
+  assert.match(evidenceRepair, /openai_text_funding_bindings/);
+  assert.match(evidenceRepair, /binding\.operation_id=v_result\.operation_id/);
+  assert.match(evidenceRepair, /binding\.credential_funding='forge'/);
+});
