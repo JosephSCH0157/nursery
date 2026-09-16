@@ -431,27 +431,49 @@ function capturedResponse(capture: JsonRow): Response | null {
   const status = Number(capture.status);
   if (!bodyBase64 || !Number.isInteger(status) || status < 100 || status > 599) return null;
   const headers = row(capture.headers);
-  return new Response(Buffer.from(bodyBase64, "base64"), {
+  const capturedBody = Buffer.from(bodyBase64, "base64");
+  // An oversized source is a definitive per-source extraction failure, not a
+  // failure of the entire paid research operation. Recreate one byte beyond
+  // the extraction ceiling on replay so the research runtime reaches the same
+  // bounded failure without contacting the source again.
+  const replayBody = capture.body_truncated === true
+    ? Buffer.concat([capturedBody, Buffer.from([0])])
+    : capturedBody;
+  return new Response(replayBody, {
     status,
     headers: Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string")),
   });
 }
 
-async function readCaptureBytes(response: Response): Promise<Uint8Array> {
-  if (!response.body) return new Uint8Array();
+async function readCaptureBytes(
+  response: Response,
+  truncateOversizedCapture: boolean,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  if (!response.body) return { bytes: new Uint8Array(), truncated: false };
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let truncated = false;
   try {
     while (true) {
       const next = await reader.read();
       if (next.done) break;
-      total += next.value.byteLength;
-      if (total > OWNER_RESEARCH_MAX_CAPTURE_BYTES) {
-        await reader.cancel("owner_research_capture_size_exceeded").catch(() => undefined);
-        throw new Error("owner_research_capture_size_exceeded");
+      const remaining = OWNER_RESEARCH_MAX_CAPTURE_BYTES - total;
+      if (next.value.byteLength > remaining) {
+        if (!truncateOversizedCapture) {
+          await reader.cancel("owner_research_capture_size_exceeded").catch(() => undefined);
+          throw new Error("owner_research_capture_size_exceeded");
+        }
+        if (remaining > 0) chunks.push(next.value.slice(0, remaining));
+        total += Math.max(remaining, 0);
+        truncated = true;
+        // A cloned stream can defer cancellation until the original branch is
+        // consumed. Do not block delivery of that original response here.
+        void reader.cancel("owner_research_capture_size_exceeded").catch(() => undefined);
+        break;
       }
       chunks.push(next.value);
+      total += next.value.byteLength;
     }
   } finally {
     reader.releaseLock();
@@ -462,7 +484,7 @@ async function readCaptureBytes(response: Response): Promise<Uint8Array> {
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return merged;
+  return { bytes: merged, truncated };
 }
 
 function createBoundedHearthResearchFetch(args: {
@@ -476,6 +498,7 @@ function createBoundedHearthResearchFetch(args: {
     fail: string;
     unknown: string;
   };
+  truncateOversizedCapture?: boolean;
   fetchImpl?: typeof fetch;
 }): typeof fetch {
   let attemptOrdinal = 0;
@@ -516,8 +539,11 @@ function createBoundedHearthResearchFetch(args: {
       throw new OwnerResearchSubmissionUnknownError(stageKey);
     }
     let bytes: Uint8Array;
+    let bodyTruncated = false;
     try {
-      bytes = await readCaptureBytes(response.clone());
+      const captured = await readCaptureBytes(response.clone(), args.truncateOversizedCapture === true);
+      bytes = captured.bytes;
+      bodyTruncated = captured.truncated;
       if (capturedBytes + bytes.byteLength > OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES) {
         throw new Error("owner_research_capture_total_size_exceeded");
       }
@@ -537,6 +563,7 @@ function createBoundedHearthResearchFetch(args: {
       headers: responseHeaders(response),
       body_base64: Buffer.from(bytes).toString("base64"),
       response_bytes: bytes.byteLength,
+      ...(bodyTruncated ? { body_truncated: true } : {}),
     };
     await rpc(args.gate, args.rpcNames.complete, {
       p_reservation_id: args.handle.reservationId,
@@ -575,6 +602,7 @@ export function createCustomerHearthResearchFetch(args: {
 }): typeof fetch {
   return createBoundedHearthResearchFetch({
     ...args,
+    truncateOversizedCapture: true,
     rpcNames: {
       begin: "begin_customer_hearth_research_stage",
       complete: "complete_customer_hearth_research_stage",

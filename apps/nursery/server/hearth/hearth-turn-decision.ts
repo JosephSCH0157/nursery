@@ -25,6 +25,8 @@ const EVERGREEN_RE = /\b(?:generally|in general|typically|usually|as a rule|ever
 const HISTORICAL_PERIOD_RE = /\b(?:19|20)\d{2}\b|\b(?:historically|history of|during the|in the past|previous century)\b/i;
 const CURRENT_TIME_RE = /\b(?:right now|currently|today|this (?:week|month|year)|recently|lately|at the moment|breaking|latest|current|ongoing|newly|record (?:high|low)s?)\b/i;
 const CURRENT_OBSERVATION_RE = /\b(?:why|how come)\s+(?:are|is)\s+(?:(?:we|people|creators?|companies|customers?|audiences?)\s+)?(?:seeing|experiencing|getting|reporting|noticing|facing)\b|\bwhat\s+(?:is|are)\s+(?:driving|causing|behind)\b/i;
+const GEOPOLITICAL_EVENT_RE = /\b(?:war|conflict|crisis)\s+(?:with|in|between|against|over)\b|\b(?:sanctions?|embargo|blockade|invasion|hostilities|ceasefire)\b/i;
+const EVENT_CAUSAL_QUESTION_RE = /\bhow\s+(?:has|have|did)\b[^.!?\n]{0,240}\b(?:affect(?:ed|ing)?|impact(?:ed|ing)?|influenc(?:e|ed|ing)|involved|shape(?:d|ing)?|change(?:d|ing)?|drive|driven|driving)\b/i;
 const CROSS_EPISODE_RE = /\b(?:other|another|previous|prior|earlier|last)\b[^.!?\n]{0,80}\b(?:episode|project|draft|script|conversation)\b|\b(?:episode|project|draft|script|conversation)\b[^.!?\n]{0,80}\b(?:other|another|previous|prior|earlier|last)\b|\b(?:workspace)\b[^.!?\n]{0,100}\b(?:compare|reference|use|pull|find|load|open)\b|\b(?:compare|reference|use|pull|find|load|open)\b[^.!?\n]{0,100}\bworkspace\b/i;
 const NEW_SCRIPT_RE = /\b(?:write|create|make|build|give me|draft)\b[^.!?\n]{0,80}\b(?:full )?script\b|\b(?:turn|shape|make)\b[^.!?\n]{0,40}\b(?:this|that|it)\b[^.!?\n]{0,30}\binto\b[^.!?\n]{0,20}\bscript\b/i;
 const DIRECT_SCRIPT_FIX_RE = /\b(?:fix|repair|polish|tighten)\b[^.!?\n]{0,50}\b(?:this|the|my|our)?\s*script\b/i;
@@ -123,6 +125,9 @@ export function resolveHearthTurnDecision(args: {
       } else if (URL_RE.test(creatorText) || RESEARCH_RE.test(creatorText)) {
         mode = "research";
         reasons.push("creator_requested_research");
+      } else if (GEOPOLITICAL_EVENT_RE.test(creatorText) && EVENT_CAUSAL_QUESTION_RE.test(creatorText)) {
+        mode = "research";
+        reasons.push("current_event_evidence_required");
       } else if (!HISTORICAL_PERIOD_RE.test(creatorText)
         && !EVERGREEN_RE.test(creatorText)
         && (CURRENT_TIME_RE.test(creatorText) || CURRENT_OBSERVATION_RE.test(creatorText))

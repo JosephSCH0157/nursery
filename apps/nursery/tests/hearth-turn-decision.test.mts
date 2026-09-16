@@ -59,6 +59,15 @@ test("current-evidence semantics route without punctuation while evergreen, hist
   assert.ok(declined.reasons.includes("creator_declined_research"));
 });
 
+test("causal questions about named geopolitical events require current evidence without magic keywords", () => {
+  const iranOil = decide("how has the war with Iran affected oil prices in the United States and how has the Venezuala situation been involved?");
+  assert.equal(iranOil.mode, "research");
+  assert.ok(iranOil.reasons.includes("current_event_evidence_required"));
+
+  assert.equal(decide("How has the conflict in Ukraine affected grain prices?").mode, "research");
+  assert.equal(decide("How could the war scene affect the script's opening?").mode, "conversation");
+});
+
 test("explicit UI actions are intent inputs but creator negation remains authoritative", () => {
   assert.equal(decide("Use these notes.", { kind: "generate_outline" }).mode, "outline_generate");
   assert.equal(decide("Use these notes.", { kind: "generate_script" }).mode, "script_generate");

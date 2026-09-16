@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   CUSTOMER_RESEARCH_CREDITS,
   CUSTOMER_RESEARCH_MODEL,
+  OWNER_RESEARCH_MAX_CAPTURE_BYTES,
   OWNER_RESEARCH_MAX_CAPTURE_TOTAL_BYTES,
   OWNER_RESEARCH_MODEL_TERMS,
   OwnerResearchSubmissionUnknownError,
@@ -186,6 +187,51 @@ test("captured retrieval is persisted before delivery and replays without a supp
   const replayFetch = createOwnerHearthResearchFetch({ gate: mocked.gate, handle, deadlineAt: Date.now() + 60_000, plan: sessionPlan,
     fetchImpl: async () => { supplierCalls += 1; return new Response("wrong"); } });
   assert.equal(await (await replayFetch("https://example.test/source")).text(), "evidence");
+  assert.equal(supplierCalls, 1);
+});
+
+test("oversized retrieval evidence fails only that source and replays the same bound without another supplier call", async () => {
+  const oversizedBody = new Uint8Array(OWNER_RESEARCH_MAX_CAPTURE_BYTES + 1).fill(65);
+  let supplierCalls = 0;
+  let capture: Record<string, unknown> | null = null;
+  let replay = false;
+  const mocked = mockGate(({ name, args }) => {
+    if (name === "begin_customer_hearth_research_stage") {
+      return replay ? { replay: true, capture } : { replay: false, authorized: true };
+    }
+    if (name === "complete_customer_hearth_research_stage") {
+      capture = args.p_capture_json as Record<string, unknown>;
+    }
+    return { replay: false };
+  });
+  const boundedFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl: async () => {
+      supplierCalls += 1;
+      return new Response(oversizedBody, { status: 200, headers: { "content-type": "text/html" } });
+    },
+  });
+  assert.equal((await (await boundedFetch("https://example.test/oversized-source")).arrayBuffer()).byteLength, oversizedBody.byteLength);
+  assert.equal(supplierCalls, 1);
+  assert.equal(capture?.body_truncated, true);
+  assert.equal(capture?.response_bytes, OWNER_RESEARCH_MAX_CAPTURE_BYTES);
+  assert.equal(mocked.calls.at(-1)?.name, "complete_customer_hearth_research_stage");
+
+  replay = true;
+  const replayFetch = createCustomerHearthResearchFetch({
+    gate: mocked.gate,
+    handle,
+    deadlineAt: Date.now() + 60_000,
+    plan: customerPlan,
+    fetchImpl: async () => {
+      supplierCalls += 1;
+      return new Response("wrong");
+    },
+  });
+  assert.equal((await (await replayFetch("https://example.test/oversized-source")).arrayBuffer()).byteLength, OWNER_RESEARCH_MAX_CAPTURE_BYTES + 1);
   assert.equal(supplierCalls, 1);
 });
 
