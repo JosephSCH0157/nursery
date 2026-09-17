@@ -46,6 +46,35 @@ test("explicit artifact and mutation language receives one authoritative mode", 
   assert.equal(decide("Research the current figures and cite the sources.").mode, "research");
 });
 
+test("script-preparation readiness stays conversational while production readiness stays gated", () => {
+  for (const prompt of [
+    "are we ready to put together a script?",
+    "do we have enough to start writing the script?",
+    "are we ready to start drafting?",
+  ]) {
+    const decision = decide(prompt);
+    assert.equal(decision.mode, "conversation", prompt);
+    assert.equal(decision.requiresArtifact, false, prompt);
+    assert.equal(decision.allowsMutation, false, prompt);
+  }
+
+  for (const prompt of [
+    "are we ready to record?",
+    "can I record this?",
+    "is this ready for Anvil?",
+    "ship this",
+    "go live",
+  ]) {
+    assert.equal(decide(prompt).mode, "readiness_review", prompt);
+  }
+});
+
+test("script readiness does not change explicit generation or research routing", () => {
+  assert.equal(decide("Use these notes.", { kind: "generate_script" }).mode, "script_generate");
+  assert.equal(decide("Write the full script now.").mode, "script_generate");
+  assert.equal(decide("Research the current figures and cite the sources.").mode, "research");
+});
+
 test("current-evidence semantics route without punctuation while evergreen, historical, and refused browsing do not", () => {
   const current = decide("Why are we seeing record layoffs right now");
   assert.equal(current.mode, "research");

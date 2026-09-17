@@ -38,6 +38,7 @@ import {
 import {
   buildBoundedPaidJsonOpenAiRequest,
   executePaidJsonOpenAiRoute,
+  PaidJsonOpenAiRouteError,
 } from "../billing/paid-json-openai-route";
 import {
   coordinateOpenAiTranscription,
@@ -52,7 +53,10 @@ import {
 import {
   normalizeOpenAiTextPaidExecutionHandle,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
-import { OpenAiTextProviderError } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import {
+  OpenAiTextPostPersistenceContinuationError,
+  OpenAiTextProviderError,
+} from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import { normalizeOpenAiTextSpendingAcceptance } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
 import { readOpenAiTranscriptionUsage } from "../../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
 import {
@@ -120,6 +124,8 @@ import {
   normalizeHearthPaidExecutionHandle,
   normalizeHearthSpendingQuoteAcceptance,
 } from "./hearth-paid-chat-execution";
+import { buildPaidHearthConversationMessages } from "./hearth-paid-conversation-context";
+import { buildPaidHearthScriptGenerationMessages } from "./hearth-paid-script-context";
 import {
   ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
@@ -5059,18 +5065,70 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const modelAllowsTemperatureOverride = !isGpt5FamilyModel(model);
         const requestedTemperature = readBehaviorTemperature(bodyRaw.behavior);
         const completionMessages = [system, ...messages];
-        const paidCompletionMessages: ChatMessage[] = [
-          {
-            role: "system",
-            content: [
-              "You are Hearth, a concise podcast writing collaborator.",
-              "Answer only the creator's bounded request.",
-              "Do not browse, call tools, purchase assets, or claim work you did not perform.",
-              "Return plain text or the existing Hearth JSON reply shape.",
-            ].join(" "),
-          },
-          latestUserMessage ?? { role: "user", content: requestText },
-        ];
+        const boundedLatestUserMessage = latestUserMessage ?? { role: "user", content: requestText };
+        const scriptGenerationRequested = turnDecision.mode === "script_generate";
+        let canonicalScriptResearchRows: Array<Record<string, unknown>> = [];
+        if (scriptGenerationRequested && supabaseService && episodeContext.workspaceId) {
+          const researchStore = supabaseService.schema("tongs") as unknown as {
+            from: (table: string) => {
+              select: (columns: string) => {
+                eq: (column: string, value: unknown) => {
+                  eq: (nextColumn: string, nextValue: unknown) => {
+                    eq: (thirdColumn: string, thirdValue: unknown) => {
+                      order: (field: string, options: { ascending: boolean }) => {
+                        limit: (count: number) => Promise<{
+                          data: Array<Record<string, unknown>> | null;
+                          error: { message: string } | null;
+                        }>;
+                      };
+                    };
+                  };
+                };
+              };
+            };
+          };
+          const retained = await researchStore
+            .from("hearth_research_synthesis_results")
+            .select("id,result_json,created_at")
+            .eq("user_id", userId)
+            .eq("workspace_id", episodeContext.workspaceId)
+            .eq("workpiece_id", episodeContext.episodeId)
+            .order("created_at", { ascending: false })
+            .limit(3);
+          if (retained.error) {
+            return admissionFailureResponse({
+              status: 503,
+              error: "Hearth could not load the retained active-episode research needed for this script proposal.",
+              code: "hearth_script_context_unavailable",
+            });
+          }
+          canonicalScriptResearchRows = retained.data ?? [];
+        }
+        const paidCompletionMessages: ChatMessage[] = turnDecision.mode === "conversation"
+          ? buildPaidHearthConversationMessages({
+              episodeContext,
+              messages,
+              latestUserMessage: boundedLatestUserMessage,
+            })
+          : scriptGenerationRequested
+            ? buildPaidHearthScriptGenerationMessages({
+                episodeContext,
+                messages,
+                latestUserMessage: boundedLatestUserMessage,
+                canonicalResearchRows: canonicalScriptResearchRows,
+              })
+          : [
+              {
+                role: "system",
+                content: [
+                  "You are Hearth, a concise podcast writing collaborator.",
+                  "Answer only the creator's bounded request.",
+                  "Do not browse, call tools, purchase assets, or claim work you did not perform.",
+                  "Return plain text or the existing Hearth JSON reply shape.",
+                ].join(" "),
+              },
+              boundedLatestUserMessage,
+            ];
         const callOpenAi = async (
           currentModel: string,
           allowTemperatureOverride: boolean,
@@ -5122,12 +5180,16 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         const paidRouteCode: OpenAiTextRouteCode = researchModeRequested
           ? "hearth.research_synthesis"
+          : scriptGenerationRequested
+            ? "hearth.script_generation"
           : "hearth.chat_completion";
         const paidScopeEligible = !productionAction
           && !attachmentContext.includeEpisodeAttachments
           && !readinessCheckRequested
           && !crossProjectReference.detected
-          && (paidRouteCode === "hearth.chat_completion"
+          && ((paidRouteCode === "hearth.chat_completion"
+            && !["outline_generate", "script_mutate"].includes(turnDecision.mode))
+            || paidRouteCode === "hearth.script_generation"
             || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
               && (Boolean(ownerResearchRequirement) || Boolean(customerResearchPlan) || linkModeRequested)));
         const paidFingerprintPayload = paidRouteCode === "hearth.chat_completion"
@@ -5141,7 +5203,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               user_authored_text: requestText,
               behavior: bodyRaw.behavior ?? null,
             }
-          : ownerResearchPlan ?? customerResearchPlan ?? {
+          : paidRouteCode === "hearth.script_generation"
+            ? {
+                schema: "forge.hearth.script-generation.paid.v1",
+                route_code: "hearth.script_generation",
+                workspace_id: episodeContext.workspaceId,
+                workpiece_id: episodeContext.episodeId,
+                lane: effectiveLane,
+                messages: paidCompletionMessages,
+                user_authored_text: requestText,
+                output_contract: "immutable_script_proposal.v1",
+                browsing_requests: 0,
+                retrieval_requests: 0,
+                model: "gpt-5.6-luna",
+              }
+            : ownerResearchPlan ?? customerResearchPlan ?? {
               schema: "forge.hearth.research-synthesis.paid.v1",
               route_code: "hearth.research_synthesis",
               workspace_id: episodeContext.workspaceId,
@@ -5214,7 +5290,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               code: "paid_execution_auth_required",
             });
           }
-          if (paidRouteCode === "hearth.research_synthesis" || paidRouteCode === "hearth.chat_completion") {
+          if (paidRouteCode === "hearth.research_synthesis"
+            || paidRouteCode === "hearth.script_generation"
+            || paidRouteCode === "hearth.chat_completion") {
             try {
               if (ownerHearthRequirement && paidRouteCode === "hearth.chat_completion") {
                 const ownerPrepared = await prepareOwnerHearthOperation({
@@ -5236,6 +5314,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 paidExecutionHandle = ownerPrepared.handle;
               } else {
               const ordinaryOperationId = paidRouteCode === "hearth.chat_completion"
+                || paidRouteCode === "hearth.script_generation"
                 ? deriveHearthCustomerPaidIdentifiers({
                   userId,
                   workspaceId: episodeContext.workspaceId,
@@ -5262,7 +5341,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                         maximumAttempts,
                       })
                     : buildBoundedPaidJsonOpenAiRequest({
-                        body: { model: acceptedModel, messages: completionMessages },
+                        body: {
+                          model: acceptedModel,
+                          messages: paidRouteCode === "hearth.script_generation"
+                            ? paidCompletionMessages
+                            : completionMessages,
+                        },
                         model: acceptedModel,
                         maximumOutputTokens,
                         maximumAttempts,
@@ -5720,6 +5804,123 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ...buildBillingSnapshot(lane),
               });
             }
+            if (paidRouteCode === "hearth.script_generation") {
+              const paidScript = await executePaidJsonOpenAiRoute({
+                gate: openAiTextGate,
+                routeCode: "hearth.script_generation",
+                handle: paidExecutionHandle,
+                userId,
+                workspaceId: episodeContext.workspaceId!,
+                workpieceId: episodeContext.episodeId,
+                credentialSource: resolvedCredentials.keySource,
+                apiKey: resolvedCredentials.apiKey,
+                requestFingerprintPayload: paidFingerprintPayload,
+                providerRequestBody: (acceptedModel) => ({
+                  model: acceptedModel,
+                  messages: paidCompletionMessages,
+                }),
+                signal: upstreamAbort.signal,
+                fetchImpl: config.openAiProviderFetch,
+                realizedSupportingCost: {
+                  amountMicros: 0,
+                  authoritative: true,
+                  evidence: {
+                    evidence_status: "none_verified",
+                    classification: "direct_supplier_cost_only",
+                    fixed_platform_overhead_micros: 0,
+                    accounting_allocation_micros: 0,
+                  },
+                },
+                validate: (providerPayload) => {
+                  const rawReply = extractAssistantReply(providerPayload);
+                  const structured = rawReply ? normalizeStructuredReply(rawReply) : null;
+                  if (!structured) throw new Error("Script generation returned no valid Hearth artifact.");
+                  structured.ops = filterHearthOperationsForDecision(turnDecision, structured.ops);
+                  const validation = validateHearthCompositionArtifact({
+                    requestKind: "script",
+                    assistantText: structured.assistantText,
+                    ops: structured.ops,
+                  });
+                  const bodyOps = structured.ops.filter((op) => op.op === "set_body");
+                  const body = bodyOps[0]?.op === "set_body" ? bodyOps[0].value : null;
+                  if (!validation.ok || !structured.scriptText || bodyOps.length !== 1
+                    || body !== structured.scriptText || !structured.tagAudit) {
+                    throw new Error(validation.error ?? "Script generation failed the strict immutable-proposal contract.");
+                  }
+                  return {
+                    assistant_text: sanitizeHearthUserFacingOutput(structured.assistantText),
+                    ops: bodyOps,
+                    script_text: structured.scriptText,
+                    tag_audit: structured.tagAudit,
+                    research_artifact: null,
+                  };
+                },
+                persist: async (value, providerPayload) => {
+                  if (!supabaseService) throw new Error("Script proposal persistence is unavailable.");
+                  const usage = isRecord(providerPayload.usage) ? providerPayload.usage : {};
+                  const persisted = await (supabaseService.schema("tongs") as unknown as {
+                    rpc(name: string, args: Record<string, unknown>): Promise<{
+                      data: unknown;
+                      error: { message?: string } | null;
+                    }>;
+                  }).rpc("persist_hearth_script_generation_proposal", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                    p_user_id: userId,
+                    p_workspace_id: episodeContext.workspaceId,
+                    p_workpiece_id: episodeContext.episodeId,
+                    p_request_fingerprint: paidExecutionHandle!.requestFingerprint,
+                    p_provider_request_id: readOptionalString(providerPayload.id),
+                    p_input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
+                    p_output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (persisted.error || !isRecord(persisted.data)) {
+                    throw new Error(persisted.error?.message ?? "Script proposal persistence failed.");
+                  }
+                  return persisted.data;
+                },
+                recover: async () => {
+                  if (!supabaseService) return null;
+                  const recovered = await (supabaseService.schema("tongs") as unknown as {
+                    rpc(name: string, args: Record<string, unknown>): Promise<{
+                      data: unknown;
+                      error: { message?: string } | null;
+                    }>;
+                  }).rpc("read_hearth_script_generation_proposal", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                  });
+                  if (recovered.error || !isRecord(recovered.data)) return null;
+                  return {
+                    result: recovered.data,
+                    providerRequestId: readOptionalString(recovered.data.provider_request_id),
+                    inputUnits: Number(recovered.data.input_units ?? 0),
+                    outputUnits: Number(recovered.data.output_units ?? 0),
+                  };
+                },
+              });
+              const scriptOps = normalizeOps(paidScript.result.ops);
+              const scriptText = readOptionalString(paidScript.result.script_text);
+              return jsonResponse(200, {
+                ok: true,
+                assistant_text: paidScript.result.assistant_text,
+                reply: paidScript.result.assistant_text,
+                ops: scriptOps,
+                script_text: scriptText,
+                tag_audit: paidScript.result.tag_audit,
+                proposal_id: paidScript.result.proposal_id,
+                proposal_state: "proposed",
+                canonical_draft_applied: false,
+                turn_result: buildTurnResult({
+                  assistantMessage: String(paidScript.result.assistant_text ?? ""),
+                  artifact: scriptText ? { kind: "script", text: scriptText } : null,
+                  operations: scriptOps,
+                }),
+                billing_receipt: paidScript.receipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
             const ownerCompatibility = ownerHearthRequirement?.authorization_kind === "compatibility_batch";
             const paidGate = ownerHearthRequirement ? ownerHearthExecutionGate(openAiTextGate) : openAiTextGate;
             const paidOutcome = await executePaidHearthChatCompletion({
@@ -5863,6 +6064,32 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           } catch (error) {
             if (clientAborted || upstreamAbort.signal.aborted) {
               return new Response(null, { status: 499 });
+            }
+            if (error instanceof PaidJsonOpenAiRouteError) {
+              const status = error.state === "submission_unknown" ? 202
+                : error.state === "duplicate_in_progress" ? 409 : 502;
+              return jsonResponse(status, {
+                ok: false,
+                error: error.state === "submission_unknown"
+                  ? "The provider submission outcome is unresolved. Forge will not submit it again automatically."
+                  : error.state === "duplicate_in_progress"
+                    ? "This operation is already in progress; no duplicate provider call was made."
+                    : "The AI operation failed. The customer reservation was released with no charge.",
+                code: error.state === "submission_unknown"
+                  ? "paid_submission_unknown"
+                  : error.state === "duplicate_in_progress"
+                    ? "paid_operation_in_progress"
+                    : "paid_operation_failed_released",
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (error instanceof OpenAiTextPostPersistenceContinuationError) {
+              return jsonResponse(502, {
+                ok: false,
+                error: "Hearth retained the generated result, but could not finish its billing continuation. No second provider request will be made automatically.",
+                code: "paid_persistence_continuation_failed",
+                ...buildBillingSnapshot(lane),
+              });
             }
             const boundaryCode = error instanceof OpenAiTextBoundaryError ? error.code : null;
             const code = boundaryCode === "byo_credential_required"

@@ -118,11 +118,11 @@ test("hearth.chat_completion crosses funding, fake provider, canonical persisten
   const expense = gate.calls.find((call) => call.name === "record_openai_text_supplier_attempt_expense");
   assert.equal(expense?.args.p_evidence_status, "estimated");
   const support = gate.calls.find((call) => call.name === "record_supplier_expense");
-  assert.equal(support?.args.p_amount_micros, 10000);
-  assert.equal(support?.args.p_evidence_status, "estimated");
+  assert.equal(support?.args.p_amount_micros, 0);
+  assert.equal(support?.args.p_evidence_status, "confirmed");
   assert.equal(support?.args.p_obligation_status, "closed");
   const settlement = gate.calls.find((call) => call.name === "settle_owner_operation");
-  assert.equal(settlement?.args.p_actual_fulfillment_cost_micros, 10142);
+  assert.equal(settlement?.args.p_actual_fulfillment_cost_micros, 142);
 });
 
 test("mentioning an outline does not impose outline-artifact validation on the retained-request regression", async () => {
@@ -210,7 +210,7 @@ test("provider usage and expense are retained when later Forge validation fails"
   assert.equal(usage?.args.p_canonical_persistence_confirmed, false);
   assert.equal(gate.calls.filter((call) => call.name === "record_openai_text_supplier_attempt_expense").length, 1);
   assert.equal(gate.calls.find((call) => call.name === "record_provider_failure")?.args.p_failure_class, "forge_validation_failure");
-  assert.equal(gate.calls.find((call) => call.name === "settle_owner_operation")?.args.p_actual_fulfillment_cost_micros, 10181);
+  assert.equal(gate.calls.find((call) => call.name === "settle_owner_operation")?.args.p_actual_fulfillment_cost_micros, 181);
 });
 
 test("a settled duplicate reads the persisted result and makes no second provider call", async () => {

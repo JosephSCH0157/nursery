@@ -15,7 +15,11 @@ import type {
   OpenAiTextPaidExecutionHandle,
   PaidOpenAiTextRouteContext,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
-import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import {
+  assertOpenAiTextProviderExecutionAuthorization,
+  type OpenAiTextGateClient,
+  type OpenAiTextProviderExecutionAuthorization,
+} from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import type { OpenAiTranscriptionRouteCode } from "../../../../packages/tongs/src/providers/openai-transcription-paid-boundary";
 import type { AggregateAdmissionCallerClass } from "../../../../packages/tongs/src/providers/aggregate-financial-admission";
 
@@ -81,6 +85,7 @@ export async function coordinateOpenAiTranscription<
   executeProvider: (
     context: PaidOpenAiTextRouteContext,
     attemptNumber: number,
+    authorization: OpenAiTextProviderExecutionAuthorization,
   ) => Promise<OpenAiTranscriptionProviderResult<TProvider>>;
   validateResult: (value: TProvider) => Promise<void> | void;
   persistCanonical: (
@@ -166,8 +171,9 @@ export async function coordinateOpenAiTranscription<
       output_contract: args.source.outputContract,
       request_terms: args.requestTerms,
     },
-    executeProvider: async (context, attemptNumber) => {
-      const result = await args.executeProvider(context, attemptNumber);
+    executeProvider: async (context, attemptNumber, authorization) => {
+      assertOpenAiTextProviderExecutionAuthorization(authorization);
+      const result = await args.executeProvider(context, attemptNumber, authorization);
       providerRequestId = result.requestId;
       return result;
     },

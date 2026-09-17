@@ -9,6 +9,7 @@ import {
 import { OpenAiTextProviderError } from "../dist/providers/paid-openai-text-execution-coordinator.js";
 
 const ROUTES = [
+  ["hearth.script_generation", { assistant_text: "Draft prepared", script_text: "[s1]Draft[/s1]", ops: [{ op: "set_body", value: "[s1]Draft[/s1]" }] }, (v) => typeof v.script_text === "string" && Array.isArray(v.ops)],
   ["hearth.research_synthesis", { assistant_text: "Synthesis", research_result: { sources: [{ id: "s1" }] } }, (v) => typeof v.assistant_text === "string" && Array.isArray(v.research_result?.sources)],
   ["visual.unified_plan", { images: [{}], broll: [], reference_clips: [], reference_visuals: [] }, (v) => Array.isArray(v.images) && Array.isArray(v.broll) && Array.isArray(v.reference_clips) && Array.isArray(v.reference_visuals)],
   ["visual.narrative_interpretation", { narrative_purpose: "explain", primary_subjects: ["host"], source_context: { focus: "claim" } }, (v) => typeof v.narrative_purpose === "string" && Array.isArray(v.primary_subjects) && typeof v.source_context?.focus === "string"],
@@ -17,6 +18,20 @@ const ROUTES = [
   ["shorts.discovery", { data: { discovery_id: "d" }, resolution: { outcome: "candidates", rejected: [] } }, (v) => Boolean(v.data?.discovery_id) && typeof v.resolution?.outcome === "string"],
   ["quench.metadata", { title: "Episode", description: "Description", tags: ["podcast"] }, (v) => Boolean(v.title) && Boolean(v.description) && Array.isArray(v.tags)],
 ];
+
+test("denied script generation cannot capture a provider response or persist a proposal", async () => {
+  const gate = makeGate({ authorize: false });
+  const [route, good, validator] = ROUTES[0];
+  const args = await argsFor(route, good, validator, gate);
+  let providerCalls = 0;
+  let proposalWrites = 0;
+  args.executeProvider = async () => { providerCalls += 1; throw new Error("must not execute"); };
+  args.persistCanonical = async () => { proposalWrites += 1; return {}; };
+  await assert.rejects(() => executePaidOpenAiTextRoute(args), /funding_context_required/);
+  assert.equal(providerCalls, 0);
+  assert.equal(proposalWrites, 0);
+  assert.equal(gate.calls.some(({ name }) => name === "record_openai_text_provider_capture"), false);
+});
 
 test("cached input is priced separately without double-counting standard input", () => {
   const cost = estimateOpenAiTextDirectCostMicros({

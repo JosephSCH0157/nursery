@@ -5,6 +5,7 @@ import {
   type OpenAiTextPaidExecutionHandle,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import {
+  assertOpenAiTextProviderExecutionAuthorization,
   OpenAiTextProviderError,
   type OpenAiTextGateClient,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
@@ -104,6 +105,16 @@ export async function executePaidJsonOpenAiRoute<
   providerUrl?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  /**
+   * Realized attributable variable supporting cost. Omit only for legacy
+   * routes whose existing adapter still reports its accepted supporting
+   * ceiling as the provisional realized amount.
+   */
+  realizedSupportingCost?: {
+    amountMicros: number;
+    authoritative: boolean;
+    evidence: JsonObject;
+  };
   validate: (payload: JsonObject) => TValidated;
   persist?: (value: TValidated, payload: JsonObject) => Promise<TCanonical>;
   /**
@@ -160,7 +171,8 @@ export async function executePaidJsonOpenAiRoute<
         maximumAttempts: context.maximumAttempts,
       });
     },
-    executeProvider: async (context, _attemptNumber, boundedRequest) => {
+    executeProvider: async (context, _attemptNumber, boundedRequest, authorization) => {
+      assertOpenAiTextProviderExecutionAuthorization(authorization);
       if (!boundedRequest) throw new OpenAiTextProviderError(
         "The exact OpenAI request was not bound before submission",
         false,
@@ -224,9 +236,10 @@ export async function executePaidJsonOpenAiRoute<
               )
             : 0,
         supplierCostAuthoritative: false,
-        supportingCostMicros: context.supportingCostCeilingMicros,
-        supportingCostAuthoritative: false,
-        supportingCostEvidence: {
+        supportingCostMicros: args.realizedSupportingCost?.amountMicros
+          ?? context.supportingCostCeilingMicros,
+        supportingCostAuthoritative: args.realizedSupportingCost?.authoritative ?? false,
+        supportingCostEvidence: args.realizedSupportingCost?.evidence ?? {
           allocation_kind: "accepted_fixed_supporting_allocation",
           component: "bounded_validation_and_tongs_persistence",
           evidence_status: "estimated",

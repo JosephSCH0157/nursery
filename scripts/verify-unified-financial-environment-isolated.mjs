@@ -78,6 +78,7 @@ const migrations = [
   "20261011360000_customer_operation_relief_corrections.sql",
   "20261011370000_customer_operation_relief_canonical_binding_evidence.sql",
   "20261011380000_openai_failure_loss_environment_isolation.sql",
+  "20261011390000_operator_controlled_openai_failure_loss.sql",
 ];
 
 const historicalBackfillFixture = `
@@ -671,6 +672,270 @@ try {
     throw new Error(`Environment isolation or release proof failed: ${JSON.stringify({ riskDenial, release, releaseReplay, riskProof })}`);
   }
 
+  psql(`
+    set request.jwt.claim.role='service_role';
+    insert into tongs.openai_text_failure_exposure_holds(
+      id,reservation_id,route_code,attempt_key,attempt_number,loss_policy_revision_id,
+      authorized_exposure_micros,lease_expires_at,financial_environment,environment_authority
+    ) select
+      'aa000000-0000-4000-8000-000000000083',
+      'aa000000-0000-4000-8000-000000000082','hearth.chat_completion',
+      'isolated-historical-test-loss',1,policy.id,11015,now()-interval '1 minute',
+      'test','canonical_reservation'
+    from tongs.openai_text_failure_loss_policy_revisions policy
+    where policy.route_code='hearth.chat_completion' and policy.environment='test'
+      and policy.lifecycle_state='active'
+    order by policy.revision desc limit 1;
+    insert into tongs.openai_text_failure_exposure_events(
+      id,hold_id,sequence,event_key,event_type,actual_supplier_cost_micros,evidence_json
+    ) values
+      ('aa000000-0000-4000-8000-000000000084',
+       'aa000000-0000-4000-8000-000000000083',1,
+       'isolated-historical-test-loss:authorized','authorized',null,
+       '{"isolated_fixture":true}'),
+      ('aa000000-0000-4000-8000-000000000085',
+       'aa000000-0000-4000-8000-000000000083',2,
+       'isolated-historical-test-loss:failure','failure_realized',10631,
+       '{"isolated_fixture":true}');
+  `, "historical Test failure-loss fixture");
+
+  const riskAcceptance = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.control_openai_text_failure_loss_environment(
+      'aa000000-0000-4000-8000-000000000086',
+      'aa000000-0000-4000-8000-000000000099',
+      'hearth.chat_completion','test','bounded_test_risk_acceptance',11015,
+      'Operator accepts the audited 10,631-micro Test loss and one additional bounded operation.'
+    );
+  `, "bounded Test risk acceptance"));
+  const riskAcceptanceReplay = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.control_openai_text_failure_loss_environment(
+      'aa000000-0000-4000-8000-000000000086',
+      'aa000000-0000-4000-8000-000000000099',
+      'hearth.chat_completion','test','bounded_test_risk_acceptance',11015,
+      'Operator accepts the audited 10,631-micro Test loss and one additional bounded operation.'
+    );
+  `, "bounded Test risk acceptance replay"));
+
+  psql(`
+    set request.jwt.claim.role='service_role';
+    do $$ begin
+      perform tongs.control_openai_text_failure_loss_environment(
+        'aa000000-0000-4000-8000-000000000089',
+        'aa000000-0000-4000-8000-000000000099',
+        'hearth.chat_completion','live','bounded_test_risk_acceptance',11015,
+        'This Live risk acceptance must be rejected by the Test-only contract.'
+      );
+      raise exception 'expected Test-only rejection' using errcode='P0001';
+    exception when sqlstate '22023' then null; end $$;
+  `, "Live bounded-risk rejection");
+
+  psql(`
+    set request.jwt.claim.role='service_role';
+    insert into tongs.paid_execution_control_revisions(
+      revision,pricing_activation_enabled,reservation_shadow_enabled,
+      customer_settlement_enabled,owner_budget_spending_enabled,
+      provider_execution_enabled,reason,actor_id
+    ) select
+      coalesce(max(revision),0)+1,true,true,true,
+      bool_or(owner_budget_spending_enabled),true,
+      'Isolated provider-boundary authorization fixture.',
+      'aa000000-0000-4000-8000-000000000099'
+    from tongs.paid_execution_control_revisions;
+    set session_replication_role=replica;
+    insert into tongs.accounting_journal_events(
+      id,idempotency_key,event_type,environment,source_type,source_id,currency,
+      user_id,payload_hash,metadata_json,occurred_at
+    ) values
+      ('aa000000-0000-4000-8000-000000000093','isolated-operator-deposit',
+       'customer_deposit_received','test','stripe','isolated-operator-deposit','USD',
+       'aa000000-0000-4000-8000-000000000099',repeat('a',64),'{}',now()),
+      ('aa000000-0000-4000-8000-000000000094','isolated-operator-fee',
+       'customer_deposit_fee_recorded','test','stripe','isolated-operator-fee','USD',
+       'aa000000-0000-4000-8000-000000000099',repeat('b',64),'{}',now());
+    insert into tongs.customer_deposits(
+      id,user_id,stripe_mode,stripe_event_id,stripe_session_id,
+      stripe_payment_intent_id,pack_id,currency,gross_amount_micros,credit_units,
+      journal_event_id,metadata_json,received_at
+    ) values (
+      'aa000000-0000-4000-8000-000000000095',
+      'aa000000-0000-4000-8000-000000000099','test',
+      'evt_isolated_operator','cs_isolated_operator','pi_isolated_operator',
+      'isolated-operator-pack','USD',15000,3,
+      'aa000000-0000-4000-8000-000000000093',
+      '{"forge_offer_id":"isolated-operator-offer"}',now()
+    );
+    insert into tongs.customer_deposit_processor_fees(
+      id,deposit_id,provider_fee_reference,fee_amount_micros,journal_event_id,
+      evidence_json,recorded_at
+    ) values (
+      'aa000000-0000-4000-8000-000000000096',
+      'aa000000-0000-4000-8000-000000000095',
+      'fee_isolated_operator',0,'aa000000-0000-4000-8000-000000000094','{}',now()
+    );
+    set session_replication_role=origin;
+  `, "operator risk purchased-credit fixture");
+
+  const operatorQuote = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.create_customer_openai_text_quote(
+      'aa000000-0000-4000-8000-000000000090',
+      'aa000000-0000-4000-8000-000000000099',
+      'isolated-operator-authorized-test','hearth.chat_completion',
+      'aa000000-0000-4000-8000-000000000010','isolated-operator-workpiece',
+      repeat('9',64),'gpt-5.6-luna','forge',now()+interval '10 minutes'
+    );
+  `, "operator-authorized quote"));
+  psql(`
+    set request.jwt.claim.role='authenticated';
+    set request.jwt.claim.sub='aa000000-0000-4000-8000-000000000099';
+    select tongs.accept_quote(
+      'aa000000-0000-4000-8000-000000000090',
+      'aa000000-0000-4000-8000-000000000091',
+      'accept-isolated-operator-authorized-test',
+      (tongs.read_my_spending_quote('aa000000-0000-4000-8000-000000000090')->>'quote_hash')
+    );
+    set request.jwt.claim.role='service_role';
+    select tongs.reserve_customer_openai_text_quote(
+      'aa000000-0000-4000-8000-000000000090',
+      'aa000000-0000-4000-8000-000000000092',
+      'aa000000-0000-4000-8000-000000000099',
+      'isolated-operator-authorized-test','hearth.chat_completion',
+      'aa000000-0000-4000-8000-000000000010','isolated-operator-workpiece',
+      repeat('9',64),'gpt-5.6-luna','forge','reserve-isolated-operator-authorized-test'
+    );
+  `, "operator-authorized reservation");
+  const operatorAttempt = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs._authorize_openai_text_provider_attempt_before_customer_test_scope(
+      'aa000000-0000-4000-8000-000000000092',
+      'isolated-operator-risk-attempt',1::smallint,11015::bigint,120,
+      '{"isolated":true,"provider_transmitted":false}'::jsonb
+    );
+  `, "operator-authorized provider boundary"));
+  const hardOperationDenial = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs._authorize_openai_text_provider_attempt_before_customer_test_scope(
+      'aa000000-0000-4000-8000-000000000092',
+      'isolated-hard-operation-check',1::smallint,11016::bigint,120,
+      '{"isolated":true,"provider_transmitted":false}'::jsonb
+    );
+  `, "hard per-operation limit proof"));
+  psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.close_openai_text_failure_exposure(
+      'aa000000-0000-4000-8000-000000000092',
+      'isolated-operator-risk-attempt','success_released',1015,
+      '{"isolated":true,"provider_transmitted":false}'::jsonb
+    );
+  `, "operator-authorized exposure close");
+
+  const emergencyHalt = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.control_openai_text_failure_loss_environment(
+      'aa000000-0000-4000-8000-000000000087',
+      'aa000000-0000-4000-8000-000000000099',
+      'hearth.chat_completion','test','emergency_halt',null,
+      'Isolated operator emergency halt remains independently available for Test.'
+    );
+  `, "operator Test emergency halt"));
+  const boundedRearm = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.control_openai_text_failure_loss_environment(
+      'aa000000-0000-4000-8000-000000000088',
+      'aa000000-0000-4000-8000-000000000099',
+      'hearth.chat_completion','test','bounded_test_risk_acceptance',11015,
+      'Isolated operator restores finite Test risk acceptance after the emergency halt.'
+    );
+  `, "operator bounded Test rearm"));
+  const liveEmergencyHalt = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.control_openai_text_failure_loss_environment(
+      'aa000000-0000-4000-8000-000000000097',
+      'aa000000-0000-4000-8000-000000000099',
+      'hearth.chat_completion','live','emergency_halt',null,
+      'Isolated operator emergency halt proves independent Live control without selecting a new budget.'
+    );
+  `, "operator Live emergency halt"));
+  const livePolicyRearm = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select tongs.control_openai_text_failure_loss_environment(
+      'aa000000-0000-4000-8000-000000000098',
+      'aa000000-0000-4000-8000-000000000099',
+      'hearth.chat_completion','live','policy_enforce',null,
+      'Isolated operator restores independent Live enforcement on the unchanged active policy budget.'
+    );
+  `, "operator Live policy rearm"));
+  const operatorRiskProof = JSON.parse(psql(`
+    set request.jwt.claim.role='service_role';
+    select jsonb_build_object(
+      'decision_count',(select count(*) from tongs.openai_text_failure_loss_operator_decisions
+        where route_code='hearth.chat_completion' and financial_environment='test'),
+      'risk_acceptance_count',(select count(*) from tongs.openai_text_failure_loss_operator_decisions
+        where route_code='hearth.chat_completion' and financial_environment='test'
+          and decision_type='bounded_test_risk_acceptance'),
+      'warning_count',(select count(*) from tongs.openai_text_failure_limit_events
+        where reservation_id='aa000000-0000-4000-8000-000000000092'
+          and event_type='aggregate_risk_accepted'),
+      'operation_block_count',(select count(*) from tongs.openai_text_failure_limit_events
+        where reservation_id='aa000000-0000-4000-8000-000000000092'
+          and event_type='operation_limit_blocked'),
+      'test_mode',(select mode from tongs._current_openai_text_failure_loss_rollout(
+        'hearth.chat_completion','test')),
+      'live_mode',(select mode from tongs._current_openai_text_failure_loss_rollout(
+        'hearth.chat_completion','live')),
+      'live_financial_lifecycle',(select lifecycle_state
+        from tongs.financial_environment_configuration_revisions
+        where environment='live' order by revision desc limit 1),
+      'base_per_operation',(select per_operation_limit_micros
+        from tongs.openai_text_failure_loss_policy_revisions
+        where route_code='hearth.chat_completion' and environment='test'
+          and lifecycle_state='active' order by revision desc limit 1),
+      'base_aggregate',(select aggregate_limit_micros
+        from tongs.openai_text_failure_loss_policy_revisions
+        where route_code='hearth.chat_completion' and environment='test'
+          and lifecycle_state='active' order by revision desc limit 1),
+      'maximum_concurrency',(select maximum_concurrency
+        from tongs.openai_text_failure_loss_policy_revisions
+        where route_code='hearth.chat_completion' and environment='test'
+          and lifecycle_state='active' order by revision desc limit 1)
+    );
+  `, "operator risk control proof"));
+  if (operatorQuote.customer_credit_units !== 3
+    || riskAcceptance.replay !== false
+    || riskAcceptance.known_exposure_micros !== 10631
+    || riskAcceptance.additional_loss_capacity_micros !== 11015
+    || riskAcceptance.effective_aggregate_limit_micros !== 21646
+    || riskAcceptance.hard_per_operation_limit_micros !== 11015
+    || riskAcceptance.hard_maximum_concurrency !== 1
+    || riskAcceptanceReplay.replay !== true
+    || operatorAttempt.provider_execution_authorized !== true
+    || operatorAttempt.failure_loss_rollout_mode !== 'operator_authorized'
+    || operatorAttempt.failure_loss_aggregate_limit_micros !== 21646
+    || hardOperationDenial.provider_execution_authorized !== false
+    || hardOperationDenial.reason !== 'operation_failure_limit'
+    || emergencyHalt.rollout_mode !== 'halt_new'
+    || boundedRearm.rollout_mode !== 'operator_authorized'
+    || liveEmergencyHalt.rollout_mode !== 'halt_new'
+    || livePolicyRearm.rollout_mode !== 'enforce'
+    || operatorRiskProof.decision_count !== 3
+    || operatorRiskProof.risk_acceptance_count !== 2
+    || operatorRiskProof.warning_count !== 1
+    || operatorRiskProof.operation_block_count !== 1
+    || operatorRiskProof.test_mode !== 'operator_authorized'
+    || operatorRiskProof.live_mode !== 'enforce'
+    || operatorRiskProof.live_financial_lifecycle !== 'inactive_ready'
+    || operatorRiskProof.base_per_operation !== 11015
+    || operatorRiskProof.base_aggregate !== 11015
+    || operatorRiskProof.maximum_concurrency !== 1) {
+    throw new Error(`Operator risk control proof failed: ${JSON.stringify({
+      riskAcceptance, riskAcceptanceReplay, operatorQuote, operatorAttempt,
+      hardOperationDenial, emergencyHalt, boundedRearm,
+      liveEmergencyHalt, livePolicyRearm, operatorRiskProof,
+    })}`);
+  }
+
   const researchQuote = JSON.parse(psql(`
     set request.jwt.claim.role='service_role';
     select tongs.create_customer_openai_text_quote(
@@ -851,6 +1116,7 @@ try {
     customer_operation_relief_balance: "restored_once_and_replay_safe",
     failure_loss_environment_isolation: "test_and_live_independent",
     preprovider_platform_risk_release: "released_once_without_charge_or_relief",
+    operator_controlled_test_failure_loss: "finite_append_only_and_live_isolated",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

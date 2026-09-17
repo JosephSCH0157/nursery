@@ -10,6 +10,49 @@ type RpcResult = { data: unknown; error: { message: string } | null };
 export type OpenAiTextGateClient = { rpc(name: string, args: Record<string, unknown>): Promise<RpcResult> };
 export type OpenAiCredentialFunding = "forge" | "byo_customer";
 
+const validatedProviderExecutionAuthorizations = new WeakSet<object>();
+
+/**
+ * Opaque, runtime-validated authority minted only after the canonical database
+ * provider-attempt gate returns an exact affirmative boolean. Transport
+ * adapters must receive this object; quote acceptance, reservation state, Test
+ * mode, owner identity, and shadow evidence cannot manufacture it.
+ */
+export type OpenAiTextProviderExecutionAuthorization = Readonly<{
+  providerExecutionAuthorized: true;
+  reservationId: string;
+  routeCode: CoordinatedOpenAiRouteCode;
+  attemptKey: string;
+  attemptNumber: number;
+}>;
+
+function issueProviderExecutionAuthorization(args: {
+  reservationId: string;
+  routeCode: CoordinatedOpenAiRouteCode;
+  attemptKey: string;
+  attemptNumber: number;
+}): OpenAiTextProviderExecutionAuthorization {
+  const authorization = Object.freeze({
+    providerExecutionAuthorized: true as const,
+    reservationId: args.reservationId,
+    routeCode: args.routeCode,
+    attemptKey: args.attemptKey,
+    attemptNumber: args.attemptNumber,
+  });
+  validatedProviderExecutionAuthorizations.add(authorization);
+  return authorization;
+}
+
+export function assertOpenAiTextProviderExecutionAuthorization(
+  value: unknown,
+): asserts value is OpenAiTextProviderExecutionAuthorization {
+  if (!value || typeof value !== "object"
+    || !validatedProviderExecutionAuthorizations.has(value as object)
+    || (value as { providerExecutionAuthorized?: unknown }).providerExecutionAuthorized !== true) {
+    throw new OpenAiTextBoundaryError("funding_context_required");
+  }
+}
+
 export class OpenAiTextProviderError extends Error {
   readonly ambiguous: boolean;
   readonly supplierCostMicros: number | null;
@@ -85,7 +128,10 @@ export type PaidOpenAiTextExecutionInput<T> = {
    * callers must never be allowed to opt into this mode directly.
    */
   reservationAlreadyCreated?: boolean;
-  executeProvider: (attemptNumber: number) => Promise<OpenAiTextProviderResult<T>>;
+  executeProvider: (
+    attemptNumber: number,
+    authorization: OpenAiTextProviderExecutionAuthorization,
+  ) => Promise<OpenAiTextProviderResult<T>>;
   validateResult: (value: T) => Promise<void> | void;
   persistResult: (value: T) => Promise<void>;
 };
@@ -205,9 +251,17 @@ export class PaidOpenAiTextExecutionCoordinator {
         throw new OpenAiTextBoundaryError("funding_context_required");
       }
 
+      const providerExecutionAuthorization = issueProviderExecutionAuthorization({
+        reservationId: input.reservationId,
+        routeCode: input.routeCode,
+        attemptKey: currentAttemptKey,
+        attemptNumber,
+      });
+
       let result: OpenAiTextProviderResult<T>;
       try {
-        result = await input.executeProvider(attemptNumber);
+        assertOpenAiTextProviderExecutionAuthorization(providerExecutionAuthorization);
+        result = await input.executeProvider(attemptNumber, providerExecutionAuthorization);
       } catch (error) {
         const providerError = error instanceof OpenAiTextProviderError
           ? error

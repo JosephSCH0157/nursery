@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PaidOpenAiTextExecutionCoordinator, OpenAiTextProviderError } from "../dist/providers/paid-openai-text-execution-coordinator.js";
+import {
+  assertOpenAiTextProviderExecutionAuthorization,
+  PaidOpenAiTextExecutionCoordinator,
+  OpenAiTextProviderError,
+} from "../dist/providers/paid-openai-text-execution-coordinator.js";
 
 function gate(overrides = {}) {
   const calls = [];
@@ -206,6 +210,29 @@ test("a denied failure-loss hold cannot reach OpenAI", async () => {
   assert.equal(g.calls.some((call) => call.name.includes("relief")), false);
 });
 
+test("provider callbacks receive an opaque authorization minted after the affirmative gate", async () => {
+  const g = gate();
+  let received = null;
+  const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    executeProvider: async (_attemptNumber, authorization) => {
+      assertOpenAiTextProviderExecutionAuthorization(authorization);
+      received = authorization;
+      return {
+        value: { text: "usable" }, requestId: "req_authorized", inputUnits: 1, outputUnits: 1,
+        supplierCostMicros: 1, supplierCostAuthoritative: true,
+      };
+    },
+  }));
+  assert.equal(result.state, "settled");
+  assert.equal(received.providerExecutionAuthorized, true);
+  assert.equal(received.routeCode, "hearth.chat_completion");
+  assert.equal(received.attemptKey, "operation-key:attempt:1");
+  assert.throws(
+    () => assertOpenAiTextProviderExecutionAuthorization({ providerExecutionAuthorized: true }),
+    /funding_context_required/,
+  );
+});
+
 test("a genuine funding-authority denial remains distinct and does not claim a platform-risk release", async () => {
   let providerCalls = 0;
   const g = gate({
@@ -218,6 +245,61 @@ test("a genuine funding-authority denial remains distinct and does not claim a p
   })), /funding_context_required/);
   assert.equal(providerCalls, 0);
   assert.equal(g.calls.some((call) => call.name === "release_operation"), false);
+});
+
+test("accepted or owner-funded context cannot bypass a negative provider-attempt decision", async () => {
+  for (const funding of [
+    { fundingSourceType: "customer_deposit", fundingSourceId: "accepted-deposit" },
+    { fundingSourceType: "owner_budget", fundingSourceId: "owner-budget", reservationAlreadyCreated: true },
+  ]) {
+    let providerCalls = 0;
+    const g = gate({
+      authorize_openai_text_provider_attempt_with_aggregate: async () => ({
+        data: { provider_execution_authorized: false, shadow_mode: true, reason: "shadow_not_authorized" },
+        error: null,
+      }),
+    });
+    await assert.rejects(
+      () => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+        ...funding,
+        executeProvider: async () => { providerCalls += 1; return {}; },
+      })),
+      /funding_context_required/,
+    );
+    assert.equal(providerCalls, 0);
+    assert.equal(g.calls.some(({ name }) => name === "record_openai_text_provider_capture"), false);
+  }
+});
+
+test("every coordinated text route shares the exact affirmative provider boundary", async () => {
+  const routes = [
+    "hearth.chat_completion",
+    "hearth.script_generation",
+    "hearth.research_synthesis",
+    "visual.unified_plan",
+    "visual.narrative_interpretation",
+    "motion.broll_interpretation",
+    "hammer.transcript_cleanup",
+    "shorts.discovery",
+    "quench.metadata",
+  ];
+  let providerCalls = 0;
+  for (const routeCode of routes) {
+    const g = gate({
+      authorize_openai_text_provider_attempt_with_aggregate: async () => ({
+        data: { provider_execution_authorized: false, reason: "funding_authority_denied" },
+        error: null,
+      }),
+    });
+    await assert.rejects(
+      () => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+        routeCode,
+        executeProvider: async () => { providerCalls += 1; return {}; },
+      })),
+      /funding_context_required/,
+    );
+  }
+  assert.equal(providerCalls, 0);
 });
 
 test("an enabled aggregate denial releases funding before the provider callback", async () => {

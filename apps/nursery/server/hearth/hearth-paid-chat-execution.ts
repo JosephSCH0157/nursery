@@ -4,6 +4,7 @@ import {
   OpenAiTextBoundaryError,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import {
+  assertOpenAiTextProviderExecutionAuthorization,
   OpenAiTextProviderError,
   PaidOpenAiTextExecutionCoordinator,
   type OpenAiTextGateClient,
@@ -311,8 +312,7 @@ export async function executePaidHearthChatCompletion(
       p_reservation_id: context.reservationId,
       p_event_key: `${context.operationId}:aggregate-settled-replay`,
       p_outcome: "settled_unconfirmed",
-      p_supplier_obligation_micros:
-        replayDirectCostMicros + context.supportingCostCeilingMicros,
+      p_supplier_obligation_micros: replayDirectCostMicros,
       p_supplier_recovery_micros: null,
       p_evidence_json: {
         provider: "openai",
@@ -320,6 +320,8 @@ export async function executePaidHearthChatCompletion(
         authoritative: false,
         provider_usage_reported: true,
         direct_cost_rounding_risk_micros: context.credentialFunding === "forge" ? 3 : 0,
+        nonrealized_supporting_ceiling_micros: context.supportingCostCeilingMicros,
+        supporting_cost_disposition: "no_verified_attributable_variable_cost",
       },
     });
     return {
@@ -414,7 +416,8 @@ export async function executePaidHearthChatCompletion(
     aggregateCallerClass: "interactive",
     aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",
     reservationAlreadyCreated: true,
-    executeProvider: async () => {
+    executeProvider: async (_attemptNumber, authorization) => {
+      assertOpenAiTextProviderExecutionAuthorization(authorization);
       let response: Response;
       try {
         response = await providerFetch("https://api.openai.com/v1/chat/completions", {
@@ -451,23 +454,23 @@ export async function executePaidHearthChatCompletion(
         outputUnits: usage.output,
         supplierCostMicros: directCostMicros,
         supplierCostAuthoritative: false,
-        supportingCostMicros: context.supportingCostCeilingMicros,
-        supportingCostAuthoritative: false,
+        supportingCostMicros: 0,
+        supportingCostAuthoritative: true,
         supportingCostEvidence: {
-          allocation_kind: "accepted_fixed_supporting_allocation",
+          allocation_kind: "nonrealized_conservative_ceiling",
           component: "bounded_validation_and_persistence",
-          amount_micros: context.supportingCostCeilingMicros,
+          amount_micros: 0,
           ceiling_micros: context.supportingCostCeilingMicros,
-          evidence_status: "estimated",
-          obligation_status: "closed_after_canonical_persistence",
+          evidence_status: "no_verified_attributable_variable_cost",
+          obligation_status: "excluded_from_realized_supplier_loss",
         },
         costCoverageComplete: true,
         evidence: {
           provider_reference: providerRequestId,
           provider_usage_reported: true,
           supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct",
-          supporting_cost_status: context.supportingCostCeilingMicros === 0 ? "not_applicable" : "estimated_allocation",
-          supporting_cost_estimate_micros: context.supportingCostCeilingMicros,
+          supporting_cost_status: "no_verified_attributable_variable_cost",
+          supporting_cost_estimate_micros: 0,
           supporting_cost_ceiling_micros: context.supportingCostCeilingMicros,
           cached_input_units: usage.cachedInput,
           reasoning_output_included: true,

@@ -200,6 +200,92 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
   assert.equal(providerCalls, 0);
 });
 
+test("script-preparation readiness reaches ordinary customer chat pricing without generating a script", async () => {
+  const prompt = "are we ready to put together a script?";
+  let providerCalls = 0;
+  const config = {
+    textApiKey: "fake-forge-key",
+    imageApiKey: null,
+    researchApiKey: null,
+    apiKey: "fake-forge-key",
+    model: "gpt-5.3",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge" as const,
+    initialTokenBalance: 42,
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: null,
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: {
+      async rpc(name: string, args: Record<string, unknown>) {
+        if (name === "read_openai_execution_requirement") {
+          return { data: { mode: "enforce", funding_context_required: true }, error: null };
+        }
+        if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+        if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+          catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
+          model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
+          display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded test model.",
+        }, error: null };
+        if (name === "create_customer_openai_text_quote") return { data: {
+          quote_id: QUOTE_ID,
+          operation_id: args.p_operation_id,
+          quote_hash: "b".repeat(64),
+          request_fingerprint: args.p_request_fingerprint,
+          currency: "USD",
+          maximum_customer_charge_micros: 15_000,
+          customer_credit_units: 3,
+          failure_customer_charge_micros: 0,
+          funding_eligible: true,
+          funding_source: "customer_deposit",
+          funding_environment: "test",
+          payer_kind: "personal",
+          funding_label: "Forge Credits",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }, error: null };
+        if (name === "read_openai_text_quote_bounding_context") return { data: {
+          model: "gpt-5.6-luna", maximum_input_units: 2_000, maximum_output_units: 512, maximum_attempts: 1,
+        }, error: null };
+        if (name === "bind_bounded_provider_quote_request") return { data: { replay: false }, error: null };
+        return { data: {}, error: null };
+      },
+    },
+    resolveUserIdForAccessToken: async () => USER_ID,
+    openAiProviderFetch: async () => { providerCalls += 1; return new Response(); },
+  } satisfies HearthRuntimeConfig;
+  const response = await createHearthAiHandler(config)(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge",
+      messages: [{ role: "user", content: prompt }],
+      user_authored_text: prompt,
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: {
+        episodeId: "episode-1",
+        workspaceId: "55555555-5555-4555-8555-555555555555",
+        title: "Script readiness",
+        titleVariants: { A: "", B: "", C: "" },
+        outline: "",
+        body: "",
+        sources: [],
+        sparks: [],
+      },
+    }),
+  }));
+  const payload = await response.json() as Record<string, any>;
+  assert.equal(response.status, 409, JSON.stringify(payload));
+  assert.equal(payload.code, "hearth_spending_confirmation_required");
+  assert.equal(payload.billing_quote.credit_charge, 3);
+  assert.notEqual(payload.code, "paid_quote_scope_mismatch");
+  assert.equal(providerCalls, 0);
+});
+
 test("research with an inactive customer price is unavailable before retrieval", async () => {
   const workspaceId = "55555555-5555-4555-8555-555555555555";
   const routeReads: string[] = [];
@@ -733,6 +819,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
   let providerCalls = 0;
   let reservationState = "reserved";
   let settlementCalls = 0;
+  let providerRequestMessages: Array<{ role: string; content: string }> = [];
   let quoteArgs: Record<string, unknown> = {};
   let reserveArgs: Record<string, unknown> = {};
   let persistedResult: Record<string, unknown> | null = null;
@@ -861,8 +948,12 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     disableCdcGeneration: false,
     openAiTextGate: gate,
     resolveUserIdForAccessToken: async () => USER_ID,
-    openAiProviderFetch: async () => {
+    openAiProviderFetch: async (_url, init) => {
       providerCalls += 1;
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        messages?: Array<{ role: string; content: string }>;
+      };
+      providerRequestMessages = requestBody.messages ?? [];
       return new Response(JSON.stringify({
         id: "chatcmpl_customer_fake",
         choices: [{ message: { content: "Review your outline before recording so the episode stays focused." } }],
@@ -876,12 +967,19 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     const handler = createHearthAiHandler(config);
     const body = {
       lane: "forge",
-      messages: [{ role: "user", content: USER_MESSAGE }],
+      messages: [
+        { role: "user", content: "Find strong sources for this episode." },
+        { role: "assistant", content: "Use EIA first and PBS for current Iran-war reporting." },
+        { role: "user", content: USER_MESSAGE },
+      ],
       user_authored_text: USER_MESSAGE,
       attachment_context: { include_episode_attachments: false, attachment_ids: [] },
       episode_context: {
         episodeId: "episode-1", workspaceId, title: "Bounded customer test",
-        titleVariants: { A: "", B: "", C: "" }, outline: "", body: "", tonePreset: null, sources: [], sparks: [],
+        titleVariants: { A: "", B: "", C: "" }, outline: "Evidence-led episode outline", body: "Opening draft",
+        tonePreset: "Neutral conversational",
+        sources: [{ id: "source-eia", title: "EIA gasoline explainer", url: "https://www.eia.gov/example", note: "Primary source", citedIn: [] }],
+        sparks: [{ id: "spark-gas", text: "Explain current gasoline prices." }],
       },
     };
     const quotedResponse = await handler(new Request("http://localhost/api/hearth/chat", {
@@ -917,6 +1015,11 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     assert.equal(settled.billing_receipt.funding_source, "customer_deposit");
     assert.equal(providerCalls, 1);
     assert.equal(settlementCalls, 1);
+    const providerVisible = providerRequestMessages.map((message) => message.content).join("\n");
+    assert.match(providerVisible, /Do not behave as if each message is a new conversation/);
+    assert.match(providerVisible, /Bounded customer test/);
+    assert.match(providerVisible, /EIA gasoline explainer/);
+    assert.match(providerVisible, /Use EIA first and PBS/);
 
     const replayResponse = await handler(new Request("http://localhost/api/hearth/chat", {
       method: "POST", headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
@@ -1065,6 +1168,124 @@ test("customer research synthesis admission requires current inspected evidence,
     ...inspected,
     evidence: [{ ...inspected.evidence[0], briefFingerprint: "0".repeat(64) }],
   }), false);
+});
+
+test("script generation prepares the distinct five-credit bounded quote without a provider call", async () => {
+  const workspaceId = "cc5478ff-37be-403e-824c-467fa7da061e";
+  const workpieceId = "21d16d6a-905b-491e-8761-028789612ae5";
+  const prompt = "lets see the first draft of this script for a single presenter";
+  let providerCalls = 0;
+  let quotedRoute = "";
+  let boundedRoute = "";
+  const gate = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "read_openai_execution_requirement") {
+        return { data: { mode: "enforce", funding_context_required: true }, error: null };
+      }
+      if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+      if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+        catalog_revision_id: "13000000-0000-4000-8000-000000000005",
+        catalog_revision: 6,
+        model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        runtime_model_id: "gpt-5.6-luna",
+        provider_model_id: "gpt-5.6-luna",
+        display_name: "GPT-5.6 Luna",
+        tradeoff_summary: "Bounded script-generation canary.",
+      }, error: null };
+      if (name === "create_customer_openai_text_quote") {
+        quotedRoute = String(args.p_route_code ?? "");
+        return { data: {
+          quote_id: args.p_quote_id,
+          operation_id: args.p_operation_id,
+          quote_hash: "b".repeat(64),
+          request_fingerprint: args.p_request_fingerprint,
+          currency: "USD",
+          maximum_customer_charge_micros: 25_000,
+          customer_credit_units: 5,
+          failure_customer_charge_micros: 0,
+          funding_eligible: true,
+          funding_source: "customer_deposit",
+          funding_environment: "test",
+          payer_kind: "personal",
+          funding_label: "Forge Credits",
+          expires_at: args.p_expires_at,
+        }, error: null };
+      }
+      if (name === "read_openai_text_quote_bounding_context") return { data: {
+        model: "gpt-5.6-luna",
+        maximum_input_units: 32_000,
+        maximum_output_units: 8_000,
+        maximum_attempts: 1,
+      }, error: null };
+      if (name === "bind_bounded_provider_quote_request") {
+        boundedRoute = String(args.p_route_code ?? "");
+        assert.ok(Number(args.p_bounded_input_tokens) <= 32_000);
+        assert.equal(args.p_maximum_output_tokens, 8_000);
+        assert.equal(args.p_maximum_attempts, 1);
+        return { data: { replay: false }, error: null };
+      }
+      return { data: {}, error: null };
+    },
+  };
+  try {
+    const handler = createHearthAiHandler({
+      textApiKey: "fake-forge-key",
+      imageApiKey: null,
+      researchApiKey: null,
+      apiKey: "fake-forge-key",
+      model: "gpt-5.6-luna",
+      sttModel: "gpt-4o-mini-transcribe",
+      configuredBillingMode: "forge",
+      initialTokenBalance: 42,
+      supabaseUrl: null,
+      supabaseServiceRoleKey: null,
+      supabaseRpcKey: null,
+      sttBucket: "forge-workpieces",
+      disableForgeLaneAi: false,
+      disableUserKeys: false,
+      disableExpensiveAiActions: false,
+      disableCdcGeneration: false,
+      openAiTextGate: gate,
+      resolveUserIdForAccessToken: async () => USER_ID,
+      openAiProviderFetch: async () => {
+        providerCalls += 1;
+        return new Response(null, { status: 500 });
+      },
+    });
+    const response = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify({
+        lane: "forge",
+        messages: [
+          { role: "assistant", content: "The retained research supports a U.S.-focused episode." },
+          { role: "user", content: prompt },
+        ],
+        user_authored_text: prompt,
+        attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+        episode_context: {
+          episodeId: workpieceId,
+          workspaceId,
+          title: "Why gasoline prices are high",
+          titleVariants: { A: "", B: "", C: "" },
+          outline: "Crude, refining, inventories, taxes, and current world events.",
+          body: "[s1]\nDraft intro goes here.\n[/s1]",
+          tonePreset: "Neutral conversational",
+          sources: [{ id: "eia", title: "EIA gasoline factors", url: "https://www.eia.gov/example", note: "Primary", citedIn: [] }],
+          sparks: [],
+        },
+      }),
+    }));
+    const payload = await response.json() as Record<string, any>;
+    assert.equal(response.status, 409, JSON.stringify(payload));
+    assert.equal(payload.code, "hearth_spending_confirmation_required");
+    assert.equal(payload.billing_quote.credit_charge, 5);
+    assert.equal(quotedRoute, "hearth.script_generation");
+    assert.equal(boundedRoute, "hearth.script_generation");
+    assert.equal(providerCalls, 0);
+  } finally {
+    // The quote-only test intentionally never creates a Supabase or provider transport.
+  }
 });
 
 test("explicit owner Hearth authority uses only the isolated credential and bypasses neither coordinator nor persistence", async (t) => {

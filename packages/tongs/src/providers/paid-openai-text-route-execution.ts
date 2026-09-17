@@ -7,6 +7,7 @@ import {
   PaidOpenAiTextExecutionCoordinator,
   type OpenAiCredentialFunding,
   type OpenAiTextGateClient,
+  type OpenAiTextProviderExecutionAuthorization,
   type OpenAiTextProviderResult,
 } from "./paid-openai-text-execution-coordinator.js";
 import type { AggregateAdmissionCallerClass } from "./aggregate-financial-admission.js";
@@ -135,7 +136,8 @@ type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string,
   executeProvider: (
     context: PaidOpenAiTextRouteContext,
     attemptNumber: number,
-    boundedRequest?: BoundedProviderRequest,
+    boundedRequest: BoundedProviderRequest | undefined,
+    authorization: OpenAiTextProviderExecutionAuthorization,
   ) => Promise<OpenAiTextProviderResult<TProvider>>;
   validateResult: (value: TProvider) => Promise<void> | void;
   persistCanonical: (value: TProvider) => Promise<TCanonical>;
@@ -665,8 +667,8 @@ async function executePaidOpenAiTextRouteInternal<
     aggregateCallerClass: args.callerClass ?? "interactive",
     aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",
     reservationAlreadyCreated: true,
-    executeProvider: async (attemptNumber) => {
-      const result = await args.executeProvider(context, attemptNumber, boundedRequest);
+    executeProvider: async (attemptNumber, authorization) => {
+      const result = await args.executeProvider(context, attemptNumber, boundedRequest, authorization);
       providerEvidence = result;
       return result;
     },

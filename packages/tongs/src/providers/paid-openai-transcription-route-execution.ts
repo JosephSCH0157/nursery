@@ -1,6 +1,7 @@
 import {
   type OpenAiCredentialFunding,
   type OpenAiTextGateClient,
+  type OpenAiTextProviderExecutionAuthorization,
   type OpenAiTextProviderResult,
 } from "./paid-openai-text-execution-coordinator.js";
 import {
@@ -108,6 +109,7 @@ export async function executePaidOpenAiTranscriptionRoute<
   executeProvider: (
     context: PaidOpenAiTextRouteContext,
     attemptNumber: number,
+    authorization: OpenAiTextProviderExecutionAuthorization,
   ) => Promise<OpenAiTranscriptionProviderResult<TProvider>>;
   validateResult: (value: TProvider) => Promise<void> | void;
   persistCanonical: (value: TProvider) => Promise<TCanonical>;
@@ -120,8 +122,13 @@ export async function executePaidOpenAiTranscriptionRoute<
 }): Promise<OpenAiTranscriptionPaidOutcome<TCanonical>> {
   const outcome = await executePaidOpenAiTextRoute<TProvider, TCanonical>({
     ...args,
-    executeProvider: async (context, attemptNumber): Promise<OpenAiTextProviderResult<TProvider>> => {
-      const provider = await args.executeProvider(context, attemptNumber);
+    executeProvider: async (
+      context,
+      attemptNumber,
+      _boundedRequest,
+      authorization,
+    ): Promise<OpenAiTextProviderResult<TProvider>> => {
+      const provider = await args.executeProvider(context, attemptNumber, authorization);
       const inputUnits = provider.usage.audioInputTokens + provider.usage.textInputTokens;
       const supplierCostMicros = context.credentialFunding === "forge"
         ? provider.usage.providerReported

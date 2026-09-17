@@ -9,7 +9,7 @@ export type OpenAiTextRouteContract = {
   maximumAttempts: number;
   usableResultRequires: readonly ("validation" | "canonical_persistence")[];
   activationReady: false;
-  activationBlocker: "supporting_cost_policy_unpriced";
+  activationBlocker: "supporting_cost_policy_unpriced" | "test_canary_only";
 };
 
 const CONTRACTS: Record<OpenAiTextRouteCode, OpenAiTextRouteContract> = {
@@ -18,6 +18,12 @@ const CONTRACTS: Record<OpenAiTextRouteCode, OpenAiTextRouteContract> = {
     runtimeModels: ["gpt-5.3-chat-latest"], maximumInputUnits: 384000, maximumOutputUnits: 49152,
     maximumAttempts: 3, usableResultRequires: ["validation", "canonical_persistence"], activationReady: false,
     activationBlocker: "supporting_cost_policy_unpriced",
+  },
+  "hearth.script_generation": {
+    routeCode: "hearth.script_generation", costPolicyRevisionId: "13000000-0000-4000-8000-000000000001",
+    runtimeModels: ["gpt-5.6-luna"], maximumInputUnits: 32000, maximumOutputUnits: 8000,
+    maximumAttempts: 1, usableResultRequires: ["validation", "canonical_persistence"], activationReady: false,
+    activationBlocker: "test_canary_only",
   },
   "hearth.research_synthesis": {
     routeCode: "hearth.research_synthesis", costPolicyRevisionId: "11000000-0000-4000-8000-000000000002",
