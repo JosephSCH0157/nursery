@@ -86,6 +86,16 @@ export type PendingAiProposal = {
   formatSourceBody: string | null;
   formatOriginalBody: string | null;
   formatChanges: HearthFormatOnlyChangeCategory[];
+  persistedProposal: {
+    proposalId: string;
+    proposalState: "proposed";
+    createdAt: string | null;
+    operationId: string | null;
+    sourcePaidResultId: string | null;
+    expectedDraftRevision: number | null;
+    expectedDraftHash: string | null;
+    applicationStarted: boolean;
+  } | null;
 };
 
 export type ChatAttachmentUi = {

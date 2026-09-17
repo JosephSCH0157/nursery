@@ -592,6 +592,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     episodeContext: TEpisodeContext;
     fromGate: boolean;
     autosaveReasonCode: AiAutosaveReasonCode | null;
+    scriptProposal?: { proposalId: string; proposalState: "proposed" };
   }) => TPendingAiProposal;
   resolveAiLaneFromStorage: () => "forge" | "byo";
   requestHearthChatReply: (
@@ -635,6 +636,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       customer_charge_micros: number;
       provider_request_id?: string | null;
     };
+    scriptProposal?: { proposalId: string; proposalState: "proposed" };
     runtime: {
       billingMode: "forge" | "byo";
     };
@@ -903,6 +905,7 @@ export function useChatWorkspaceRuntime<
           episodeContext,
           fromGate: gateAnswering,
           autosaveReasonCode,
+          scriptProposal: result.scriptProposal,
         }));
       }
 

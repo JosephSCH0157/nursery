@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
-import type { RevisionKind } from "../domain/revision";
+import { createRevision, type RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import {
   resolveBarstockSparkIdFromQuery,
@@ -68,6 +68,7 @@ import {
   type ScriptApprovalState,
 } from "../lib/hearth-approval-authority";
 import { createHearthStore } from "../storage/store-factory";
+import { isCanonicalHearthRevisionSave } from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 import {
   applyHearthOps,
@@ -96,6 +97,12 @@ import {
 import {
   parseHearthDraftConflictError,
 } from "../lib/hearth-draft-persistence";
+import {
+  beginHearthScriptProposalApplication,
+  completeHearthScriptProposalApplication,
+  readPendingHearthScriptProposal,
+  rejectHearthScriptProposal,
+} from "../lib/hearth-script-proposal-authority";
 import {
   type ScriptValidationResult,
   type ScriptValidationIssue,
@@ -2806,6 +2813,57 @@ export default function HearthShell({
     sanitizeChatMessagesForStorage,
     chatHistoryWriteDebounceMs: CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   });
+  useEffect(() => {
+    if (!chatContextHydrated || !workspaceId || !workpieceId || !activeDraft) return;
+    let cancelled = false;
+    void readPendingHearthScriptProposal(workspaceId, workpieceId).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setChatError(result.error);
+        return;
+      }
+      const proposal = result.data;
+      if (!proposal) {
+        setPendingAiProposal((current) => current?.persistedProposal ? null : current);
+        return;
+      }
+      const context = buildActiveEpisodeContext();
+      if (!context) return;
+      const normalizedOps = normalizeAiProposalOpsForScriptIngress(proposal.ops);
+      setPendingAiProposal({
+        assistantText: proposal.assistantText,
+        ops: normalizedOps,
+        originalOps: cloneHearthProposalOps(normalizedOps),
+        selected: normalizedOps.map(() => true),
+        context,
+        fromGate: false,
+        autosaveReasonCode: "ai_script",
+        proposalOrigin: "ai",
+        formatSourceBody: null,
+        formatOriginalBody: null,
+        formatChanges: [],
+        persistedProposal: {
+          proposalId: proposal.proposalId,
+          proposalState: proposal.proposalState,
+          createdAt: proposal.createdAt,
+          operationId: proposal.operationId,
+          sourcePaidResultId: proposal.sourcePaidResultId,
+          expectedDraftRevision: proposal.expectedDraftRevision,
+          expectedDraftHash: proposal.expectedDraftHash,
+          applicationStarted: proposal.applicationStarted,
+        },
+      });
+    });
+    return () => { cancelled = true; };
+  }, [
+    activeDraft,
+    buildActiveEpisodeContext,
+    chatContextHydrated,
+    setChatError,
+    setPendingAiProposal,
+    workpieceId,
+    workspaceId,
+  ]);
   const { sendChatMessage, onSendChat, onCancelAiRequest } = useHearthConversationRuntime<
     PendingAiProposal,
     EpisodeContext,
@@ -2859,6 +2917,16 @@ export default function HearthShell({
         formatSourceBody: null,
         formatOriginalBody: null,
         formatChanges: [],
+        persistedProposal: proposalArgs.scriptProposal ? {
+          proposalId: proposalArgs.scriptProposal.proposalId,
+          proposalState: proposalArgs.scriptProposal.proposalState,
+          createdAt: null,
+          operationId: null,
+          sourcePaidResultId: null,
+          expectedDraftRevision: null,
+          expectedDraftHash: null,
+          applicationStarted: false,
+        } : null,
       };
     },
     resolveAiLaneFromStorage,
@@ -3126,7 +3194,7 @@ export default function HearthShell({
   ]);
   const {
     onApplyAiProposal,
-    onDiscardAiProposal,
+    onDiscardAiProposal: onDiscardAiProposalLocal,
     onToggleAiProposalOp,
     onEditAiProposalBody,
     onResetAiProposalBody,
@@ -3206,12 +3274,28 @@ export default function HearthShell({
         : { ...proposal, ops };
     },
   });
+  const onDiscardAiProposal = useCallback(async () => {
+    const persisted = pendingAiProposal?.persistedProposal;
+    if (persisted && workspaceId && workpieceId) {
+      const rejected = await rejectHearthScriptProposal({
+        workspaceId,
+        workpieceId,
+        proposalId: persisted.proposalId,
+      });
+      if (!rejected.ok) {
+        setChatError(rejected.error);
+        return;
+      }
+    }
+    onDiscardAiProposalLocal();
+  }, [onDiscardAiProposalLocal, pendingAiProposal, setChatError, workpieceId, workspaceId]);
   const onApproveAiProposalAsScript = useCallback(async () => {
     if (!pendingAiProposal || isApplyingAiOps) return;
     if (!activeDraft) {
       setChatError("Select an Episode or Spark to start.");
       return;
     }
+    const persisted = pendingAiProposal.persistedProposal;
     const selectedOps = pendingAiProposal.ops.filter((_, index) => pendingAiProposal.selected[index]);
     const bodyOps = selectedOps.filter((op) => op.op === "set_body");
     if (bodyOps.length === 0) {
@@ -3231,40 +3315,136 @@ export default function HearthShell({
         return;
       }
     }
-    const nextScriptAuthoringMeta = pendingAiProposal.autosaveReasonCode === "ai_outline"
-      ? deriveOutlineScriptAuthoringMeta({
-        scriptText: nextBody,
-        currentMeta: activeDraft.scriptAuthoringMeta,
-      })
-      : pendingAiProposal.autosaveReasonCode === "ai_script"
-        ? deriveFullScriptAuthoringMeta({
+    if (!persisted) {
+      const nextScriptAuthoringMeta = pendingAiProposal.autosaveReasonCode === "ai_outline"
+        ? deriveOutlineScriptAuthoringMeta({
           scriptText: nextBody,
           currentMeta: activeDraft.scriptAuthoringMeta,
         })
-        : activeDraft.scriptAuthoringMeta;
-    const approved = await approveScriptActionRef.current({
-      draftOverride: {
-        ...activeDraft,
-        body: nextBody,
-        scriptAuthoringMeta: nextScriptAuthoringMeta,
-      },
-    });
-    if (!approved) return;
-    setPendingAiProposal(null);
-    publishForgeNotice({
-      job: "script-completed",
-      title: "Script approved",
-      message: "Approved draft replaced the script panel and canonical Anvil handoff.",
-      severity: "success",
-    });
+        : pendingAiProposal.autosaveReasonCode === "ai_script"
+          ? deriveFullScriptAuthoringMeta({
+            scriptText: nextBody,
+            currentMeta: activeDraft.scriptAuthoringMeta,
+          })
+          : activeDraft.scriptAuthoringMeta;
+      const approved = await approveScriptActionRef.current({
+        draftOverride: {
+          ...activeDraft,
+          body: nextBody,
+          scriptAuthoringMeta: nextScriptAuthoringMeta,
+        },
+      });
+      if (!approved) return;
+      setPendingAiProposal(null);
+      publishForgeNotice({
+        job: "script-completed",
+        title: "Script approved",
+        message: "Approved draft replaced the script panel and canonical Anvil handoff.",
+        severity: "success",
+      });
+      return;
+    }
+    if (!workspaceId || !workpieceId) {
+      setChatError("This proposal has no canonical application authority. Reload Hearth before approving it.");
+      return;
+    }
+    setIsApplyingAiOps(true);
+    setChatError(null);
+    try {
+      const begun = await beginHearthScriptProposalApplication({
+        workspaceId,
+        workpieceId,
+        proposalId: persisted.proposalId,
+      });
+      if (!begun.ok) {
+        setChatError(begun.error);
+        return;
+      }
+      const canonicalProposalBody = findNextBodyFromOps(
+        activeDraft.body,
+        normalizeAiProposalOpsForScriptIngress(begun.data.ops.filter((op) => op.op === "set_body")),
+      );
+      if (begun.data.proposalId !== persisted.proposalId || canonicalProposalBody !== nextBody) {
+        setChatError("The canonical proposal no longer matches the reviewed script. Reload before applying it.");
+        return;
+      }
+      const nextScriptAuthoringMeta = deriveFullScriptAuthoringMeta({
+        scriptText: nextBody,
+        currentMeta: activeDraft.scriptAuthoringMeta,
+      });
+      const bodyAlreadyApplied = activeDraft.body === nextBody;
+      if (!bodyAlreadyApplied) {
+        const saved = await persistDraft({
+          draft: { ...activeDraft, body: nextBody, scriptAuthoringMeta: nextScriptAuthoringMeta },
+          updatedAt: Date.now(),
+          createRevision: null,
+          syncSources: false,
+          syncSession: true,
+          saveReason: `script_proposal:${persisted.proposalId}`,
+        });
+        if (!saved) {
+          setChatError("The proposal was not applied. Its pending card remains available to retry.");
+          return;
+        }
+      }
+      const canonicalRevisions = await store.readCanonicalRevisions(workpieceId, activeDraft.id);
+      if (!canonicalRevisions.ok) {
+        setChatError("The canonical revision history could not be verified. The proposal remains retryable.");
+        return;
+      }
+      if (!canonicalRevisions.revisions.some((revision) => revision.id === begun.data.canonicalRevisionId)) {
+        const revision = {
+          ...createRevision({
+            draftId: activeDraft.id,
+            title: activeDraft.title,
+            body: nextBody,
+            kind: "milestone",
+            note: `script_proposal_applied:${persisted.proposalId}`,
+          }),
+          id: begun.data.canonicalRevisionId,
+        };
+        const acknowledgement = await store.saveRevision(workpieceId, revision);
+        if (!isCanonicalHearthRevisionSave(acknowledgement)) {
+          setChatError("The script was saved, but its canonical revision receipt was not. The proposal remains retryable.");
+          return;
+        }
+      }
+      const completed = await completeHearthScriptProposalApplication({
+        workspaceId,
+        workpieceId,
+        proposalId: persisted.proposalId,
+        canonicalRevisionId: begun.data.canonicalRevisionId,
+      });
+      if (!completed.ok) {
+        setChatError(completed.error);
+        return;
+      }
+      await refreshRevisions(workpieceId, activeDraft.id);
+      setPendingAiProposal(null);
+      setShowScriptPanel(true);
+      publishForgeNotice({
+        job: "script-completed",
+        title: "Script proposal applied",
+        message: "The canonical working script is ready for the existing producer-review and approval steps.",
+        severity: "success",
+      });
+    } finally {
+      setIsApplyingAiOps(false);
+    }
   }, [
     activeDraft,
     approveScriptActionRef,
     isApplyingAiOps,
     pendingAiProposal,
+    persistDraft,
     publishForgeNotice,
+    refreshRevisions,
     setChatError,
+    setIsApplyingAiOps,
     setPendingAiProposal,
+    store,
+    workpieceId,
+    workspaceId,
   ]);
   const chatWorkspace = useHearthConversationSurface({
     chatSurfaceProps: {

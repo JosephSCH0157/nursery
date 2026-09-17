@@ -124,6 +124,8 @@ export type HearthChatResponse = {
   ops: HearthOp[];
   script_text: string | null;
   tag_audit: Record<string, unknown> | null;
+  proposal_id?: string;
+  proposal_state?: "proposed";
   research_result?: HearthResearchResult;
   research_context?: {
     provider_status: HearthResearchResult["providerStatus"];
@@ -672,6 +674,9 @@ export function parseHearthChatResponse(
     ops: normalizeHearthOps(readUnknownField(payload, "ops")),
     script_text: readStringField(payload, "script_text"),
     tag_audit: isRecord(tagAuditRaw) ? tagAuditRaw : null,
+    ...(isUuid(readTrimmedField(payload, "proposal_id")) && readTrimmedField(payload, "proposal_state") === "proposed"
+      ? { proposal_id: readTrimmedField(payload, "proposal_id")!, proposal_state: "proposed" as const }
+      : {}),
     ...(researchResult ? { research_result: researchResult } : {}),
     ...(gateRaw === "clarify" ? { gate: "clarify" as const } : {}),
     total_tokens: readNumberField(payload, "total_tokens"),

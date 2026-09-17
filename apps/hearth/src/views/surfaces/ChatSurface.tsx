@@ -274,7 +274,11 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         </div>
 
         {props.pendingAiProposal && props.pendingAiProposal.ops.length > 0 ? (
-          <div className="hs-ai-proposal" aria-label="Proposed script changes">
+          <div
+            className="hs-ai-proposal"
+            aria-label="Proposed script changes"
+            data-proposal-id={props.pendingAiProposal.persistedProposal?.proposalId}
+          >
             <div className="hs-ai-proposal-header">
               <div className="hs-ai-proposal-title">
                 {props.pendingAiProposal.proposalOrigin === "format_only"
@@ -319,7 +323,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                       type="checkbox"
                       checked={Boolean(props.pendingAiProposal.selected[index])}
                       onChange={() => props.onToggleAiProposalOp(index)}
-                      disabled={props.isApplyingAiOps}
+                      disabled={props.isApplyingAiOps || Boolean(props.pendingAiProposal.persistedProposal)}
                     />
                     <div className="hs-ai-op-body">
                       <label htmlFor={inputId} className="hs-ai-op-title">
@@ -346,7 +350,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                               onChange={(event) => props.onEditAiProposalBody(index, event.target.value)}
                               className="hs-ai-op-textarea"
                               rows={12}
-                              disabled={props.isApplyingAiOps}
+                              disabled={props.isApplyingAiOps || Boolean(props.pendingAiProposal.persistedProposal)}
                             />
                           </label>
                           {proposalBodyDirty ? (
@@ -384,20 +388,24 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             </div>
 
             <div className="hs-ai-proposal-actions">
-              <button
-                type="button"
-                onClick={props.onApplyAiProposalAll}
-                disabled={props.isApplyingAiOps}
-              >
-                {props.isApplyingAiOps ? "Applying..." : "Apply"}
-              </button>
-              <button
-                type="button"
-                onClick={props.onApplyAiProposalSelected}
-                disabled={props.isApplyingAiOps || props.pendingAiProposal.selected.every((value: boolean) => !value)}
-              >
-                Apply selected
-              </button>
+              {!props.pendingAiProposal.persistedProposal ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={props.onApplyAiProposalAll}
+                    disabled={props.isApplyingAiOps}
+                  >
+                    {props.isApplyingAiOps ? "Applying..." : "Apply"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={props.onApplyAiProposalSelected}
+                    disabled={props.isApplyingAiOps || props.pendingAiProposal.selected.every((value: boolean) => !value)}
+                  >
+                    Apply selected
+                  </button>
+                </>
+              ) : null}
               {props.pendingAiProposal.ops.some((op: any, index: number) => (
                 op.op === "set_body" && props.pendingAiProposal.selected[index]
               )) ? (
@@ -405,7 +413,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                   type="button"
                   onClick={props.onApproveAiProposalAsScript}
                   disabled={props.isApplyingAiOps}
-                  title="Replace the script panel with this proposed draft, then publish it as the canonical Anvil handoff script."
+                  title="Replace the canonical working script with this proposal. Recording approval remains a separate producer-review step."
                 >
                   Approve &amp; Replace Script
                 </button>

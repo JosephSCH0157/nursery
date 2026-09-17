@@ -148,6 +148,7 @@ export function reclassifyHearthFormatProposal(
     proposalOrigin: preservation.preserved ? "format_only" : "user_editorial",
     autosaveReasonCode: preservation.preserved ? "format_only" : "user_editorial",
     formatChanges: preservation.changes,
+    persistedProposal: null,
   };
 }
 

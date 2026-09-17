@@ -74,6 +74,7 @@ export type HearthChatResult =
       ops: HearthOp[];
       scriptText?: string;
       tagAudit?: Record<string, unknown>;
+      scriptProposal?: { proposalId: string; proposalState: "proposed" };
       researchResult?: HearthResearchResult;
       gate?: "clarify";
       runtime: HearthAiRuntimeSnapshot;
@@ -1422,6 +1423,9 @@ export async function requestHearthChatReply(
     ops,
     scriptText,
     tagAudit: parsed?.tag_audit ?? undefined,
+    ...(parsed.proposal_id && parsed.proposal_state === "proposed"
+      ? { scriptProposal: { proposalId: parsed.proposal_id, proposalState: "proposed" as const } }
+      : {}),
     researchResult: turnResult.artifact?.kind === "research" ? turnResult.artifact.value : undefined,
     gate,
     runtime,
