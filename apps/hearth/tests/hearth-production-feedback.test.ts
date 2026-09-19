@@ -27,21 +27,20 @@ test("hearthProductionFeedback: seo replies hydrate titles only", () => {
       "SAFE: Calm, Clear Title",
       "SPICY: Sharper Hook Title",
       "BALANCED_1: Grounded Middle Title",
-      "",
-      "DESCRIPTION:",
-      "A long-form description block for the episode.",
+      "BALANCED_2: A Fourth Option",
+      "BALANCED_3: The Fifth Hook",
     ].join("\n"),
   });
 
   assert.equal(feedback.shouldRefreshEpisodePackage, true);
-  assert.equal(feedback.titles.length, 3);
+  assert.equal(feedback.titles.length, 5);
   assert.equal(feedback.titles[0]?.text, "Calm, Clear Title");
   assert.equal(feedback.descriptionLong, null);
   assert.equal(feedback.descriptionShort, null);
   assert.equal(feedback.warning, null);
 });
 
-test("hearthProductionFeedback: markdown output parses and placeholders cannot count as generated titles", () => {
+test("hearthProductionFeedback: paid titles reject markdown, partial output, and placeholders", () => {
   const parsed = validateHearthProductionArtifactOutput({
     action: "seo",
     assistantText: [
@@ -54,12 +53,7 @@ test("hearthProductionFeedback: markdown output parses and placeholders cannot c
       "Episode description.",
     ].join("\n"),
   });
-  assert.equal(parsed.ok, true);
-  if (parsed.ok) assert.deepEqual(parsed.feedback.titles.map((title) => title.text), [
-    "A Real First Title",
-    "A Real Second Title",
-    "A Real Third Title",
-  ]);
+  assert.equal(parsed.ok, false);
 
   const placeholders = validateHearthProductionArtifactOutput({
     action: "seo",
@@ -68,7 +62,7 @@ test("hearthProductionFeedback: markdown output parses and placeholders cannot c
   assert.equal(placeholders.ok, false);
 });
 
-test("hearthProductionFeedback: structured title and tag arrays remain usable", () => {
+test("hearthProductionFeedback: structured title arrays cannot bypass the paid contract; tag arrays remain usable", () => {
   const titles = validateHearthProductionArtifactOutput({
     action: "seo",
     assistantText: JSON.stringify({
@@ -77,8 +71,7 @@ test("hearthProductionFeedback: structured title and tag arrays remain usable", 
       long_description: "A detailed YouTube-ready episode description.",
     }),
   });
-  assert.equal(titles.ok, true);
-  if (titles.ok) assert.deepEqual(titles.feedback.titles.map((title) => title.text), ["First", "Second", "Third", "Fourth", "Fifth"]);
+  assert.equal(titles.ok, false);
 
   const tags = validateHearthProductionArtifactOutput({
     action: "tags",
@@ -91,7 +84,7 @@ test("hearthProductionFeedback: structured title and tag arrays remain usable", 
 test("hearthProductionFeedback: titles do not require descriptions", () => {
   const result = validateHearthProductionArtifactOutput({
     action: "seo",
-    assistantText: "SEO_TITLES:\nSAFE: First\nSPICY: Second\nBALANCED_1: Third",
+    assistantText: "SEO_TITLES:\nSAFE: First\nSPICY: Second\nBALANCED_1: Third\nBALANCED_2: Fourth\nBALANCED_3: Fifth",
   });
   assert.equal(result.ok, true);
 });

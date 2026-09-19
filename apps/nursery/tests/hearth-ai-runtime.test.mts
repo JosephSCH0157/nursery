@@ -486,13 +486,15 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
   }
 });
 
-test("createHearthAiHandler rejects unusable production output before successful billing", async () => {
+test("Generate Titles cannot use BYO or the legacy unpriced production path", async () => {
   const handler = createHearthAiHandler(buildConfig({
     textApiKey: "test-key",
     configuredBillingMode: "byo",
   }));
   const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
   globalThis.fetch = async (input) => {
+    providerCalls += 1;
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url === "https://api.openai.com/v1/chat/completions") {
       return new Response(JSON.stringify({
@@ -516,11 +518,10 @@ test("createHearthAiHandler rejects unusable production output before successful
       }),
     }));
     const payload = await response.json();
-    assert.equal(response.status, 502);
+    assert.equal(response.status, 422);
     assert.equal(payload.ok, false);
-    assert.equal(payload.code, "invalid_production_output");
-    assert.equal(payload.billable_tokens, 0);
-    assert.match(payload.error, /three usable titles/i);
+    assert.equal(payload.code, "title_customer_scope_required");
+    assert.equal(providerCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -647,7 +648,7 @@ test("createHearthAiHandler isolates production generation from chat history and
     upstreamMessages = request.messages ?? [];
     return new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        assistantText: "SEO_TITLES:\nSAFE: First title\nSPICY: Second title\nBALANCED_1: Third title\nSHORT_DESCRIPTION:\nA concise summary.\nLONG_DESCRIPTION:\nA detailed episode description.",
+        assistantText: "TAGS_TOP10:\nGasoline, crude oil, refinery, fuel taxes, distribution, energy markets",
         ops: [],
       }) } }],
       usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
@@ -661,11 +662,11 @@ test("createHearthAiHandler isolates production generation from chat history and
         messages: [
           { role: "user", content: `Old production prompt ${"duplicate script ".repeat(500)}` },
           { role: "assistant", content: "Old response" },
-          { role: "user", content: "Generate Titles for approved Script Version 4." },
+          { role: "user", content: "Generate Tags for approved Script Version 4." },
         ],
         episode_context: buildEpisodeContext(),
         lane: "byo",
-        production_action: "seo",
+        production_action: "tags",
         production_script_version: 4,
         attachment_context: { include_episode_attachments: true },
       }),
@@ -673,14 +674,14 @@ test("createHearthAiHandler isolates production generation from chat history and
     assert.equal(response.status, 200);
     assert.equal(upstreamMessages.length, 2);
     assert.equal(upstreamMessages[0]?.role, "system");
-    assert.equal(upstreamMessages[1]?.content, "Generate Titles for approved Script Version 4.");
+    assert.equal(upstreamMessages[1]?.content, "Generate Tags for approved Script Version 4.");
     assert.doesNotMatch(upstreamMessages.map((message) => message.content ?? "").join("\n"), /duplicate script/);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("createHearthAiHandler recovers production arrays that are outside assistantText", async () => {
+test("legacy title arrays cannot bypass the paid title product", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
@@ -706,15 +707,14 @@ test("createHearthAiHandler recovers production arrays that are outside assistan
       }),
     }));
     const payload = await response.json();
-    assert.equal(response.status, 200);
-    assert.match(payload.assistant_text, /SAFE: First real title/);
-    assert.match(payload.assistant_text, /BALANCED_1: Third real title/);
+    assert.equal(response.status, 422);
+    assert.equal(payload.code, "title_customer_scope_required");
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("createHearthAiHandler repairs one malformed production response before billing success", async () => {
+test("Generate Titles does not make an unpriced repair attempt on BYO", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -741,9 +741,9 @@ test("createHearthAiHandler repairs one malformed production response before bil
       }),
     }));
     const payload = await response.json();
-    assert.equal(response.status, 200);
-    assert.equal(calls, 2);
-    assert.match(payload.assistant_text, /SAFE: First repaired title/);
+    assert.equal(response.status, 422);
+    assert.equal(payload.code, "title_customer_scope_required");
+    assert.equal(calls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -9,6 +9,7 @@ import {
 import { OpenAiTextProviderError } from "../dist/providers/paid-openai-text-execution-coordinator.js";
 
 const ROUTES = [
+  ["hearth.title_generation", { assistant_text: "SEO_TITLES:\nSAFE: Gas Prices Explained\nSPICY: Pump Price Shock\nBALANCED_1: Behind Gas Prices\nBALANCED_2: Fuel Cost Puzzle\nBALANCED_3: Why Gas Costs", titles: ["Gas Prices Explained", "Pump Price Shock", "Behind Gas Prices", "Fuel Cost Puzzle", "Why Gas Costs"] }, (v) => typeof v.assistant_text === "string" && Array.isArray(v.titles) && v.titles.length === 5],
   ["hearth.script_generation", { assistant_text: "Draft prepared", script_text: "[s1]Draft[/s1]", ops: [{ op: "set_body", value: "[s1]Draft[/s1]" }] }, (v) => typeof v.script_text === "string" && Array.isArray(v.ops)],
   ["hearth.research_synthesis", { assistant_text: "Synthesis", research_result: { sources: [{ id: "s1" }] } }, (v) => typeof v.assistant_text === "string" && Array.isArray(v.research_result?.sources)],
   ["visual.unified_plan", { images: [{}], broll: [], reference_clips: [], reference_visuals: [] }, (v) => Array.isArray(v.images) && Array.isArray(v.broll) && Array.isArray(v.reference_clips) && Array.isArray(v.reference_visuals)],

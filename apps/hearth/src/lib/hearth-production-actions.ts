@@ -2,6 +2,7 @@ import { HEARTH_THUMBNAIL_TITLE_CONTRACT } from "./hearth-thumbnail-title-contra
 import { validateHearthProductionArtifactOutput } from "./hearth-production-feedback";
 import {
   commitWorkpieceProductionArtifact,
+  readWorkpieceProductionArtifact,
   type ProductionArtifactKind,
 } from "./hearth-production-repo";
 import {
@@ -194,6 +195,7 @@ export async function persistProductionArtifact(args: {
   onTagProposal?: (proposal: { tags: string[]; scriptVersion: number; generatedAt: string }) => void;
   generatedAt?: string;
   reuseStoredArtifact?: boolean;
+  paidOperationId?: string;
 }) {
   const episodeId = args.workpieceId?.trim();
   if (!episodeId) return;
@@ -221,22 +223,46 @@ export async function persistProductionArtifact(args: {
         generated_at: generatedAt,
         action: args.action,
         raw_text: args.assistantText,
+        ...(args.action === "seo" && args.paidOperationId
+          ? { paid_operation_id: args.paidOperationId }
+          : {}),
       };
 
   try {
+    let effectivePayload = payload;
+    let reuseStoredArtifact = args.reuseStoredArtifact === true;
+    if (args.action === "seo" && args.paidOperationId && !reuseStoredArtifact) {
+      const existing = await readWorkpieceProductionArtifact({
+        workpieceId: episodeId,
+        scriptVersion: args.scriptVersion,
+        kind: "seo",
+      });
+      if (existing.ok && existing.payload && typeof existing.payload === "object"
+        && !Array.isArray(existing.payload)
+        && (existing.payload as Record<string, unknown>).paid_operation_id === args.paidOperationId) {
+        effectivePayload = existing.payload as typeof payload;
+        reuseStoredArtifact = true;
+      } else if (!existing.ok && existing.reason !== "not_found") {
+        args.setAiRuntimeWarning("Could not verify the existing title artifact. The paid result remains recoverable; no duplicate artifact was written.");
+        return { ok: false as const, reason: "title_artifact_read_failed", stage: "artifact" as const };
+      }
+    }
     const committed = await commitWorkpieceProductionArtifact({
       workpieceId: episodeId,
       workspaceId: args.workspaceId,
       scriptVersion: args.scriptVersion,
       kind: artifactKind,
-      payload,
+      payload: effectivePayload,
       syncCanonical: args.action !== "tags" && (args.action !== "release_prep_pack" || validation.ok),
-      artifactAlreadyPersisted: args.reuseStoredArtifact,
+      artifactAlreadyPersisted: reuseStoredArtifact,
     });
 
     if (!committed.ok) {
       const stage = committed.stage ? ` at ${committed.stage}` : "";
-      args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} The paid response remains recoverable from the saved production artifact.`);
+      const recoveryLocation = args.action === "seo" && args.paidOperationId
+        ? "The paid title result remains recoverable from its canonical operation record."
+        : "The paid response remains recoverable from the saved production artifact.";
+      args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} ${recoveryLocation}`);
       return committed;
     }
     if (!validation.ok) {

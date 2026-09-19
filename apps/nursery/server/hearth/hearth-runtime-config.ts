@@ -5,6 +5,7 @@ import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
 import { resolveOpenAiImageApiKey } from "../image-runtime-config";
 import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import type { HearthResearchRuntime } from "./hearth-research-runtime";
+import type { ApprovedTitleScript } from "./hearth-paid-title-generation";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -81,6 +82,8 @@ export type HearthRuntimeConfig = {
   /** Server-only dependency injection used by isolated execution-boundary tests. */
   openAiTextGate?: OpenAiTextGateClient | null;
   openAiProviderFetch?: typeof fetch;
+  /** Isolated-test seam; production always reads the canonical approval from Tongs. */
+  readApprovedTitleScript?: (workspaceId: string, workpieceId: string) => Promise<ApprovedTitleScript | null>;
   resolveUserIdForAccessToken?: (accessToken: string) => Promise<string | null>;
   /** Supplied-source-only runtime seam for isolated route certification. */
   researchRuntime?: HearthResearchRuntime;

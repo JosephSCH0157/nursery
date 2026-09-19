@@ -645,6 +645,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     action: string;
     scriptVersion: number;
     assistantText: string;
+    paidOperationId?: string;
   }) => Promise<void>;
   refreshMyAiCredits: () => Promise<{
     ok: boolean;
@@ -765,7 +766,8 @@ export function useChatWorkspaceRuntime<
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
-    if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+    if (lane === "forge" && params.productionAction !== "seo"
+      && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
       args.setChatError("You are out of AI credits for now.");
       return;
     }
@@ -881,6 +883,9 @@ export function useChatWorkspaceRuntime<
           action: params.productionAction,
           scriptVersion: params.productionScriptVersion,
           assistantText,
+          paidOperationId: params.productionAction === "seo"
+            ? result.billingReceipt?.operation_id
+            : undefined,
         });
         if (!args.operationAuthority.isCurrent(operation)) return;
       }

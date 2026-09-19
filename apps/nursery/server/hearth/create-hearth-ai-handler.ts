@@ -127,6 +127,16 @@ import {
 import { buildPaidHearthConversationMessages } from "./hearth-paid-conversation-context";
 import { buildPaidHearthScriptGenerationMessages } from "./hearth-paid-script-context";
 import {
+  HEARTH_TITLE_ROUTE,
+  HEARTH_TITLE_MODEL,
+  HEARTH_TITLE_CONTRACT,
+  buildPaidTitleMessages,
+  hashApprovedTitleScript,
+  paidTitleFingerprintPayload,
+  validatePaidTitleOutput,
+  type ApprovedTitleScript,
+} from "./hearth-paid-title-generation";
+import {
   ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
   readOwnerHearthExecutionRequirement,
@@ -2488,6 +2498,39 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
     : null);
 
+  const readCanonicalTitleApproval = async (
+    workspaceId: string,
+    workpieceId: string,
+  ): Promise<ApprovedTitleScript | null> => {
+    if (config.readApprovedTitleScript) return config.readApprovedTitleScript(workspaceId, workpieceId);
+    if (!supabaseService) return null;
+    const store = supabaseService.schema("tongs");
+    const [sequence, episode] = await Promise.all([
+      store.from("workpiece_script_approval_sequences")
+        .select("current_approval_id,current_revision")
+        .eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle(),
+      store.from("episodes")
+        .select("label,deleted_at,archived_at")
+        .eq("workspace_id", workspaceId).eq("id", workpieceId).maybeSingle(),
+    ]);
+    if (sequence.error || episode.error) throw new Error("title_approval_authority_unavailable");
+    if (!sequence.data?.current_approval_id || !episode.data
+      || episode.data.deleted_at || episode.data.archived_at) return null;
+    const approval = await store.from("script_approval_revisions")
+      .select("id,approval_revision,script_content_hash,script_text")
+      .eq("id", sequence.data.current_approval_id)
+      .eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
+    if (approval.error) throw new Error("title_approval_authority_unavailable");
+    if (!approval.data || approval.data.approval_revision !== sequence.data.current_revision) return null;
+    return {
+      approvalId: approval.data.id,
+      approvalRevision: approval.data.approval_revision,
+      scriptHash: approval.data.script_content_hash.toLowerCase(),
+      scriptText: approval.data.script_text,
+      episodeTitle: episode.data.label,
+    };
+  };
+
   function buildBillingSnapshot(mode: BillingMode) {
     return {
       billing_mode: mode,
@@ -4326,7 +4369,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
       if (effectiveLane === AI_USAGE_LANE.FORGE && !ownerHearthRequirement && !ownerResearchRequirement
-        && !paidExecutionHandle && tokenBalance != null && tokenBalance <= 0) {
+        && !paidExecutionHandle && productionAction !== "seo" && tokenBalance != null && tokenBalance <= 0) {
         return jsonResponse(402, {
           ok: false,
           error: "No AI credits remaining.",
@@ -4593,6 +4636,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           plan: ownerResearchPlan,
         });
       }
+      if (productionAction === "seo") model = HEARTH_TITLE_MODEL;
       if (researchModeRequested && !ownerResearchRequirement
         && effectiveLane === AI_USAGE_LANE.FORGE) {
         if (!researchBrief || !researchRequest || !userId || !bearerToken
@@ -5067,6 +5111,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const completionMessages = [system, ...messages];
         const boundedLatestUserMessage = latestUserMessage ?? { role: "user", content: requestText };
         const scriptGenerationRequested = turnDecision.mode === "script_generate";
+        const titleGenerationRequested = productionAction === "seo";
         let canonicalScriptResearchRows: Array<Record<string, unknown>> = [];
         if (scriptGenerationRequested && supabaseService && episodeContext.workspaceId) {
           const researchStore = supabaseService.schema("tongs") as unknown as {
@@ -5104,7 +5149,27 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
           canonicalScriptResearchRows = retained.data ?? [];
         }
-        const paidCompletionMessages: ChatMessage[] = turnDecision.mode === "conversation"
+        let approvedTitleScript: ApprovedTitleScript | null = null;
+        if (titleGenerationRequested) {
+          if (!userId || !isUuid(episodeContext.workspaceId)
+            || resolvedCredentials.keySource !== "forge_managed" || ownerHearthRequirement) {
+            return admissionFailureResponse({ status: 422, error: "Generate Titles requires an authorized Forge-funded customer scope.", code: "title_customer_scope_required" });
+          }
+          try {
+            approvedTitleScript = await readCanonicalTitleApproval(episodeContext.workspaceId, episodeContext.episodeId);
+          } catch {
+            return admissionFailureResponse({ status: 503, error: "Canonical script approval is unavailable.", code: "title_approval_unavailable" });
+          }
+          if (!approvedTitleScript || productionScriptVersion !== approvedTitleScript.approvalRevision
+            || !approvedTitleScript.scriptText.trim()
+            || await hashApprovedTitleScript(approvedTitleScript.scriptText) !== approvedTitleScript.scriptHash
+            || await hashApprovedTitleScript(episodeContext.body) !== approvedTitleScript.scriptHash) {
+            return admissionFailureResponse({ status: 409, error: "The current approved script changed. Reload Hearth before generating titles.", code: "title_approval_stale" });
+          }
+        }
+        const paidCompletionMessages: ChatMessage[] = titleGenerationRequested && approvedTitleScript
+          ? buildPaidTitleMessages(approvedTitleScript)
+          : turnDecision.mode === "conversation"
           ? buildPaidHearthConversationMessages({
               episodeContext,
               messages,
@@ -5178,21 +5243,30 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         };
 
-        const paidRouteCode: OpenAiTextRouteCode = researchModeRequested
+        const paidRouteCode: OpenAiTextRouteCode = titleGenerationRequested
+          ? HEARTH_TITLE_ROUTE
+          : researchModeRequested
           ? "hearth.research_synthesis"
           : scriptGenerationRequested
             ? "hearth.script_generation"
           : "hearth.chat_completion";
-        const paidScopeEligible = !productionAction
+        const paidScopeEligible = (titleGenerationRequested && Boolean(approvedTitleScript)
+          || !productionAction)
           && !attachmentContext.includeEpisodeAttachments
           && !readinessCheckRequested
           && !crossProjectReference.detected
-          && ((paidRouteCode === "hearth.chat_completion"
+          && ((paidRouteCode === HEARTH_TITLE_ROUTE)
+            || (paidRouteCode === "hearth.chat_completion"
             && !["outline_generate", "script_mutate"].includes(turnDecision.mode))
             || paidRouteCode === "hearth.script_generation"
             || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
               && (Boolean(ownerResearchRequirement) || Boolean(customerResearchPlan) || linkModeRequested)));
-        const paidFingerprintPayload = paidRouteCode === "hearth.chat_completion"
+        const paidFingerprintPayload = paidRouteCode === HEARTH_TITLE_ROUTE && approvedTitleScript
+          ? paidTitleFingerprintPayload({
+              userId: userId!, workspaceId: episodeContext.workspaceId!,
+              workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
+            })
+          : paidRouteCode === "hearth.chat_completion"
           ? {
               schema: "forge.hearth.paid-chat-request.v1",
               route_code: "hearth.chat_completion",
@@ -5275,6 +5349,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
+        if (paidRouteCode === HEARTH_TITLE_ROUTE
+          && (!openAiTextGate || paidRequirementRow.funding_context_required !== true)) {
+          return admissionFailureResponse({
+            status: 503,
+            error: "The paid Generate Titles product is not active for this customer scope.",
+            code: "title_paid_product_unavailable",
+          });
+        }
+
         if (paidRequirementRow.funding_context_required === true && !paidExecutionHandle) {
           if (!paidScopeEligible || !actualRequestFingerprint) {
             return admissionFailureResponse({
@@ -5290,7 +5373,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               code: "paid_execution_auth_required",
             });
           }
-          if (paidRouteCode === "hearth.research_synthesis"
+          if (paidRouteCode === HEARTH_TITLE_ROUTE
+            || paidRouteCode === "hearth.research_synthesis"
             || paidRouteCode === "hearth.script_generation"
             || paidRouteCode === "hearth.chat_completion") {
             try {
@@ -5313,7 +5397,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 model = ownerPrepared.model;
                 paidExecutionHandle = ownerPrepared.handle;
               } else {
-              const ordinaryOperationId = paidRouteCode === "hearth.chat_completion"
+              const ordinaryOperationId = paidRouteCode === HEARTH_TITLE_ROUTE
+                || paidRouteCode === "hearth.chat_completion"
                 || paidRouteCode === "hearth.script_generation"
                 ? deriveHearthCustomerPaidIdentifiers({
                   userId,
@@ -5343,9 +5428,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     : buildBoundedPaidJsonOpenAiRequest({
                         body: {
                           model: acceptedModel,
-                          messages: paidRouteCode === "hearth.script_generation"
+                          messages: paidRouteCode === "hearth.script_generation" || paidRouteCode === HEARTH_TITLE_ROUTE
                             ? paidCompletionMessages
                             : completionMessages,
+                          ...(paidRouteCode === HEARTH_TITLE_ROUTE ? { reasoning_effort: "none" } : {}),
                         },
                         model: acceptedModel,
                         maximumOutputTokens,
@@ -5801,6 +5887,89 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   operations: normalizeOps(paidResearch.result.ops),
                 }),
                 billing_receipt: paidResearch.receipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (paidRouteCode === HEARTH_TITLE_ROUTE && approvedTitleScript) {
+              const titleApproval = approvedTitleScript;
+              const paidTitles = await executePaidJsonOpenAiRoute({
+                gate: openAiTextGate,
+                routeCode: HEARTH_TITLE_ROUTE,
+                handle: paidExecutionHandle,
+                userId,
+                workspaceId: episodeContext.workspaceId!,
+                workpieceId: episodeContext.episodeId,
+                credentialSource: resolvedCredentials.keySource,
+                apiKey: resolvedCredentials.apiKey,
+                requestFingerprintPayload: paidFingerprintPayload,
+                providerRequestBody: (acceptedModel) => ({
+                  model: acceptedModel,
+                  reasoning_effort: "none",
+                  messages: paidCompletionMessages,
+                }),
+                signal: upstreamAbort.signal,
+                fetchImpl: config.openAiProviderFetch,
+                realizedSupportingCost: {
+                  amountMicros: 0,
+                  authoritative: true,
+                  evidence: { evidence_status: "none_verified", classification: "direct_supplier_cost_only" },
+                },
+                validate: (providerPayload) => {
+                  const output = validatePaidTitleOutput(extractAssistantReply(providerPayload));
+                  if (!output.ok) throw new Error(output.error);
+                  return {
+                    assistant_text: output.text,
+                    titles: output.titles,
+                    contract: HEARTH_TITLE_CONTRACT,
+                    script_approval_id: titleApproval.approvalId,
+                    script_approval_revision: titleApproval.approvalRevision,
+                    script_content_hash: titleApproval.scriptHash,
+                  };
+                },
+                persist: async (value, providerPayload) => {
+                  const usage = isRecord(providerPayload.usage) ? providerPayload.usage : {};
+                  const saved = await openAiTextGate.rpc("persist_hearth_title_generation_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                    p_user_id: userId,
+                    p_workspace_id: episodeContext.workspaceId,
+                    p_workpiece_id: episodeContext.episodeId,
+                    p_request_fingerprint: paidExecutionHandle!.requestFingerprint,
+                    p_approval_id: titleApproval.approvalId,
+                    p_approval_revision: titleApproval.approvalRevision,
+                    p_script_hash: titleApproval.scriptHash,
+                    p_provider_request_id: readOptionalString(providerPayload.id),
+                    p_input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
+                    p_output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (saved.error || !isRecord(saved.data)) throw new Error(saved.error?.message ?? "Title persistence failed.");
+                  return saved.data;
+                },
+                recover: async () => {
+                  const saved = await openAiTextGate.rpc("read_hearth_title_generation_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                  });
+                  if (saved.error || !isRecord(saved.data)) return null;
+                  return {
+                    result: saved.data,
+                    providerRequestId: readOptionalString(saved.data.provider_request_id),
+                    inputUnits: Number(saved.data.input_units ?? 0),
+                    outputUnits: Number(saved.data.output_units ?? 0),
+                  };
+                },
+              });
+              return jsonResponse(200, {
+                ok: true,
+                assistant_text: paidTitles.result.assistant_text,
+                reply: paidTitles.result.assistant_text,
+                title_result_id: paidTitles.result.title_result_id,
+                script_approval_id: paidTitles.result.script_approval_id,
+                script_approval_revision: paidTitles.result.script_approval_revision,
+                script_content_hash: paidTitles.result.script_content_hash,
+                turn_result: buildTurnResult({ assistantMessage: String(paidTitles.result.assistant_text ?? "") }),
+                billing_receipt: paidTitles.receipt,
                 ...buildBillingSnapshot(lane),
               });
             }

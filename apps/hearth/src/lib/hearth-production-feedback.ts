@@ -27,11 +27,36 @@ const EMPTY_FEEDBACK: HearthProductionArtifactFeedback = {
   warning: null,
 };
 
+const SEO_TITLE_LABELS = ["SAFE", "SPICY", "BALANCED_1", "BALANCED_2", "BALANCED_3"] as const;
+
+export function validateExactSeoTitleBlock(value: unknown): { ok: true; text: string; titles: string[] } | { ok: false; error: string } {
+  if (typeof value !== "string" || value.length > 2_048) return { ok: false, error: "invalid_title_output" };
+  const text = value.trim();
+  const lines = text.split(/\r?\n/);
+  if (lines.length !== 6 || lines[0] !== "SEO_TITLES:") return { ok: false, error: "invalid_title_structure" };
+  const titles: string[] = [];
+  for (let index = 0; index < SEO_TITLE_LABELS.length; index += 1) {
+    const prefix = `${SEO_TITLE_LABELS[index]}: `;
+    const line = lines[index + 1];
+    if (!line.startsWith(prefix)) return { ok: false, error: "invalid_title_labels" };
+    const title = line.slice(prefix.length).trim();
+    if (!title || /[<>`\r\n]/.test(title) || title.split(/\s+/).length > 4) {
+      return { ok: false, error: "invalid_title_candidate" };
+    }
+    titles.push(title);
+  }
+  if (new Set(titles.map((title) => title.toLocaleLowerCase())).size !== 5) {
+    return { ok: false, error: "duplicate_title_candidate" };
+  }
+  return { ok: true, text, titles };
+}
+
 export function resolveHearthProductionArtifactFeedback(args: {
   action: HearthProductionAction;
   assistantText: string;
 }): HearthProductionArtifactFeedback {
   if (args.action === "seo") {
+    const exact = validateExactSeoTitleBlock(args.assistantText);
     const titles = parseSeoTitlesFromText(args.assistantText).filter((title) => !/^title\s*[abc]$/i.test(title.text.trim()));
     return {
       shouldRefreshEpisodePackage: true,
@@ -39,9 +64,9 @@ export function resolveHearthProductionArtifactFeedback(args: {
       descriptionShort: null,
       descriptionLong: null,
       tags: [],
-      warning: titles.length < 3
-        ? "Generate Titles failed because Hearth did not return at least three usable titles."
-        : null,
+      warning: exact.ok && titles.length === 5
+        ? null
+        : "Generate Titles failed because Hearth did not return exactly five labeled, distinct, thumbnail-safe titles.",
     };
   }
 
@@ -99,7 +124,7 @@ export function validateHearthProductionArtifactOutput(args: {
   assistantText: string;
 }): { ok: true; feedback: HearthProductionArtifactFeedback } | { ok: false; error: string; feedback: HearthProductionArtifactFeedback } {
   const feedback = resolveHearthProductionArtifactFeedback(args);
-  if (args.action === "seo" && feedback.titles.length < 3) {
+  if (args.action === "seo" && feedback.warning) {
     return { ok: false, error: feedback.warning ?? "Generated title output was unusable.", feedback };
   }
   if (args.action === "tags" && feedback.tags.length === 0) {

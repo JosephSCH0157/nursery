@@ -2936,6 +2936,7 @@ export default function HearthShell({
         action: artifactArgs.action as ProductionAction,
         scriptVersion: artifactArgs.scriptVersion,
         assistantText: artifactArgs.assistantText,
+        paidOperationId: artifactArgs.paidOperationId,
       });
     },
     refreshMyAiCredits,
@@ -5961,6 +5962,7 @@ export default function HearthShell({
     assistantText: string;
     generatedAt?: string;
     reuseStoredArtifact?: boolean;
+    paidOperationId?: string;
   }) {
     const result = await persistHearthProductionArtifact({
       action: args.action,
@@ -5968,6 +5970,7 @@ export default function HearthShell({
       assistantText: args.assistantText,
       generatedAt: args.generatedAt,
       reuseStoredArtifact: args.reuseStoredArtifact,
+      paidOperationId: args.paidOperationId,
       workpieceId,
       workspaceId,
       refreshEpisodePackage,

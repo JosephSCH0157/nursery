@@ -51,6 +51,10 @@ $heldMigrationNames = @(
   '20261011460000_reassert_settled_customer_price_quote.sql',
   '20261011470000_reassert_standard_customer_aggregate_admission.sql'
 )
+$newForwardMigrationNames = @(
+  '20261011480000_hearth_title_generation_test_product.sql'
+)
+$allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
 
 function Invoke-CheckedCommand {
   param(
@@ -112,7 +116,16 @@ Push-Location $repoRoot
 try {
   Invoke-CheckedCommand -Program 'docker' -Arguments @('info','--format','{{.ServerVersion}}') | Out-Null
 
-  $statusRaw = (& npx supabase status -o json 2>$null) -join "`n"
+  # CLI warnings about optional stopped services are written to stderr even
+  # when the local database is healthy; they must not abort JSON status read.
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $statusRaw = (& npx supabase status -o json 2>$null) -join "`n"
+  }
+  finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   if ($LASTEXITCODE -ne 0) {
     throw 'The local Supabase stack is unavailable. Start it manually before running this certification.'
   }
@@ -153,7 +166,7 @@ try {
   }
 
   try {
-    foreach ($name in $heldMigrationNames) {
+    foreach ($name in $allHeldMigrationNames) {
       $source = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       $destination = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
       if (-not $source.StartsWith($migrationsDir + [System.IO.Path]::DirectorySeparatorChar,[System.StringComparison]::OrdinalIgnoreCase) -or
@@ -352,7 +365,7 @@ select json_build_object(
     }
   }
   finally {
-    foreach ($name in $heldMigrationNames) {
+    foreach ($name in $allHeldMigrationNames) {
       $held = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
       $restored = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       if (Test-Path -LiteralPath $held -PathType Leaf) {

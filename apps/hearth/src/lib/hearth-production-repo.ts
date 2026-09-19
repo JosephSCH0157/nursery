@@ -378,6 +378,11 @@ async function syncEpisodePackageMetadata(args: {
     resolveImageMapScriptAnchor,
   });
 
+  if (args.kind === "seo" && canonicalFramingEquals(
+    hydrateEpisodePackageV2(metadata),
+    hydrateEpisodePackageV2(nextMetadata),
+  )) return { ok: true, disposition: "existing" };
+
   const committed = await commitMetadataDocument({
     workpieceId: args.workpieceId,
     metadata: nextMetadata,
