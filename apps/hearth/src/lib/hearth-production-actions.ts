@@ -1,4 +1,4 @@
-import { HEARTH_THUMBNAIL_TITLE_CONTRACT } from "./hearth-thumbnail-title-contract";
+import { HEARTH_EPISODE_TITLE_CONTRACT } from "./hearth-episode-title-contract";
 import { validateHearthProductionArtifactOutput } from "./hearth-production-feedback";
 import {
   commitWorkpieceProductionArtifact,
@@ -72,7 +72,7 @@ export function buildProductionPrompt(args: {
       "BALANCED_2: <title>",
       "BALANCED_3: <title>",
       "",
-      `Each title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer.`,
+      `These are public-facing episode titles. Prefer ${HEARTH_EPISODE_TITLE_CONTRACT.preferred_min_words}–${HEARTH_EPISODE_TITLE_CONTRACT.preferred_max_words} words and do not exceed ${HEARTH_EPISODE_TITLE_CONTRACT.hard_max_words} words. Preserve the episode's subject and angle; thumbnail text is a separate artifact.`,
     ].join("\n");
   }
 

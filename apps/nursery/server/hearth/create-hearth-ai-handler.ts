@@ -130,11 +130,13 @@ import {
   HEARTH_TITLE_ROUTE,
   HEARTH_TITLE_MODEL,
   HEARTH_TITLE_CONTRACT,
+  HEARTH_TITLE_CONTRACT_V1,
   buildPaidTitleMessages,
   hashApprovedTitleScript,
   paidTitleFingerprintPayload,
   validatePaidTitleOutput,
   type ApprovedTitleScript,
+  type HearthTitleContractVersion,
 } from "./hearth-paid-title-generation";
 import {
   ownerHearthExecutionGate,
@@ -5175,8 +5177,33 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             return admissionFailureResponse({ status: 409, error: "The current approved script changed. Reload Hearth before generating titles.", code: "title_approval_stale" });
           }
         }
+        let titleContractVersion: HearthTitleContractVersion = 2;
+        if (titleGenerationRequested && approvedTitleScript && (spendingAcceptance || paidExecutionHandle)) {
+          const legacyFingerprint = await fingerprintOpenAiTextPaidRequest(paidTitleFingerprintPayload({
+            userId: userId!, workspaceId: episodeContext.workspaceId!,
+            workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
+            contractVersion: 1,
+          }));
+          if ((spendingAcceptance?.requestFingerprint ?? paidExecutionHandle?.requestFingerprint) === legacyFingerprint) {
+            titleContractVersion = 1;
+          }
+        }
+        if (titleGenerationRequested && titleContractVersion === 2) {
+          // A running dev server may load this code before the forward migration.
+          // Fail before quoting or authorizing a provider attempt in that window.
+          const contractReadback = openAiTextGate
+            ? await openAiTextGate.rpc("read_hearth_title_generation_contract_version", {})
+            : null;
+          if (contractReadback?.error || Number(contractReadback?.data) !== 2) {
+            return admissionFailureResponse({
+              status: 503,
+              error: "The updated Generate Titles contract is not yet available. Please try again after the database update.",
+              code: "title_contract_migration_required",
+            });
+          }
+        }
         const paidCompletionMessages: ChatMessage[] = titleGenerationRequested && approvedTitleScript
-          ? buildPaidTitleMessages(approvedTitleScript)
+          ? buildPaidTitleMessages(approvedTitleScript, titleContractVersion)
           : turnDecision.mode === "conversation"
           ? buildPaidHearthConversationMessages({
               episodeContext,
@@ -5273,6 +5300,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ? paidTitleFingerprintPayload({
               userId: userId!, workspaceId: episodeContext.workspaceId!,
               workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
+              contractVersion: titleContractVersion,
             })
           : paidRouteCode === "hearth.chat_completion"
           ? {
@@ -5322,6 +5350,67 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : customerResearchPlan
             ? fingerprintCustomerResearchPlan(customerResearchPlan)
             : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
+        if (paidRouteCode === HEARTH_TITLE_ROUTE && titleContractVersion === 1) {
+          // Historical accepted v1 quotes are read-only: replay a settled result,
+          // but never submit another provider attempt under the old title policy.
+          if (!openAiTextGate || !userId || !episodeContext.workspaceId) {
+            return admissionFailureResponse({ status: 503, error: "Paid execution controls are unavailable.", code: "paid_execution_control_unavailable" });
+          }
+          const operationId = deriveHearthCustomerPaidIdentifiers({
+            userId, workspaceId: episodeContext.workspaceId,
+            requestFingerprint: actualRequestFingerprint,
+          }).operationId;
+          const stored = await openAiTextGate.rpc("read_existing_openai_text_funding_handle", {
+            p_user_id: userId,
+            p_operation_id: operationId,
+            p_route_code: HEARTH_TITLE_ROUTE,
+            p_request_fingerprint: actualRequestFingerprint,
+          });
+          const legacyHandle = normalizeOpenAiTextPaidExecutionHandle(stored.data);
+          if (!stored.error && legacyHandle
+            && (!paidExecutionHandle || paidExecutionHandle.operationId === legacyHandle.operationId
+              && paidExecutionHandle.reservationId === legacyHandle.reservationId)
+            && (!spendingAcceptance || spendingAcceptance.operationId === legacyHandle.operationId)) {
+            try {
+              const replay = await readSettledOpenAiTextRouteReplay({
+                gate: openAiTextGate, routeCode: HEARTH_TITLE_ROUTE,
+                handle: legacyHandle, userId,
+                workspaceId: episodeContext.workspaceId,
+                workpieceId: episodeContext.episodeId,
+                credentialSource: resolvedCredentials.keySource,
+                requestFingerprintPayload: paidFingerprintPayload,
+              });
+              if (replay && (!spendingAcceptance || spendingAcceptance.quoteId === replay.context.quoteId)) {
+                return jsonResponse(200, {
+                  ok: true,
+                  assistant_text: replay.result.assistant_text,
+                  reply: replay.result.assistant_text,
+                  title_result_id: replay.result.title_result_id,
+                  script_approval_id: replay.result.script_approval_id,
+                  script_approval_revision: replay.result.script_approval_revision,
+                  script_content_hash: replay.result.script_content_hash,
+                  turn_result: buildTurnResult({ assistantMessage: String(replay.result.assistant_text ?? "") }),
+                  billing_receipt: {
+                    operation_id: replay.context.operationId,
+                    reservation_id: replay.context.reservationId,
+                    status: replay.state,
+                    funding_source: replay.context.fundingSourceType,
+                    customer_charge_micros: replay.customerChargeMicros,
+                    provider_request_id: replay.requestId,
+                  },
+                  ...buildBillingSnapshot(lane),
+                });
+              }
+            } catch {
+              // Invalid or unsettled legacy authority cannot cross into v2 execution.
+            }
+          }
+          return admissionFailureResponse({
+            status: 409,
+            error: "This earlier title quote has no settled result to replay. Request a new quote under the current title contract.",
+            code: "title_legacy_quote_not_replayable",
+          });
+        }
         let paidRequirementRow: Record<string, unknown> = {};
         if (openAiTextGate) {
           if (ownerResearchRequirement && paidRouteCode === "hearth.research_synthesis") {
@@ -5923,12 +6012,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   evidence: { evidence_status: "none_verified", classification: "direct_supplier_cost_only" },
                 },
                 validate: (providerPayload) => {
-                  const output = validatePaidTitleOutput(extractAssistantReply(providerPayload));
+                  const output = validatePaidTitleOutput(extractAssistantReply(providerPayload), titleContractVersion);
                   if (!output.ok) throw new Error(output.error);
                   return {
                     assistant_text: output.text,
                     titles: output.titles,
-                    contract: HEARTH_TITLE_CONTRACT,
+                    contract: titleContractVersion === 1 ? HEARTH_TITLE_CONTRACT_V1 : HEARTH_TITLE_CONTRACT,
                     script_approval_id: titleApproval.approvalId,
                     script_approval_revision: titleApproval.approvalRevision,
                     script_content_hash: titleApproval.scriptHash,

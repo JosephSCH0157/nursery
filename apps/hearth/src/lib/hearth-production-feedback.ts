@@ -6,6 +6,7 @@ import {
   parseThumbnailCreativeAuthorityFromText,
   type EpisodeSeoTitle,
 } from "./episode-package-v2";
+import { HEARTH_EPISODE_TITLE_CONTRACT } from "./hearth-episode-title-contract";
 
 type HearthProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 
@@ -29,7 +30,7 @@ const EMPTY_FEEDBACK: HearthProductionArtifactFeedback = {
 
 const SEO_TITLE_LABELS = ["SAFE", "SPICY", "BALANCED_1", "BALANCED_2", "BALANCED_3"] as const;
 
-export function validateExactSeoTitleBlock(value: unknown): { ok: true; text: string; titles: string[] } | { ok: false; error: string } {
+export function validateExactSeoTitleBlock(value: unknown, hardMaxWords: number = HEARTH_EPISODE_TITLE_CONTRACT.hard_max_words): { ok: true; text: string; titles: string[] } | { ok: false; error: string } {
   if (typeof value !== "string" || value.length > 2_048) return { ok: false, error: "invalid_title_output" };
   const text = value.trim();
   const lines = text.split(/\r?\n/);
@@ -40,12 +41,12 @@ export function validateExactSeoTitleBlock(value: unknown): { ok: true; text: st
     const line = lines[index + 1];
     if (!line.startsWith(prefix)) return { ok: false, error: "invalid_title_labels" };
     const title = line.slice(prefix.length).trim();
-    if (!title || /[<>`\r\n]/.test(title) || title.split(/\s+/).length > 4) {
+    if (!title || /[<>`\r\n]/.test(title) || title.split(/\s+/).length > hardMaxWords) {
       return { ok: false, error: "invalid_title_candidate" };
     }
     titles.push(title);
   }
-  if (new Set(titles.map((title) => title.toLocaleLowerCase())).size !== 5) {
+  if (new Set(titles.map((title) => title.normalize("NFKC").replace(/\s+/g, " ").toLocaleLowerCase())).size !== 5) {
     return { ok: false, error: "duplicate_title_candidate" };
   }
   return { ok: true, text, titles };

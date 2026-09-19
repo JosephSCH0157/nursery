@@ -3,15 +3,23 @@ import test from "node:test";
 import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
 import {
   HEARTH_TITLE_CONTRACT,
+  HEARTH_TITLE_CONTRACT_V1,
   HEARTH_TITLE_MODEL,
   HEARTH_TITLE_ROUTE,
   buildPaidTitleMessages,
   hashApprovedTitleScript,
   paidTitleFingerprintPayload,
+  validatePaidTitleOutput,
 } from "../server/hearth/hearth-paid-title-generation";
 import { validateExactSeoTitleBlock } from "../../hearth/src/lib/hearth-production-feedback";
+import { HEARTH_EPISODE_TITLE_CONTRACT } from "../../hearth/src/lib/hearth-episode-title-contract";
+import { HEARTH_THUMBNAIL_TITLE_CONTRACT } from "../../hearth/src/lib/hearth-thumbnail-title-contract";
+import { buildProductionPrompt } from "../../hearth/src/lib/hearth-production-actions";
 import { buildBoundedPaidJsonOpenAiRequest } from "../server/billing/paid-json-openai-route";
+import { deriveHearthCustomerPaidIdentifiers } from "../server/hearth/hearth-paid-chat-execution";
+import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { getEncoding } from "js-tiktoken";
 
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const WORKSPACE_ID = "cc5478ff-37be-403e-824c-467fa7da061e";
@@ -19,16 +27,170 @@ const WORKPIECE_ID = "21d16d6a-905b-491e-8761-028789612ae5";
 const APPROVAL_ID = "be87d40f-516b-4dcf-bd25-094b922cc682";
 const SCRIPT = "[s1]\nCrude oil, refining capacity, fuel taxes, and distribution affect gasoline prices.\n[/s1]\n";
 const TITLES = "SEO_TITLES:\nSAFE: Why Gas Costs More\nSPICY: Gas Prices Exposed\nBALANCED_1: The Gas Price Puzzle\nBALANCED_2: Behind Every Gas Pump\nBALANCED_3: Fuel Costs Explained";
+const titleBlock = (titles: readonly string[]) => [
+  "SEO_TITLES:",
+  ...["SAFE", "SPICY", "BALANCED_1", "BALANCED_2", "BALANCED_3"].map((label, index) => `${label}: ${titles[index]}`),
+].join("\n");
 
-test("paid title contract accepts exactly five distinct labeled, thumbnail-safe titles", () => {
+test("paid title contract accepts exactly five distinct labeled episode titles", () => {
   assert.equal(validateExactSeoTitleBlock(TITLES).ok, true);
   for (const invalid of [
     TITLES.replace("BALANCED_3: Fuel Costs Explained", ""),
     TITLES.replace("BALANCED_3: Fuel Costs Explained", "BALANCED_3: Gas Prices Exposed"),
-    TITLES.replace("SAFE: Why Gas Costs More", "SAFE: Why Gasoline Prices Are So Very High"),
+    TITLES.replace("SAFE: Why Gas Costs More", "SAFE: Why Gasoline Prices Keep Rising Across The United States Despite Global Oil Supply And Demand Changes"),
     "FENCED\n" + TITLES + "\nFENCED",
     TITLES + "\nSHORT_DESCRIPTION: Not included",
   ]) assert.equal(validateExactSeoTitleBlock(invalid).ok, false);
+});
+
+test("historical accepted v1 titles replay read-only and cannot make another provider attempt", async () => {
+  const scriptHash = await hashApprovedTitleScript(SCRIPT);
+  const approval = {
+    approvalId: APPROVAL_ID, approvalRevision: 1, scriptHash,
+    scriptText: SCRIPT, episodeTitle: "Why gasoline costs more",
+  };
+  const legacyPayload = paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval, contractVersion: 1,
+  });
+  const requestFingerprint = await fingerprintOpenAiTextPaidRequest(legacyPayload);
+  const identifiers = deriveHearthCustomerPaidIdentifiers({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, requestFingerprint,
+  });
+  let reservationState = "settled";
+  let providerCalls = 0;
+  const gate = { async rpc(name: string) {
+    if (name === "read_owner_hearth_execution_requirement") return {
+      data: { owner_testing_effective: false }, error: null,
+    };
+    if (name === "read_existing_openai_text_funding_handle") return { data: {
+      operation_id: identifiers.operationId, reservation_id: identifiers.reservationId,
+      request_fingerprint: requestFingerprint, funding_environment: "test",
+    }, error: null };
+    if (name === "resolve_openai_text_paid_execution_context") return { data: {
+      operation_id: identifiers.operationId, reservation_id: identifiers.reservationId,
+      quote_id: identifiers.quoteId, route_code: HEARTH_TITLE_ROUTE,
+      funding_source_type: "customer_deposit", funding_source_id: "66666666-6666-4666-8666-666666666666",
+      funding_environment: "test", credential_funding: "forge", model: HEARTH_TITLE_MODEL,
+      maximum_input_units: 12_000, maximum_output_units: 512, maximum_attempts: 1,
+      maximum_failure_exposure_micros: 3_015, direct_provider_ceiling_micros: 3_015,
+      supporting_cost_ceiling_micros: 0, input_micros_per_million_tokens: 200_000,
+      output_micros_per_million_tokens: 1_200_000, reservation_state: reservationState,
+    }, error: null };
+    if (name === "read_openai_text_paid_result") return { data: {
+      result_json: {
+        assistant_text: TITLES, title_result_id: "99999999-9999-4999-8999-999999999999",
+        script_approval_id: APPROVAL_ID, script_approval_revision: 1,
+        script_content_hash: scriptHash, contract: HEARTH_TITLE_CONTRACT_V1,
+      }, provider_request_id: "req_legacy_title", customer_charge_micros: 5_000,
+    }, error: null };
+    throw new Error(`Unexpected legacy replay RPC: ${name}`);
+  } };
+  const config: HearthRuntimeConfig = {
+    textApiKey: "fake-forge-key", imageApiKey: null, researchApiKey: null,
+    apiKey: "fake-forge-key", model: HEARTH_TITLE_MODEL,
+    sttModel: "gpt-4o-mini-transcribe", configuredBillingMode: "forge",
+    initialTokenBalance: 0, supabaseUrl: null, supabaseServiceRoleKey: null,
+    supabaseRpcKey: null, sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false, disableUserKeys: false,
+    disableExpensiveAiActions: false, disableCdcGeneration: false,
+    openAiTextGate: gate,
+    resolveUserIdForAccessToken: async () => USER_ID,
+    readApprovedTitleScript: async () => approval,
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      throw new Error("Historical replay must not call OpenAI");
+    },
+  };
+  const body = {
+    lane: "forge", messages: [{ role: "user", content: "Generate five titles" }],
+    user_authored_text: "Generate five titles",
+    explicit_action: { kind: "production", action: "seo" },
+    production_action: "seo", production_script_version: 1,
+    attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+    spending_acceptance: {
+      operation_id: identifiers.operationId, quote_id: identifiers.quoteId,
+      quote_hash: "b".repeat(64), request_fingerprint: requestFingerprint,
+    },
+    episode_context: {
+      episodeId: WORKPIECE_ID, workspaceId: WORKSPACE_ID,
+      title: "Untrusted browser title", titleVariants: { A: "", B: "", C: "" },
+      outline: "", body: SCRIPT, tonePreset: null, sources: [], sparks: [],
+    },
+  };
+  const handler = createHearthAiHandler(config);
+  const invoke = async () => {
+    const response = await handler(new Request("http://localhost/api/hearth/chat", {
+      method: "POST",
+      headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+    return { status: response.status, payload: await response.json() as Record<string, any> };
+  };
+  const replayed = await invoke();
+  assert.equal(replayed.status, 200, JSON.stringify(replayed.payload));
+  assert.equal(replayed.payload.billing_receipt.status, "settled_replay");
+  assert.equal(replayed.payload.assistant_text, TITLES);
+  reservationState = "released";
+  const unreplayable = await invoke();
+  assert.equal(unreplayable.status, 409);
+  assert.equal(unreplayable.payload.code, "title_legacy_quote_not_replayable");
+  assert.equal(providerCalls, 0);
+});
+
+test("episode-title lengths are distinct from thumbnail hooks and v1 remains identifiable", async () => {
+  assert.deepEqual(HEARTH_EPISODE_TITLE_CONTRACT, {
+    preferred_min_words: 4, preferred_max_words: 10, hard_max_words: 12,
+  });
+  assert.equal(HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words, 4);
+  assert.equal(HEARTH_THUMBNAIL_TITLE_CONTRACT.hard_max_words, 6);
+  const candidates = [
+    "Why Gas Prices Rise", // 4
+    "Why Gas Prices Rise Across America", // 6
+    "How World Oil Markets Shape Gas Prices Across The Country", // 10
+    "Why Global Oil Supply And Local Refining Both Shape American Gasoline Prices", // 12
+    "Fuel Costs Explained", // 3: preference is not a minimum
+  ];
+  assert.deepEqual(candidates.map((title) => title.split(/\s+/).length), [4, 6, 10, 12, 3]);
+  assert.equal(validateExactSeoTitleBlock(titleBlock(candidates)).ok, true);
+  assert.equal(validatePaidTitleOutput(titleBlock(candidates), 1).ok, false);
+  assert.equal(validateExactSeoTitleBlock(titleBlock([
+    ...candidates.slice(0, 4),
+    "Why Global Oil Supply And Local Refining Both Shape American Gasoline Prices Today", // 13
+  ])).ok, false);
+  assert.equal(validateExactSeoTitleBlock(titleBlock([
+    candidates[0], "WHY  GAS PRICES RISE", ...candidates.slice(2),
+  ])).ok, false);
+  const prompt = buildProductionPrompt({ action: "seo", scriptVersion: 1, episodeTitle: "Gasoline" });
+  assert.match(prompt, /Prefer 4–10 words and do not exceed 12 words/);
+  assert.doesNotMatch(prompt, /thumbnail-safe hook of 4 words/);
+  const approval = {
+    approvalId: APPROVAL_ID, approvalRevision: 1,
+    scriptHash: await hashApprovedTitleScript(SCRIPT), scriptText: SCRIPT,
+    episodeTitle: "Gasoline",
+  };
+  const oldPayload = paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval, contractVersion: 1,
+  });
+  const currentPayload = paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval,
+  });
+  assert.equal(oldPayload.schema, HEARTH_TITLE_CONTRACT_V1);
+  assert.equal(oldPayload.output_contract, "seo_titles_five_lines.v1");
+  assert.equal(currentPayload.schema, HEARTH_TITLE_CONTRACT);
+  assert.equal(currentPayload.output_contract, "seo_titles_five_lines.v2");
+  assert.notDeepEqual(oldPayload, currentPayload);
+  assert.match(buildPaidTitleMessages(approval, 1)[0].content, /at most four words/);
+  assert.match(buildPaidTitleMessages(approval)[0].content, /do not exceed 12 words/);
+  const words = ["gasoline", "prices", "reflect", "global", "oil", "supply", "refining", "capacity", "seasonal", "demand", "regional", "taxes"];
+  const maximumLengthExample = titleBlock(Array.from({ length: 5 }, (_, offset) =>
+    [...words.slice(offset), ...words.slice(0, offset)].join(" ")));
+  const outputTokens = getEncoding("o200k_base").encode(maximumLengthExample).length;
+  assert.ok(outputTokens < 256, `five 12-word titles used ${outputTokens} output tokens`);
+  assert.ok(outputTokens < 512);
+  assert.equal(Math.ceil(12_000 * 0.2 + 512 * 1.2), 3_015);
 });
 
 test("title request is deterministic and bounded to one Luna attempt without tools", async () => {
@@ -73,8 +235,12 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
   let quotedRoute = "";
   let boundedRoute = "";
   let quoteCalls = 0;
+  let contractReady = false;
   const gate = {
     async rpc(name: string, args: Record<string, unknown>) {
+      if (name === "read_hearth_title_generation_contract_version") return contractReady
+        ? { data: 2, error: null }
+        : { data: null, error: { message: "v2 migration pending" } };
       if (name === "read_openai_execution_requirement") {
         return { data: { mode: "enforce", funding_context_required: true }, error: null };
       }
@@ -142,7 +308,7 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
     },
   };
   const handler = createHearthAiHandler(config);
-  const response = await handler(new Request("http://localhost/api/hearth/chat", {
+  const titleRequest = () => new Request("http://localhost/api/hearth/chat", {
     method: "POST",
     headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
     body: JSON.stringify({
@@ -159,7 +325,14 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
         outline: "", body: SCRIPT, tonePreset: null, sources: [], sparks: [],
       },
     }),
-  }));
+  });
+  const blocked = await handler(titleRequest());
+  assert.equal(blocked.status, 503);
+  assert.equal((await blocked.json() as Record<string, unknown>).code, "title_contract_migration_required");
+  assert.equal(quoteCalls, 0);
+  assert.equal(providerCalls, 0);
+  contractReady = true;
+  const response = await handler(titleRequest());
   const payload = await response.json() as Record<string, any>;
   assert.equal(response.status, 409, JSON.stringify(payload));
   assert.equal(payload.code, "hearth_spending_confirmation_required");
@@ -228,6 +401,7 @@ test("accepted title quote settles once and exact replay reads the canonical res
   const gate = {
     async rpc(name: string, args: Record<string, unknown>) {
       calls.push(name);
+      if (name === "read_hearth_title_generation_contract_version") return { data: 2, error: null };
       if (name === "read_openai_execution_requirement") return {
         data: { mode: "enforce", funding_context_required: true }, error: null,
       };

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   resolveHearthProductionArtifactFeedback,
+  validateExactSeoTitleBlock,
   validateHearthProductionArtifactOutput,
 } from "../src/lib/hearth-production-feedback";
 import { buildProductionPrompt, resolveAcceptedTagProposal } from "../src/lib/hearth-production-actions";
@@ -89,11 +90,29 @@ test("hearthProductionFeedback: titles do not require descriptions", () => {
   assert.equal(result.ok, true);
 });
 
+test("hearthProductionFeedback: episode titles allow twelve words but not thirteen", () => {
+  const lines = [
+    "SEO_TITLES:",
+    "SAFE: Why Gas Prices Rise",
+    "SPICY: The Global Oil Shock Behind Higher American Gasoline Prices Today",
+    "BALANCED_1: How Global Oil Supply And Local Refining Together Affect American Gasoline Prices",
+    "BALANCED_2: What Is Really Driving Higher Gas Prices Across The United States Today",
+    "BALANCED_3: Fuel Costs Explained",
+  ];
+  assert.equal(validateExactSeoTitleBlock(lines.join("\n")).ok, true);
+  assert.equal(validateExactSeoTitleBlock(lines.join("\n").replace(
+    "BALANCED_1: How Global Oil Supply And Local Refining Together Affect American Gasoline Prices",
+    "BALANCED_1: How Global Oil Supply And Local Refining Together Affect American Gasoline Prices Today",
+  )).ok, false);
+});
+
 test("production prompts keep titles, tags, and framing pack contracts separate", () => {
   const titles = buildProductionPrompt({ action: "seo", scriptVersion: 1, episodeTitle: "Episode" });
   const tags = buildProductionPrompt({ action: "tags", scriptVersion: 1, episodeTitle: "Episode" });
   const pack = buildProductionPrompt({ action: "release_prep_pack", scriptVersion: 1, episodeTitle: "Episode" });
   assert.match(titles, /SEO_TITLES:/);
+  assert.match(titles, /Prefer 4–10 words and do not exceed 12 words/);
+  assert.doesNotMatch(titles, /thumbnail-safe hook of 4 words/);
   assert.doesNotMatch(titles, /SHORT_DESCRIPTION|TAGS_FULL|MONETIZATION_ANGLE/);
   assert.match(tags, /TAGS_TOP10:/);
   assert.match(tags, /no more than 10 tags/i);
