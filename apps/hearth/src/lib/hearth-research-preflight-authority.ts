@@ -168,10 +168,10 @@ function parsePreflight(body: unknown): HearthPreflightAuthority | null {
 export async function readCurrentHearthPreflight(args: { workspaceId: string; workpieceId: string }): Promise<HearthPreflightAuthority | null> {
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/hearth-preflight?workspace_id=${encodeURIComponent(args.workspaceId)}`, { method: "GET" });
   const body = await json(response);
-  if (!response.ok) throw new Error(errorMessage(body, "Hearth producer preflight could not be read."));
+  if (!response.ok) throw new Error(errorMessage(body, "Optional Hearth script check could not be read."));
   const data = record(body) && record(body.data) ? body.data : null;
   const disposition = typeof data?.disposition === "string" ? data.disposition : null;
-  if (disposition !== "current" && disposition !== "stale" && disposition !== "empty") throw new Error(disposition === "integrity_error" ? "Hearth producer preflight failed its integrity check." : "Hearth producer preflight authority was unavailable.");
+  if (disposition !== "current" && disposition !== "stale" && disposition !== "empty") throw new Error(disposition === "integrity_error" ? "The optional Hearth script check failed its integrity check." : "Optional Hearth script-check state was unavailable.");
   return parsePreflight(body);
 }
 
@@ -185,7 +185,7 @@ export async function commitHearthPreflight(args: { workspaceId: string; workpie
   const sourceRevision = Number(sourceData?.revision);
   const sourceHash = typeof sourceData?.hash_value === "string" ? sourceData.hash_value.toLowerCase() : "";
   const localHash = await hashHearthScriptContent(args.scriptText);
-  if (!sourceResponse.ok || !Number.isInteger(sourceRevision) || sourceRevision < 1 || sourceHash !== localHash) throw new Error("Save the current working draft before reviewing it for recording.");
+  if (!sourceResponse.ok || !Number.isInteger(sourceRevision) || sourceRevision < 1 || sourceHash !== localHash) throw new Error("Save the current working draft before running the optional script check.");
   const report = buildHearthEditorialPreflightReport({ scriptText: args.scriptText, researchResult: args.research?.result ?? null });
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/hearth-preflight`, {
     method: "POST",
@@ -203,11 +203,11 @@ export async function commitHearthPreflight(args: { workspaceId: string; workpie
     },
   });
   const body = await json(response);
-  if (!response.ok || !record(body) || body.ok !== true || !record(body.data)) throw new Error(errorMessage(body, "Hearth producer preflight was not saved."));
+  if (!response.ok || !record(body) || body.ok !== true || !record(body.data)) throw new Error(errorMessage(body, "The optional Hearth script check was not saved."));
   const disposition = typeof body.data.disposition === "string" ? body.data.disposition : "";
-  if (disposition !== "committed" && disposition !== "duplicate") throw new Error(errorMessage(body, `Hearth producer preflight was not saved (${disposition || "unknown"}).`));
+  if (disposition !== "committed" && disposition !== "duplicate") throw new Error(errorMessage(body, `The optional Hearth script check was not saved (${disposition || "unknown"}).`));
   const reportRow = record(body.data.report) ? body.data.report : null;
-  if (!reportRow) throw new Error("Tongs returned malformed producer preflight authority.");
+  if (!reportRow) throw new Error("Tongs returned malformed optional script-check state.");
   return {
     id: String(reportRow.id), revision: Number(reportRow.revision), sourceFileRevision: sourceRevision,
     scriptHash: sourceHash, researchArtifactId: args.research?.id ?? null, researchArtifactHash: args.research?.contentHash ?? null,
@@ -233,5 +233,5 @@ export async function completeHearthPreflightReview(args: { workspaceId: string;
   } });
   const body = await json(response);
   const disposition = record(body) && record(body.data) ? body.data.disposition : null;
-  if (!response.ok || (disposition !== "reviewed" && disposition !== "duplicate")) throw new Error(disposition === "blocked" ? "Resolve blockers and acknowledge or resolve every warning before completing producer review." : errorMessage(body, "Producer review was not completed."));
+  if (!response.ok || (disposition !== "reviewed" && disposition !== "duplicate")) throw new Error(disposition === "blocked" ? "To save optional review status, note or address each advisory finding first." : errorMessage(body, "Optional script-review status was not saved."));
 }

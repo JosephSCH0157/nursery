@@ -10,6 +10,14 @@ const readbackMigrationUrl = new URL(
   "../../../supabase/migrations/20260908180200_tongs_hearth_authority_readback_integrity.sql",
   import.meta.url,
 );
+const creatorReadinessMigrationUrl = new URL(
+  "../../../supabase/migrations/20260917225047_tongs_hearth_creator_readiness_authority.sql",
+  import.meta.url,
+);
+const optionalReviewPersistenceMigrationUrl = new URL(
+  "../../../supabase/migrations/20260918055813_hearth_optional_review_persistence.sql",
+  import.meta.url,
+);
 const hardeningUrls = [
   "20260908180100_tongs_hearth_ready_current_file_coherence.sql",
   "20260908180200_tongs_hearth_authority_readback_integrity.sql",
@@ -56,7 +64,7 @@ test("the complete frozen hardening chain is present", async () => {
   assert.match(texts.at(-1) ?? "", /preflight_not_current|script_changed|research_changed/i);
 });
 
-test("legacy capture authorities survive while preflight proof is enforced forward", async () => {
+test("historical capture authorities retain their durable preflight evidence", async () => {
   const [baseSql, readbackSql] = await Promise.all([
     readFile(migrationUrl, "utf8"),
     readFile(readbackMigrationUrl, "utf8"),
@@ -82,6 +90,52 @@ test("legacy capture authorities survive while preflight proof is enforced forwa
   );
 });
 
+test("current creator readiness is exact-script authority without editorial preflight", async () => {
+  const sql = await readFile(creatorReadinessMigrationUrl, "utf8");
+  assert.match(sql, /approve_canonical_script_v4/i);
+  assert.match(sql, /hearth_transition_approved_script_ready_v4/i);
+  assert.match(sql, /approved_script_is_not_current/i);
+  assert.match(sql, /current_approval_id=a\.id/i);
+  assert.match(sql, /script_empty/i);
+  assert.match(sql, /left join tongs\.script_approval_preflight_bindings/i);
+  assert.match(sql, /preflight_report_id=null/i);
+  assert.match(sql, /script_binding_kind='approved_canonical_script'[\s\S]*preflight_report_id is null/i);
+  assert.match(sql, /recording capture authority approved Ready evidence mismatch/i);
+  assert.match(sql, /approved_ready_script_required/i);
+  assert.match(sql, /revoke execute on function tongs\.approve_canonical_script_v3[\s\S]*from authenticated/i);
+  assert.match(sql, /revoke execute on function tongs\.hearth_transition_preflighted_script_ready_v3[\s\S]*from authenticated/i);
+  assert.doesNotMatch(
+    sql.match(/create or replace function tongs\.approve_canonical_script_v4[\s\S]*?\$function\$;/i)?.[0] ?? "",
+    /preflight|research_artifact|finding_acknowledgement/i,
+  );
+  assert.doesNotMatch(
+    sql.match(/create or replace function tongs\.hearth_transition_approved_script_ready_v4[\s\S]*?\$function\$;/i)?.[0] ?? "",
+    /review_receipt|findings_unhandled|p_preflight|join tongs\.hearth_editorial_preflight/i,
+  );
+});
+
+test("optional review dispositions hydrate by stable finding basis without becoming readiness authority", async () => {
+  const [sql, readinessSql] = await Promise.all([
+    readFile(optionalReviewPersistenceMigrationUrl, "utf8"),
+    readFile(creatorReadinessMigrationUrl, "utf8"),
+  ]);
+  assert.match(sql, /finding_basis_hash text[\s\S]*generated always/i);
+  assert.match(sql, /script_content_hash=v_report\.script_content_hash/i);
+  assert.match(sql, /checker_contract_version=v_report\.checker_contract_version/i);
+  assert.match(sql, /prior_finding\.finding_basis_hash=current_finding\.finding_basis_hash/i);
+  assert.match(sql, /a\.action=p_action or a\.action='resolve'/i);
+  assert.match(sql, /lower\(wf\.hash_value\)=r\.script_content_hash/i);
+  assert.doesNotMatch(sql, /wf\.revision=r\.source_file_revision/i);
+  assert.doesNotMatch(
+    readinessSql.match(/create or replace function tongs\.approve_canonical_script_v4[\s\S]*?\$function\$;/i)?.[0] ?? "",
+    /finding_basis_hash|hearth_preflight_finding_acknowledgements|review_hearth_editorial_preflight/i,
+  );
+  assert.doesNotMatch(
+    readinessSql.match(/create or replace function tongs\.hearth_transition_approved_script_ready_v4[\s\S]*?\$function\$;/i)?.[0] ?? "",
+    /finding_basis_hash|hearth_preflight_finding_acknowledgements|review_hearth_editorial_preflight/i,
+  );
+});
+
 test("Tongs HTTP authority delegates through authenticated, scoped RPC methods", async () => {
   const source = await readFile(apiUrl, "utf8");
   assert.match(source, /read_current_hearth_research_artifact_v1/);
@@ -90,7 +144,8 @@ test("Tongs HTTP authority delegates through authenticated, scoped RPC methods",
   assert.match(source, /commit_hearth_editorial_preflight_v1/);
   assert.match(source, /acknowledge_hearth_preflight_finding_v1/);
   assert.match(source, /review_hearth_editorial_preflight_v1/);
-  assert.match(source, /approve_canonical_script_v3/);
-  assert.match(source, /hearth_transition_preflighted_script_ready_v3/);
-  assert.doesNotMatch(source, /hearth_transition_approved_script_ready["']/);
+  assert.match(source, /approve_canonical_script_v4/);
+  assert.match(source, /hearth_transition_approved_script_ready_v4/);
+  assert.doesNotMatch(source, /approve_canonical_script_v3/);
+  assert.doesNotMatch(source, /hearth_transition_preflighted_script_ready_v3/);
 });

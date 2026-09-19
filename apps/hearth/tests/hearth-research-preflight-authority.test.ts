@@ -6,6 +6,7 @@ import {
   commitHearthPreflight,
   completeHearthPreflightReview,
   decideHearthPreflightFinding,
+  readCurrentHearthPreflight,
 } from "../src/lib/hearth-research-preflight-authority";
 import type { HearthResearchResult } from "../src/lib/hearth-research-contract";
 
@@ -94,5 +95,50 @@ test("preflight, acknowledgement, and review use only deterministic Tongs routes
     assert.ok(requests.some((entry) => entry.url.includes("hearth-preflight/finding")));
     assert.ok(requests.some((entry) => entry.url.includes("hearth-preflight/review")));
     assert.equal(requests.some((entry) => entry.url.includes("/api/hearth/chat")), false);
+  } finally { globalThis.fetch = originalFetch; restore(); }
+});
+
+test("reload and navigation hydrate durable handled dispositions from Tongs", async () => {
+  const restore = installRuntime();
+  const originalFetch = globalThis.fetch;
+  const finding = {
+    id: "unsupported-name-stable",
+    code: "unsupported_name",
+    severity: "warning",
+    category: "claims",
+    message: "Review this name.",
+    excerpt: "The same canonical claim.",
+  } as const;
+  let reads = 0;
+  globalThis.fetch = (async () => {
+    reads += 1;
+    return response({ ok: true, data: {
+      disposition: "current",
+      report: {
+        id: REPORT_ID,
+        revision: 3,
+        source_file_revision: 4,
+        script_content_hash: "b".repeat(64),
+        research_artifact_id: null,
+        research_artifact_hash: null,
+        report_json: {
+          schema: "forge.hearth.editorial-preflight.v1",
+          checkerContractVersion: "forge.hearth.editorial-preflight.deterministic.v1",
+          usedPaidAi: false,
+          findings: [finding],
+          summary: { blockers: 0, warnings: 1, notes: 0 },
+        },
+      },
+      review: null,
+      findings: [{ finding_json: finding, latest_action: "resolve" }],
+    } });
+  }) as typeof fetch;
+  try {
+    const first = await readCurrentHearthPreflight({ workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID });
+    const afterNavigation = await readCurrentHearthPreflight({ workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID });
+    assert.equal(first?.findings[0]?.latestAction, "resolve");
+    assert.equal(afterNavigation?.findings[0]?.latestAction, "resolve");
+    assert.equal(first?.reviewed, false);
+    assert.equal(reads, 2);
   } finally { globalThis.fetch = originalFetch; restore(); }
 });

@@ -16,7 +16,7 @@ type UseHearthAnvilOpenActionArgs = {
   operationAuthority: HearthOperationAuthority;
 };
 
-const REVIEW_REQUIRED = "The script is not the current approved Ready script. Review, approve, and Mark Ready deliberately before starting recording.";
+const REVIEW_REQUIRED = "The script is not the current approved Ready script. Approve it and Mark Ready deliberately before starting recording.";
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }

@@ -3,13 +3,14 @@ import test from "node:test";
 import { createHash, webcrypto } from "node:crypto";
 import { buildHearthApprovedScriptReplacement, canonicalHearthApprovalText } from "../src/lib/hearth-script-approval";
 import { commitPublishedScriptApprovalAuthority } from "../src/lib/hearth-script-approval-authority";
+import { buildHearthEditorialPreflightReport } from "../src/lib/hearth-editorial-preflight";
+import type { HearthResearchResult } from "../src/lib/hearth-research-contract";
 import { evaluateHearthScriptValidation } from "../src/lib/hearth-script-tag-policy";
 import { shapeHearthScriptForRecording } from "../src/lib/hearth-recording-ready-script";
 import { createHearthOperationAuthority } from "../src/lib/hearth-operation-authority";
 
 const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const workpieceId = "11111111-1111-4111-8111-111111111111";
-const preflightReportId = "44444444-4444-4444-8444-444444444444";
 const A = "[s1]\nA neutral introduction.\n\nThis first sentence establishes a careful recording plan for a small creative project. The second sentence explains how the creator compares the material against their sources before approval. The third sentence describes reviewing the result without changing its authority. A fourth sentence provides enough text to exercise the existing recording layout helper. A fifth sentence closes this entirely synthetic demonstration.\n[/s1]\n";
 const hash = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 const prepare = (body: string) => buildHearthApprovedScriptReplacement({
@@ -46,14 +47,14 @@ async function withAuthority(run: (h: {
     if (state.rejection) return json({ ok: true, data: { disposition: state.rejection } });
     assert.equal(body.expected_source_file_revision, state.revision);
     assert.equal(body.expected_source_content_hash, hash(state.text));
-    assert.equal(body.preflight_report_id, preflightReportId);
+    assert.equal("preflight_report_id" in body, false);
     const operation = String(body.operation_id), duplicate = committed.has(operation);
     committed.add(operation);
     return json({ ok: true, data: { disposition: duplicate ? "no_change" : "committed", approval: { id: "33333333-3333-4333-8333-333333333333", approval_revision: 1, source_file_revision: state.revision, script_content_hash: hash(state.text) } } });
   }) as typeof fetch;
   const submit = (overrides: Partial<Parameters<typeof commitPublishedScriptApprovalAuthority>[0]> = {}) => commitPublishedScriptApprovalAuthority({
-    workspaceId, workpieceId, preflightReportId, creatorVersion: 1, scriptText: prepare(A).scriptText,
-    reviewedBasis: { sourceFileRevision: 2, scriptHash: hash(A) }, isCurrent: () => true, ...overrides,
+    workspaceId, workpieceId, creatorVersion: 1, scriptText: prepare(A).scriptText,
+    isCurrent: () => true, ...overrides,
   });
   try { await run({ requests, state, submit }); }
   finally {
@@ -100,26 +101,69 @@ test("approval uses the existing LF/BOM/NFC wire representation without a second
   assert.equal(prepare(upperTags).scriptText, upperTags);
 });
 
-test("a genuine post-review edit is rejected before any authority request", async () => {
+test("a local script different from canonical bytes is rejected before approval submission", async () => {
   await withAuthority(async ({ submit, requests }) => {
     assert.equal((await submit({ scriptText: A.replace("neutral", "changed") })).ok, false);
-    assert.equal(requests.length, 0);
+    assert.equal(requests.some(r => r.method === "POST"), false);
   });
 });
 
-test("a canonical revision advance with identical bytes still invalidates the reviewed basis", async () => {
+test("the current canonical revision is bound at approval time even when its bytes are unchanged", async () => {
   await withAuthority(async ({ submit, state, requests }) => {
     state.revision = 3;
+    assert.equal((await submit()).ok, true);
+    assert.equal(requests.find(r => r.method === "POST")?.body.expected_source_file_revision, 3);
+  });
+});
+
+test("canonical bytes different from the creator-visible draft cannot be approved", async () => {
+  await withAuthority(async ({ submit, state, requests }) => {
+    state.text = A.replace("neutral", "changed");
     assert.equal((await submit()).ok, false);
     assert.equal(requests.some(r => r.method === "POST"), false);
   });
 });
 
-test("a stale review cannot approve the newer current and canonical representation", async () => {
-  await withAuthority(async ({ submit, state, requests }) => {
-    state.text = A.replace("neutral", "changed");
-    assert.equal((await submit({ scriptText: state.text })).ok, false);
-    assert.equal(requests.length, 0);
+for (const [code, sentence] of [
+  ["unsupported_name", "The United States remains in view."],
+  ["unsupported_number_or_date", "The figure reached 42 percent in 2026."],
+  ["causal_assertion", "That decision caused the change."],
+  ["superlative_claim", "This is the biggest shift and always will be."],
+  ["wording_stronger_than_evidence", "This definitely proves the point."],
+] as const) {
+  test(`${code} is advisory and does not enter script approval authority`, async () => {
+    const script = `[s1]\n${sentence} ${"Production-safe spoken copy. ".repeat(8)}\n[/s1]\n`;
+    const report = buildHearthEditorialPreflightReport({ scriptText: script, researchResult: null });
+    assert.equal(report.findings.some((finding) => finding.code === code), true);
+    await withAuthority(async ({ submit, state, requests }) => {
+      state.text = script;
+      const result = await submit({ scriptText: script });
+      assert.equal(result.ok, true);
+      assert.equal("preflight_report_id" in (requests.find((request) => request.method === "POST")?.body ?? {}), false);
+    });
+  });
+}
+
+test("unresolved research warnings are advisory and do not enter script approval authority", async () => {
+  const research: HearthResearchResult = {
+    mode: "knowledge_first",
+    runtimeStatus: "partial",
+    sources: [],
+    synthesis: { summary: "", keyPoints: [], uncertainties: ["Open question"], coverageNote: "Partial" },
+    artifact: {
+      briefFingerprint: "brief-1",
+      workpieceId,
+      status: "partial",
+      findings: [],
+      uncertainties: ["A source remains unresolved."],
+      editorialInterpretation: [],
+    },
+  };
+  const report = buildHearthEditorialPreflightReport({ scriptText: A, researchResult: research });
+  assert.equal(report.findings.some((finding) => finding.code === "unanswered_research"), true);
+  await withAuthority(async ({ submit, requests }) => {
+    assert.equal((await submit()).ok, true);
+    assert.equal("preflight_report_id" in (requests.find((request) => request.method === "POST")?.body ?? {}), false);
   });
 });
 
@@ -146,7 +190,7 @@ test("duplicate approval reuses its operation identity and accepts canonical no_
   });
 });
 
-for (const rejection of ["revision_conflict", "stale_source", "stale_preflight"]) {
+for (const rejection of ["revision_conflict", "stale_source", "invalid_script"]) {
   test(`server-side ${rejection} remains a failed approval`, async () => {
     await withAuthority(async ({ submit, state }) => {
       state.rejection = rejection;

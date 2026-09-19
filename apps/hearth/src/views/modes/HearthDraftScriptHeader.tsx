@@ -202,19 +202,19 @@ export default function HearthDraftScriptHeader({
           onClick={() => void onReviewForRecording()}
           disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isReviewingPreflight}
         >
-          {isReviewingPreflight ? "Reviewing..." : "Review for recording"}
+          {isReviewingPreflight ? "Checking..." : "Check claims (optional)"}
         </button>
         <button
           type="button"
           onClick={() => void onApproveScript()}
-          disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked || !preflightAuthority?.reviewed || preflightAuthority.stale}
+          disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
         >
           {isApprovingScript ? "Approving..." : "Approve Script"}
         </button>
         <button
           type="button"
           onClick={() => void onMarkReady()}
-          disabled={!hasApprovedScript || isMarkingReady || !preflightAuthority?.reviewed || preflightAuthority.stale}
+          disabled={!hasApprovedScript || isMarkingReady}
         >
           {isMarkingReady ? "Marking Ready..." : "Mark Ready"}
         </button>
@@ -257,7 +257,7 @@ export default function HearthDraftScriptHeader({
       ) : null}
 
       {preflightAuthority ? (
-        <Suspense fallback={<div className="hs-muted-text-subtle">Loading producer review…</div>}>
+        <Suspense fallback={<div className="hs-muted-text-subtle">Loading optional script check…</div>}>
           <HearthPreflightPanel authority={preflightAuthority} onComplete={onCompletePreflightReview} onFinding={onHandlePreflightFinding} />
         </Suspense>
       ) : null}

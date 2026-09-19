@@ -73,10 +73,10 @@ export function buildHearthEditorialPreflightReport(input: {
   };
 
   const placeholder = /\b(?:TODO|TBD|TK|FIXME|INSERT|VERIFY)(?:\b|:)|\[\s*\?\s*\]/i.exec(script);
-  if (placeholder) add({ code: "placeholder_or_todo", severity: "blocker", category: "completeness", message: "Remove or resolve the unfinished placeholder before approval.", excerpt: sentenceFor(script, placeholder.index) });
+  if (placeholder) add({ code: "placeholder_or_todo", severity: "blocker", category: "completeness", message: "An unfinished placeholder remains; address it before recording if it is not intentional.", excerpt: sentenceFor(script, placeholder.index) });
 
   const productionNote = /^(?:\s*\[(?:production|editor|visual|b-?roll|sfx|camera)\b[^\]]*\]|\s*(?:PRODUCTION NOTE|EDITOR NOTE|B-?ROLL)\s*:)/im.exec(script);
-  if (productionNote) add({ code: "production_note_in_spoken_copy", severity: "blocker", category: "recordability", message: "Production direction appears in spoken copy and must be separated or explicitly tagged.", excerpt: sentenceFor(script, productionNote.index) });
+  if (productionNote) add({ code: "production_note_in_spoken_copy", severity: "blocker", category: "recordability", message: "Production direction may appear in spoken copy; separate or tag it if that is not intentional.", excerpt: sentenceFor(script, productionNote.index) });
 
   for (const match of script.matchAll(/(?:\$\s*)?\b\d[\d,.]*(?:\s*(?:million|billion|percent|%|years?|months?|days?))?\b/gi)) {
     const value = normalize(match[0]).toLowerCase();

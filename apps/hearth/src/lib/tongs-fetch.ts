@@ -1,4 +1,12 @@
-type TongsEnv = { env?: Record<string, string | undefined> };
+declare global {
+  interface ImportMetaEnv extends Readonly<Record<string, unknown>> {
+    readonly VITE_TONGS_API_TOKEN?: string;
+  }
+
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+}
 
 type ForgeWindow = Window &
   typeof globalThis & {
@@ -247,8 +255,10 @@ function resolveRawTongsApiToken(): string | null {
     }
   }
 
-  const metaEnv = import.meta as unknown as TongsEnv;
-  const fromEnv = readString(metaEnv.env?.VITE_TONGS_API_TOKEN);
+  // Keep this as a direct import.meta.env access so Vite substitutes the
+  // configured browser credential. Aliasing import.meta prevents that
+  // transform and makes the token disappear at runtime.
+  const fromEnv = readString(import.meta.env?.VITE_TONGS_API_TOKEN);
   if (fromEnv) return fromEnv;
 
   if (typeof window !== "undefined") {

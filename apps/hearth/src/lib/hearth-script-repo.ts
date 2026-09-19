@@ -106,7 +106,12 @@ export function getHearthPrimaryScriptPath(): string {
 
 export async function readHearthPrimaryScript(
   workpieceId: string,
-): Promise<ReadResult<{ text: string | null; updatedAt: string | null }>> {
+): Promise<ReadResult<{
+  text: string | null;
+  updatedAt: string | null;
+  revision: number | null;
+  hash: string | null;
+}>> {
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(PRIMARY_SCRIPT_PATH)}`,
     { method: "GET" },
@@ -125,7 +130,7 @@ export async function readHearthPrimaryScript(
       && (body as { ok?: boolean }).ok === true
       && (body as { exists?: boolean }).exists === false
     ) {
-      return { ok: true, data: { text: null, updatedAt: null } };
+      return { ok: true, data: { text: null, updatedAt: null, revision: null, hash: null } };
     }
     return { ok: false, status: 404, reason: "not_found" };
   }
@@ -140,6 +145,8 @@ export async function readHearthPrimaryScript(
     data?: unknown;
     file_row?: {
       updated_at?: unknown;
+      revision?: unknown;
+      hash_value?: unknown;
     } | null;
   } | null;
 
@@ -152,6 +159,12 @@ export async function readHearthPrimaryScript(
     data: {
       text: typeof row?.data === "string" ? row.data : null,
       updatedAt: readString(row?.file_row?.updated_at) ?? null,
+      revision: Number.isInteger(row?.file_row?.revision) && Number(row?.file_row?.revision) > 0
+        ? Number(row?.file_row?.revision)
+        : null,
+      hash: /^[0-9a-f]{64}$/i.test(readString(row?.file_row?.hash_value) ?? "")
+        ? readString(row?.file_row?.hash_value)!.toLowerCase()
+        : null,
     },
   };
 }
@@ -168,6 +181,21 @@ export async function commitHearthPrimaryScript(
   const validation = validateScriptTags(canonicalScriptText);
   if (!validation.ok) {
     return { ok: false, status: 400, reason: "invalid_script_tags", outcome: "conflict" };
+  }
+  const current = await readHearthPrimaryScript(workpieceId);
+  if (
+    current.ok
+    && current.data.text === canonicalScriptText
+    && current.data.revision !== null
+    && current.data.hash !== null
+  ) {
+    return {
+      ok: true,
+      outcome: "duplicate",
+      revision: current.data.revision,
+      hash: current.data.hash,
+      transitionId: "",
+    };
   }
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",

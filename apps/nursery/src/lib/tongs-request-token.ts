@@ -23,7 +23,10 @@ function resolveTokenFromQuery(): string | null {
 }
 
 function resolveTokenFromEnv(): string | null {
-  return readString((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TONGS_API_TOKEN);
+  // Keep the Vite env access syntactically direct. Vite only substitutes
+  // `import.meta.env` references; aliasing `import.meta` leaves `env`
+  // undefined in the browser and silently drops the local API credential.
+  return readString(import.meta.env?.VITE_TONGS_API_TOKEN);
 }
 
 function resolveTongsRequestToken(): string | null {

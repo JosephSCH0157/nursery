@@ -5,7 +5,6 @@ import type { ScriptValidationResult } from "@forge/shared/script-tags";
 import type { MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import type { HearthCanonicalRevisionsResult } from "../storage/hearth-store";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
-import type { HearthPreflightAuthority } from "../lib/hearth-research-preflight-authority";
 
 type ScriptApprovalStateLike = { hasApprovedScript: boolean; approvedScriptVersion: number | null; approvedAt: number | null };
 type ApprovalPersistenceStatusLike = { cloud: "ok"; local: "ok" | "failed"; localPath?: string; localMessage?: string };
@@ -29,7 +28,6 @@ type UseApprovalFlowArgs = {
   buildPersistedValidationMeta: (validation: ScriptValidationResult) => Draft["scriptValidationMeta"];
   nextApprovedScriptVersion: (revisions: readonly Revision[]) => number;
   persistApprovedDraft: (args: { draft: Draft; updatedAt: number }) => Promise<boolean>;
-  publishApprovedScript: (args: { episodeId: string; scriptText: string }) => Promise<boolean>;
   readCanonicalApprovalRevisions: (args: { episodeId: string; draftId: string }) => Promise<HearthCanonicalRevisionsResult>;
   commitCanonicalApprovalRevision: (args: { episodeId: string; draft: Draft; approvalNote: string }) => Promise<{ ok: true; approvedAt: number } | { ok: false }>;
   mirrorApprovedScript: (args: { workspaceId: string | null; workpieceId: string; scriptText: string }) => Promise<MirrorApprovedScriptResult>;
@@ -39,7 +37,6 @@ type UseApprovalFlowArgs = {
   updateStyleProfileFromReadyCheckpoint: (args: { workspaceId: string | null; scriptText: string }) => Promise<StyleUpdateResult>;
   appendApprovalMarker: (args: { draftId: string; content: string }) => void;
   refreshReadyScripts: () => Promise<void> | void;
-  preflight: HearthPreflightAuthority | null;
   approvedScriptVersion: number | null;
   approvedAt: number | null;
 };
@@ -62,10 +59,6 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
     const episodeId = args.workpieceId?.trim();
     if (!episodeId) { args.setChatError("Select an Episode or Spark to start."); return false; }
     if (!approvalDraft.body.trim()) { args.setError("Script body is empty. Add script content before approval."); return false; }
-    if (!args.preflight || args.preflight.stale || !args.preflight.reviewed) {
-      args.setError("Review this exact working draft for recording and complete its findings before approval.");
-      return false;
-    }
 
     const operation = args.operationAuthority.begin("ap");
     const { buildHearthApprovedScriptReplacement, canonicalHearthApprovalText } = await import("../lib/hearth-script-approval");
@@ -82,11 +75,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         && current.workspaceId === args.workspaceId
         && current.workpieceId === args.workpieceId
         && current.activeDraft?.id === approvalDraft.id
-        && canonicalHearthApprovalText(current.activeDraft.body) === normalizedText
-        && current.preflight?.id === args.preflight?.id
-        && current.preflight?.sourceFileRevision === args.preflight?.sourceFileRevision
-        && current.preflight?.scriptHash === args.preflight?.scriptHash
-        && current.preflight?.reviewed === true && !current.preflight.stale;
+        && canonicalHearthApprovalText(current.activeDraft.body) === normalizedText;
     };
     if (!isApprovalCurrent()) return false;
     if (!validation.ok) {
@@ -115,8 +104,6 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         workspaceId: args.workspaceId,
         creatorVersion: nextVersion,
         scriptText: normalizedText,
-        preflightReportId: args.preflight.id,
-        reviewedBasis: { sourceFileRevision: args.preflight.sourceFileRevision, scriptHash: args.preflight.scriptHash },
         isCurrent: isApprovalCurrent,
       });
       if (!isApprovalCurrent()) return false;
@@ -144,19 +131,32 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
   const onMarkReady = useCallback(async () => {
     if (isMarkingReady || args.isSaving || args.isAiProcessing) return false;
     const episodeId = args.workpieceId?.trim();
-    if (!episodeId || !args.workspaceId || !args.activeDraft || !args.preflight || args.preflight.stale || !args.preflight.reviewed) {
-      args.setError("Ready requires the current approved script and its completed producer review.");
+    if (!episodeId || !args.workspaceId || !args.activeDraft) {
+      args.setError("Ready requires the current approved script.");
       return false;
     }
+    const readyDraft = args.activeDraft;
+    const operation = args.operationAuthority.begin("ready");
+    const isReadyCurrent = () => {
+      const current = latestArgs.current;
+      return args.operationAuthority.isCurrent(operation)
+        && current.workspaceId === args.workspaceId
+        && current.workpieceId === args.workpieceId
+        && current.activeDraft?.id === readyDraft.id
+        && current.activeDraft.body === readyDraft.body;
+    };
     setIsMarkingReady(true);
     try {
-      const { markApprovedScriptReady, readPublishedScriptApprovalAuthority } = await import("../lib/hearth-script-approval-authority");
+      const { hashCanonicalHearthApprovalText, markApprovedScriptReady, readPublishedScriptApprovalAuthority } = await import("../lib/hearth-script-approval-authority");
+      const draftHash = await hashCanonicalHearthApprovalText(readyDraft.body);
       const authority = await readPublishedScriptApprovalAuthority(episodeId);
-      if (!authority || authority.contentHash !== args.preflight.scriptHash) {
-        args.setError("The current approval does not match the reviewed script bytes. Review and approve the current draft again.");
+      if (!isReadyCurrent()) return false;
+      if (!authority || authority.contentHash !== draftHash) {
+        args.setError("The current approval does not match the working script bytes. Approve the current draft again.");
         return false;
       }
-      const ready = await markApprovedScriptReady({ workpieceId: episodeId, workspaceId: args.workspaceId, authority, preflightReportId: args.preflight.id });
+      const ready = await markApprovedScriptReady({ workpieceId: episodeId, workspaceId: args.workspaceId, authority });
+      if (!isReadyCurrent()) return false;
       if (!ready.ok) { args.setError(ready.error); return false; }
       const graduatedSparkId = await args.graduateLinkedSpark(episodeId);
       const styleUpdate = await args.updateStyleProfileFromReadyCheckpoint({ workspaceId: args.workspaceId, scriptText: args.activeDraft.body });

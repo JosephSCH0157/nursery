@@ -399,6 +399,8 @@ function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    getCanonicalScriptApproval: [],
+    commitCanonicalScriptApproval: [],
     transitionHearthScriptReady: [],
     getCanonicalHearthResearchArtifact: [],
     commitCanonicalHearthResearchArtifact: [],
@@ -558,6 +560,22 @@ function mockService() {
           written_by_tool_version: input.written_by.tool_version,
           written_by_lane: input.written_by.lane,
           created_at: "2026-02-21T00:00:00.000Z",
+        },
+      };
+    },
+    async getCanonicalScriptApproval(workpieceId, options) {
+      calls.getCanonicalScriptApproval.push({ workpieceId, options });
+      return { current_revision: 0, current_approval: null };
+    },
+    async commitCanonicalScriptApproval(workpieceId, input, options) {
+      calls.commitCanonicalScriptApproval.push({ workpieceId, input, options });
+      return {
+        disposition: "committed",
+        approval: {
+          id: "77777777-7777-4777-8777-777777777777",
+          approval_revision: 1,
+          source_file_revision: input.expected_source_file_revision,
+          script_content_hash: input.expected_source_content_hash,
         },
       };
     },
@@ -4209,12 +4227,10 @@ test("POST /tongs/workpieces/:id/ready-transition forwards explicit approval aut
       body: JSON.stringify({
         workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         script_approval_id: "77777777-7777-4777-8777-777777777777",
-        preflight_report_id: "88888888-8888-4888-8888-888888888888",
-        idempotency_key: "hearth-preflighted-ready:workpiece:approval",
+        idempotency_key: "hearth-approved-ready-v4:workpiece:approval",
         publish_evidence: {
-          transition: "hearth.preflighted-script.ready.v3",
+          transition: "hearth.approved-script.ready.v4",
           script_approval_id: "77777777-7777-4777-8777-777777777777",
-          preflight_report_id: "88888888-8888-4888-8888-888888888888",
           script_approval_revision: 7,
           script_approval_hash: "a".repeat(64),
         },
@@ -4224,8 +4240,72 @@ test("POST /tongs/workpieces/:id/ready-transition forwards explicit approval aut
   assert.equal(response.status, 200);
   assert.equal(calls.transitionHearthScriptReady.length, 1);
   assert.equal(calls.transitionHearthScriptReady[0].input.script_approval_id, "77777777-7777-4777-8777-777777777777");
-  assert.equal(calls.transitionHearthScriptReady[0].input.preflight_report_id, "88888888-8888-4888-8888-888888888888");
+  assert.equal("preflight_report_id" in calls.transitionHearthScriptReady[0].input, false);
   assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
+});
+
+test("script approval rejects an invalid API token as 401 before creator authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "expected-api-token");
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/script-approval",
+    {
+      method: "POST",
+      headers: {
+        authorization: "Bearer rejected-api-token",
+        "x-forge-user-authorization": "Bearer user-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
+    },
+  ));
+  const body = await response.json();
+  assert.equal(response.status, 401);
+  assert.equal(body.error?.code, "unauthorized");
+  assert.equal(calls.commitCanonicalScriptApproval.length, 0);
+  assert.equal(calls.commitFile.length, 0);
+  assert.equal(calls.transitionHearthScriptReady.length, 0);
+});
+
+test("script approval forwards exact creator authority to the v4-backed service", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "expected-api-token");
+  const hash = "a".repeat(64);
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/script-approval",
+    {
+      method: "POST",
+      headers: {
+        authorization: "Bearer expected-api-token",
+        "x-forge-user-authorization": "Bearer user-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        expected_current_revision: 0,
+        expected_source_file_revision: 3,
+        expected_source_content_hash: hash,
+        creator_version_label: "v1",
+        operation_id: "forge:script-approval:hearth-v4:fixture-operation",
+      }),
+    },
+  ));
+  assert.equal(response.status, 200);
+  assert.equal(calls.commitCanonicalScriptApproval.length, 1);
+  assert.deepEqual(calls.commitCanonicalScriptApproval[0], {
+    workpieceId: "11111111-1111-4111-8111-111111111111",
+    input: {
+      workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      expected_current_revision: 0,
+      expected_source_file_revision: 3,
+      expected_source_content_hash: hash,
+      creator_version_label: "v1",
+      operation_id: "forge:script-approval:hearth-v4:fixture-operation",
+    },
+    options: { userAccessToken: "user-token" },
+  });
+  assert.equal(calls.commitFile.length, 0);
+  assert.equal(calls.transitionHearthScriptReady.length, 0);
 });
 
 test("Hearth research and preflight routes preserve workpiece scope and authenticated user authority", async () => {

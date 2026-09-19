@@ -1,6 +1,39 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Remote-applied Sept. 16–17 migration SQL is historical evidence. Keep its
+# mixed line endings byte-for-byte; Git text normalization changes the bytes.
+supabase/migrations/20260916110806_tongs_forge_credit_economy.sql -text
+supabase/migrations/20260916113132_tongs_standard_customer_luna_catalog.sql -text
+supabase/migrations/20260916113500_tongs_settled_customer_price_quote.sql -text
+supabase/migrations/20260916113753_tongs_standard_customer_aggregate_admission.sql -text
+supabase/migrations/20260916114619_tongs_standard_customer_certification_aggregate.sql -text
+supabase/migrations/20260916114739_tongs_standard_customer_certification_scope_price.sql -text
+supabase/migrations/20260916114943_tongs_aggregate_financial_environment_selection.sql -text
+supabase/migrations/20260916115105_tongs_deposit_fee_allocation_catchup.sql -text
+supabase/migrations/20260916130700_tongs_standard_customer_rollout.sql -text
+supabase/migrations/20260916130706_tongs_beta_credit_controls.sql -text
+supabase/migrations/20260916130712_tongs_credit_pack_purchase_availability.sql -text
+supabase/migrations/20260916131208_tongs_internal_quote_credit_units.sql -text
+supabase/migrations/20260916131632_tongs_normal_customer_provider_authority.sql -text
+supabase/migrations/20260916132017_tongs_credit_pack_availability_caller_role.sql -text
+supabase/migrations/20260916154851_standard_customer_hearth_research.sql -text
+supabase/migrations/20260916160541_standard_customer_hearth_research_failure_loss.sql -text
+supabase/migrations/20260916161021_standard_customer_hearth_research_full_failure_exposure.sql -text
+supabase/migrations/20260916162248_customer_operation_relief_balance_restoration.sql -text
+supabase/migrations/20260916180205_tongs_existing_openai_funding_handle_environment.sql -text
+supabase/migrations/20260916181807_settled_openai_replay_relief_safety.sql -text
+supabase/migrations/20260916184248_customer_operation_relief_corrections.sql -text
+supabase/migrations/20260916184526_customer_operation_relief_canonical_binding_evidence.sql -text
+supabase/migrations/20260916195559_openai_failure_loss_environment_isolation.sql -text
+supabase/migrations/20260916202804_operator_controlled_openai_failure_loss.sql -text
+supabase/migrations/20260917012316_openai_realized_loss_corrections.sql -text
+supabase/migrations/20260917012424_hearth_script_generation_test_canary.sql -text
+supabase/migrations/20260917012533_hearth_script_canary_private_table_hardening.sql -text
+supabase/migrations/20260917024621_hearth_script_paid_result_persistence_boundary.sql -text
+supabase/migrations/20260917094105_hearth_script_proposal_lifecycle.sql -text
+supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sql -text
+
 # Generated artifacts/mirrors (do not hand edit)
 apps/anvil/dist/** linguist-generated=true
 apps/nursery/public/anvil/** linguist-generated=true

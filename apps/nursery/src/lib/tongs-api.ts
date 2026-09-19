@@ -28,7 +28,7 @@ function resolveTongsApiToken(): string | null {
   const fromQuery = resolveTokenFromQuery();
   if (fromQuery) return fromQuery;
 
-  const fromEnv = readString((import.meta as { env?: Record<string, string | undefined> }).env?.VITE_TONGS_API_TOKEN);
+  const fromEnv = readString(import.meta.env?.VITE_TONGS_API_TOKEN);
   if (fromEnv) return fromEnv;
 
   if (typeof window === "undefined") return null;

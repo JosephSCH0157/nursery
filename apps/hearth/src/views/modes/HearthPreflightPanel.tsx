@@ -7,36 +7,36 @@ export default function HearthPreflightPanel(props: {
 }) {
   const { authority } = props;
   return (
-    <section className="hs-script-validation" aria-label="Producer review">
-      <div className="hs-script-validation-title">Producer review</div>
+    <section className="hs-script-validation" aria-label="Optional script check">
+      <div className="hs-script-validation-title">Optional script check</div>
       <div className="hs-script-validation-subtitle">
         {authority.stale
-          ? `Stale: ${authority.staleReasons.join(", ") || "the script or evidence changed"}.`
+          ? `Advisory results are stale: ${authority.staleReasons.join(", ") || "the script or evidence changed"}. Run the check again if you want updated suggestions.`
           : authority.reviewed
-            ? "Review complete for these exact script and evidence bytes."
-            : "Review each blocker and warning before approving this exact draft."}
+            ? "Optional review notes were saved for these exact script and evidence bytes."
+            : "These editorial and factual suggestions are advisory. They never block Approve Script or Mark Ready."}
       </div>
       {authority.findings.length ? (
         <ul className="hs-script-validation-issues">
           {authority.findings.map((finding) => (
             <li key={finding.id}>
-              <div><strong>{finding.severity}</strong> · {finding.message}</div>
+              <div><strong>{finding.severity === "blocker" ? "production concern" : finding.severity}</strong> · {finding.message}</div>
               {finding.excerpt ? <div className="hs-muted-text-subtle">{finding.excerpt}</div> : null}
               {finding.latestAction ? (
                 <span className="hs-status-text">Handled: {finding.latestAction}</span>
               ) : finding.severity !== "note" && !authority.stale ? (
                 <span className="hs-script-validation-actions">
-                  {finding.severity === "warning" ? <button type="button" onClick={() => void props.onFinding(finding.id, "acknowledge")}>Acknowledge</button> : null}
-                  <button type="button" onClick={() => void props.onFinding(finding.id, "resolve")}>Mark resolved</button>
+                  {finding.severity === "warning" ? <button type="button" onClick={() => void props.onFinding(finding.id, "acknowledge")}>Note reviewed</button> : null}
+                  <button type="button" onClick={() => void props.onFinding(finding.id, "resolve")}>Mark addressed</button>
                 </span>
               ) : null}
             </li>
           ))}
         </ul>
-      ) : <div className="hs-muted-text-subtle">No deterministic producer concerns found.</div>}
+      ) : <div className="hs-muted-text-subtle">No optional script-check suggestions found.</div>}
       {!authority.reviewed && !authority.stale ? (
         <div className="hs-script-validation-actions">
-          <button type="button" onClick={() => void props.onComplete()}>Complete producer review</button>
+          <button type="button" onClick={() => void props.onComplete()}>Save optional review status</button>
         </div>
       ) : null}
     </section>

@@ -1710,7 +1710,7 @@ export default function HearthShell({
       .then((value) => {
       if (!cancelled) setPreflightAuthority(value);
     }).catch((error: unknown) => {
-      if (!cancelled) setPreflightError(error instanceof Error ? error.message : "Producer review could not be loaded.");
+      if (!cancelled) setPreflightError(error instanceof Error ? error.message : "Optional script check could not be loaded.");
     });
     return () => { cancelled = true; };
   }, [workspaceId, workpieceId]);
@@ -3759,7 +3759,7 @@ export default function HearthShell({
     return {
       tone: "pending" as const,
       label: "Not Ready",
-      detail: "Review for recording, approve the exact reviewed script, then explicitly Mark Ready.",
+      detail: "Approve the exact production-valid script, then explicitly Mark Ready.",
     };
   }, [
     activeReadyScript,
@@ -4120,19 +4120,19 @@ export default function HearthShell({
   });
   const onReviewForRecording = useCallback(async () => {
     if (!workspaceId || !workpieceId || !activeDraft || isReviewingPreflight || isSaving || isAiProcessing) return false;
-    if (!activeDraft.body.trim()) { setError("Add script content before producer review."); return false; }
+    if (!activeDraft.body.trim()) { setError("Add script content before running the optional script check."); return false; }
     setIsReviewingPreflight(true);
     setPreflightError(null);
     try {
       const { commitHearthPreflight, readCanonicalHearthResearch } = await import("../lib/hearth-research-preflight-authority");
       const published = await publishApprovedScript({ episodeId: workpieceId, scriptText: activeDraft.body });
-      if (!published) throw new Error("The working script could not be saved to canonical Tongs storage for review.");
+      if (!published) throw new Error("The working script could not be saved to canonical Tongs storage for the optional check.");
       const research = await readCanonicalHearthResearch({ workspaceId, workpieceId });
       const authority = await commitHearthPreflight({ workspaceId, workpieceId, scriptText: activeDraft.body, research });
       setPreflightAuthority(authority);
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Producer review failed.";
+      const message = error instanceof Error ? error.message : "Optional script check failed.";
       setPreflightError(message);
       setError(message);
       return false;
@@ -4151,7 +4151,7 @@ export default function HearthShell({
       await decideHearthPreflightFinding({ workspaceId, workpieceId, reportId: preflightAuthority.id, finding, action });
       setPreflightAuthority(await readCurrentHearthPreflight({ workspaceId, workpieceId }));
     } catch (error) {
-      setPreflightError(error instanceof Error ? error.message : "The producer-review decision was not saved.");
+      setPreflightError(error instanceof Error ? error.message : "The optional script-check note was not saved.");
     }
   }, [preflightAuthority, workpieceId, workspaceId]);
 
@@ -4163,7 +4163,7 @@ export default function HearthShell({
       await completeHearthPreflightReview({ workspaceId, workpieceId, reportId: preflightAuthority.id });
       setPreflightAuthority(await readCurrentHearthPreflight({ workspaceId, workpieceId }));
     } catch (error) {
-      setPreflightError(error instanceof Error ? error.message : "Producer review was not completed.");
+      setPreflightError(error instanceof Error ? error.message : "Optional script-review status was not saved.");
     }
   }, [preflightAuthority, workpieceId, workspaceId]);
   const {
@@ -4189,7 +4189,6 @@ export default function HearthShell({
     buildPersistedValidationMeta,
     nextApprovedScriptVersion,
     persistApprovedDraft,
-    publishApprovedScript,
     readCanonicalApprovalRevisions,
     commitCanonicalApprovalRevision,
     mirrorApprovedScript: async (params) => mirrorApprovedScriptToLocal({
@@ -4204,7 +4203,6 @@ export default function HearthShell({
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
-    preflight: preflightAuthority,
     approvedScriptVersion,
     approvedAt: scriptApprovalState.approvedAt,
   });

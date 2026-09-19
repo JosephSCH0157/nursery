@@ -2212,7 +2212,6 @@ export type AnvilTakeTransitionResult = {
 export type HearthReadyTransitionRequest = {
   workspace_id: string;
   script_approval_id: string;
-  preflight_report_id: string;
   idempotency_key: string;
   publish_evidence: Json;
   user_access_token?: string | null;
@@ -3552,7 +3551,6 @@ export type TongsCommitApiService = {
       expected_source_file_revision: number;
       expected_source_content_hash: string;
       creator_version_label: string;
-      preflight_report_id: string;
       operation_id: string;
     },
     options?: { userAccessToken?: string | null },
@@ -16494,12 +16492,11 @@ export class TongsCommitService {
       }>;
     };
     const { data, error } = await rpcClient.rpc(
-      "hearth_transition_preflighted_script_ready_v3",
+      "hearth_transition_approved_script_ready_v4",
       {
         p_workspace_id: input.workspace_id,
         p_workpiece_id: workpieceId,
         p_script_approval_id: input.script_approval_id,
-        p_preflight_report_id: input.preflight_report_id,
         p_idempotency_key: input.idempotency_key,
         p_publish_evidence: input.publish_evidence,
       },
@@ -16507,14 +16504,14 @@ export class TongsCommitService {
     if (error) {
       const missing =
         error.code === "PGRST202" ||
-        /hearth_transition_preflighted_script_ready_v3/i.test(error.message);
+        /hearth_transition_approved_script_ready_v4/i.test(error.message);
       throw new HttpError(
         missing ? 503 : 502,
         missing
           ? "hearth_ready_migration_required"
           : "hearth_ready_transition_failed",
         missing
-          ? "Hearth Ready authority is unavailable; the research/preflight authority migration is required."
+          ? "Hearth Ready authority is unavailable; the creator-readiness authority migration is required."
           : "Hearth Ready transition failed.",
         { reason: error.message },
       );
@@ -25523,7 +25520,7 @@ export class TongsCommitService {
       throw new HttpError(
         409,
         "stale_preflight_script",
-        "The working script changed before producer review. Reload and review the current draft.",
+        "The working script changed before the optional script check. Reload and check the current draft again.",
       );
     const result = await this.hearthAuthorityRpcClient(
       options?.userAccessToken,
@@ -25545,7 +25542,7 @@ export class TongsCommitService {
       throw new HttpError(
         502,
         "hearth_preflight_commit_failed",
-        "Hearth producer preflight could not be saved.",
+        "The optional Hearth script check could not be saved.",
         { reason: result.error?.message },
       );
     return result.data;
@@ -25597,7 +25594,7 @@ export class TongsCommitService {
       p_operation_id: input.operation_id,
     });
     if (result.error || !isRecord(result.data))
-      throw new HttpError(502, "hearth_preflight_review_failed", "Producer review could not be completed.", { reason: result.error?.message });
+      throw new HttpError(502, "hearth_preflight_review_failed", "Optional script-review status could not be saved.", { reason: result.error?.message });
     return result.data;
   }
 
@@ -25609,7 +25606,6 @@ export class TongsCommitService {
       expected_source_file_revision: number;
       expected_source_content_hash: string;
       creator_version_label: string;
-      preflight_report_id: string;
       operation_id: string;
     },
     options?: { userAccessToken?: string | null },
@@ -25674,7 +25670,7 @@ export class TongsCommitService {
     const rpc = this.userClientFactory(
       normalizeNonEmptyString(options?.userAccessToken, "user_access_token"),
     ).schema("tongs") as unknown as UntypedTongsSchemaClient;
-    const result = await rpc.rpc("approve_canonical_script_v3", {
+    const result = await rpc.rpc("approve_canonical_script_v4", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
       p_expected_current_approval_revision: input.expected_current_revision,
@@ -25682,7 +25678,6 @@ export class TongsCommitService {
       p_expected_source_content_hash: input.expected_source_content_hash,
       p_script_text: scriptText,
       p_creator_version_label: input.creator_version_label,
-      p_preflight_report_id: input.preflight_report_id,
       p_operation_id: input.operation_id,
     });
     if (result.error || !isRecord(result.data))
@@ -36278,10 +36273,6 @@ export function createTongsCommitApiHandlerWithService(
             body.script_approval_id,
             "script_approval_id",
           ),
-          preflight_report_id: normalizeUuid(
-            body.preflight_report_id,
-            "preflight_report_id",
-          ),
           idempotency_key: normalizeNonEmptyString(
             body.idempotency_key,
             "idempotency_key",
@@ -39936,10 +39927,6 @@ export function createTongsCommitApiHandlerWithService(
             creator_version_label: normalizeNonEmptyString(
               body.creator_version_label,
               "creator_version_label",
-            ),
-            preflight_report_id: normalizeUuid(
-              body.preflight_report_id,
-              "preflight_report_id",
             ),
             operation_id: operationId,
           },

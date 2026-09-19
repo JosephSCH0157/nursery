@@ -8,7 +8,6 @@ const WORKPIECE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const APPROVAL_ID = "33333333-3333-4333-8333-333333333333";
 const TRANSITION_ID = "22222222-2222-4222-8222-222222222222";
-const PREFLIGHT_ID = "44444444-4444-4444-8444-444444444444";
 const VALID_SCRIPT = "[s1]\nCanonical script.\n[/s1]\n";
 
 function response(body: unknown, status = 200): Response { return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }); }
@@ -28,18 +27,44 @@ test("working-document commit does not independently publish Ready", async () =>
   const restoreWindow = installWindow();
   const requests: string[] = [];
   globalThis.fetch = (async (input) => {
-    requests.push(String(input));
+    const url = String(input);
+    requests.push(url);
+    if (url.includes("read-file")) return response({ ok: true, exists: false });
     return response({ ok: true, data: { workspace_id: WORKSPACE_ID, hash: await hash(VALID_SCRIPT), file_row: { revision: 4 } } });
   }) as typeof fetch;
   try {
     const result = await commitHearthPrimaryScript(WORKPIECE_ID, VALID_SCRIPT);
     assert.equal(result.ok, true);
-    assert.equal(requests.length, 1);
-    assert.match(requests[0] ?? "", /commit-file$/);
+    assert.equal(requests.length, 2);
+    assert.match(requests[0] ?? "", /read-file/);
+    assert.match(requests[1] ?? "", /commit-file$/);
   } finally { globalThis.fetch = originalFetch; restoreWindow(); }
 });
 
-test("approval and explicit Ready are separate and preserve preflight identity", async () => {
+test("byte-identical working-document commit is a no-op and preserves its canonical revision", async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreWindow = installWindow();
+  const scriptHash = await hash(VALID_SCRIPT);
+  const requests: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    requests.push(url);
+    return response({
+      ok: true,
+      data: VALID_SCRIPT,
+      file_row: { revision: 4, hash_value: scriptHash, updated_at: "2026-09-18T00:00:00Z" },
+    });
+  }) as typeof fetch;
+  try {
+    const result = await commitHearthPrimaryScript(WORKPIECE_ID, VALID_SCRIPT);
+    assert.deepEqual(result, { ok: true, outcome: "duplicate", revision: 4, hash: scriptHash, transitionId: "" });
+    assert.equal(requests.length, 1);
+    assert.match(requests[0] ?? "", /read-file/);
+    assert.equal(requests.some((url) => /commit-file$/.test(url)), false);
+  } finally { globalThis.fetch = originalFetch; restoreWindow(); }
+});
+
+test("approval and explicit Ready are separate without editorial-preflight authority", async () => {
   const originalFetch = globalThis.fetch;
   const restoreWindow = installWindow();
   const originalCrypto = globalThis.crypto;
@@ -55,16 +80,16 @@ test("approval and explicit Ready are separate and preserve preflight identity",
     return response({ ok: true, data: { outcome: "saved", ready: { transition_id: TRANSITION_ID } } });
   }) as typeof fetch;
   try {
-    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID, reviewedBasis: { sourceFileRevision: 4, scriptHash }, isCurrent: () => true });
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, isCurrent: () => true });
     assert.equal(result.ok, true);
     assert.equal(requests.some((entry) => entry.url.endsWith("/ready-transition")), false);
     if (!result.ok) return;
-    const readyResult = await markApprovedScriptReady({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, authority: result.authority, preflightReportId: PREFLIGHT_ID });
+    const readyResult = await markApprovedScriptReady({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, authority: result.authority });
     assert.equal(readyResult.ok, true);
     const ready = requests.find((entry) => entry.url.endsWith("/ready-transition"));
     assert.equal(ready?.body.script_approval_id, APPROVAL_ID);
-    assert.equal(ready?.body.preflight_report_id, PREFLIGHT_ID);
-    assert.deepEqual(ready?.body.publish_evidence, { transition: "hearth.preflighted-script.ready.v3", script_approval_id: APPROVAL_ID, script_approval_revision: 1, script_approval_hash: scriptHash, preflight_report_id: PREFLIGHT_ID });
+    assert.equal("preflight_report_id" in (ready?.body ?? {}), false);
+    assert.deepEqual(ready?.body.publish_evidence, { transition: "hearth.approved-script.ready.v4", script_approval_id: APPROVAL_ID, script_approval_revision: 1, script_approval_hash: scriptHash });
   } finally {
     globalThis.fetch = originalFetch;
     restoreWindow();
@@ -79,8 +104,25 @@ test("approval CAS rejects source bytes different from the creator-visible draft
     ? response({ ok: true, file_row: { revision: 21, hash_value: "a".repeat(64) } })
     : response({ ok: true, data: { current_revision: 2 } })) as typeof fetch;
   try {
-    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 3, scriptText: VALID_SCRIPT, preflightReportId: PREFLIGHT_ID, reviewedBasis: { sourceFileRevision: 21, scriptHash: await hash(VALID_SCRIPT) }, isCurrent: () => true });
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 3, scriptText: VALID_SCRIPT, isCurrent: () => true });
     assert.deepEqual(result, { ok: false, error: "The working draft changed before approval. Reload the current script and approve it deliberately." });
+  } finally { globalThis.fetch = originalFetch; restoreWindow(); Object.defineProperty(globalThis, "crypto", { configurable: true, value: originalCrypto }); }
+});
+
+test("an unauthorized response keeps its auth meaning even behind an outer 502", async () => {
+  const originalFetch = globalThis.fetch; const originalCrypto = globalThis.crypto; const restoreWindow = installWindow();
+  Object.defineProperty(globalThis, "crypto", { configurable: true, value: webcrypto });
+  globalThis.fetch = (async (input) => String(input).includes("read-file")
+    ? response({ ok: true, file_row: { revision: 3, hash_value: await hash(VALID_SCRIPT) } })
+    : response({ ok: false, error: { code: "unauthorized", message: "Missing or invalid API token" } }, 502)) as typeof fetch;
+  try {
+    const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, isCurrent: () => true });
+    assert.deepEqual(result, {
+      ok: false,
+      status: 401,
+      code: "unauthorized",
+      error: "Tongs rejected the local API credential. Reload after restoring the configured Tongs request token.",
+    });
   } finally { globalThis.fetch = originalFetch; restoreWindow(); Object.defineProperty(globalThis, "crypto", { configurable: true, value: originalCrypto }); }
 });
 
