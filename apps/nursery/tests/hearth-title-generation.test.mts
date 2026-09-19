@@ -17,7 +17,7 @@ const USER_ID = "44444444-4444-4444-8444-444444444444";
 const WORKSPACE_ID = "cc5478ff-37be-403e-824c-467fa7da061e";
 const WORKPIECE_ID = "21d16d6a-905b-491e-8761-028789612ae5";
 const APPROVAL_ID = "be87d40f-516b-4dcf-bd25-094b922cc682";
-const SCRIPT = "[s1]\nCrude oil, refining capacity, fuel taxes, and distribution affect gasoline prices.\n[/s1]";
+const SCRIPT = "[s1]\nCrude oil, refining capacity, fuel taxes, and distribution affect gasoline prices.\n[/s1]\n";
 const TITLES = "SEO_TITLES:\nSAFE: Why Gas Costs More\nSPICY: Gas Prices Exposed\nBALANCED_1: The Gas Price Puzzle\nBALANCED_2: Behind Every Gas Pump\nBALANCED_3: Fuel Costs Explained";
 
 test("paid title contract accepts exactly five distinct labeled, thumbnail-safe titles", () => {
@@ -188,6 +188,27 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
   const stalePayload = await staleResponse.json() as Record<string, unknown>;
   assert.equal(staleResponse.status, 409);
   assert.equal(stalePayload.code, "title_approval_stale");
+  assert.equal(quoteCalls, 1);
+  assert.equal(providerCalls, 0);
+
+  const changedBytesResponse = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge", messages: [{ role: "user", content: "Generate five titles" }],
+      user_authored_text: "Generate five titles",
+      explicit_action: { kind: "production", action: "seo" },
+      production_action: "seo", production_script_version: 1,
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: {
+        episodeId: WORKPIECE_ID, workspaceId: WORKSPACE_ID,
+        title: "Untrusted browser title", titleVariants: { A: "", B: "", C: "" },
+        outline: "", body: SCRIPT.trimEnd(), tonePreset: null, sources: [], sparks: [],
+      },
+    }),
+  }));
+  assert.equal(changedBytesResponse.status, 409);
+  assert.equal((await changedBytesResponse.json() as Record<string, unknown>).code, "title_approval_stale");
   assert.equal(quoteCalls, 1);
   assert.equal(providerCalls, 0);
 });

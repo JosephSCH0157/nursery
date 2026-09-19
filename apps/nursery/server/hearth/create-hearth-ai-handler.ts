@@ -5160,10 +5160,18 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           } catch {
             return admissionFailureResponse({ status: 503, error: "Canonical script approval is unavailable.", code: "title_approval_unavailable" });
           }
+          // The shared episode normalizer trims text fields. Approval hashes cover the
+          // exact script bytes, including trailing newlines, so compare the raw body.
+          const submittedTitleScript = bodyRaw.episode_context
+            && typeof bodyRaw.episode_context === "object"
+            && !Array.isArray(bodyRaw.episode_context)
+            ? (bodyRaw.episode_context as Record<string, unknown>).body
+            : null;
           if (!approvedTitleScript || productionScriptVersion !== approvedTitleScript.approvalRevision
             || !approvedTitleScript.scriptText.trim()
             || await hashApprovedTitleScript(approvedTitleScript.scriptText) !== approvedTitleScript.scriptHash
-            || await hashApprovedTitleScript(episodeContext.body) !== approvedTitleScript.scriptHash) {
+            || typeof submittedTitleScript !== "string"
+            || await hashApprovedTitleScript(submittedTitleScript) !== approvedTitleScript.scriptHash) {
             return admissionFailureResponse({ status: 409, error: "The current approved script changed. Reload Hearth before generating titles.", code: "title_approval_stale" });
           }
         }
