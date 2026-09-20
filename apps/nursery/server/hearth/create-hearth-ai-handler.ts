@@ -5178,15 +5178,32 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
         }
         let titleContractVersion: HearthTitleContractVersion = 2;
+        let historicalTitleV2Identity = false;
         if (titleGenerationRequested && approvedTitleScript && (spendingAcceptance || paidExecutionHandle)) {
+          const priorFingerprint = spendingAcceptance?.requestFingerprint ?? paidExecutionHandle?.requestFingerprint;
           const legacyFingerprint = await fingerprintOpenAiTextPaidRequest(paidTitleFingerprintPayload({
             userId: userId!, workspaceId: episodeContext.workspaceId!,
             workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
             contractVersion: 1,
           }));
-          if ((spendingAcceptance?.requestFingerprint ?? paidExecutionHandle?.requestFingerprint) === legacyFingerprint) {
+          if (priorFingerprint === legacyFingerprint) {
             titleContractVersion = 1;
+          } else {
+            const historicalV2Fingerprint = await fingerprintOpenAiTextPaidRequest(paidTitleFingerprintPayload({
+              userId: userId!, workspaceId: episodeContext.workspaceId!,
+              workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
+              contractVersion: 2,
+            }));
+            historicalTitleV2Identity = priorFingerprint === historicalV2Fingerprint;
           }
+        }
+        if (titleGenerationRequested && titleContractVersion === 2
+          && !historicalTitleV2Identity && !isUuid(providedChatActionId)) {
+          return admissionFailureResponse({
+            status: 422,
+            error: "Generate Titles requires a stable action ID for a fresh quote and its accepted retry.",
+            code: "title_action_id_required",
+          });
         }
         if (titleGenerationRequested && titleContractVersion === 2) {
           // A running dev server may load this code before the forward migration.
@@ -5301,6 +5318,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               userId: userId!, workspaceId: episodeContext.workspaceId!,
               workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
               contractVersion: titleContractVersion,
+              operationIntentId: historicalTitleV2Identity ? undefined : chatActionId,
             })
           : paidRouteCode === "hearth.chat_completion"
           ? {
@@ -5350,6 +5368,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : customerResearchPlan
             ? fingerprintCustomerResearchPlan(customerResearchPlan)
             : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
+        if (paidRouteCode === HEARTH_TITLE_ROUTE && spendingAcceptance
+          && spendingAcceptance.requestFingerprint !== actualRequestFingerprint) {
+          return admissionFailureResponse({
+            status: 409,
+            error: "This accepted title quote does not match the current request. Review a fresh quote.",
+            code: "paid_request_fingerprint_mismatch",
+          });
+        }
         if (paidRouteCode === HEARTH_TITLE_ROUTE && titleContractVersion === 1) {
           // Historical accepted v1 quotes are read-only: replay a settled result,
           // but never submit another provider attempt under the old title policy.

@@ -25,6 +25,8 @@ const USER_ID = "44444444-4444-4444-8444-444444444444";
 const WORKSPACE_ID = "cc5478ff-37be-403e-824c-467fa7da061e";
 const WORKPIECE_ID = "21d16d6a-905b-491e-8761-028789612ae5";
 const APPROVAL_ID = "be87d40f-516b-4dcf-bd25-094b922cc682";
+const TITLE_ACTION_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const TITLE_ACTION_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const SCRIPT = "[s1]\nCrude oil, refining capacity, fuel taxes, and distribution affect gasoline prices.\n[/s1]\n";
 const TITLES = "SEO_TITLES:\nSAFE: Why Gas Costs More\nSPICY: Gas Prices Exposed\nBALANCED_1: The Gas Price Puzzle\nBALANCED_2: Behind Every Gas Pump\nBALANCED_3: Fuel Costs Explained";
 const titleBlock = (titles: readonly string[]) => [
@@ -182,6 +184,21 @@ test("episode-title lengths are distinct from thumbnail hooks and v1 remains ide
   assert.equal(currentPayload.schema, HEARTH_TITLE_CONTRACT);
   assert.equal(currentPayload.output_contract, "seo_titles_five_lines.v2");
   assert.notDeepEqual(oldPayload, currentPayload);
+  const firstIntent = paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval, operationIntentId: TITLE_ACTION_A,
+  });
+  const secondIntent = paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval, operationIntentId: TITLE_ACTION_B,
+  });
+  assert.equal(firstIntent.operation_intent_id, TITLE_ACTION_A);
+  assert.notEqual(await fingerprintOpenAiTextPaidRequest(firstIntent),
+    await fingerprintOpenAiTextPaidRequest(secondIntent));
+  assert.deepEqual(oldPayload, paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval, contractVersion: 1, operationIntentId: TITLE_ACTION_A,
+  }));
   assert.match(buildPaidTitleMessages(approval, 1)[0].content, /at most four words/);
   assert.match(buildPaidTitleMessages(approval)[0].content, /do not exceed 12 words/);
   const words = ["gasoline", "prices", "reflect", "global", "oil", "supply", "refining", "capacity", "seasonal", "demand", "regional", "taxes"];
@@ -231,10 +248,23 @@ test("title request is deterministic and bounded to one Luna attempt without too
 
 test("Generate Titles requests a distinct one-credit quote before any provider call", async () => {
   const scriptHash = await hashApprovedTitleScript(SCRIPT);
+  const approval = {
+    approvalId: APPROVAL_ID, approvalRevision: 1, scriptHash,
+    scriptText: SCRIPT, episodeTitle: "Why gasoline costs more",
+  };
+  const historicalFingerprint = await fingerprintOpenAiTextPaidRequest(paidTitleFingerprintPayload({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    approved: approval, contractVersion: 2,
+  }));
+  const historicalIdentifiers = deriveHearthCustomerPaidIdentifiers({
+    userId: USER_ID, workspaceId: WORKSPACE_ID, requestFingerprint: historicalFingerprint,
+  });
   let providerCalls = 0;
   let quotedRoute = "";
   let boundedRoute = "";
   let quoteCalls = 0;
+  const quoteIds: string[] = [];
+  const quotedFingerprints: string[] = [];
   let contractReady = false;
   const gate = {
     async rpc(name: string, args: Record<string, unknown>) {
@@ -244,7 +274,14 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
       if (name === "read_openai_execution_requirement") {
         return { data: { mode: "enforce", funding_context_required: true }, error: null };
       }
-      if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+      if (name === "read_existing_openai_text_funding_handle") return {
+        data: args.p_request_fingerprint === historicalFingerprint ? {
+          operation_id: historicalIdentifiers.operationId,
+          reservation_id: historicalIdentifiers.reservationId,
+          request_fingerprint: historicalFingerprint,
+          funding_environment: "test",
+        } : {}, error: null,
+      };
       if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
         catalog_revision_id: "14000000-0000-4000-8000-000000000005",
         catalog_revision: 7,
@@ -256,6 +293,8 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
       }, error: null };
       if (name === "create_customer_openai_text_quote") {
         quoteCalls += 1;
+        quoteIds.push(String(args.p_quote_id));
+        quotedFingerprints.push(String(args.p_request_fingerprint));
         quotedRoute = String(args.p_route_code ?? "");
         return { data: {
           quote_id: args.p_quote_id,
@@ -298,21 +337,19 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
     disableExpensiveAiActions: false, disableCdcGeneration: false,
     openAiTextGate: gate,
     resolveUserIdForAccessToken: async () => USER_ID,
-    readApprovedTitleScript: async () => ({
-      approvalId: APPROVAL_ID, approvalRevision: 1, scriptHash,
-      scriptText: SCRIPT, episodeTitle: "Why gasoline costs more",
-    }),
+    readApprovedTitleScript: async () => approval,
     openAiProviderFetch: async () => {
       providerCalls += 1;
       return new Response(null, { status: 500 });
     },
   };
   const handler = createHearthAiHandler(config);
-  const titleRequest = () => new Request("http://localhost/api/hearth/chat", {
+  const titleRequest = (actionId = TITLE_ACTION_A) => new Request("http://localhost/api/hearth/chat", {
     method: "POST",
     headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
     body: JSON.stringify({
       lane: "forge",
+      action_id: actionId,
       messages: [{ role: "user", content: "Generate five titles" }],
       user_authored_text: "Generate five titles",
       explicit_action: { kind: "production", action: "seo" },
@@ -341,6 +378,20 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
   assert.equal(boundedRoute, HEARTH_TITLE_ROUTE);
   assert.equal(quoteCalls, 1);
   assert.equal(providerCalls, 0);
+  assert.notEqual(quotedFingerprints[0], historicalFingerprint);
+  assert.notEqual(quoteIds[0], historicalIdentifiers.quoteId);
+  const nextClick = await handler(titleRequest(TITLE_ACTION_B));
+  const nextPayload = await nextClick.json() as Record<string, any>;
+  assert.equal(nextClick.status, 409, JSON.stringify(nextPayload));
+  assert.equal(quoteCalls, 2);
+  assert.notEqual(nextPayload.billing_quote.quote_id, payload.billing_quote.quote_id);
+  assert.notEqual(quotedFingerprints[1], quotedFingerprints[0]);
+  assert.equal(providerCalls, 0);
+
+  const missingAction = await handler(titleRequest("not-a-uuid"));
+  assert.equal(missingAction.status, 422);
+  assert.equal((await missingAction.json() as Record<string, unknown>).code, "title_action_id_required");
+  assert.equal(quoteCalls, 2);
 
   const staleResponse = await handler(new Request("http://localhost/api/hearth/chat", {
     method: "POST",
@@ -361,7 +412,7 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
   const stalePayload = await staleResponse.json() as Record<string, unknown>;
   assert.equal(staleResponse.status, 409);
   assert.equal(stalePayload.code, "title_approval_stale");
-  assert.equal(quoteCalls, 1);
+  assert.equal(quoteCalls, 2);
   assert.equal(providerCalls, 0);
 
   const changedBytesResponse = await handler(new Request("http://localhost/api/hearth/chat", {
@@ -382,7 +433,7 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
   }));
   assert.equal(changedBytesResponse.status, 409);
   assert.equal((await changedBytesResponse.json() as Record<string, unknown>).code, "title_approval_stale");
-  assert.equal(quoteCalls, 1);
+  assert.equal(quoteCalls, 2);
   assert.equal(providerCalls, 0);
 });
 
@@ -528,6 +579,7 @@ test("accepted title quote settles once and exact replay reads the canonical res
     },
   };
   const body = {
+    action_id: TITLE_ACTION_A,
     lane: "forge", messages: [{ role: "user", content: "Generate five titles" }],
     user_authored_text: "Generate five titles",
     explicit_action: { kind: "production", action: "seo" },
@@ -558,6 +610,20 @@ test("accepted title quote settles once and exact replay reads the canonical res
   assert.equal(quoted.body.billing_quote.credit_charge, 1);
   assert.equal(providerCalls, 0);
   assert.equal(reserveCalls, 0);
+  const changedAction = await invoke({
+    ...body, action_id: TITLE_ACTION_B,
+    spending_acceptance: {
+      operation_id: quoted.body.billing_quote.operation_id,
+      quote_id: quoted.body.billing_quote.quote_id,
+      quote_hash: quoted.body.billing_quote.quote_hash,
+      request_fingerprint: quoted.body.billing_quote.request_fingerprint,
+    },
+  });
+  assert.equal(changedAction.status, 409);
+  assert.equal(changedAction.body.code, "paid_request_fingerprint_mismatch");
+  assert.equal(quoteCalls, 1);
+  assert.equal(reserveCalls, 0);
+  assert.equal(providerCalls, 0);
   const acceptedBody = {
     ...body,
     spending_acceptance: {

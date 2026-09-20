@@ -62,6 +62,7 @@ export function paidTitleFingerprintPayload(args: {
   workpieceId: string;
   approved: ApprovedTitleScript;
   contractVersion?: HearthTitleContractVersion;
+  operationIntentId?: string;
 }) {
   const contractVersion = args.contractVersion ?? 2;
   return {
@@ -73,6 +74,11 @@ export function paidTitleFingerprintPayload(args: {
     script_approval_id: args.approved.approvalId,
     script_approval_revision: args.approved.approvalRevision,
     script_content_hash: args.approved.scriptHash,
+    // A fresh creator action may buy a fresh quote for the same approved script.
+    // Omit this only when identifying historical v1/v2 operations for replay.
+    ...(contractVersion === 2 && args.operationIntentId
+      ? { operation_intent_id: args.operationIntentId }
+      : {}),
     episode_title: args.approved.episodeTitle,
     output_contract: contractVersion === 1 ? "seo_titles_five_lines.v1" : "seo_titles_five_lines.v2",
     model: HEARTH_TITLE_MODEL,
