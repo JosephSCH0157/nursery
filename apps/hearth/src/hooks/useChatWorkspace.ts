@@ -883,7 +883,7 @@ export function useChatWorkspaceRuntime<
           action: params.productionAction,
           scriptVersion: params.productionScriptVersion,
           assistantText,
-          paidOperationId: params.productionAction === "seo"
+          paidOperationId: params.productionAction === "seo" || params.productionAction === "tags"
             ? result.billingReceipt?.operation_id
             : undefined,
         });

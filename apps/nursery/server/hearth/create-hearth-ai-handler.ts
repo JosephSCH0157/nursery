@@ -139,6 +139,14 @@ import {
   type HearthTitleContractVersion,
 } from "./hearth-paid-title-generation";
 import {
+  HEARTH_TAG_ROUTE,
+  HEARTH_TAG_MODEL,
+  HEARTH_TAG_CONTRACT,
+  buildPaidTagMessages,
+  paidTagFingerprintPayload,
+  validatePaidTagOutput,
+} from "./hearth-paid-tag-generation";
+import {
   ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
   readOwnerHearthExecutionRequirement,
@@ -4371,7 +4379,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
       if (effectiveLane === AI_USAGE_LANE.FORGE && !ownerHearthRequirement && !ownerResearchRequirement
-        && !paidExecutionHandle && productionAction !== "seo" && tokenBalance != null && tokenBalance <= 0) {
+        && !paidExecutionHandle && productionAction !== "seo" && productionAction !== "tags"
+        && tokenBalance != null && tokenBalance <= 0) {
         return jsonResponse(402, {
           ok: false,
           error: "No AI credits remaining.",
@@ -4639,6 +4648,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
       }
       if (productionAction === "seo") model = HEARTH_TITLE_MODEL;
+      if (productionAction === "tags") model = HEARTH_TAG_MODEL;
       if (researchModeRequested && !ownerResearchRequirement
         && effectiveLane === AI_USAGE_LANE.FORGE) {
         if (!researchBrief || !researchRequest || !userId || !bearerToken
@@ -5114,6 +5124,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const boundedLatestUserMessage = latestUserMessage ?? { role: "user", content: requestText };
         const scriptGenerationRequested = turnDecision.mode === "script_generate";
         const titleGenerationRequested = productionAction === "seo";
+        const tagGenerationRequested = productionAction === "tags";
         let canonicalScriptResearchRows: Array<Record<string, unknown>> = [];
         if (scriptGenerationRequested && supabaseService && episodeContext.workspaceId) {
           const researchStore = supabaseService.schema("tongs") as unknown as {
@@ -5152,15 +5163,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           canonicalScriptResearchRows = retained.data ?? [];
         }
         let approvedTitleScript: ApprovedTitleScript | null = null;
-        if (titleGenerationRequested) {
+        if (titleGenerationRequested || tagGenerationRequested) {
           if (!userId || !isUuid(episodeContext.workspaceId)
             || resolvedCredentials.keySource !== "forge_managed" || ownerHearthRequirement) {
-            return admissionFailureResponse({ status: 422, error: "Generate Titles requires an authorized Forge-funded customer scope.", code: "title_customer_scope_required" });
+            return admissionFailureResponse({ status: 422, error: `Generate ${tagGenerationRequested ? "Tags" : "Titles"} requires an authorized Forge-funded customer scope.`, code: tagGenerationRequested ? "tag_customer_scope_required" : "title_customer_scope_required" });
           }
           try {
             approvedTitleScript = await readCanonicalTitleApproval(episodeContext.workspaceId, episodeContext.episodeId);
           } catch {
-            return admissionFailureResponse({ status: 503, error: "Canonical script approval is unavailable.", code: "title_approval_unavailable" });
+            return admissionFailureResponse({ status: 503, error: "Canonical script approval is unavailable.", code: tagGenerationRequested ? "tag_approval_unavailable" : "title_approval_unavailable" });
           }
           // The shared episode normalizer trims text fields. Approval hashes cover the
           // exact script bytes, including trailing newlines, so compare the raw body.
@@ -5174,8 +5185,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             || await hashApprovedTitleScript(approvedTitleScript.scriptText) !== approvedTitleScript.scriptHash
             || typeof submittedTitleScript !== "string"
             || await hashApprovedTitleScript(submittedTitleScript) !== approvedTitleScript.scriptHash) {
-            return admissionFailureResponse({ status: 409, error: "The current approved script changed. Reload Hearth before generating titles.", code: "title_approval_stale" });
+            return admissionFailureResponse({ status: 409, error: `The current approved script changed. Reload Hearth before generating ${tagGenerationRequested ? "tags" : "titles"}.`, code: tagGenerationRequested ? "tag_approval_stale" : "title_approval_stale" });
           }
+        }
+        if (tagGenerationRequested && !isUuid(providedChatActionId)) {
+          return admissionFailureResponse({
+            status: 422,
+            error: "Generate Tags requires a stable action ID for a fresh quote and its accepted retry.",
+            code: "tag_action_id_required",
+          });
         }
         let titleContractVersion: HearthTitleContractVersion = 2;
         let historicalTitleV2Identity = false;
@@ -5219,7 +5237,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
         }
-        const paidCompletionMessages: ChatMessage[] = titleGenerationRequested && approvedTitleScript
+        const paidCompletionMessages: ChatMessage[] = tagGenerationRequested && approvedTitleScript
+          ? buildPaidTagMessages(approvedTitleScript)
+          : titleGenerationRequested && approvedTitleScript
           ? buildPaidTitleMessages(approvedTitleScript, titleContractVersion)
           : turnDecision.mode === "conversation"
           ? buildPaidHearthConversationMessages({
@@ -5295,25 +5315,33 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         };
 
-        const paidRouteCode: OpenAiTextRouteCode = titleGenerationRequested
+        const paidRouteCode: OpenAiTextRouteCode = tagGenerationRequested
+          ? HEARTH_TAG_ROUTE
+          : titleGenerationRequested
           ? HEARTH_TITLE_ROUTE
           : researchModeRequested
           ? "hearth.research_synthesis"
           : scriptGenerationRequested
             ? "hearth.script_generation"
           : "hearth.chat_completion";
-        const paidScopeEligible = (titleGenerationRequested && Boolean(approvedTitleScript)
+        const paidScopeEligible = ((titleGenerationRequested || tagGenerationRequested) && Boolean(approvedTitleScript)
           || !productionAction)
           && !attachmentContext.includeEpisodeAttachments
           && !readinessCheckRequested
           && !crossProjectReference.detected
-          && ((paidRouteCode === HEARTH_TITLE_ROUTE)
+          && ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE)
             || (paidRouteCode === "hearth.chat_completion"
             && !["outline_generate", "script_mutate"].includes(turnDecision.mode))
             || paidRouteCode === "hearth.script_generation"
             || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
               && (Boolean(ownerResearchRequirement) || Boolean(customerResearchPlan) || linkModeRequested)));
-        const paidFingerprintPayload = paidRouteCode === HEARTH_TITLE_ROUTE && approvedTitleScript
+        const paidFingerprintPayload = paidRouteCode === HEARTH_TAG_ROUTE && approvedTitleScript
+          ? paidTagFingerprintPayload({
+              userId: userId!, workspaceId: episodeContext.workspaceId!,
+              workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
+              operationIntentId: chatActionId,
+            })
+          : paidRouteCode === HEARTH_TITLE_ROUTE && approvedTitleScript
           ? paidTitleFingerprintPayload({
               userId: userId!, workspaceId: episodeContext.workspaceId!,
               workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
@@ -5368,11 +5396,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : customerResearchPlan
             ? fingerprintCustomerResearchPlan(customerResearchPlan)
             : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
-        if (paidRouteCode === HEARTH_TITLE_ROUTE && spendingAcceptance
+        if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE) && spendingAcceptance
           && spendingAcceptance.requestFingerprint !== actualRequestFingerprint) {
           return admissionFailureResponse({
             status: 409,
-            error: "This accepted title quote does not match the current request. Review a fresh quote.",
+            error: "This accepted production quote does not match the current request. Review a fresh quote.",
             code: "paid_request_fingerprint_mismatch",
           });
         }
@@ -5472,12 +5500,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
-        if (paidRouteCode === HEARTH_TITLE_ROUTE
+        if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE)
           && (!openAiTextGate || paidRequirementRow.funding_context_required !== true)) {
           return admissionFailureResponse({
             status: 503,
-            error: "The paid Generate Titles product is not active for this customer scope.",
-            code: "title_paid_product_unavailable",
+            error: `The paid Generate ${paidRouteCode === HEARTH_TAG_ROUTE ? "Tags" : "Titles"} product is not active for this customer scope.`,
+            code: paidRouteCode === HEARTH_TAG_ROUTE ? "tag_paid_product_unavailable" : "title_paid_product_unavailable",
           });
         }
 
@@ -5496,7 +5524,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               code: "paid_execution_auth_required",
             });
           }
-          if (paidRouteCode === HEARTH_TITLE_ROUTE
+          if (paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE
             || paidRouteCode === "hearth.research_synthesis"
             || paidRouteCode === "hearth.script_generation"
             || paidRouteCode === "hearth.chat_completion") {
@@ -5520,7 +5548,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 model = ownerPrepared.model;
                 paidExecutionHandle = ownerPrepared.handle;
               } else {
-              const ordinaryOperationId = paidRouteCode === HEARTH_TITLE_ROUTE
+              const ordinaryOperationId = paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE
                 || paidRouteCode === "hearth.chat_completion"
                 || paidRouteCode === "hearth.script_generation"
                 ? deriveHearthCustomerPaidIdentifiers({
@@ -5551,10 +5579,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     : buildBoundedPaidJsonOpenAiRequest({
                         body: {
                           model: acceptedModel,
-                          messages: paidRouteCode === "hearth.script_generation" || paidRouteCode === HEARTH_TITLE_ROUTE
+                          messages: paidRouteCode === "hearth.script_generation" || paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE
                             ? paidCompletionMessages
                             : completionMessages,
-                          ...(paidRouteCode === HEARTH_TITLE_ROUTE ? { reasoning_effort: "none" } : {}),
+                          ...(paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE ? { reasoning_effort: "none" } : {}),
                         },
                         model: acceptedModel,
                         maximumOutputTokens,
@@ -6010,6 +6038,89 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   operations: normalizeOps(paidResearch.result.ops),
                 }),
                 billing_receipt: paidResearch.receipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (paidRouteCode === HEARTH_TAG_ROUTE && approvedTitleScript) {
+              const tagApproval = approvedTitleScript;
+              const paidTags = await executePaidJsonOpenAiRoute({
+                gate: openAiTextGate,
+                routeCode: HEARTH_TAG_ROUTE,
+                handle: paidExecutionHandle,
+                userId,
+                workspaceId: episodeContext.workspaceId!,
+                workpieceId: episodeContext.episodeId,
+                credentialSource: resolvedCredentials.keySource,
+                apiKey: resolvedCredentials.apiKey,
+                requestFingerprintPayload: paidFingerprintPayload,
+                providerRequestBody: (acceptedModel) => ({
+                  model: acceptedModel,
+                  reasoning_effort: "none",
+                  messages: paidCompletionMessages,
+                }),
+                signal: upstreamAbort.signal,
+                fetchImpl: config.openAiProviderFetch,
+                realizedSupportingCost: {
+                  amountMicros: 0,
+                  authoritative: true,
+                  evidence: { evidence_status: "none_verified", classification: "direct_supplier_cost_only" },
+                },
+                validate: (providerPayload) => {
+                  const output = validatePaidTagOutput(extractAssistantReply(providerPayload));
+                  if (!output.ok) throw new Error(output.error);
+                  return {
+                    assistant_text: output.text,
+                    tags: output.tags,
+                    contract: HEARTH_TAG_CONTRACT,
+                    script_approval_id: tagApproval.approvalId,
+                    script_approval_revision: tagApproval.approvalRevision,
+                    script_content_hash: tagApproval.scriptHash,
+                  };
+                },
+                persist: async (value, providerPayload) => {
+                  const usage = isRecord(providerPayload.usage) ? providerPayload.usage : {};
+                  const saved = await openAiTextGate.rpc("persist_hearth_tag_generation_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                    p_user_id: userId,
+                    p_workspace_id: episodeContext.workspaceId,
+                    p_workpiece_id: episodeContext.episodeId,
+                    p_request_fingerprint: paidExecutionHandle!.requestFingerprint,
+                    p_approval_id: tagApproval.approvalId,
+                    p_approval_revision: tagApproval.approvalRevision,
+                    p_script_hash: tagApproval.scriptHash,
+                    p_provider_request_id: readOptionalString(providerPayload.id),
+                    p_input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
+                    p_output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (saved.error || !isRecord(saved.data)) throw new Error(saved.error?.message ?? "Tag persistence failed.");
+                  return saved.data;
+                },
+                recover: async () => {
+                  const saved = await openAiTextGate.rpc("read_hearth_tag_generation_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                  });
+                  if (saved.error || !isRecord(saved.data)) return null;
+                  return {
+                    result: saved.data,
+                    providerRequestId: readOptionalString(saved.data.provider_request_id),
+                    inputUnits: Number(saved.data.input_units ?? 0),
+                    outputUnits: Number(saved.data.output_units ?? 0),
+                  };
+                },
+              });
+              return jsonResponse(200, {
+                ok: true,
+                assistant_text: paidTags.result.assistant_text,
+                reply: paidTags.result.assistant_text,
+                tag_result_id: paidTags.result.tag_result_id,
+                script_approval_id: paidTags.result.script_approval_id,
+                script_approval_revision: paidTags.result.script_approval_revision,
+                script_content_hash: paidTags.result.script_content_hash,
+                turn_result: buildTurnResult({ assistantMessage: String(paidTags.result.assistant_text ?? "") }),
+                billing_receipt: paidTags.receipt,
                 ...buildBillingSnapshot(lane),
               });
             }

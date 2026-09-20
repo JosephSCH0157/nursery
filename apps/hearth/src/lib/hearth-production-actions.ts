@@ -223,7 +223,7 @@ export async function persistProductionArtifact(args: {
         generated_at: generatedAt,
         action: args.action,
         raw_text: args.assistantText,
-        ...(args.action === "seo" && args.paidOperationId
+        ...((args.action === "seo" || args.action === "tags") && args.paidOperationId
           ? { paid_operation_id: args.paidOperationId }
           : {}),
       };
@@ -231,11 +231,11 @@ export async function persistProductionArtifact(args: {
   try {
     let effectivePayload = payload;
     let reuseStoredArtifact = args.reuseStoredArtifact === true;
-    if (args.action === "seo" && args.paidOperationId && !reuseStoredArtifact) {
+    if ((args.action === "seo" || args.action === "tags") && args.paidOperationId && !reuseStoredArtifact) {
       const existing = await readWorkpieceProductionArtifact({
         workpieceId: episodeId,
         scriptVersion: args.scriptVersion,
-        kind: "seo",
+        kind: args.action,
       });
       if (existing.ok && existing.payload && typeof existing.payload === "object"
         && !Array.isArray(existing.payload)
@@ -243,8 +243,8 @@ export async function persistProductionArtifact(args: {
         effectivePayload = existing.payload as typeof payload;
         reuseStoredArtifact = true;
       } else if (!existing.ok && existing.reason !== "not_found") {
-        args.setAiRuntimeWarning("Could not verify the existing title artifact. The paid result remains recoverable; no duplicate artifact was written.");
-        return { ok: false as const, reason: "title_artifact_read_failed", stage: "artifact" as const };
+        args.setAiRuntimeWarning("Could not verify the existing paid production artifact. The paid result remains recoverable; no duplicate artifact was written.");
+        return { ok: false as const, reason: "paid_artifact_read_failed", stage: "artifact" as const };
       }
     }
     const committed = await commitWorkpieceProductionArtifact({
@@ -259,8 +259,8 @@ export async function persistProductionArtifact(args: {
 
     if (!committed.ok) {
       const stage = committed.stage ? ` at ${committed.stage}` : "";
-      const recoveryLocation = args.action === "seo" && args.paidOperationId
-        ? "The paid title result remains recoverable from its canonical operation record."
+      const recoveryLocation = (args.action === "seo" || args.action === "tags") && args.paidOperationId
+        ? "The paid result remains recoverable from its canonical operation record."
         : "The paid response remains recoverable from the saved production artifact.";
       args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} ${recoveryLocation}`);
       return committed;

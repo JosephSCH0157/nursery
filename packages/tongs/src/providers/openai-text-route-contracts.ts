@@ -25,6 +25,12 @@ const CONTRACTS: Record<OpenAiTextRouteCode, OpenAiTextRouteContract> = {
     maximumAttempts: 1, usableResultRequires: ["validation", "canonical_persistence"], activationReady: false,
     activationBlocker: "test_canary_only",
   },
+  "hearth.tag_generation": {
+    routeCode: "hearth.tag_generation", costPolicyRevisionId: "15000000-0000-4000-8000-000000000001",
+    runtimeModels: ["gpt-5.6-luna"], maximumInputUnits: 12000, maximumOutputUnits: 256,
+    maximumAttempts: 1, usableResultRequires: ["validation", "canonical_persistence"], activationReady: false,
+    activationBlocker: "test_canary_only",
+  },
   "hearth.script_generation": {
     routeCode: "hearth.script_generation", costPolicyRevisionId: "13000000-0000-4000-8000-000000000001",
     runtimeModels: ["gpt-5.6-luna"], maximumInputUnits: 32000, maximumOutputUnits: 8000,

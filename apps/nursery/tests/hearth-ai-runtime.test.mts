@@ -639,7 +639,7 @@ test("createHearthAiHandler does not route thumbnail production contracts throug
   }
 });
 
-test("createHearthAiHandler isolates production generation from chat history and attachments", async () => {
+test("Generate Tags cannot use the legacy BYO production path", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
   let upstreamMessages: Array<{ role?: string; content?: string }> = [];
@@ -671,11 +671,9 @@ test("createHearthAiHandler isolates production generation from chat history and
         attachment_context: { include_episode_attachments: true },
       }),
     }));
-    assert.equal(response.status, 200);
-    assert.equal(upstreamMessages.length, 2);
-    assert.equal(upstreamMessages[0]?.role, "system");
-    assert.equal(upstreamMessages[1]?.content, "Generate Tags for approved Script Version 4.");
-    assert.doesNotMatch(upstreamMessages.map((message) => message.content ?? "").join("\n"), /duplicate script/);
+    assert.equal(response.status, 422);
+    assert.equal((await response.json()).code, "tag_customer_scope_required");
+    assert.equal(upstreamMessages.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

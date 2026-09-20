@@ -633,7 +633,7 @@ function normalizeOptionalIso(value: unknown): string | null {
   return new Date(timestamp).toISOString();
 }
 
-function normalizeTag(tag: string): string | null {
+export function normalizeTag(tag: string): string | null {
   const cleaned = tag
     .trim()
     .toLowerCase()
