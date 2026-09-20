@@ -1,7 +1,7 @@
 import type { Draft } from "../../domain/draft";
 import type { ScriptValidationResult, ScriptValidationIssue } from "@forge/shared/script-tags";
 import type { HearthPreflightAuthority } from "../../lib/hearth-research-preflight-authority";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 const HearthPreflightPanel = lazy(() => import("./HearthPreflightPanel"));
 
@@ -16,6 +16,7 @@ type DraftConflictStateLike = {
 
 type HearthDraftScriptHeaderProps = {
   isScriptWorkspaceTab: boolean;
+  workpieceId: string | null;
   activeDraft: Draft | null;
   formatUpdatedAt: (value: number | undefined) => string;
   activeUserDisplayName: string;
@@ -86,6 +87,7 @@ type HearthDraftScriptHeaderProps = {
 
 export default function HearthDraftScriptHeader({
   isScriptWorkspaceTab,
+  workpieceId,
   activeDraft,
   formatUpdatedAt,
   activeUserDisplayName,
@@ -153,6 +155,24 @@ export default function HearthDraftScriptHeader({
   isVisualScriptMode,
   onToggleVisualScriptMode,
 }: HearthDraftScriptHeaderProps) {
+  const claimsCheckScope = workpieceId && activeDraft ? `${workpieceId}:${activeDraft.id}` : null;
+  const [openClaimsCheckScope, setOpenClaimsCheckScope] = useState<string | null>(null);
+  const claimsCheckOpen = claimsCheckScope !== null && openClaimsCheckScope === claimsCheckScope;
+
+  useEffect(() => {
+    setOpenClaimsCheckScope(null);
+  }, [claimsCheckScope]);
+
+  const onToggleClaimsCheck = () => {
+    if (claimsCheckOpen) {
+      setOpenClaimsCheckScope(null);
+      return;
+    }
+    if (!claimsCheckScope) return;
+    setOpenClaimsCheckScope(claimsCheckScope);
+    void onReviewForRecording();
+  };
+
   if (!isScriptWorkspaceTab) return null;
 
   return (
@@ -199,10 +219,12 @@ export default function HearthDraftScriptHeader({
         </button>
         <button
           type="button"
-          onClick={() => void onReviewForRecording()}
-          disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isReviewingPreflight}
+          onClick={onToggleClaimsCheck}
+          disabled={!claimsCheckOpen && (!activeDraft || !hasScript || isSaving || isAiProcessing || isReviewingPreflight)}
+          aria-expanded={claimsCheckOpen}
+          aria-controls="hearth-claims-check"
         >
-          {isReviewingPreflight ? "Checking..." : "Check claims (optional)"}
+          {claimsCheckOpen ? "Hide claims check" : isReviewingPreflight ? "Checking..." : "Check claims (optional)"}
         </button>
         <button
           type="button"
@@ -256,12 +278,14 @@ export default function HearthDraftScriptHeader({
         <div className="hs-error-text">{error}</div>
       ) : null}
 
-      {preflightAuthority ? (
-        <Suspense fallback={<div className="hs-muted-text-subtle">Loading optional script check…</div>}>
+      {claimsCheckOpen && isReviewingPreflight ? (
+        <div id="hearth-claims-check" className="hs-muted-text-subtle" role="status">Checking claims…</div>
+      ) : claimsCheckOpen && preflightAuthority && !preflightError ? (
+        <Suspense fallback={<div id="hearth-claims-check" className="hs-muted-text-subtle">Loading optional script check…</div>}>
           <HearthPreflightPanel authority={preflightAuthority} onComplete={onCompletePreflightReview} onFinding={onHandlePreflightFinding} />
         </Suspense>
       ) : null}
-      {preflightError ? <div className="hs-error-text">{preflightError}</div> : null}
+      {claimsCheckOpen && preflightError ? <div id="hearth-claims-check" className="hs-error-text">{preflightError}</div> : null}
 
       {draftConflictState ? (
         <section className="hs-script-validation" aria-label="Draft conflict">

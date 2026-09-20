@@ -4121,7 +4121,7 @@ export default function HearthShell({
   });
   const onReviewForRecording = useCallback(async () => {
     if (!workspaceId || !workpieceId || !activeDraft || isReviewingPreflight || isSaving || isAiProcessing) return false;
-    if (!activeDraft.body.trim()) { setError("Add script content before running the optional script check."); return false; }
+    if (!activeDraft.body.trim()) { setPreflightError("Add script content before running the optional script check."); return false; }
     setIsReviewingPreflight(true);
     setPreflightError(null);
     try {
@@ -4135,7 +4135,6 @@ export default function HearthShell({
     } catch (error) {
       const message = error instanceof Error ? error.message : "Optional script check failed.";
       setPreflightError(message);
-      setError(message);
       return false;
     } finally {
       setIsReviewingPreflight(false);
@@ -6960,6 +6959,7 @@ export default function HearthShell({
           <Suspense fallback={<div className="hs-muted-text-subtle">Loading script controls…</div>}>
             <HearthDraftScriptHeader
             isScriptWorkspaceTab={isScriptWorkspaceTab}
+            workpieceId={workpieceId}
             activeDraft={activeDraft}
             formatUpdatedAt={formatUpdatedAt}
             activeUserDisplayName={activeUserDisplayName}

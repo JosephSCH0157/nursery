@@ -7,7 +7,7 @@ export default function HearthPreflightPanel(props: {
 }) {
   const { authority } = props;
   return (
-    <section className="hs-script-validation" aria-label="Optional script check">
+    <section id="hearth-claims-check" className="hs-script-validation" aria-label="Optional script check">
       <div className="hs-script-validation-title">Optional script check</div>
       <div className="hs-script-validation-subtitle">
         {authority.stale
