@@ -142,6 +142,7 @@ import {
   HEARTH_TAG_ROUTE,
   HEARTH_TAG_MODEL,
   HEARTH_TAG_CONTRACT,
+  HEARTH_TAG_OUTPUT_CONTRACT,
   buildPaidTagMessages,
   paidTagFingerprintPayload,
   validatePaidTagOutput,
@@ -6064,6 +6065,23 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   amountMicros: 0,
                   authoritative: true,
                   evidence: { evidence_status: "none_verified", classification: "direct_supplier_cost_only" },
+                },
+                validationEvidence: {
+                  contractRevision: HEARTH_TAG_OUTPUT_CONTRACT,
+                  recordFailure: async (failure) => {
+                    const recorded = await openAiTextGate.rpc("record_hearth_tag_validation_failure_evidence", {
+                      p_operation_id: failure.operationId,
+                      p_reservation_id: failure.reservationId,
+                      p_provider_request_id: failure.providerRequestId,
+                      p_model: failure.model,
+                      p_input_units: failure.inputUnits,
+                      p_output_units: failure.outputUnits,
+                      p_raw_provider_response_text: failure.rawProviderResponseText,
+                      p_validation_error_code: failure.errorCode,
+                      p_validation_contract_revision: failure.contractRevision,
+                    });
+                    if (recorded.error) throw new Error(recorded.error.message);
+                  },
                 },
                 validate: (providerPayload) => {
                   const output = validatePaidTagOutput(extractAssistantReply(providerPayload));

@@ -115,6 +115,21 @@ export async function executePaidJsonOpenAiRoute<
     authoritative: boolean;
     evidence: JsonObject;
   };
+  /** Tag-only private evidence; the raw response is never returned to customers. */
+  validationEvidence?: {
+    contractRevision: string;
+    recordFailure: (failure: {
+      operationId: string;
+      reservationId: string;
+      providerRequestId: string | null;
+      model: string;
+      inputUnits: number;
+      outputUnits: number;
+      rawProviderResponseText: string;
+      errorCode: string;
+      contractRevision: string;
+    }) => Promise<void>;
+  };
   validate: (payload: JsonObject) => TValidated;
   persist?: (value: TValidated, payload: JsonObject) => Promise<TCanonical>;
   /**
@@ -141,6 +156,9 @@ export async function executePaidJsonOpenAiRoute<
 }> {
   let validated: TValidated | null = null;
   let providerPayload: JsonObject = {};
+  let rawProviderResponseText = "";
+  let providerRequestId: string | null = null;
+  let providerModel = "";
   const providerUrl = args.providerUrl ?? "https://api.openai.com/v1/chat/completions";
   const outcome = await executePaidOpenAiTextRoute<JsonObject, TCanonical>({
     gate: args.gate,
@@ -173,6 +191,7 @@ export async function executePaidJsonOpenAiRoute<
     },
     executeProvider: async (context, _attemptNumber, boundedRequest, authorization) => {
       assertOpenAiTextProviderExecutionAuthorization(authorization);
+      providerModel = context.model;
       if (!boundedRequest) throw new OpenAiTextProviderError(
         "The exact OpenAI request was not bound before submission",
         false,
@@ -203,6 +222,8 @@ export async function executePaidJsonOpenAiRoute<
       }
       const requestId = response.headers.get("x-request-id");
       const text = await response.text();
+      providerRequestId = requestId;
+      rawProviderResponseText = text;
       try {
         providerPayload = asObject(JSON.parse(text));
       } catch {
@@ -255,11 +276,40 @@ export async function executePaidJsonOpenAiRoute<
           cached_input_units: usage.cachedInput,
           reasoning_output_included: true,
           ...boundedProviderRequestEvidence(boundedRequest),
+          ...(args.validationEvidence
+            ? { validation_contract_revision: args.validationEvidence.contractRevision }
+            : {}),
         },
+        privateCaptureEvidence: args.validationEvidence
+          ? { raw_provider_response_text: text }
+          : undefined,
       };
     },
-    validateResult: (payload) => {
-      validated = args.validate(payload);
+    validateResult: async (payload) => {
+      try {
+        validated = args.validate(payload);
+      } catch (error) {
+        if (args.validationEvidence) {
+          const usage = readUsage(payload);
+          try {
+            await args.validationEvidence.recordFailure({
+              operationId: args.handle.operationId,
+              reservationId: args.handle.reservationId,
+              providerRequestId,
+              model: providerModel,
+              inputUnits: usage.input,
+              outputUnits: usage.output,
+              rawProviderResponseText,
+              errorCode: error instanceof Error ? error.message : String(error),
+              contractRevision: args.validationEvidence.contractRevision,
+            });
+          } catch {
+            // The immutable provider capture already retained the raw response.
+            // Preserve the original validation failure and zero-charge path.
+          }
+        }
+        throw error;
+      }
     },
     persistCanonical: async () => {
       if (!validated) throw new Error("validated route result missing");

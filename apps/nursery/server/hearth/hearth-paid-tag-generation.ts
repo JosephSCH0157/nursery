@@ -5,6 +5,9 @@ import { normalizeTag } from "../../../hearth/src/lib/episode-package-v2";
 export const HEARTH_TAG_ROUTE = "hearth.tag_generation" as const;
 export const HEARTH_TAG_MODEL = "gpt-5.6-luna" as const;
 export const HEARTH_TAG_CONTRACT = "forge.hearth.tag-generation.v1" as const;
+// The semantic product is unchanged; v2 identifies the tolerant output parser
+// in new quote fingerprints without rewriting the failed v1 operation.
+export const HEARTH_TAG_OUTPUT_CONTRACT = "tags_top10_comma_block.v2" as const;
 export const HEARTH_TAG_MAX_INPUT_TOKENS = 12_000;
 export const HEARTH_TAG_MAX_OUTPUT_TOKENS = 256;
 export const HEARTH_TAG_MAX_ATTEMPTS = 1;
@@ -53,7 +56,7 @@ export function paidTagFingerprintPayload(args: {
     script_content_hash: args.approved.scriptHash,
     operation_intent_id: args.operationIntentId,
     episode_title: args.approved.episodeTitle,
-    output_contract: "tags_top10_two_lines.v1",
+    output_contract: HEARTH_TAG_OUTPUT_CONTRACT,
     model: HEARTH_TAG_MODEL,
     maximum_input_tokens: HEARTH_TAG_MAX_INPUT_TOKENS,
     maximum_output_tokens: HEARTH_TAG_MAX_OUTPUT_TOKENS,
@@ -71,8 +74,17 @@ export function validatePaidTagOutput(value: unknown):
   if (typeof value !== "string" || value.length > 1_024) return { ok: false, error: "invalid_tag_output" };
   const text = value.trim();
   const lines = text.split(/\r?\n/);
-  if (lines.length !== 2 || lines[0] !== "TAGS_TOP10:") return { ok: false, error: "invalid_tag_structure" };
-  const tags = lines[1].split(",").map((tag) => tag.trim());
+  let tagLine: string;
+  if (lines.length === 2 && lines[0].trim() === "TAGS_TOP10:") {
+    tagLine = lines[1];
+  } else if (lines.length === 1) {
+    const sameLine = /^TAGS_TOP10:[ \t]+(.+)$/.exec(lines[0]);
+    if (!sameLine) return { ok: false, error: "invalid_tag_structure" };
+    tagLine = sameLine[1];
+  } else {
+    return { ok: false, error: "invalid_tag_structure" };
+  }
+  const tags = tagLine.split(",").map((tag) => tag.trim());
   if (tags.length < 6 || tags.length > 10) return { ok: false, error: "invalid_tag_count" };
   if (tags.some((tag) => !tag || tag.length > 80 || /[<>`\r\n]/.test(tag))) {
     return { ok: false, error: "invalid_tag_candidate" };
@@ -80,5 +92,5 @@ export function validatePaidTagOutput(value: unknown):
   const normalized = tags.map((tag) => normalizeTag(tag.normalize("NFKC")));
   if (normalized.some((tag) => !tag)) return { ok: false, error: "invalid_tag_candidate" };
   if (new Set(normalized).size !== tags.length) return { ok: false, error: "duplicate_tag_candidate" };
-  return { ok: true, text, tags };
+  return { ok: true, text: `TAGS_TOP10:\n${tags.join(", ")}`, tags };
 }

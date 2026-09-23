@@ -100,6 +100,8 @@ export type OpenAiTextProviderResult<T> = {
   /** False while supporting/tail cost evidence is still unresolved. */
   costCoverageComplete?: boolean;
   evidence?: Record<string, unknown>;
+  /** Restricted immutable capture only; never copied into customer receipts or accounting events. */
+  privateCaptureEvidence?: Record<string, unknown>;
 };
 
 export type PaidOpenAiTextExecutionInput<T> = {
@@ -347,7 +349,10 @@ export class PaidOpenAiTextExecutionCoordinator {
         p_attempt_number: attemptNumber,
         p_input_units: result.inputUnits,
         p_output_units: result.outputUnits,
-        p_response_evidence_json: result.evidence ?? {},
+        p_response_evidence_json: {
+          ...result.evidence,
+          ...result.privateCaptureEvidence,
+        },
       });
       await this.recordSupplierAttempt(
         input,

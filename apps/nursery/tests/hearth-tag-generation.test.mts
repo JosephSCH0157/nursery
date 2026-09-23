@@ -4,13 +4,19 @@ import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler
 import {
   HEARTH_TAG_CONTRACT,
   HEARTH_TAG_MODEL,
+  HEARTH_TAG_OUTPUT_CONTRACT,
   HEARTH_TAG_ROUTE,
   buildPaidTagMessages,
   paidTagFingerprintPayload,
   validatePaidTagOutput,
 } from "../server/hearth/hearth-paid-tag-generation";
 import { hashApprovedTitleScript } from "../server/hearth/hearth-paid-title-generation";
-import { buildBoundedPaidJsonOpenAiRequest } from "../server/billing/paid-json-openai-route";
+import {
+  buildBoundedPaidJsonOpenAiRequest,
+  executePaidJsonOpenAiRoute,
+  PaidJsonOpenAiRouteError,
+} from "../server/billing/paid-json-openai-route";
+import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 
 const USER_ID = "44444444-4444-4444-8444-444444444444";
@@ -22,20 +28,38 @@ const ACTION_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const SCRIPT = "[s1]\nCrude oil, refining capacity, fuel taxes, and distribution affect gasoline prices.\n[/s1]\n";
 const TAGS = "TAGS_TOP10:\ngas prices, crude oil, refining capacity, fuel taxes, fuel distribution, gasoline costs";
 
-test("paid tag contract rejects extra, empty, duplicate, and malformed tags without truncation", () => {
-  assert.deepEqual(validatePaidTagOutput(TAGS), {
+test("paid tag parser canonicalizes harmless block formatting", () => {
+  const expected = {
     ok: true, text: TAGS,
     tags: ["gas prices", "crude oil", "refining capacity", "fuel taxes", "fuel distribution", "gasoline costs"],
-  });
+  };
+  for (const candidate of [
+    TAGS,
+    TAGS.replace("TAGS_TOP10:\n", "TAGS_TOP10: "),
+    ` \n\n ${TAGS} \n\n`,
+    TAGS.replace(/\n/g, "\r\n"),
+  ]) assert.deepEqual(validatePaidTagOutput(candidate), expected);
+  const ten = "TAGS_TOP10: one, two, three, four, five, six, seven, eight, nine, ten";
+  const tenResult = validatePaidTagOutput(ten);
+  assert.equal(tenResult.ok, true);
+  if (tenResult.ok) assert.equal(tenResult.tags.length, 10);
+});
+
+test("paid tag contract rejects extra, empty, duplicate, and malformed tags without truncation", () => {
   for (const bad of [
     "TAGS_TOP10:\none, two, three, four, five",
     TAGS + ", economy, oil, energy, podcast, eleventh",
+    "TAGS_TOP10:\none, two, three, four, five, six, seven, eight, nine, ten, eleven",
     TAGS.replace("crude oil", "  "),
     TAGS.replace("crude oil", "GAS   PRICES"),
     TAGS.replace("crude oil", "gas prices"),
     TAGS.replace("crude oil", "gas-prices"),
     "```\n" + TAGS + "\n```",
+    "Here are the tags:\n" + TAGS,
     TAGS + "\nEXPLANATION: extra",
+    "TAGS_TOP10:\n- one\n- two\n- three\n- four\n- five\n- six",
+    "TAGS_TOP10:\n\none, two, three, four, five, six",
+    "tags_top10: one, two, three, four, five, six",
   ]) assert.equal(validatePaidTagOutput(bad).ok, false, bad);
 });
 
@@ -52,6 +76,7 @@ test("tag request is one approved-script attempt with bounded Luna output", asyn
     approved: approval, operationIntentId: ACTION_A,
   });
   assert.equal(identity.schema, HEARTH_TAG_CONTRACT);
+  assert.equal(identity.output_contract, HEARTH_TAG_OUTPUT_CONTRACT);
   assert.equal(identity.route_code, HEARTH_TAG_ROUTE);
   assert.equal(identity.maximum_attempts, 1);
   assert.equal(identity.maximum_input_tokens, 12_000);
@@ -71,6 +96,101 @@ test("tag request is one approved-script attempt with bounded Luna output", asyn
   assert.ok(bounded.boundedInputTokens <= 12_000);
   assert.equal(bounded.maximumAttempts, 1);
   assert.equal(JSON.parse(bounded.serializedBody).max_completion_tokens, 256);
+});
+
+test("invalid provider text is retained privately, releases the credit, and never retries", async () => {
+  const operationId = "operation-tag-validation-v2";
+  const reservationId = "11111111-1111-4111-8111-111111111111";
+  const requestFingerprintPayload = { schema: HEARTH_TAG_CONTRACT, output_contract: HEARTH_TAG_OUTPUT_CONTRACT };
+  const requestFingerprint = await fingerprintOpenAiTextPaidRequest(requestFingerprintPayload);
+  const rawReply = "Here are the tags:\n" + TAGS;
+  const rawBody = JSON.stringify({
+    id: "chatcmpl_tag_invalid",
+    choices: [{ message: { content: rawReply } }],
+    usage: { prompt_tokens: 1955, completion_tokens: 53 },
+  });
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  let state = "reserved";
+  let providerCalls = 0;
+  let persisted = 0;
+  const gate = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      calls.push({ name, args });
+      if (name === "resolve_openai_text_paid_execution_context") return { data: {
+        operation_id: operationId, reservation_id: reservationId,
+        quote_id: "22222222-2222-4222-8222-222222222222", route_code: HEARTH_TAG_ROUTE,
+        funding_source_type: "customer_deposit",
+        funding_source_id: "33333333-3333-4333-8333-333333333333",
+        funding_environment: "test", credential_funding: "forge", model: HEARTH_TAG_MODEL,
+        maximum_input_units: 12000, maximum_output_units: 256, maximum_attempts: 1,
+        maximum_failure_exposure_micros: 2708, direct_provider_ceiling_micros: 2708,
+        supporting_cost_ceiling_micros: 0,
+        input_micros_per_million_tokens: 200000,
+        output_micros_per_million_tokens: 1200000,
+        reservation_state: state,
+      }, error: null };
+      if (name === "acquire_openai_text_aggregate_admission") return {
+        data: { enforcement_enabled: true, authorized: true, hold_id: "tag-hold" }, error: null,
+      };
+      if (name === "authorize_openai_text_provider_attempt_with_aggregate") return {
+        data: { provider_execution_authorized: true }, error: null,
+      };
+      if (name === "record_hearth_tag_validation_failure_evidence") return {
+        data: { evidence_id: "44444444-4444-4444-8444-444444444444" }, error: null,
+      };
+      if (name === "settle_openai_customer_failure_without_duplicate_expense") {
+        state = "released";
+        return { data: {}, error: null };
+      }
+      return { data: {}, error: null };
+    },
+  };
+  const run = () => executePaidJsonOpenAiRoute({
+    gate, routeCode: HEARTH_TAG_ROUTE,
+    handle: { operationId, reservationId, requestFingerprint, fundingEnvironment: "test" },
+    userId: USER_ID, workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID,
+    credentialSource: "forge_managed", apiKey: "fake-key",
+    requestFingerprintPayload,
+    providerRequestBody: (model) => ({ model, messages: [{ role: "user", content: "tags" }] }),
+    fetchImpl: async () => {
+      providerCalls += 1;
+      return new Response(rawBody, { status: 200, headers: { "x-request-id": "req_tag_invalid" } });
+    },
+    validationEvidence: {
+      contractRevision: HEARTH_TAG_OUTPUT_CONTRACT,
+      recordFailure: async (failure) => {
+        const recorded = await gate.rpc("record_hearth_tag_validation_failure_evidence", failure);
+        if (recorded.error) throw new Error(recorded.error.message);
+      },
+    },
+    validate: (payload) => {
+      const content = (payload.choices as Array<{ message: { content: string } }>)[0].message.content;
+      const output = validatePaidTagOutput(content);
+      if (!output.ok) throw new Error(output.error);
+      return { assistant_text: output.text, tags: output.tags };
+    },
+    persist: async (result) => { persisted += 1; return result; },
+  });
+  await assert.rejects(run, (error: unknown) =>
+    error instanceof PaidJsonOpenAiRouteError && error.state === "failed_released");
+  assert.equal(providerCalls, 1);
+  assert.equal(persisted, 0);
+  const capture = calls.find((call) => call.name === "record_openai_text_provider_capture");
+  assert.equal((capture?.args.p_response_evidence_json as Record<string, unknown>).raw_provider_response_text, rawBody);
+  assert.equal((capture?.args.p_response_evidence_json as Record<string, unknown>).validation_contract_revision, HEARTH_TAG_OUTPUT_CONTRACT);
+  const failureEvidence = calls.find((call) => call.name === "record_hearth_tag_validation_failure_evidence");
+  assert.equal(failureEvidence?.args.rawProviderResponseText, rawBody);
+  assert.equal(failureEvidence?.args.errorCode, "invalid_tag_structure");
+  assert.equal(failureEvidence?.args.contractRevision, HEARTH_TAG_OUTPUT_CONTRACT);
+  const failure = calls.find((call) => call.name === "record_provider_failure");
+  assert.equal(failure?.args.p_failure_class, "forge_validation_failure");
+  assert.equal((failure?.args.p_evidence_json as Record<string, unknown>).raw_provider_response_text, undefined);
+  assert.equal(calls.filter((call) => call.name === "settle_operation").length, 0);
+  assert.equal(calls.filter((call) => call.name === "settle_openai_customer_failure_without_duplicate_expense").length, 1);
+  await assert.rejects(run, (error: unknown) =>
+    error instanceof PaidJsonOpenAiRouteError && error.state === "failed_released");
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.filter((call) => call.name === "record_hearth_tag_validation_failure_evidence").length, 1);
 });
 
 test("Generate Tags quotes one credit without provider execution; fresh clicks have new identities", async () => {
