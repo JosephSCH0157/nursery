@@ -22,6 +22,10 @@ const transportRecoveryMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011570000_visual_unified_plan_transport_lease_recovery.sql",
   import.meta.url,
 ), "utf8");
+const submissionUnknownConcurrencyMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011580000_visual_plan_submission_unknown_concurrency_repair.sql",
+  import.meta.url,
+), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 const provider = readFileSync(new URL("../src/providers/unified-visual-plan-provider.ts", import.meta.url), "utf8");
 const hearthAuthority = readFileSync(new URL("../../../apps/hearth/src/lib/hearth-unified-visual-plan-authority.ts", import.meta.url), "utf8");
@@ -153,6 +157,21 @@ test("expired Visual Plan attempts become replay-safe submission-unknown without
   assert.doesNotMatch(transportRecoveryMigration, /customer_charge_micros\s*=/i);
   assert.match(transportRecoveryMigration, /on conflict\(event_key\) do nothing/);
   assert.match(transportRecoveryMigration, /force row level security/);
+});
+
+test("terminal submission-unknown liability remains committed without consuming active concurrency", () => {
+  assert.match(submissionUnknownConcurrencyMigration, /event_type in\('authorized','unresolved'\) then authorized_exposure_micros/);
+  assert.match(submissionUnknownConcurrencyMigration, /event_type in\('authorized','unresolved'\) and counts_concurrency/);
+  assert.match(submissionUnknownConcurrencyMigration, /reservation_event\.event_type='submission_unknown'/);
+  assert.match(submissionUnknownConcurrencyMigration, /operation\.state='submission_unknown'/);
+  assert.match(submissionUnknownConcurrencyMigration, /attempt_event\.lease_expires_at<=now\(\)/);
+  assert.match(submissionUnknownConcurrencyMigration, /automatic_resubmission_allowed'='false'/);
+  assert.match(submissionUnknownConcurrencyMigration, /recovery\.event_type='expired_attempt_submission_unknown'/);
+  assert.match(submissionUnknownConcurrencyMigration, /20059,0,13773,13773,33832/);
+  assert.match(submissionUnknownConcurrencyMigration, /'visual\.unified_plan','test',3,'operator_authorized'/);
+  assert.match(submissionUnknownConcurrencyMigration, /customer_credit_units=4 and full_cost_ceiling_micros=13773/);
+  assert.doesNotMatch(submissionUnknownConcurrencyMigration, /insert into tongs\.(supplier_expenses|customer_paid_execution_scope_authorizations|private_pricing_revisions|openai_text_failure_loss_policy_revisions)/i);
+  assert.doesNotMatch(submissionUnknownConcurrencyMigration, /update\s+tongs\./i);
 });
 
 test("Visual Plan recovery is readback-only and the UI clears busy while blocking retry", () => {

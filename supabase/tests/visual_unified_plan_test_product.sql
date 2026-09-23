@@ -95,15 +95,22 @@ begin
     from tongs._current_openai_text_failure_loss_rollout('visual.unified_plan','test') rollout
     join tongs.openai_text_failure_loss_operator_decisions decision
       on decision.id=rollout.operator_decision_id
-    where rollout.revision=2 and rollout.mode='operator_authorized'
+    where rollout.revision=3 and rollout.mode='operator_authorized'
       and rollout.loss_policy_revision_id='17000000-0000-4000-8000-000000000006'
-      and decision.id='cdc820d9-e6b8-53fd-9ca8-f6a41eced0a2'
       and decision.decision_type='bounded_test_risk_acceptance'
-      and decision.known_exposure_micros=6286
+      and decision.source_rollout_revision=2
+      and decision.known_exposure_micros=20059
       and decision.additional_loss_capacity_micros=13773
-      and decision.effective_aggregate_limit_micros=20059
+      and decision.effective_aggregate_limit_micros=33832
       and decision.active_concurrency=0
-  ) then raise exception 'Visual Plan one-canary Test aggregate authority proof failed'; end if;
+  ) then raise exception 'Visual Plan post-repair one-canary Test aggregate authority proof failed'; end if;
+  if not exists (
+    select 1 from tongs.openai_text_failure_loss_operator_decisions
+    where id='cdc820d9-e6b8-53fd-9ca8-f6a41eced0a2'
+      and resulting_rollout_revision=2 and known_exposure_micros=6286
+      and additional_loss_capacity_micros=13773
+      and effective_aggregate_limit_micros=20059
+  ) then raise exception 'historical Visual Plan Test risk authority changed'; end if;
 
   if not exists (
     select 1 from tongs._current_openai_text_failure_loss_rollout('visual.unified_plan','live')
