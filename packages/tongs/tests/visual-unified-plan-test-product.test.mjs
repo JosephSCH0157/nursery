@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
 const migration = readFileSync(new URL(
   "../../../supabase/migrations/20261011530000_visual_unified_plan_test_product.sql",
@@ -28,6 +28,10 @@ const submissionUnknownConcurrencyMigration = readFileSync(new URL(
 ), "utf8");
 const paidScopeConcurrencyMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql",
+  import.meta.url,
+), "utf8");
+const referenceVisualStateRepairMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011600000_visual_plan_reference_visual_state_repair.sql",
   import.meta.url,
 ), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -191,6 +195,48 @@ test("terminal submission-unknown releases stale paid-scope concurrency only wit
   assert.match(paidScopeConcurrencyMigration, /maximum_concurrency/);
   assert.doesNotMatch(paidScopeConcurrencyMigration, /insert into tongs\.(supplier_expenses|customer_paid_execution_scope_authorizations|private_pricing_revisions|openai_text_failure_loss_policy_revisions)/i);
   assert.doesNotMatch(paidScopeConcurrencyMigration, /update\s+tongs\./i);
+});
+
+test("the final Visual Plan state constraint preserves every four-child and terminal state", () => {
+  assert.match(
+    referenceVisualStateRepairMigration,
+    /state in\([\s\S]*?'pending'[\s\S]*?'provider_completed'[\s\S]*?'image_plan_committed'[\s\S]*?'broll_plan_committed'[\s\S]*?'reference_plan_committed'[\s\S]*?'reference_visual_plan_committed'[\s\S]*?'verified'[\s\S]*?'failed'[\s\S]*?'submission_unknown'/,
+  );
+
+  const migrationsDirectory = new URL("../../../supabase/migrations/", import.meta.url);
+  const constraintReplacements = readdirSync(migrationsDirectory)
+    .filter((name) => name >= "20261011600000" && name.endsWith(".sql"))
+    .map((name) => [name, readFileSync(new URL(name, migrationsDirectory), "utf8")])
+    .filter(([, sql]) => /add constraint unified_visual_plan_operations_state_check/i.test(sql));
+  assert.ok(constraintReplacements.length >= 1);
+  for (const [name, sql] of constraintReplacements) {
+    assert.match(sql, /'reference_visual_plan_committed'/, `${name} dropped the four-child state`);
+    assert.match(sql, /'failed'/, `${name} dropped the failed terminal state`);
+    assert.match(sql, /'submission_unknown'/, `${name} dropped the ambiguous terminal state`);
+  }
+});
+
+test("historical Reference Visual persistence recovery is exact, private, nonbillable, and replay-safe", () => {
+  assert.match(referenceVisualStateRepairMigration, /perform tongs\._require_pricing_service_role\(\)/);
+  assert.match(referenceVisualStateRepairMigration, /force row level security/);
+  assert.match(referenceVisualStateRepairMigration, /grant select on tongs\.unified_visual_plan_persistence_reconciliation_events to service_role/);
+  assert.match(referenceVisualStateRepairMigration, /from public,anon,authenticated,service_role/);
+  assert.match(referenceVisualStateRepairMigration, /failed_stage is distinct from 'reference_visual_retention'/);
+  assert.match(referenceVisualStateRepairMigration, /failure_code is distinct from 'unified_reference_visual_receipt_failed'/);
+  assert.match(referenceVisualStateRepairMigration, /capture_count<>1/);
+  assert.match(referenceVisualStateRepairMigration, /usage_count<>1/);
+  assert.match(referenceVisualStateRepairMigration, /p_expected_supplier_expense_micros<>5190/);
+  assert.match(referenceVisualStateRepairMigration, /tongs\._funding_reservation_state\(p_reservation_id\)<>'released'/);
+  assert.match(referenceVisualStateRepairMigration, /settlement_count<>0/);
+  assert.match(referenceVisualStateRepairMigration, /openai_text_persisted_results/);
+  assert.match(referenceVisualStateRepairMigration, /canonical Visual Plan children changed after the failed receipt/);
+  assert.match(referenceVisualStateRepairMigration, /state='reference_visual_plan_committed'/);
+  assert.match(referenceVisualStateRepairMigration, /tongs\.verify_unified_visual_plan\(op\.operation_id,op\.operation_fingerprint\)/);
+  assert.match(referenceVisualStateRepairMigration, /'disposition','replay','replay',true/);
+  assert.match(referenceVisualStateRepairMigration, /'customer_charge_micros',0,'settled_credit_units',0/);
+  assert.doesNotMatch(referenceVisualStateRepairMigration, /insert into tongs\.supplier_expenses/i);
+  assert.doesNotMatch(referenceVisualStateRepairMigration, /insert into tongs\.openai_text_persisted_results/i);
+  assert.doesNotMatch(referenceVisualStateRepairMigration, /https:\/\/api\.openai\.com|fetch\(|OpenAiUnifiedVisualPlanProvider/i);
 });
 
 test("Visual Plan recovery is readback-only while terminal ambiguity permits only a distinct fresh operation", () => {

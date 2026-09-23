@@ -74,7 +74,11 @@ $newForwardMigrationNames = @(
   '20261011530000_visual_unified_plan_test_product.sql',
   '20261011540000_visual_unified_plan_canary_repair.sql',
   '20261011550000_visual_unified_plan_v5_compatibility_authority.sql',
-  '20261011560000_visual_unified_plan_v5_canary_risk_authorization.sql'
+  '20261011560000_visual_unified_plan_v5_canary_risk_authorization.sql',
+  '20261011570000_visual_unified_plan_transport_lease_recovery.sql',
+  '20261011580000_visual_plan_submission_unknown_concurrency_repair.sql',
+  '20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql',
+  '20261011600000_visual_plan_reference_visual_state_repair.sql'
 )
 $allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
 
@@ -180,9 +184,9 @@ try {
   }
   if ($heldMigrationNames.Count -ne 34 -or
       ($heldMigrationNames | Sort-Object -Unique).Count -ne 34 -or
-      $newForwardMigrationNames.Count -ne 9 -or
-      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 43) {
-    throw 'Historical replay manifest must contain 34 historical and 9 forward migration files.'
+      $newForwardMigrationNames.Count -ne 13 -or
+      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 47) {
+    throw 'Historical replay manifest must contain 34 historical and 13 forward migration files.'
   }
   $exclusionManifest = Get-Content -LiteralPath $exclusionManifestPath -Raw | ConvertFrom-Json
   $manifestMigrations = @($exclusionManifest.migrations)
