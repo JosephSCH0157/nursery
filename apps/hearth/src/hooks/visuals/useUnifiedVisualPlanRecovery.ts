@@ -24,6 +24,7 @@ export function useUnifiedVisualPlanRecovery(args: {
   setSaveState: (state: "saved" | "saving" | "error") => void;
   setMessage: (message: string) => void;
   setError: (message: string) => void;
+  setOperationState?: (state: string | null) => void;
   refresh: () => Promise<void>;
   dependencies?: RecoveryDependencies;
 }): { retryBlocked: boolean } {
@@ -39,7 +40,9 @@ export function useUnifiedVisualPlanRecovery(args: {
     void (async () => {
       try {
         const latest = await dependencies.readLatest(args.workspaceId!, args.workpieceId!);
-        if (cancelled || !latest.ok || !latest.data || latest.data.state === "verified" || latest.data.state === "failed") return;
+        if (cancelled || !latest.ok) return;
+        args.setOperationState?.(latest.data ? String(latest.data.state ?? "") || null : null);
+        if (!latest.data || latest.data.state === "verified" || latest.data.state === "failed") return;
         const operationId = String(latest.data.operation_id ?? "");
         if (!operationId) return;
         if (latest.data.state === "submission_unknown") {
@@ -59,6 +62,7 @@ export function useUnifiedVisualPlanRecovery(args: {
         if (cancelled) return;
         if (!resumed.ok) {
           const unknown = resumed.code === "paid_submission_unknown" || resumed.stage === "submission_unknown";
+          if (unknown) args.setOperationState?.("submission_unknown");
           setRetryBlocked(unknown || resumed.code === "unified_visual_plan_recovery_required");
           args.setSaveState("error");
           args.setMessage(unknown
@@ -68,6 +72,7 @@ export function useUnifiedVisualPlanRecovery(args: {
         } else {
           await args.refresh();
           if (!cancelled) {
+            args.setOperationState?.("verified");
             setRetryBlocked(false);
             args.setSaveState("saved");
             args.setMessage("Recovered and verified the canonical Visual Plan without another provider request.");
@@ -89,6 +94,7 @@ export function useUnifiedVisualPlanRecovery(args: {
     args.setBusy,
     args.setError,
     args.setMessage,
+    args.setOperationState,
     args.setSaveState,
     args.workspaceId,
     args.workpieceId,

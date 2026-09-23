@@ -955,6 +955,13 @@ export default function HearthShell({
     workpieceId,
     setWorkpieceId,
   } = useHearthShellIdentityState();
+  const [unifiedVisualPlanOperationProjection, setUnifiedVisualPlanOperationProjection] = useState<{
+    workpieceId: string | null;
+    state: string | null;
+  }>({ workpieceId: null, state: null });
+  const setUnifiedVisualPlanOperationState = useCallback((state: string | null) => {
+    setUnifiedVisualPlanOperationProjection({ workpieceId, state });
+  }, [workpieceId]);
   const {
     state: {
       sparks,
@@ -2263,6 +2270,9 @@ export default function HearthShell({
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
     visualPlan: {
       status: imageMapEntries.length || brollBeats.length || canonicalReferenceClipState?.opportunities.length || canonicalReferenceVisualState?.opportunities.length ? "activated" : null,
+      operationState: unifiedVisualPlanOperationProjection.workpieceId === workpieceId
+        ? unifiedVisualPlanOperationProjection.state
+        : "readback_pending",
       total: imageMapEntries.length + brollBeats.length + (canonicalReferenceClipState?.opportunities.length ?? 0) + (canonicalReferenceVisualState?.opportunities.length ?? 0),
       images: imageMapEntries.length,
       broll: brollBeats.length,
@@ -4092,6 +4102,7 @@ export default function HearthShell({
     setSaveState: setMediaMapSaveState,
     setMessage: setMediaMapMessage,
     setError: setMediaMapSaveError,
+    setOperationState: setUnifiedVisualPlanOperationState,
     refresh: refreshUnifiedVisualPlanRecoveryReadback,
   });
 

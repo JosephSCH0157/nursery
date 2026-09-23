@@ -3,7 +3,38 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { deriveHearthMediaWorkflow } from "../src/lib/hearth-media-workflow-view-model";
 
-const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visualPlan:{status:null,total:0,images:0,broll:0,referenceClips:0,referenceVisuals:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true},referenceClips:{planned:0,completed:0,exists:false},referenceVisuals:{planned:0,completed:0,exists:false},broll:{planned:0,completed:0},...overrides});
+const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visualPlan:{status:null,operationState:null,total:0,images:0,broll:0,referenceClips:0,referenceVisuals:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true},referenceClips:{planned:0,completed:0,exists:false},referenceVisuals:{planned:0,completed:0,exists:false},broll:{planned:0,completed:0},...overrides});
+
+test("canonical Visual Plan operation states control readiness projection",()=>{
+  const available=deriveHearthMediaWorkflow(input());
+  assert.equal(available.stages[0]?.status,"ready");
+  assert.equal(available.stages[0]?.summary,"Create the episode’s visual direction");
+
+  const inProgress=deriveHearthMediaWorkflow(input({visualPlan:{status:null,operationState:"provider_request_submitted",total:0,images:0,broll:0,version:0}}));
+  assert.equal(inProgress.stages[0]?.status,"in_progress");
+  assert.equal(inProgress.stages[0]?.summary,"Visual Plan generation is in progress.");
+  assert.ok(inProgress.stages.slice(1).every((stage)=>stage.status==="blocked"));
+
+  const verified=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",operationState:"verified",total:2,images:2,broll:0,version:1}}));
+  assert.equal(verified.stages[0]?.status,"complete");
+
+  const failed=deriveHearthMediaWorkflow(input({visualPlan:{status:null,operationState:"failed",total:0,images:0,broll:0,version:0}}));
+  assert.equal(failed.stages[0]?.status,"needs_attention");
+  assert.match(failed.stages[0]?.summary??"",/generation failed/);
+  assert.ok(failed.stages.slice(1).every((stage)=>stage.status==="blocked"));
+});
+
+test("submission_unknown is stable, explicit, and blocks every downstream stage",()=>{
+  const canonicalInput=input({visualPlan:{status:null,operationState:"submission_unknown",total:0,images:0,broll:0,version:0}});
+  const initial=deriveHearthMediaWorkflow(canonicalInput);
+  const reload=deriveHearthMediaWorkflow(canonicalInput);
+  assert.equal(initial.stages[0]?.status,"needs_attention");
+  assert.equal(initial.stages[0]?.statusLabel,"Outcome unknown");
+  assert.notEqual(initial.stages[0]?.status,"ready");
+  assert.equal(initial.stages[0]?.summary,"Visual Plan submission outcome is unknown. Forge will not submit this request again.");
+  assert.ok(initial.stages.slice(1).every((stage)=>stage.status==="blocked"));
+  assert.deepEqual(reload,initial);
+});
 
 test("cold recovery selects the first canonically incomplete stage",()=>{
   assert.equal(deriveHearthMediaWorkflow(input()).activeStage,"visual_plan");
@@ -123,4 +154,15 @@ test("generated thumbnail revisions are reported as awaiting finalization",()=>{
 test("stage navigation contains no automatic generation, credit, Hammer, or Quench action",async()=>{
   const source=await readFile(new URL("../src/lib/hearth-media-workflow-view-model.ts",import.meta.url),"utf8");
   for(const forbidden of [/generateThumbnail/,/consume.*credit/i,/publish/i,/experiment/i,/timeline/i])assert.doesNotMatch(source,forbidden);
+});
+
+test("submission uncertainty projection preserves the operation guard without financial or provider actions",async()=>{
+  const shell=await readFile(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
+  const recovery=await readFile(new URL("../src/hooks/visuals/useUnifiedVisualPlanRecovery.ts",import.meta.url),"utf8");
+  const projection=await readFile(new URL("../src/lib/hearth-media-workflow-view-model.ts",import.meta.url),"utf8");
+  assert.match(shell,/unifiedVisualPlanRecovery\.retryBlocked/);
+  assert.match(shell,/disabled: isApprovingScript \|\| isMediaMapBusy \|\| unifiedVisualPlanRecovery\.retryBlocked/);
+  assert.match(recovery,/Visual Plan submission outcome is unknown\. Forge will not submit this request again\./);
+  assert.match(recovery,/if \(latest\.data\.state === "submission_unknown"\)/);
+  for(const forbidden of [/\bfetch\s*\(/,/requestCustomerSpending/,/reserve/i,/provider attempt/i])assert.doesNotMatch(projection,forbidden);
 });
