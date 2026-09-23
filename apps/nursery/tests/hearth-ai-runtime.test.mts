@@ -1067,11 +1067,13 @@ test("sanitizeHearthUserFacingOutput removes internal workspace/tool leakage", (
   assert.match(sanitized, /missing the exact context|paste the case name|line from the draft/i);
 });
 
-test("createHearthAiHandler sanitizes framing pack replies to remove internal scope/system leakage", async () => {
+test("createHearthAiHandler does not send ordinary-chat framing pack requests upstream", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
+  let openAiCalled = false;
 
   globalThis.fetch = async (_input, _init) => {
+    openAiCalled = true;
     return new Response(JSON.stringify({
       choices: [
         {
@@ -1130,16 +1132,10 @@ test("createHearthAiHandler sanitizes framing pack replies to remove internal sc
       }),
     }));
 
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 422);
     const payload = await response.json();
-    const assistantText = String(payload.assistant_text ?? "");
-    assert.equal(payload.ok, true);
-    assert.ok(assistantText.trim().length > 0);
-    assert.ok(/[A-Za-z]{8,}/.test(assistantText));
-    assert.doesNotMatch(assistantText, /\bTongs\b/i);
-    assert.doesNotMatch(assistantText, /\bartifact\b/i);
-    assert.doesNotMatch(assistantText, /\bI found\b/i);
-    assert.doesNotMatch(assistantText, /\bI can\b/i);
+    assert.equal(payload.code, "framing_pack_dedicated_action_required");
+    assert.equal(openAiCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2889,7 +2885,7 @@ test("createHearthAiHandler round2 acceptance prompts route to feedback flow wit
   }
 });
 
-test("createHearthAiHandler routes release prep asks to generation flow without clarify gate", async () => {
+test("createHearthAiHandler rejects ordinary-chat release prep asks at the dedicated-action boundary", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
   let openAiCalled = false;
@@ -2928,11 +2924,11 @@ test("createHearthAiHandler routes release prep asks to generation flow without 
       }),
     }));
 
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 422);
     const payload = await response.json();
-    assert.equal(payload.ok, true);
-    assert.equal(payload.gate, undefined);
-    assert.equal(openAiCalled, true);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "framing_pack_dedicated_action_required");
+    assert.equal(openAiCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
   }

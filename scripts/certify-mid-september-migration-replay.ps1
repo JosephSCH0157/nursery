@@ -1,19 +1,32 @@
 [CmdletBinding()]
 param(
-  [switch]$ResumeCertifiedBase
+  [switch]$ResumeCertifiedBase,
+  [string]$SupabaseWorkdir,
+  [string]$ProjectId = 'nursery'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$migrationsDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'supabase/migrations'))
+$projectWorkdir = if ([string]::IsNullOrWhiteSpace($SupabaseWorkdir)) {
+  $repoRoot
+} else {
+  [System.IO.Path]::GetFullPath((Join-Path $repoRoot $SupabaseWorkdir))
+}
+if (-not $projectWorkdir.StartsWith($repoRoot,[System.StringComparison]::OrdinalIgnoreCase)) {
+  throw 'Supabase workdir must remain inside the canonical repository.'
+}
+$sourceMigrationsDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot 'supabase/migrations'))
+$migrationsDir = [System.IO.Path]::GetFullPath((Join-Path $projectWorkdir 'supabase/migrations'))
 $fixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_historical_preconditions.sql'
 $generatedIdentityFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_historical_generated_identity.sql'
 $realizedLossFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_historical_realized_loss_events.sql'
 $realizedLossCleanupPath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_historical_realized_loss_cleanup.sql'
 $customerCanaryFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_historical_customer_canary_authority.sql'
 $certificationPath = Join-Path $repoRoot 'supabase/tests/mid_september_migration_replay_certification.sql'
+$framingCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_framing_pack_generation.sql'
+$exclusionManifestPath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_replay_exclusions.json'
 
 $heldMigrationNames = @(
   '20260916110806_tongs_forge_credit_economy.sql',
@@ -52,7 +65,11 @@ $heldMigrationNames = @(
   '20261011470000_reassert_standard_customer_aggregate_admission.sql'
 )
 $newForwardMigrationNames = @(
-  '20261011480000_hearth_title_generation_test_product.sql'
+  '20261011480000_hearth_title_generation_test_product.sql',
+  '20261011490000_hearth_title_generation_episode_titles_v2.sql',
+  '20261011500000_hearth_tag_generation_test_product.sql',
+  '20261011510000_hearth_tag_validation_evidence_v2.sql',
+  '20261011520000_hearth_framing_pack_generation_test_product.sql'
 )
 $allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
 
@@ -83,7 +100,7 @@ function Invoke-SupabaseJsonQuery {
       $Sql,
       [System.Text.UTF8Encoding]::new($false)
     )
-    $arguments = @('supabase','db','query',"--$Target",'--output','json','--file',$queryPath)
+    $arguments = @('supabase','db','query',"--$Target",'--output','json','--file',$queryPath,'--workdir',$projectWorkdir)
     $raw = (& npx @arguments) -join "`n"
     if ($LASTEXITCODE -ne 0) {
       throw "Supabase $Target query failed"
@@ -121,7 +138,7 @@ try {
   $previousErrorActionPreference = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
-    $statusRaw = (& npx supabase status -o json 2>$null) -join "`n"
+    $statusRaw = (& npx supabase status -o json --workdir $projectWorkdir 2>$null) -join "`n"
   }
   finally {
     $ErrorActionPreference = $previousErrorActionPreference
@@ -135,12 +152,13 @@ try {
       $databaseUri.Host -notin @('127.0.0.1','localhost','::1')) {
     throw "Refusing historical fixture: Supabase DB_URL is not loopback-local ($($databaseUri.Host))."
   }
+  $expectedDatabaseContainer = "supabase_db_$ProjectId"
   $databaseContainers = @(
-    & docker ps --filter 'label=com.supabase.cli.project=nursery' --filter 'name=supabase_db_' --format '{{.Names}}'
+    & docker ps --filter "label=com.supabase.cli.project=$ProjectId" --filter 'name=supabase_db_' --format '{{.Names}}'
   )
   if ($LASTEXITCODE -ne 0 -or $databaseContainers.Count -ne 1 -or
-      $databaseContainers[0] -ne 'supabase_db_nursery') {
-    throw 'Refusing historical fixture: expected exactly the local nursery Supabase database container.'
+      $databaseContainers[0] -ne $expectedDatabaseContainer) {
+    throw "Refusing historical fixture: expected exactly the disposable database container $expectedDatabaseContainer."
   }
   $databaseContainer = $databaseContainers[0]
 
@@ -149,12 +167,22 @@ try {
       -not (Test-Path -LiteralPath $realizedLossFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $realizedLossCleanupPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $customerCanaryFixturePath -PathType Leaf) -or
-      -not (Test-Path -LiteralPath $certificationPath -PathType Leaf)) {
+      -not (Test-Path -LiteralPath $certificationPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $framingCertificationPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $exclusionManifestPath -PathType Leaf)) {
     throw 'Historical fixture or certification SQL is missing.'
   }
   if ($heldMigrationNames.Count -ne 34 -or
-      ($heldMigrationNames | Sort-Object -Unique).Count -ne 34) {
-    throw 'Historical replay manifest must contain exactly 34 unique migration files.'
+      ($heldMigrationNames | Sort-Object -Unique).Count -ne 34 -or
+      $newForwardMigrationNames.Count -ne 5 -or
+      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 39) {
+    throw 'Historical replay manifest must contain 34 historical and 5 forward migration files.'
+  }
+  $exclusionManifest = Get-Content -LiteralPath $exclusionManifestPath -Raw | ConvertFrom-Json
+  $manifestMigrations = @($exclusionManifest.migrations)
+  if ($exclusionManifest.schema -ne 'forge.local-migration-replay-exclusions.v1' -or
+      (Compare-Object ($allHeldMigrationNames | Sort-Object) ($manifestMigrations | Sort-Object))) {
+    throw 'Disposable exclusion manifest and phased replay manifest differ.'
   }
 
   $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
@@ -167,14 +195,22 @@ try {
 
   try {
     foreach ($name in $allHeldMigrationNames) {
-      $source = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      $source = [System.IO.Path]::GetFullPath((Join-Path $sourceMigrationsDir $name))
+      $working = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       $destination = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
-      if (-not $source.StartsWith($migrationsDir + [System.IO.Path]::DirectorySeparatorChar,[System.StringComparison]::OrdinalIgnoreCase) -or
+      if (-not $source.StartsWith($sourceMigrationsDir + [System.IO.Path]::DirectorySeparatorChar,[System.StringComparison]::OrdinalIgnoreCase) -or
+          -not $working.StartsWith($migrationsDir + [System.IO.Path]::DirectorySeparatorChar,[System.StringComparison]::OrdinalIgnoreCase) -or
           -not $destination.StartsWith($holdDirectory + [System.IO.Path]::DirectorySeparatorChar,[System.StringComparison]::OrdinalIgnoreCase) -or
           -not (Test-Path -LiteralPath $source -PathType Leaf)) {
         throw "Historical replay manifest path is invalid or missing: $name"
       }
-      Move-Item -LiteralPath $source -Destination $destination
+      if (Test-Path -LiteralPath $working -PathType Leaf) {
+        Move-Item -LiteralPath $working -Destination $destination
+      } elseif ($migrationsDir -ne $sourceMigrationsDir) {
+        Copy-Item -LiteralPath $source -Destination $destination
+      } else {
+        throw "Historical replay migration is missing from the working directory: $name"
+      }
     }
 
     $boundarySql = @"
@@ -193,7 +229,7 @@ select json_build_object(
 
     if (-not $ResumeCertifiedBase) {
       Write-Host 'Resetting the disposable local database without the backfilled migration slice...'
-      & npx supabase db reset --local --no-seed
+      & npx supabase db reset --local --no-seed --workdir $projectWorkdir
       $resetExitCode = $LASTEXITCODE
       if ($resetExitCode -ne 0) {
         $boundaryResult = $null
@@ -233,6 +269,23 @@ select json_build_object(
       }
     }
 
+    $historicalStateSql = @"
+select json_build_object(
+  'platform_operator_count',(select count(*) from tongs.platform_operators),
+  'bounded_luna_policy_count',(select count(*) from tongs.private_pricing_policies where policy_code='owner-openai-hearth-chat-luna-bounded-pilot'),
+  'bounded_luna_revision_count',(select count(*) from tongs.private_pricing_revisions revision join tongs.private_pricing_policies policy on policy.id=revision.policy_id where policy.policy_code='owner-openai-hearth-chat-luna-bounded-pilot'),
+  'historical_catalog_count',(select count(*) from tongs.openai_text_model_catalog_revisions where id='89000000-0000-4000-8000-000000000003')
+) as state;
+"@
+    $historicalState = Invoke-SupabaseJsonQuery -Target local -Sql $historicalStateSql
+    $historicalStateJson = $historicalState.rows[0].state | ConvertTo-Json -Compress
+    Write-Host "Pre-fixture replay state: $historicalStateJson"
+    if ($historicalState.rows[0].state.bounded_luna_policy_count -ne 0 -or
+        $historicalState.rows[0].state.bounded_luna_revision_count -ne 0 -or
+        $historicalState.rows[0].state.historical_catalog_count -ne 0) {
+      throw 'Disposable base unexpectedly contains the lived-in historical Luna prerequisite.'
+    }
+
     $fixtureSql = Get-Content -LiteralPath $fixturePath -Raw
     $guardedFixtureSql = "set forge.local_historical_replay = 'mid-september-v1';`n$fixtureSql"
     $guardedFixturePath = Join-Path $holdDirectory 'guarded-mid-september-fixture.sql'
@@ -261,7 +314,8 @@ select json_build_object(
     }
     Move-Item -LiteralPath $firstHeldPath -Destination $firstRestoredPath
     Invoke-CheckedCommand -Program 'npx' -Arguments @(
-      'supabase','migration','up','--local','--include-all'
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
     )
 
     $generatedIdentitySql = Get-Content -LiteralPath $generatedIdentityFixturePath -Raw
@@ -293,7 +347,8 @@ select json_build_object(
       Move-Item -LiteralPath $heldPath -Destination $restoredPath
     }
     Invoke-CheckedCommand -Program 'npx' -Arguments @(
-      'supabase','migration','up','--local','--include-all'
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
     )
 
     $guardedRealizedLossPath = Join-Path $holdDirectory 'guarded-mid-september-realized-loss-events.sql'
@@ -332,7 +387,8 @@ select json_build_object(
     try {
       Write-Host 'Applying the exact realized-loss correction migration...'
       Invoke-CheckedCommand -Program 'npx' -Arguments @(
-        'supabase','migration','up','--local','--include-all'
+        'supabase','migration','up','--local','--include-all',
+        '--workdir',$projectWorkdir
       )
     }
     finally {
@@ -384,11 +440,14 @@ select json_build_object(
 
   Write-Host 'Applying the restored backfilled slice, readiness migrations, and forward reassertions...'
   Invoke-CheckedCommand -Program 'npx' -Arguments @(
-    'supabase','migration','up','--local','--include-all'
+    'supabase','migration','up','--local','--include-all',
+    '--workdir',$projectWorkdir
   )
 
   Write-Host 'Running local integrity assertions...'
   Invoke-LocalPsqlScript -Path $certificationPath -DatabaseContainer $databaseContainer
+  Write-Host 'Running Framing Pack database assertions...'
+  Invoke-LocalPsqlScript -Path $framingCertificationPath -DatabaseContainer $databaseContainer
 
   $fingerprintSql = (Get-Content -LiteralPath $certificationPath -Raw) -replace '(?s)^do \$\$.*?end \$\$;\s*',''
   $localFingerprint = Invoke-SupabaseJsonQuery -Target local -Sql $fingerprintSql

@@ -1,5 +1,6 @@
 import { HEARTH_EPISODE_TITLE_CONTRACT } from "./hearth-episode-title-contract";
 import { validateHearthProductionArtifactOutput } from "./hearth-production-feedback";
+import { parseReleasePrepPackSections } from "./hearth-release-prep-pack";
 import {
   commitWorkpieceProductionArtifact,
   readWorkpieceProductionArtifact,
@@ -21,6 +22,21 @@ export function resolveAcceptedTagProposal(args: {
 }
 
 export type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
+
+export function canReprojectRecoveredPackDescriptions(args: {
+  canonicalShort: string | null | undefined;
+  canonicalLong: string | null | undefined;
+  packShort: string | null | undefined;
+  packLong: string | null | undefined;
+}): boolean {
+  const canonicalShort = args.canonicalShort?.trim() ?? "";
+  const canonicalLong = args.canonicalLong?.trim() ?? "";
+  const packShort = args.packShort?.trim() ?? "";
+  const packLong = args.packLong?.trim() ?? "";
+  if (!packShort || !packLong) return false;
+  return (!canonicalShort && !canonicalLong)
+    || (canonicalShort === packShort && canonicalLong === packLong);
+}
 
 type ImageBeatSheetEntry = {
   id: string;
@@ -127,11 +143,6 @@ export function buildProductionPrompt(args: {
       "- tighter opening hook and clear promise",
       "- retention-aware structure notes",
       "",
-      "TITLE_OPTIONS:",
-      "- provide 3-7 options",
-      "- click-optimized but honest",
-      "- varied emotional framing",
-      "",
       "SHORT_DESCRIPTION:",
       "- one concise, publish-ready description no longer than 180 characters",
       "",
@@ -156,6 +167,7 @@ export function buildProductionPrompt(args: {
       "",
       "Rules:",
       "- Do not overwrite the primary script.",
+      "- Do not generate or modify titles or tags.",
       "- Treat this as a derived release-prep output.",
       "- Do not use markdown tables.",
       "- Keep recommendations practical and production-ready.",
@@ -196,6 +208,13 @@ export async function persistProductionArtifact(args: {
   generatedAt?: string;
   reuseStoredArtifact?: boolean;
   paidOperationId?: string;
+  framingPackIdentity?: {
+    resultId: string;
+    approvalId: string;
+    approvalRevision: number;
+    scriptHash: string;
+  };
+  allowRecoveredPackDescriptionProjection?: boolean;
 }) {
   const episodeId = args.workpieceId?.trim();
   if (!episodeId) return;
@@ -223,19 +242,30 @@ export async function persistProductionArtifact(args: {
         generated_at: generatedAt,
         action: args.action,
         raw_text: args.assistantText,
-        ...((args.action === "seo" || args.action === "tags") && args.paidOperationId
+        ...((args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack") && args.paidOperationId
           ? { paid_operation_id: args.paidOperationId }
+          : {}),
+        ...(args.action === "release_prep_pack" && args.framingPackIdentity
+          ? {
+              framing_pack_result_id: args.framingPackIdentity.resultId,
+              product_contract_revision: "forge.hearth.framing-pack-generation.v1",
+              output_contract_revision: "framing_pack_seven_sections.v1",
+              script_approval_id: args.framingPackIdentity.approvalId,
+              script_approval_revision: args.framingPackIdentity.approvalRevision,
+              script_content_hash: args.framingPackIdentity.scriptHash,
+              sections: parseReleasePrepPackSections(args.assistantText),
+            }
           : {}),
       };
 
   try {
     let effectivePayload = payload;
     let reuseStoredArtifact = args.reuseStoredArtifact === true;
-    if ((args.action === "seo" || args.action === "tags") && args.paidOperationId && !reuseStoredArtifact) {
+    if ((args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack") && args.paidOperationId && !reuseStoredArtifact) {
       const existing = await readWorkpieceProductionArtifact({
         workpieceId: episodeId,
         scriptVersion: args.scriptVersion,
-        kind: args.action,
+        kind: artifactKind,
       });
       if (existing.ok && existing.payload && typeof existing.payload === "object"
         && !Array.isArray(existing.payload)
@@ -253,13 +283,14 @@ export async function persistProductionArtifact(args: {
       scriptVersion: args.scriptVersion,
       kind: artifactKind,
       payload: effectivePayload,
-      syncCanonical: args.action !== "tags" && (args.action !== "release_prep_pack" || validation.ok),
+      syncCanonical: args.action !== "tags" && (args.action !== "release_prep_pack"
+        || (validation.ok && (!reuseStoredArtifact || args.allowRecoveredPackDescriptionProjection === true))),
       artifactAlreadyPersisted: reuseStoredArtifact,
     });
 
     if (!committed.ok) {
       const stage = committed.stage ? ` at ${committed.stage}` : "";
-      const recoveryLocation = (args.action === "seo" || args.action === "tags") && args.paidOperationId
+      const recoveryLocation = (args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack") && args.paidOperationId
         ? "The paid result remains recoverable from its canonical operation record."
         : "The paid response remains recoverable from the saved production artifact.";
       args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} ${recoveryLocation}`);

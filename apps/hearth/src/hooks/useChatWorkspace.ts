@@ -636,6 +636,12 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       customer_charge_micros: number;
       provider_request_id?: string | null;
     };
+    framingPackIdentity?: {
+      resultId: string;
+      approvalId: string;
+      approvalRevision: number;
+      scriptHash: string;
+    };
     scriptProposal?: { proposalId: string; proposalState: "proposed" };
     runtime: {
       billingMode: "forge" | "byo";
@@ -646,6 +652,12 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     scriptVersion: number;
     assistantText: string;
     paidOperationId?: string;
+    framingPackIdentity?: {
+      resultId: string;
+      approvalId: string;
+      approvalRevision: number;
+      scriptHash: string;
+    };
   }) => Promise<void>;
   refreshMyAiCredits: () => Promise<{
     ok: boolean;
@@ -883,8 +895,11 @@ export function useChatWorkspaceRuntime<
           action: params.productionAction,
           scriptVersion: params.productionScriptVersion,
           assistantText,
-          paidOperationId: params.productionAction === "seo" || params.productionAction === "tags"
+          paidOperationId: params.productionAction === "seo" || params.productionAction === "tags" || params.productionAction === "release_prep_pack"
             ? result.billingReceipt?.operation_id
+            : undefined,
+          framingPackIdentity: params.productionAction === "release_prep_pack"
+            ? result.framingPackIdentity
             : undefined,
         });
         if (!args.operationAuthority.isCurrent(operation)) return;

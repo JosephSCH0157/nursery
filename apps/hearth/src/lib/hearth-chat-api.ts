@@ -81,6 +81,12 @@ export type HearthChatResult =
       totalTokens: number | null;
       creditsWarning?: string;
       billingReceipt?: HearthChatResponse["billing_receipt"];
+      framingPackIdentity?: {
+        resultId: string;
+        approvalId: string;
+        approvalRevision: number;
+        scriptHash: string;
+      };
       turnResult: HearthTurnResult;
     }
   | {
@@ -1432,6 +1438,19 @@ export async function requestHearthChatReply(
     totalTokens: parsed?.total_tokens ?? null,
     creditsWarning: parsed?.credits_warning ?? undefined,
     billingReceipt: parsed?.billing_receipt,
+    ...(parsed.framing_pack_result_id
+      && parsed.script_approval_id
+      && parsed.script_approval_revision != null
+      && parsed.script_content_hash
+      ? {
+          framingPackIdentity: {
+            resultId: parsed.framing_pack_result_id,
+            approvalId: parsed.script_approval_id,
+            approvalRevision: parsed.script_approval_revision,
+            scriptHash: parsed.script_content_hash,
+          },
+        }
+      : {}),
     turnResult,
   };
 }

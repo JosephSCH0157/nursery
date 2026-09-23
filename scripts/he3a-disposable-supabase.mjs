@@ -6,7 +6,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 
 const root = path.resolve(import.meta.dirname, "..");
-const [command, projectId, rawBasePort = "56320", migrationCutoff] = process.argv.slice(2);
+const [command, projectId, rawBasePort = "56320", rawMigrationCutoff, migrationExclusionManifest] = process.argv.slice(2);
+const migrationCutoff = rawMigrationCutoff === "none" ? undefined : rawMigrationCutoff;
 assert.match(projectId ?? "", /^forge-he3-[a-z0-9-]+$/, "project ID must be a unique forge-he3-* identity");
 assert.notEqual(projectId, "nursery");
 assert.notEqual(projectId, "wtvdjndyxegudufrompx");
@@ -50,6 +51,23 @@ function writeConfig() {
     for (const entry of fs.readdirSync(migrationsDir)) {
       const match = entry.match(/^(\d{8,14})_.*\.sql$/);
       if (match && match[1].localeCompare(migrationCutoff) > 0) fs.rmSync(path.join(migrationsDir, entry));
+    }
+  }
+  if (migrationExclusionManifest) {
+    const manifestPath = path.resolve(root, migrationExclusionManifest);
+    const allowedRoot = path.join(root, "supabase", "tests", "fixtures") + path.sep;
+    assert(manifestPath.startsWith(allowedRoot), "migration exclusion manifest must be a test fixture");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    assert.equal(manifest.schema, "forge.local-migration-replay-exclusions.v1");
+    assert(Array.isArray(manifest.migrations) && manifest.migrations.length > 0, "migration exclusion manifest is empty");
+    assert.equal(new Set(manifest.migrations).size, manifest.migrations.length, "migration exclusions must be unique");
+    const migrationsDir = path.join(supabaseDir, "migrations");
+    for (const entry of manifest.migrations) {
+      assert.match(entry, /^\d{8,14}_[a-z0-9_]+\.sql$/, `invalid migration exclusion: ${entry}`);
+      const target = path.resolve(migrationsDir, entry);
+      assert(target.startsWith(migrationsDir + path.sep), "migration exclusion escaped the disposable directory");
+      assert(fs.existsSync(target), `excluded migration is absent: ${entry}`);
+      fs.rmSync(target);
     }
   }
   const configPath = path.join(supabaseDir, "config.toml");
@@ -127,7 +145,7 @@ async function start() {
     if (!pending.length) break;
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  fs.writeFileSync(manifestPath, `${JSON.stringify({ project_id: projectId, base_port: basePort, migration_cutoff: migrationCutoff ?? null, nursery_before: nurseryBefore }, null, 2)}\n`);
+  fs.writeFileSync(manifestPath, `${JSON.stringify({ project_id: projectId, base_port: basePort, migration_cutoff: migrationCutoff ?? null, migration_exclusion_manifest: migrationExclusionManifest ?? null, nursery_before: nurseryBefore }, null, 2)}\n`);
   await verify();
 }
 function stop() {
@@ -152,4 +170,4 @@ function stop() {
 if (command === "start") await start();
 else if (command === "verify") await verify();
 else if (command === "stop") stop();
-else throw new Error("usage: node scripts/he3a-disposable-supabase.mjs <start|verify|stop> <forge-he3-id> [base-port] [migration-cutoff]");
+else throw new Error("usage: node scripts/he3a-disposable-supabase.mjs <start|verify|stop> <forge-he3-id> [base-port] [migration-cutoff|none] [migration-exclusion-manifest]");

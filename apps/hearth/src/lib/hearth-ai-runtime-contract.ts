@@ -139,6 +139,10 @@ export type HearthChatResponse = {
   billing_mode: HearthAiLane;
   token_balance: number | null;
   credits_warning?: string;
+  framing_pack_result_id?: string;
+  script_approval_id?: string;
+  script_approval_revision?: number;
+  script_content_hash?: string;
   billing_receipt?: {
     operation_id: string;
     reservation_id: string;
@@ -685,6 +689,18 @@ export function parseHearthChatResponse(
     billing_mode: runtime.billingMode,
     token_balance: runtime.tokenBalance,
     ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
+    ...(isUuid(readTrimmedField(payload, "framing_pack_result_id"))
+      ? { framing_pack_result_id: readTrimmedField(payload, "framing_pack_result_id")! }
+      : {}),
+    ...(isUuid(readTrimmedField(payload, "script_approval_id"))
+      ? { script_approval_id: readTrimmedField(payload, "script_approval_id")! }
+      : {}),
+    ...(Number.isInteger(readNumberField(payload, "script_approval_revision"))
+      ? { script_approval_revision: readNumberField(payload, "script_approval_revision")! }
+      : {}),
+    ...(readTrimmedField(payload, "script_content_hash")?.match(/^[0-9a-f]{64}$/i)
+      ? { script_content_hash: readTrimmedField(payload, "script_content_hash")! }
+      : {}),
     ...(normalizedReceipt ? { billing_receipt: normalizedReceipt } : {}),
   };
 }

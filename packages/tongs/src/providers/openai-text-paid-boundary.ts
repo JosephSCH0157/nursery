@@ -2,6 +2,7 @@ export const OPENAI_TEXT_ROUTE_CODES = [
   "hearth.chat_completion",
   "hearth.title_generation",
   "hearth.tag_generation",
+  "hearth.framing_pack_generation",
   "hearth.script_generation",
   "hearth.research_synthesis",
   "visual.unified_plan",

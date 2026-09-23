@@ -152,10 +152,12 @@ import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraf
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
+  canReprojectRecoveredPackDescriptions,
   resolveAcceptedTagProposal,
   runProductionAction,
   type ProductionAction,
 } from "../lib/hearth-production-actions";
+import { parseReleasePrepPackSections } from "../lib/hearth-release-prep-pack";
 import { readWorkpieceProductionArtifact, type ProductionCommitResult } from "../lib/hearth-production-repo";
 import {
   assessImageMapScriptAnchor,
@@ -1468,6 +1470,8 @@ export default function HearthShell({
   const {
     metadataTitlesDraft,
     metadataTagsDraft,
+    metadataDescriptionShortDraft,
+    metadataDescriptionLongDraft,
     setMetadataTitlesDraft,
     setMetadataTagsDraft,
     setMetadataDescriptionShortDraft,
@@ -2937,6 +2941,7 @@ export default function HearthShell({
         scriptVersion: artifactArgs.scriptVersion,
         assistantText: artifactArgs.assistantText,
         paidOperationId: artifactArgs.paidOperationId,
+        framingPackIdentity: artifactArgs.framingPackIdentity,
       });
     },
     refreshMyAiCredits,
@@ -5962,6 +5967,13 @@ export default function HearthShell({
     generatedAt?: string;
     reuseStoredArtifact?: boolean;
     paidOperationId?: string;
+    framingPackIdentity?: {
+      resultId: string;
+      approvalId: string;
+      approvalRevision: number;
+      scriptHash: string;
+    };
+    allowRecoveredPackDescriptionProjection?: boolean;
   }) {
     const result = await persistHearthProductionArtifact({
       action: args.action,
@@ -5970,6 +5982,8 @@ export default function HearthShell({
       generatedAt: args.generatedAt,
       reuseStoredArtifact: args.reuseStoredArtifact,
       paidOperationId: args.paidOperationId,
+      framingPackIdentity: args.framingPackIdentity,
+      allowRecoveredPackDescriptionProjection: args.allowRecoveredPackDescriptionProjection,
       workpieceId,
       workspaceId,
       refreshEpisodePackage,
@@ -6039,7 +6053,36 @@ export default function HearthShell({
       const generatedAt = typeof payload?.generated_at === "string" ? payload.generated_at : undefined;
       await persistProductionArtifact({ action, scriptVersion: approvedScriptVersion, assistantText: rawText, generatedAt, reuseStoredArtifact: true });
     }
-    if (!found) { setAiRuntimeWarning("No saved title or tag generation responses exist for this approved script version."); return; }
+    const packArtifact = await readWorkpieceProductionArtifact({ workpieceId, scriptVersion: approvedScriptVersion, kind: "pack" });
+    const packPayload = packArtifact.ok && packArtifact.payload && typeof packArtifact.payload === "object" && !Array.isArray(packArtifact.payload)
+      ? packArtifact.payload as Record<string, unknown> : null;
+    const packRawText = typeof packPayload?.raw_text === "string" ? packPayload.raw_text : "";
+    if (packRawText.trim()) {
+      found += 1;
+      const packSections = parseReleasePrepPackSections(packRawText);
+      const packShort = packSections.find((section) => section.key === "short_description")?.content;
+      const packLong = packSections.find((section) => section.key === "long_description")?.content;
+      const canReprojectDescriptions = canReprojectRecoveredPackDescriptions({
+        canonicalShort: metadataDescriptionShortDraft,
+        canonicalLong: metadataDescriptionLongDraft,
+        packShort,
+        packLong,
+      });
+      if (canReprojectDescriptions) {
+        await persistProductionArtifact({
+          action: "release_prep_pack",
+          scriptVersion: approvedScriptVersion,
+          assistantText: packRawText,
+          generatedAt: typeof packPayload?.generated_at === "string" ? packPayload.generated_at : undefined,
+          reuseStoredArtifact: true,
+          allowRecoveredPackDescriptionProjection: true,
+        });
+      } else {
+        // Divergent drafts are creator authority. Recover only the Pack display.
+        await loadLatestReleasePrepPack(approvedScriptVersion);
+      }
+    }
+    if (!found) { setAiRuntimeWarning("No saved title, tag, or Framing Pack generation responses exist for this approved script version."); return; }
     await refreshEpisodePackage();
   }
 

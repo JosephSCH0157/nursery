@@ -5,7 +5,11 @@ import {
   validateExactSeoTitleBlock,
   validateHearthProductionArtifactOutput,
 } from "../src/lib/hearth-production-feedback";
-import { buildProductionPrompt, resolveAcceptedTagProposal } from "../src/lib/hearth-production-actions";
+import {
+  buildProductionPrompt,
+  canReprojectRecoveredPackDescriptions,
+  resolveAcceptedTagProposal,
+} from "../src/lib/hearth-production-actions";
 import { parseReleasePrepPackSections } from "../src/lib/hearth-release-prep-pack";
 
 test("production prompts use the single approved-script copy in episode context", () => {
@@ -122,7 +126,7 @@ test("production prompts keep titles, tags, and framing pack contracts separate"
   assert.match(pack, /MONETIZATION_ANGLE:/);
   assert.match(pack, /SHORT_DESCRIPTION:/);
   assert.match(pack, /LONG_DESCRIPTION:/);
-  assert.doesNotMatch(pack, /TAGS_FULL|SEO_TITLES:/);
+  assert.doesNotMatch(pack, /TAGS_FULL|SEO_TITLES:|TITLE_OPTIONS:/);
 });
 
 test("hearthProductionFeedback: framing pack requires and exposes both descriptions", () => {
@@ -159,6 +163,20 @@ test("hearthProductionFeedback: framing pack requires and exposes both descripti
   });
   assert.equal(incomplete.ok, false);
   if (!incomplete.ok) assert.match(incomplete.error, /both SHORT_DESCRIPTION and LONG_DESCRIPTION/i);
+});
+
+test("Framing Pack recovery reprojects only absent or unchanged descriptions", () => {
+  const packShort = "Generated short description.";
+  const packLong = "Generated long description with enough detail for the canonical episode metadata.";
+  assert.equal(canReprojectRecoveredPackDescriptions({
+    canonicalShort: "", canonicalLong: "", packShort, packLong,
+  }), true, "absent descriptions may be restored");
+  assert.equal(canReprojectRecoveredPackDescriptions({
+    canonicalShort: packShort, canonicalLong: packLong, packShort, packLong,
+  }), true, "unchanged generated descriptions may be reprojected idempotently");
+  assert.equal(canReprojectRecoveredPackDescriptions({
+    canonicalShort: "Creator-edited short.", canonicalLong: packLong, packShort, packLong,
+  }), false, "later creator edits must be preserved");
 });
 
 test("tag proposal acceptance only reintroduces visible proposed tags", () => {

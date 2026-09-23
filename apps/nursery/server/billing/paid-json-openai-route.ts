@@ -115,7 +115,7 @@ export async function executePaidJsonOpenAiRoute<
     authoritative: boolean;
     evidence: JsonObject;
   };
-  /** Tag-only private evidence; the raw response is never returned to customers. */
+  /** Private validation evidence; the raw response is never returned to customers. */
   validationEvidence?: {
     contractRevision: string;
     recordFailure: (failure: {
