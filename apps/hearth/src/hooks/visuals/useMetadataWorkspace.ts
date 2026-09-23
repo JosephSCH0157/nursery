@@ -16,6 +16,24 @@ type MetadataSaveState = "loading" | "saved" | "editing" | "saving" | "error";
 const METADATA_AUTOSAVE_DELAY_MS = 450;
 const METADATA_SAVE_TIMEOUT_MS = 10000;
 
+export function normalizeMetadataTitlesForSave(titles: EpisodeSeoTitle[]): EpisodeSeoTitle[] {
+  return titles.map((title, index) => ({
+    id: title.id,
+    label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
+    text: title.text ?? "",
+    thumbnail_text: title.thumbnail_text?.trim() || null,
+    is_primary: Boolean(title.is_primary),
+  }));
+}
+
+export function updateMetadataTitleText(
+  titles: EpisodeSeoTitle[],
+  titleId: string,
+  nextText: string,
+): EpisodeSeoTitle[] {
+  return titles.map((title) => title.id === titleId ? { ...title, text: nextText } : title);
+}
+
 type UseMetadataWorkspaceArgs = {
   workpieceId: string | null;
   workspaceId: string | null;
@@ -24,7 +42,6 @@ type UseMetadataWorkspaceArgs = {
   setImageMapMetadataUpdatedAt: (value: string | null) => void;
   parseTagInput: (input: string) => string[];
   normalizeTag: (tag: string) => string | null;
-  deriveThumbnailOverlayText: (value: string) => string;
 };
 
 export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
@@ -36,7 +53,6 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     setImageMapMetadataUpdatedAt,
     parseTagInput,
     normalizeTag,
-    deriveThumbnailOverlayText,
   } = args;
 
   const [metadataTitlesDraft, setMetadataTitlesDraft] = useState<EpisodeSeoTitle[]>([]);
@@ -121,13 +137,7 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     if (!episodePackage) return;
 
     const current = ensureSeoV2(episodePackage);
-    const normalizedTitles = metadataTitlesDraft.map((title, index) => ({
-      id: title.id,
-      label: (title.label || ["A", "B", "C"][index] || `V${index + 1}`).toUpperCase(),
-      text: title.text ?? "",
-      thumbnail_text: title.thumbnail_text?.trim() || deriveThumbnailOverlayText(title.text ?? ""),
-      is_primary: Boolean(title.is_primary),
-    }));
+    const normalizedTitles = normalizeMetadataTitlesForSave(metadataTitlesDraft);
     const primaryId = normalizedTitles.find((title) => title.is_primary)?.id ?? normalizedTitles[0]?.id ?? null;
     const titles = normalizedTitles.map((title) => ({
       ...title,
@@ -206,7 +216,6 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
       window.clearTimeout(timeout);
     };
   }, [
-    deriveThumbnailOverlayText,
     metadataDescriptionLongDraft,
     metadataDescriptionShortDraft,
     metadataSaveState,
@@ -227,15 +236,7 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
   }
 
   function onMetadataTitleChange(titleId: string, nextText: string): void {
-    setMetadataTitlesDraft((prev) => prev.map((title) => (
-      title.id === titleId
-        ? {
-          ...title,
-          text: nextText,
-          thumbnail_text: deriveThumbnailOverlayText(nextText),
-        }
-        : title
-    )));
+    setMetadataTitlesDraft((prev) => updateMetadataTitleText(prev, titleId, nextText));
     markMetadataEditing();
   }
 

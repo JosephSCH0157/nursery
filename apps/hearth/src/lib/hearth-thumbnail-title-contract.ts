@@ -95,5 +95,13 @@ export function resolveHearthThumbnailOverlayText(args: {
   if (explicit) {
     return explicit;
   }
-  return deriveHearthThumbnailOverlayText(args.text);
+  return args.text.trim();
+}
+
+export function isLegacyDerivedHearthThumbnailOverlayText(args: {
+  text: string;
+  thumbnail_text?: string | null;
+}): boolean {
+  const explicit = typeof args.thumbnail_text === "string" ? args.thumbnail_text.trim() : "";
+  return explicit.length > 0 && explicit === deriveHearthThumbnailOverlayText(args.text);
 }

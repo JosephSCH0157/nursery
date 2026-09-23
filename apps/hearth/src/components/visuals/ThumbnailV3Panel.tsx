@@ -14,6 +14,7 @@ import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/h
 import { buildCandidateWorkspaceCards, buildPendingCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
 import { prepareOutsideThumbnailImage } from "../../lib/hearth-thumbnail-outside-image-fit";
 import { buildThumbnailDirections, creatorBrandStatus, creatorThumbnailError } from "../../lib/hearth-thumbnail-workspace-view-model";
+import { resolveHearthThumbnailOverlayText } from "../../lib/hearth-thumbnail-title-contract";
 import { readHearthAiRuntimeStatus, writeHearthAiRuntimeStatus } from "../../lib/ai-runtime-status";
 import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
 import {
@@ -500,7 +501,7 @@ export default function ThumbnailV3Panel(props: Props) {
         logo_visible: logoVisible, logo_placement: logoPlacement, logo_opacity: null,
         decision_origin: readabilityTreatment === "automatic" ? "automatic" : "explicit_user",
       },
-      title_text: (title.thumbnail_text || title.text).trim(), treatment: {
+      title_text: resolveHearthThumbnailOverlayText(title), treatment: {
         ...(activeRecipe?.treatment ?? emptyTreatment),
         typography: { color: textColor, max_lines: maxLines },
         placement: { vertical: verticalPlacement, horizontal_padding_percent: horizontalPadding },
@@ -948,7 +949,7 @@ export default function ThumbnailV3Panel(props: Props) {
             return <button type="button" key={direction.key} className={`hs-thumbnail-direction${selected ? " is-selected" : ""}`} aria-pressed={selected}
               onClick={() => { setSelectedRevisionId(direction.conceptRevisionId); if (direction.titleId) { setTitleId(direction.titleId); setTitleRevision(direction.titleRevision); setTitleText(direction.thumbnailText); } setSaveState("editing"); }}>
               <span className="hs-thumbnail-direction-name"><b>Direction {direction.key}</b><strong>{direction.name}</strong></span>
-              <span><small>Thumbnail text</small><b>{direction.thumbnailText}</b></span>
+              <span><small>{direction.thumbnailTextAuthority === "explicit" ? "Thumbnail text" : "Episode title"}</small><b>{direction.thumbnailText}</b>{direction.thumbnailTextAuthority === "episode_title" ? <small>Thumbnail copy: Not separately set</small> : null}</span>
               <span><small>Visual</small>{direction.visual}</span>
               <span><small>Approach</small>{direction.approach}</span>
               <span className="hs-thumbnail-direction-state">{selected ? "Selected direction" : "Choose direction"}</span>
@@ -1100,7 +1101,7 @@ export default function ThumbnailV3Panel(props: Props) {
       </section>
       <section aria-label="Framing title selection"><h4>Framing title revisions</h4>
         {pkg.seo.titles.length ? <div className="hs-thumb-title-grid">{pkg.seo.titles.map((title, index) => (
-          <button type="button" key={`${title.id}:${title.revision}`} className={`hs-thumb-pair-option${title.id === selectedTitle?.id && title.revision === selectedTitle.revision ? " is-selected" : ""}`} aria-label={`Title ${index + 1}: ${title.text}`} aria-pressed={title.id === selectedTitle?.id && title.revision === selectedTitle.revision} onClick={() => { setTitleId(title.id); setTitleRevision(title.revision); setTitleText(title.thumbnail_text || title.text); setSaveState("editing"); }}>
+          <button type="button" key={`${title.id}:${title.revision}`} className={`hs-thumb-pair-option${title.id === selectedTitle?.id && title.revision === selectedTitle.revision ? " is-selected" : ""}`} aria-label={`Title ${index + 1}: ${title.text}`} aria-pressed={title.id === selectedTitle?.id && title.revision === selectedTitle.revision} onClick={() => { setTitleId(title.id); setTitleRevision(title.revision); setTitleText(resolveHearthThumbnailOverlayText(title)); setSaveState("editing"); }}>
             <span className="hs-thumb-pair-option-heading"><strong>Title {index + 1}: {title.text}</strong><span className="hs-thumb-pair-selected-mark" aria-hidden="true">✓ Selected</span></span>
             <small>Canonical title revision {title.revision}</small>
           </button>

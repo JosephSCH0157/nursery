@@ -167,6 +167,7 @@ import {
   type PaidThumbnailDirectionInput,
 } from "./hearth-paid-thumbnail-direction-generation";
 import { validatePaidThumbnailDirectionOutput } from "../../../hearth/src/lib/hearth-thumbnail-direction-contract";
+import { resolveHearthThumbnailOverlayText } from "../../../hearth/src/lib/hearth-thumbnail-title-contract";
 import {
   canonicalContentHash,
   hydrateEpisodePackageV3,
@@ -2597,7 +2598,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     const keys = ["A", "B", "C"] as const;
     const titles = titleRows.map((title, index) => ({
       key: keys[index]!, id: title.id, revision: title.revision, text: title.text.trim(),
-      thumbnailText: (title.thumbnail_text || title.text).trim(),
+      thumbnailText: resolveHearthThumbnailOverlayText(title),
     })) as PaidThumbnailDirectionInput["titles"];
     const thumbnail = episodePackage.thumbnail;
     const planningSubtree = {

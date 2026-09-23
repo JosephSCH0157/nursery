@@ -9,8 +9,10 @@ import {
 import {
   HEARTH_THUMBNAIL_TITLE_CONTRACT,
   deriveHearthThumbnailOverlayText,
+  isLegacyDerivedHearthThumbnailOverlayText,
+  resolveHearthThumbnailOverlayText,
 } from "../src/lib/hearth-thumbnail-title-contract";
-import { parseSeoTitlesFromText } from "../src/lib/episode-package-v2";
+import { hydrateEpisodePackageV2, parseSeoTitlesFromText } from "../src/lib/episode-package-v2";
 
 function createSolidPixelData(
   width: number,
@@ -235,8 +237,22 @@ function testThumbnailOverlayContractDerivation() {
     "- SPICY: The Hidden Reason Rent Keeps Crushing Workers",
   ].join("\n"));
   assert.equal(parsed.length, 2);
-  assert.equal(parsed[0]?.thumbnail_text, "Gas Prices Rising Again");
-  assert.equal(parsed[1]?.thumbnail_text, "Hidden Reason Rent Keeps");
+  assert.equal(parsed[0]?.thumbnail_text, null);
+  assert.equal(parsed[1]?.thumbnail_text, null);
+
+  const fullTitle = "Why Is Gasoline So Expensive in the United States?";
+  assert.equal(fullTitle.split(/\s+/).length, 9);
+  assert.equal(resolveHearthThumbnailOverlayText({ text: fullTitle, thumbnail_text: null }), fullTitle);
+  assert.equal(resolveHearthThumbnailOverlayText({ text: fullTitle, thumbnail_text: "WHY SO EXPENSIVE?" }), "WHY SO EXPENSIVE?");
+  assert.equal(isLegacyDerivedHearthThumbnailOverlayText({ text: fullTitle, thumbnail_text: "Gasoline So Expensive United" }), true);
+  assert.equal(isLegacyDerivedHearthThumbnailOverlayText({ text: fullTitle, thumbnail_text: "WHY SO EXPENSIVE?" }), false);
+
+  const hydrated = hydrateEpisodePackageV2({ episode: { seo: { titles: [
+    { id: "title-a", label: "A", text: fullTitle, thumbnail_text: null, is_primary: true },
+    { id: "title-b", label: "B", text: "An explicit title", thumbnail_text: "AUTHORED COPY", is_primary: false },
+  ] } } });
+  assert.equal(hydrated.seo.titles[0]?.thumbnail_text, null);
+  assert.equal(hydrated.seo.titles[1]?.thumbnail_text, "AUTHORED COPY");
 }
 
 function run() {

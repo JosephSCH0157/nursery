@@ -39,6 +39,7 @@ test("focused direction builder pairs concepts and titles into three complete ch
   const directions = buildThumbnailDirections(pkg, "set");
   assert.deepEqual(directions.map((entry) => entry.key), ["A", "B", "C"]);
   assert.deepEqual(directions.map((entry) => entry.thumbnailText), ["THUMB 0", "THUMB 1", "THUMB 2"]);
+  assert.deepEqual(directions.map((entry) => entry.thumbnailTextAuthority), ["explicit", "explicit", "explicit"]);
   assert.equal(directions[1]?.visual, "Subject 1");
 });
 
@@ -66,4 +67,24 @@ test("canonical concept-set order preserves paid A/B/C direction identity", () =
   } as never;
   const directions = buildThumbnailDirections(pkg, "set");
   assert.deepEqual(directions.map((entry) => entry.name), ["Direction A", "Direction B", "Direction C"]);
+});
+
+test("direction cards use the complete episode title when explicit thumbnail copy is absent", () => {
+  const fullTitle = "Why Is Gasoline So Expensive in the United States?";
+  const pkg = {
+    seo: { titles: [{ id: "title-a", revision: 1, text: fullTitle, thumbnail_text: null }] },
+    thumbnail: {
+      concept_sets: [{ id: "set", concept_revision_ids: ["concept-a"] }],
+      concept_revisions: [{
+        concept_set_id: "set", concept_lineage_id: "line-a", revision_number: 1,
+        concept_revision_id: "concept-a", headline: "The Price Breakdown", image_concept: "Visual A",
+        creative_brief_id: "brief-a", creative_brief_revision: 1, strategy_id: "strategy", strategy_revision: 1,
+      }],
+      creative_briefs: [{ id: "brief-a", revision: 1, subject_direction: "Subject A", emotional_tone: "Approach A" }],
+      creative_strategies: [],
+    },
+  } as never;
+  const [direction] = buildThumbnailDirections(pkg, "set");
+  assert.equal(direction?.thumbnailText, fullTitle);
+  assert.equal(direction?.thumbnailTextAuthority, "episode_title");
 });

@@ -1,7 +1,6 @@
 import { useMemo, type Dispatch, type SetStateAction } from "react";
 import { useMetadataWorkspace } from "../../hooks/visuals/useMetadataWorkspace";
 import type { EpisodePackageV2, EpisodeSeoTitle } from "../../lib/episode-package-v2";
-import { deriveHearthThumbnailOverlayText } from "../../lib/hearth-thumbnail-title-contract";
 import {
   buildMetadataTagSuggestions,
   normalizeMetadataTag,
@@ -26,7 +25,6 @@ export function useHearthMetadataWorkspaceState(args: {
     ...args,
     parseTagInput: parseMetadataTagInput,
     normalizeTag: normalizeMetadataTag,
-    deriveThumbnailOverlayText: deriveHearthThumbnailOverlayText,
   });
 }
 

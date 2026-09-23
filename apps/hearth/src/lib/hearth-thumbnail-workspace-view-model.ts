@@ -1,10 +1,12 @@
 import type { EpisodePackageV3 } from "./episode-package-v3";
 import type { ThumbnailBrandAuthorityStatus } from "./hearth-thumbnail-v3-api";
+import { resolveHearthThumbnailOverlayText } from "./hearth-thumbnail-title-contract";
 
 export type ThumbnailDirectionView = {
   key: "A" | "B" | "C";
   name: string;
   thumbnailText: string;
+  thumbnailTextAuthority: "explicit" | "episode_title";
   visual: string;
   approach: string;
   conceptRevisionId: string;
@@ -38,7 +40,8 @@ export function buildThumbnailDirections(pkg: EpisodePackageV3, conceptSetId: st
     return {
       key: DIRECTION_KEYS[index]!,
       name: concept.headline,
-      thumbnailText: title ? (title.thumbnail_text || title.text).trim() : "Thumbnail text needed",
+      thumbnailText: title ? resolveHearthThumbnailOverlayText(title) : "Thumbnail text needed",
+      thumbnailTextAuthority: title?.thumbnail_text?.trim() ? "explicit" : "episode_title",
       visual: brief?.subject_direction ?? concept.image_concept,
       approach: brief?.emotional_tone ?? strategy?.editorial_positioning ?? "Distinct editorial direction",
       conceptRevisionId: concept.concept_revision_id,

@@ -8,10 +8,6 @@ import {
   normalizeEpisodeThumbnailTitleStyle,
 } from "./hearth-title-fonts";
 import type { EpisodeThumbnailTitleStyle } from "./hearth-title-fonts";
-import {
-  deriveHearthThumbnailOverlayText,
-  resolveHearthThumbnailOverlayText,
-} from "./hearth-thumbnail-title-contract";
 import type { ScriptDerivativeBasis } from "@forge/tongs/canonical-asset-authority";
 import type { MediaContentHash } from "@forge/tongs/canonical-asset-authority";
 import {
@@ -686,7 +682,7 @@ function normalizeSeoTitles(value: unknown): EpisodeSeoTitle[] {
         label,
         text,
         is_primary: Boolean(entry.is_primary),
-        thumbnail_text: readString(entry.thumbnail_text) ?? deriveHearthThumbnailOverlayText(text),
+        thumbnail_text: readString(entry.thumbnail_text),
       });
       continue;
     }
@@ -697,7 +693,7 @@ function normalizeSeoTitles(value: unknown): EpisodeSeoTitle[] {
       label: SEO_LABELS[i] ?? `V${i + 1}`,
       text,
       is_primary: false,
-      thumbnail_text: deriveHearthThumbnailOverlayText(text),
+      thumbnail_text: null,
     });
   }
   if (out.length && !out.some((title) => title.is_primary)) {
@@ -710,14 +706,17 @@ function normalizeLegacyTitleVariants(value: unknown): EpisodeSeoTitle[] {
   if (!isRecord(value)) return [];
   const variants: EpisodeSeoTitle[] = [];
   for (const label of ["A", "B", "C"] as const) {
-    const text = readString(value[label]);
+    const rawVariant = value[label];
+    const text = isRecord(rawVariant)
+      ? readString(rawVariant.text) ?? readString(rawVariant.title)
+      : readString(rawVariant);
     if (!text) continue;
     variants.push({
       id: `seo-title-${label.toLowerCase()}`,
       label,
       text,
       is_primary: label === "A",
-      thumbnail_text: deriveHearthThumbnailOverlayText(text),
+      thumbnail_text: isRecord(rawVariant) ? readString(rawVariant.thumbnail_text) : null,
     });
   }
   return variants;
@@ -1427,7 +1426,7 @@ export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
       label,
       text,
       is_primary: i === 0,
-      thumbnail_text: deriveHearthThumbnailOverlayText(text),
+      thumbnail_text: null,
     });
   }
   return titles;
@@ -2710,10 +2709,7 @@ export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {
       label,
       text: typeof title.text === "string" ? title.text : "",
       is_primary: Boolean(title.is_primary),
-      thumbnail_text: resolveHearthThumbnailOverlayText({
-        text: typeof title.text === "string" ? title.text : "",
-        thumbnail_text: typeof title.thumbnail_text === "string" ? title.thumbnail_text : null,
-      }),
+      thumbnail_text: readString(title.thumbnail_text),
     };
   });
 

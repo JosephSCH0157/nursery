@@ -10,6 +10,7 @@ import {
   type ThumbnailVariationPromotion,
 } from "./episode-package-v3";
 import { saveRenderRecipe } from "./hearth-thumbnail-v3-authority";
+import { resolveHearthThumbnailOverlayText } from "./hearth-thumbnail-title-contract";
 
 export const DEFAULT_VARIATION_LOCKS: ThumbnailVariationLocks = {
   concept: true, title: true, subject: true, composition: false, emotional_tone: true,
@@ -49,7 +50,7 @@ export function createDeterministicVariationBatch(args: { episodePackage: Episod
     const candidate: ThumbnailRenderRecipe = { ...args.sourceRecipe, id: variationId, revision: 1,
       concept_revision_id: concept.concept_revision_id, strategy_id: concept.strategy_id, strategy_revision: concept.strategy_revision,
       creative_brief_id: concept.creative_brief_id, creative_brief_revision: concept.creative_brief_revision,
-      title_id: title.id, title_revision: title.revision, title_text: title.thumbnail_text || title.text,
+      title_id: title.id, title_revision: title.revision, title_text: resolveHearthThumbnailOverlayText(title),
       provider_settings: effectiveLocks.provider ? args.sourceRecipe.provider_settings : { ...args.sourceRecipe.provider_settings, variation_seed: index + 1 },
       treatment: { ...args.sourceRecipe.treatment, typography, placement }, composition_revision: 1,
       prompt_review_state: "needs_review", last_reviewed_template_version: null,
