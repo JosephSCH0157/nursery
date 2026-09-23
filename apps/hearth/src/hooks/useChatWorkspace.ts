@@ -642,6 +642,11 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       approvalRevision: number;
       scriptHash: string;
     };
+    thumbnailDirectionIdentity?: {
+      resultId: string; approvalId: string; approvalRevision: number; scriptHash: string; createdAt: string;
+      styleAuthority: Record<string, unknown>; titleInputs: Array<Record<string, unknown>>;
+      thumbnailPlanningSubtreeHash: string; expectedActiveStrategyId: string | null; expectedActiveConceptSetId: string | null;
+    };
     scriptProposal?: { proposalId: string; proposalState: "proposed" };
     runtime: {
       billingMode: "forge" | "byo";
@@ -657,6 +662,11 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       approvalId: string;
       approvalRevision: number;
       scriptHash: string;
+    };
+    thumbnailDirectionIdentity?: {
+      resultId: string; approvalId: string; approvalRevision: number; scriptHash: string; createdAt: string;
+      styleAuthority: Record<string, unknown>; titleInputs: Array<Record<string, unknown>>;
+      thumbnailPlanningSubtreeHash: string; expectedActiveStrategyId: string | null; expectedActiveConceptSetId: string | null;
     };
   }) => Promise<void>;
   refreshMyAiCredits: () => Promise<{
@@ -900,6 +910,9 @@ export function useChatWorkspaceRuntime<
             : undefined,
           framingPackIdentity: params.productionAction === "release_prep_pack"
             ? result.framingPackIdentity
+            : undefined,
+          thumbnailDirectionIdentity: params.productionAction === "thumbnails"
+            ? result.thumbnailDirectionIdentity
             : undefined,
         });
         if (!args.operationAuthority.isCurrent(operation)) return;

@@ -7,6 +7,7 @@ import {
   type EpisodeSeoTitle,
 } from "./episode-package-v2";
 import { HEARTH_EPISODE_TITLE_CONTRACT } from "./hearth-episode-title-contract";
+import { validatePaidThumbnailDirectionOutput } from "./hearth-thumbnail-direction-contract";
 
 type HearthProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 
@@ -86,6 +87,14 @@ export function resolveHearthProductionArtifactFeedback(args: {
   }
 
   if (args.action === "thumbnails") {
+    if (/^THUMBNAIL_A$/m.test(args.assistantText)) {
+      const paid = validatePaidThumbnailDirectionOutput(args.assistantText);
+      return {
+        ...EMPTY_FEEDBACK,
+        shouldRefreshEpisodePackage: true,
+        warning: paid.ok ? null : `Thumbnail directions were not saved: ${paid.error}.`,
+      };
+    }
     const concepts = parseThumbnailConceptsFromText(args.assistantText);
     const authority = parseThumbnailCreativeAuthorityFromText(args.assistantText);
     const complete = concepts.length === 5

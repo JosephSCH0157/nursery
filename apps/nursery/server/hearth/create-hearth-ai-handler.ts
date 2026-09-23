@@ -157,6 +157,24 @@ import {
   validatePaidFramingPackOutput,
 } from "./hearth-paid-framing-pack-generation";
 import {
+  HEARTH_THUMBNAIL_DIRECTION_CONTRACT,
+  HEARTH_THUMBNAIL_DIRECTION_MODEL,
+  HEARTH_THUMBNAIL_DIRECTION_OUTPUT_CONTRACT,
+  HEARTH_THUMBNAIL_DIRECTION_ROUTE,
+  HEARTH_THUMBNAIL_DIRECTION_STYLE_FALLBACK,
+  buildPaidThumbnailDirectionMessages,
+  paidThumbnailDirectionFingerprintPayload,
+  type PaidThumbnailDirectionInput,
+} from "./hearth-paid-thumbnail-direction-generation";
+import { validatePaidThumbnailDirectionOutput } from "../../../hearth/src/lib/hearth-thumbnail-direction-contract";
+import { buildPaidThumbnailDirectionMutation } from "../../../hearth/src/lib/hearth-paid-thumbnail-direction-persistence";
+import {
+  EPISODE_PACKAGE_V3_SCHEMA,
+  canonicalContentHash,
+  hydrateEpisodePackageV3,
+  serializeEpisodePackageV3,
+} from "../../../hearth/src/lib/episode-package-v3";
+import {
   ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
   readOwnerHearthExecutionRequirement,
@@ -2548,6 +2566,100 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       scriptHash: approval.data.script_content_hash.toLowerCase(),
       scriptText: approval.data.script_text,
       episodeTitle: episode.data.label,
+    };
+  };
+
+  const readCanonicalThumbnailDirectionInput = async (
+    workspaceId: string,
+    workpieceId: string,
+    approved: ApprovedTitleScript,
+  ): Promise<PaidThumbnailDirectionInput | null> => {
+    if (!supabaseService) return null;
+    const metadataKey = `workpieces/${workpieceId}/metadata.json`;
+    const downloaded = await supabaseService.storage.from("forge-workpieces").download(metadataKey);
+    if (downloaded.error || !downloaded.data) throw new Error("thumbnail_direction_metadata_unavailable");
+    let metadata: unknown;
+    try {
+      metadata = JSON.parse(await downloaded.data.text());
+    } catch {
+      throw new Error("thumbnail_direction_metadata_invalid");
+    }
+    const episodePackage = hydrateEpisodePackageV3(metadata);
+    const titleRows = episodePackage.seo.titles.slice(0, 3);
+    if (titleRows.length !== 3 || titleRows.some((title) => !title.id || !title.text.trim()
+      || !Number.isInteger(title.revision) || title.revision < 1)) return null;
+    const keys = ["A", "B", "C"] as const;
+    const titles = titleRows.map((title, index) => ({
+      key: keys[index]!, id: title.id, revision: title.revision, text: title.text.trim(),
+      thumbnailText: (title.thumbnail_text || title.text).trim(),
+    })) as PaidThumbnailDirectionInput["titles"];
+    const thumbnail = episodePackage.thumbnail;
+    const planningSubtree = {
+      authority_version: thumbnail.authority_version,
+      active_creative_strategy_id: thumbnail.active_creative_strategy_id,
+      active_concept_set_id: thumbnail.active_concept_set_id,
+      creative_strategies: thumbnail.creative_strategies,
+      creative_briefs: thumbnail.creative_briefs,
+      concept_sets: thumbnail.concept_sets,
+      concept_revisions: thumbnail.concept_revisions,
+    };
+
+    const store = supabaseService.schema("tongs");
+    const bindingRead = await store.from("workpiece_brand_bindings")
+      .select("id,revision,state,profile_revision_id,profile_content_hash,asset_revision_ids")
+      .eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
+    if (bindingRead.error) throw new Error("thumbnail_direction_brand_unavailable");
+    let style: PaidThumbnailDirectionInput["style"] = {
+      resolvedSource: "forge_standard", authorityRevision: HEARTH_THUMBNAIL_DIRECTION_STYLE_FALLBACK,
+      bindingId: null, bindingRevision: null, profileRevisionId: null,
+      profileContentHash: null, planningRules: null,
+    };
+    const binding = bindingRead.data;
+    if (binding?.state === "profile" && binding.profile_revision_id && binding.profile_content_hash) {
+      const revisionRead = await store.from("brand_profile_revisions")
+        .select("id,content_hash,state,eligible_for_new_use,rules_json")
+        .eq("workspace_id", workspaceId).eq("id", binding.profile_revision_id).maybeSingle();
+      if (revisionRead.error) throw new Error("thumbnail_direction_brand_unavailable");
+      const revision = revisionRead.data;
+      const rules = revision && isRecord(revision.rules_json) ? revision.rules_json : null;
+      const assetMap = rules && isRecord(rules.asset_revision_ids) ? rules.asset_revision_ids : null;
+      const boundIds = Array.isArray(binding.asset_revision_ids)
+        ? binding.asset_revision_ids.filter((value): value is string => typeof value === "string")
+        : [];
+      const logoId = assetMap
+        ? ["transparent_logo", "primary_logo", "watermark_logo"]
+          .map((role) => readOptionalString(assetMap[role])).find((id) => id && boundIds.includes(id)) ?? null
+        : null;
+      const logoRead = logoId
+        ? await store.from("brand_asset_revisions").select("id,state,mime_type,content_hash")
+          .eq("workspace_id", workspaceId).eq("id", logoId).maybeSingle()
+        : null;
+      const logoReady = logoRead && !logoRead.error && logoRead.data?.state === "ready"
+        && typeof logoRead.data.mime_type === "string" && logoRead.data.mime_type.startsWith("image/")
+        && typeof logoRead.data.content_hash === "string";
+      if (revision && revision.state === "committed" && revision.eligible_for_new_use === true
+        && revision.content_hash === binding.profile_content_hash && logoReady && rules) {
+        style = {
+          resolvedSource: "brand_profile",
+          authorityRevision: "forge.thumbnail-direction-style.brand-profile.v1",
+          bindingId: binding.id, bindingRevision: binding.revision,
+          profileRevisionId: revision.id, profileContentHash: revision.content_hash,
+          planningRules: {
+            palette: isRecord(rules.palette) ? rules.palette : {},
+            typography: isRecord(rules.typography) ? rules.typography : {},
+            public_identity: isRecord(rules.public_identity) ? rules.public_identity : {},
+          },
+        };
+      }
+    }
+    return {
+      approved, titles, style,
+      authority: {
+        thumbnailAuthorityVersion: thumbnail.authority_version,
+        activeStrategyId: thumbnail.active_creative_strategy_id,
+        activeConceptSetId: thumbnail.active_concept_set_id,
+        planningSubtreeHash: canonicalContentHash(planningSubtree),
+      },
     };
   };
 
@@ -5144,10 +5256,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const titleGenerationRequested = productionAction === "seo";
         const tagGenerationRequested = productionAction === "tags";
         const framingPackGenerationRequested = productionAction === "release_prep_pack";
-        const approvedScriptProductName = framingPackGenerationRequested
+        const thumbnailDirectionGenerationRequested = productionAction === "thumbnails";
+        const approvedScriptProductName = thumbnailDirectionGenerationRequested
+          ? "Thumbnail Directions"
+          : framingPackGenerationRequested
           ? "Framing Pack"
           : tagGenerationRequested ? "Tags" : "Titles";
-        const approvedScriptProductCode = framingPackGenerationRequested
+        const approvedScriptProductCode = thumbnailDirectionGenerationRequested
+          ? "thumbnail_direction"
+          : framingPackGenerationRequested
           ? "framing_pack"
           : tagGenerationRequested ? "tag" : "title";
         let canonicalScriptResearchRows: Array<Record<string, unknown>> = [];
@@ -5188,7 +5305,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           canonicalScriptResearchRows = retained.data ?? [];
         }
         let approvedTitleScript: ApprovedTitleScript | null = null;
-        if (titleGenerationRequested || tagGenerationRequested || framingPackGenerationRequested) {
+        if (titleGenerationRequested || tagGenerationRequested || framingPackGenerationRequested || thumbnailDirectionGenerationRequested) {
           if (!userId || !isUuid(episodeContext.workspaceId)
             || resolvedCredentials.keySource !== "forge_managed" || ownerHearthRequirement) {
             return admissionFailureResponse({ status: 422, error: `Generate ${approvedScriptProductName} requires an authorized Forge-funded customer scope.`, code: `${approvedScriptProductCode}_customer_scope_required` });
@@ -5226,6 +5343,26 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             error: "Generate Framing Pack requires a stable action ID for a fresh quote and its accepted retry.",
             code: "framing_pack_action_id_required",
           });
+        }
+        if (thumbnailDirectionGenerationRequested && !isUuid(providedChatActionId)) {
+          return admissionFailureResponse({
+            status: 422,
+            error: "Create Thumbnail Directions requires a stable action ID for a fresh quote and its accepted retry.",
+            code: "thumbnail_direction_action_id_required",
+          });
+        }
+        let thumbnailDirectionInput: PaidThumbnailDirectionInput | null = null;
+        if (thumbnailDirectionGenerationRequested && approvedTitleScript) {
+          try {
+            thumbnailDirectionInput = await (config.readThumbnailDirectionInput ?? readCanonicalThumbnailDirectionInput)(
+              episodeContext.workspaceId!, episodeContext.episodeId, approvedTitleScript,
+            );
+          } catch {
+            return admissionFailureResponse({ status: 503, error: "Canonical Thumbnail V3 planning authority is unavailable.", code: "thumbnail_direction_authority_unavailable" });
+          }
+          if (!thumbnailDirectionInput) {
+            return admissionFailureResponse({ status: 409, error: "Three canonical title choices are required before creating thumbnail directions.", code: "thumbnail_direction_titles_unavailable" });
+          }
         }
         let titleContractVersion: HearthTitleContractVersion = 2;
         let historicalTitleV2Identity = false;
@@ -5269,7 +5406,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
         }
-        const paidCompletionMessages: ChatMessage[] = framingPackGenerationRequested && approvedTitleScript
+        const paidCompletionMessages: ChatMessage[] = thumbnailDirectionGenerationRequested && thumbnailDirectionInput
+          ? buildPaidThumbnailDirectionMessages(thumbnailDirectionInput)
+          : framingPackGenerationRequested && approvedTitleScript
           ? buildPaidFramingPackMessages(approvedTitleScript)
           : tagGenerationRequested && approvedTitleScript
           ? buildPaidTagMessages(approvedTitleScript)
@@ -5349,7 +5488,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         };
 
-        const paidRouteCode: OpenAiTextRouteCode = framingPackGenerationRequested
+        const paidRouteCode: OpenAiTextRouteCode = thumbnailDirectionGenerationRequested
+          ? HEARTH_THUMBNAIL_DIRECTION_ROUTE
+          : framingPackGenerationRequested
           ? HEARTH_FRAMING_PACK_ROUTE
           : tagGenerationRequested
           ? HEARTH_TAG_ROUTE
@@ -5360,18 +5501,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : scriptGenerationRequested
             ? "hearth.script_generation"
           : "hearth.chat_completion";
-        const paidScopeEligible = ((titleGenerationRequested || tagGenerationRequested || framingPackGenerationRequested) && Boolean(approvedTitleScript)
+        const paidScopeEligible = ((titleGenerationRequested || tagGenerationRequested || framingPackGenerationRequested || thumbnailDirectionGenerationRequested) && Boolean(approvedTitleScript)
           || !productionAction)
           && !attachmentContext.includeEpisodeAttachments
           && !readinessCheckRequested
           && !crossProjectReference.detected
-          && ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE)
+          && ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE)
             || (paidRouteCode === "hearth.chat_completion"
             && !["outline_generate", "script_mutate"].includes(turnDecision.mode))
             || paidRouteCode === "hearth.script_generation"
             || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
               && (Boolean(ownerResearchRequirement) || Boolean(customerResearchPlan) || linkModeRequested)));
-        const paidFingerprintPayload = paidRouteCode === HEARTH_FRAMING_PACK_ROUTE && approvedTitleScript
+        const paidFingerprintPayload = paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && thumbnailDirectionInput
+          ? paidThumbnailDirectionFingerprintPayload({
+              userId: userId!, workspaceId: episodeContext.workspaceId!,
+              workpieceId: episodeContext.episodeId, operationIntentId: chatActionId,
+              input: thumbnailDirectionInput,
+            })
+          : paidRouteCode === HEARTH_FRAMING_PACK_ROUTE && approvedTitleScript
           ? paidFramingPackFingerprintPayload({
               userId: userId!, workspaceId: episodeContext.workspaceId!,
               workpieceId: episodeContext.episodeId, approved: approvedTitleScript,
@@ -5438,7 +5585,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : customerResearchPlan
             ? fingerprintCustomerResearchPlan(customerResearchPlan)
             : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
-        if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE) && spendingAcceptance
+        if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE) && spendingAcceptance
           && spendingAcceptance.requestFingerprint !== actualRequestFingerprint) {
           return admissionFailureResponse({
             status: 409,
@@ -5542,12 +5689,16 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
-        if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE)
+        if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE)
           && (!openAiTextGate || paidRequirementRow.funding_context_required !== true)) {
-          const unavailableProduct = paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
+          const unavailableProduct = paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE
+            ? "Thumbnail Directions"
+            : paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
             ? "Framing Pack"
             : paidRouteCode === HEARTH_TAG_ROUTE ? "Tags" : "Titles";
-          const unavailableCode = paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
+          const unavailableCode = paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE
+            ? "thumbnail_direction_paid_product_unavailable"
+            : paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
             ? "framing_pack_paid_product_unavailable"
             : paidRouteCode === HEARTH_TAG_ROUTE ? "tag_paid_product_unavailable" : "title_paid_product_unavailable";
           return admissionFailureResponse({
@@ -5572,7 +5723,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               code: "paid_execution_auth_required",
             });
           }
-          if (paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
+          if (paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE
             || paidRouteCode === "hearth.research_synthesis"
             || paidRouteCode === "hearth.script_generation"
             || paidRouteCode === "hearth.chat_completion") {
@@ -5596,7 +5747,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 model = ownerPrepared.model;
                 paidExecutionHandle = ownerPrepared.handle;
               } else {
-              const ordinaryOperationId = paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
+              const ordinaryOperationId = paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE
                 || paidRouteCode === "hearth.chat_completion"
                 || paidRouteCode === "hearth.script_generation"
                 ? deriveHearthCustomerPaidIdentifiers({
@@ -5627,10 +5778,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     : buildBoundedPaidJsonOpenAiRequest({
                         body: {
                           model: acceptedModel,
-                          messages: paidRouteCode === "hearth.script_generation" || paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE
+                          messages: paidRouteCode === "hearth.script_generation" || paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE
                             ? paidCompletionMessages
                             : completionMessages,
-                          ...(paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE ? { reasoning_effort: "none" } : {}),
+                          ...(paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE ? { reasoning_effort: "none" } : {}),
                         },
                         model: acceptedModel,
                         maximumOutputTokens,
@@ -6086,6 +6237,249 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   operations: normalizeOps(paidResearch.result.ops),
                 }),
                 billing_receipt: paidResearch.receipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && approvedTitleScript && thumbnailDirectionInput) {
+              const thumbnailApproval = approvedTitleScript;
+              const styleAuthority = {
+                resolved_source: thumbnailDirectionInput.style.resolvedSource,
+                authority_revision: thumbnailDirectionInput.style.authorityRevision,
+                binding_id: thumbnailDirectionInput.style.bindingId,
+                binding_revision: thumbnailDirectionInput.style.bindingRevision,
+                profile_revision_id: thumbnailDirectionInput.style.profileRevisionId,
+                profile_content_hash: thumbnailDirectionInput.style.profileContentHash,
+                planning_rules: thumbnailDirectionInput.style.planningRules,
+              };
+              const titleInputs = thumbnailDirectionInput.titles.map((title) => ({
+                key: title.key,
+                id: title.id,
+                revision: title.revision,
+                text: title.text,
+                thumbnail_text: title.thumbnailText,
+              }));
+              const readCanonicalThumbnailMetadata = async () => {
+                const url = new URL(
+                  `/tongs/workpieces/${encodeURIComponent(episodeContext.episodeId)}/read-file?path=${encodeURIComponent("metadata.json")}`,
+                  request.url,
+                );
+                const response = await fetch(url, {
+                  method: "GET",
+                  headers: {
+                    authorization: `Bearer ${bearerToken}`,
+                    "x-forge-user-authorization": `Bearer ${bearerToken}`,
+                  },
+                });
+                const body = await response.json().catch(() => null) as unknown;
+                if (!response.ok || !isRecord(body) || body.ok !== true || !isRecord(body.data)) {
+                  throw new Error("Canonical Thumbnail Directions metadata read failed.");
+                }
+                const fileRow = isRecord(body.file_row) ? body.file_row : null;
+                return {
+                  metadata: body.data,
+                  metadataUpdatedAt: readOptionalString(fileRow?.updated_at),
+                  episodePackage: hydrateEpisodePackageV3(body.data),
+                };
+              };
+              const commitAndFinalizeThumbnailDirections = async (staged: Record<string, unknown>) => {
+                const resultId = readOptionalString(staged.thumbnail_direction_result_id);
+                const generatedAt = readOptionalString(staged.created_at);
+                const stagedStyle = isRecord(staged.style_authority) ? staged.style_authority : null;
+                const stagedTitles = Array.isArray(staged.title_inputs)
+                  ? staged.title_inputs.filter(isRecord)
+                  : [];
+                if (!resultId || !generatedAt || !stagedStyle || stagedTitles.length !== 3) {
+                  throw new Error("Staged Thumbnail Directions identity is incomplete.");
+                }
+                const canonical = await readCanonicalThumbnailMetadata();
+                const mutation = await buildPaidThumbnailDirectionMutation({
+                  episodePackage: canonical.episodePackage,
+                  rawText: String(staged.assistant_text ?? ""),
+                  identity: {
+                    resultId,
+                    operationId: paidExecutionHandle!.operationId,
+                    approvalId: thumbnailApproval.approvalId,
+                    approvalRevision: thumbnailApproval.approvalRevision,
+                    scriptHash: thumbnailApproval.scriptHash,
+                    generatedAt,
+                    styleAuthority: stagedStyle,
+                    titleInputs: stagedTitles,
+                    expectedAuthorityHash: String(staged.thumbnail_planning_subtree_hash ?? ""),
+                    expectedStrategyId: readOptionalString(staged.expected_active_strategy_id),
+                    expectedSetId: readOptionalString(staged.expected_active_concept_set_id),
+                  },
+                });
+                if (mutation.disposition === "created") {
+                  const commitUrl = new URL(
+                    `/tongs/workpieces/${encodeURIComponent(episodeContext.episodeId)}/commit-file`,
+                    request.url,
+                  );
+                  const committed = await fetch(commitUrl, {
+                    method: "POST",
+                    headers: {
+                      authorization: `Bearer ${bearerToken}`,
+                      "x-forge-user-authorization": `Bearer ${bearerToken}`,
+                      "content-type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      path: "metadata.json",
+                      content_type: "application/json",
+                      json: {
+                        ...canonical.metadata,
+                        updated_at: new Date().toISOString(),
+                        episode: serializeEpisodePackageV3(mutation.nextEpisodePackage),
+                      },
+                      expected_previous_updated_at: canonical.metadataUpdatedAt,
+                      written_by: { tool: "hearth", tool_version: "3", lane: "canonical" },
+                      event_name: "hearth.thumbnail.direction-set.generated.v1",
+                      event_payload: {
+                        schema: EPISODE_PACKAGE_V3_SCHEMA,
+                        concept_set_id: mutation.setId,
+                        paid_operation_id: paidExecutionHandle!.operationId,
+                        paid_result_id: resultId,
+                      },
+                      correlation_id: crypto.randomUUID(),
+                    }),
+                  });
+                  if (!committed.ok) {
+                    throw new Error(`Canonical Thumbnail Directions commit failed (${committed.status}).`);
+                  }
+                }
+                const readback = await readCanonicalThumbnailMetadata();
+                const set = readback.episodePackage.thumbnail.concept_sets.find((entry) => entry.id === mutation.setId);
+                if (!set || set.concept_revision_ids.length !== 3
+                  || set.source_response_hash !== mutation.sourceResponseHash) {
+                  throw new Error("Canonical Thumbnail Directions readback failed.");
+                }
+                const finalized = await openAiTextGate.rpc("finalize_hearth_thumbnail_direction_generation_result", {
+                  p_operation_id: paidExecutionHandle!.operationId,
+                  p_reservation_id: paidExecutionHandle!.reservationId,
+                  p_result_id: resultId,
+                  p_canonical_set_id: mutation.setId,
+                  p_canonical_source_response_hash: mutation.sourceResponseHash,
+                });
+                if (finalized.error || !isRecord(finalized.data)) {
+                  throw new Error(finalized.error?.message ?? "Thumbnail Directions canonical receipt failed.");
+                }
+                return finalized.data;
+              };
+              const paidThumbnailDirections = await executePaidJsonOpenAiRoute({
+                gate: openAiTextGate,
+                routeCode: HEARTH_THUMBNAIL_DIRECTION_ROUTE,
+                handle: paidExecutionHandle,
+                userId,
+                workspaceId: episodeContext.workspaceId!,
+                workpieceId: episodeContext.episodeId,
+                credentialSource: resolvedCredentials.keySource,
+                apiKey: resolvedCredentials.apiKey,
+                requestFingerprintPayload: paidFingerprintPayload,
+                providerRequestBody: (acceptedModel) => ({
+                  model: acceptedModel,
+                  reasoning_effort: "none",
+                  messages: paidCompletionMessages,
+                }),
+                signal: upstreamAbort.signal,
+                fetchImpl: config.openAiProviderFetch,
+                realizedSupportingCost: {
+                  amountMicros: 0,
+                  authoritative: true,
+                  evidence: { evidence_status: "none_verified", classification: "direct_supplier_cost_only" },
+                },
+                validationEvidence: {
+                  contractRevision: HEARTH_THUMBNAIL_DIRECTION_OUTPUT_CONTRACT,
+                  recordFailure: async (failure) => {
+                    const recorded = await openAiTextGate.rpc("record_openai_text_validation_failure_evidence", {
+                      p_route_code: HEARTH_THUMBNAIL_DIRECTION_ROUTE,
+                      p_operation_id: failure.operationId,
+                      p_reservation_id: failure.reservationId,
+                      p_provider_request_id: failure.providerRequestId,
+                      p_model: failure.model,
+                      p_input_units: failure.inputUnits,
+                      p_output_units: failure.outputUnits,
+                      p_raw_provider_response_text: failure.rawProviderResponseText,
+                      p_validation_error_code: failure.errorCode,
+                      p_validation_contract_revision: failure.contractRevision,
+                    });
+                    if (recorded.error) throw new Error(recorded.error.message);
+                  },
+                },
+                validate: (providerPayload) => {
+                  const output = validatePaidThumbnailDirectionOutput(extractAssistantReply(providerPayload));
+                  if (!output.ok) throw new Error(output.error);
+                  return {
+                    assistant_text: output.output.text,
+                    strategy: output.output.strategy,
+                    directions: output.output.directions,
+                    contract: HEARTH_THUMBNAIL_DIRECTION_CONTRACT,
+                    output_contract: HEARTH_THUMBNAIL_DIRECTION_OUTPUT_CONTRACT,
+                    script_approval_id: thumbnailApproval.approvalId,
+                    script_approval_revision: thumbnailApproval.approvalRevision,
+                    script_content_hash: thumbnailApproval.scriptHash,
+                    style_authority: styleAuthority,
+                    title_inputs: titleInputs,
+                    thumbnail_authority: {
+                      authority_version: thumbnailDirectionInput.authority.thumbnailAuthorityVersion,
+                      active_strategy_id: thumbnailDirectionInput.authority.activeStrategyId,
+                      active_concept_set_id: thumbnailDirectionInput.authority.activeConceptSetId,
+                      planning_subtree_hash: thumbnailDirectionInput.authority.planningSubtreeHash,
+                    },
+                  };
+                },
+                persist: async (value, providerPayload) => {
+                  const usage = isRecord(providerPayload.usage) ? providerPayload.usage : {};
+                  const saved = await openAiTextGate.rpc("persist_hearth_thumbnail_direction_generation_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                    p_user_id: userId,
+                    p_workspace_id: episodeContext.workspaceId,
+                    p_workpiece_id: episodeContext.episodeId,
+                    p_request_fingerprint: paidExecutionHandle!.requestFingerprint,
+                    p_approval_id: thumbnailApproval.approvalId,
+                    p_approval_revision: thumbnailApproval.approvalRevision,
+                    p_script_hash: thumbnailApproval.scriptHash,
+                    p_provider_request_id: readOptionalString(providerPayload.id),
+                    p_input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
+                    p_output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (saved.error || !isRecord(saved.data)) throw new Error(saved.error?.message ?? "Thumbnail Direction persistence failed.");
+                  return commitAndFinalizeThumbnailDirections(saved.data);
+                },
+                recover: async () => {
+                  const saved = await openAiTextGate.rpc("read_staged_hearth_thumbnail_direction_generation_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                  });
+                  if (saved.error || !isRecord(saved.data)) return null;
+                  const finalized = saved.data.canonical_persisted === true
+                    ? saved.data
+                    : await commitAndFinalizeThumbnailDirections(saved.data);
+                  return {
+                    result: finalized,
+                    providerRequestId: readOptionalString(finalized.provider_request_id),
+                    inputUnits: Number(finalized.input_units ?? 0),
+                    outputUnits: Number(finalized.output_units ?? 0),
+                  };
+                },
+              });
+              return jsonResponse(200, {
+                ok: true,
+                assistant_text: paidThumbnailDirections.result.assistant_text,
+                reply: paidThumbnailDirections.result.assistant_text,
+                script_approval_id: paidThumbnailDirections.result.script_approval_id,
+                script_approval_revision: paidThumbnailDirections.result.script_approval_revision,
+                script_content_hash: paidThumbnailDirections.result.script_content_hash,
+                thumbnail_direction_identity: {
+                  result_id: paidThumbnailDirections.result.thumbnail_direction_result_id,
+                  created_at: paidThumbnailDirections.result.created_at,
+                  style_authority: paidThumbnailDirections.result.style_authority,
+                  title_inputs: paidThumbnailDirections.result.title_inputs,
+                  thumbnail_planning_subtree_hash: paidThumbnailDirections.result.thumbnail_planning_subtree_hash,
+                  expected_active_strategy_id: paidThumbnailDirections.result.expected_active_strategy_id,
+                  expected_active_concept_set_id: paidThumbnailDirections.result.expected_active_concept_set_id,
+                },
+                turn_result: buildTurnResult({ assistantMessage: String(paidThumbnailDirections.result.assistant_text ?? "") }),
+                billing_receipt: paidThumbnailDirections.receipt,
                 ...buildBillingSnapshot(lane),
               });
             }

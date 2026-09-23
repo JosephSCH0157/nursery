@@ -601,9 +601,22 @@ export function serializeEpisodePackageV3(pkg: EpisodePackageV3): EpisodePackage
   return { ...pkg, schema: EPISODE_PACKAGE_V3_SCHEMA };
 }
 
-export function validateConceptGenerationSet(concepts: readonly Omit<ThumbnailConceptRevision, "concept_set_id">[]): string[] {
+export function thumbnailConceptSetCardinality(
+  conceptSet: Pick<ThumbnailConceptSet, "prompt_schema_version" | "generation_provenance">,
+): 3 | 5 {
+  const provenance = conceptSet.generation_provenance;
+  return conceptSet.prompt_schema_version === "thumbnail_directions_three.v1"
+    && provenance.product_contract === "forge.hearth.thumbnail-direction-generation.v1"
+    ? 3
+    : 5;
+}
+
+export function validateConceptGenerationSet(
+  concepts: readonly Omit<ThumbnailConceptRevision, "concept_set_id">[],
+  expectedCount: 3 | 5 = 5,
+): string[] {
   const errors: string[] = [];
-  if (concepts.length !== 5) errors.push("A generation set must contain exactly five concepts.");
+  if (concepts.length !== expectedCount) errors.push(`A generation set must contain exactly ${expectedCount} concepts.`);
   const seen = { headline: new Set<string>(), image: new Set<string>(), basis: new Set<string>() };
   concepts.forEach((concept, index) => {
     const fields = [concept.headline, concept.image_concept, concept.mood_style, concept.normalized_prompt_basis];

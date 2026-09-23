@@ -112,6 +112,39 @@ test("concept generation is atomic, additive, exact-five, and refinement preserv
   assert.equal(refined.thumbnail.concept_revisions.at(-1)?.concept_lineage_id, "lineage-0");
 });
 
+test("new paid thumbnail direction sets are exact-three while historical five-member sets remain valid", () => {
+  const imported = hydrateEpisodePackageV3(legacyMetadata);
+  assert.equal(imported.thumbnail.concept_sets[0]?.concept_revision_ids.length, 5);
+  const concepts = generatedConcepts("paid-three", imported).slice(0, 3);
+  const conceptSet: ThumbnailConceptSet = {
+    id: "paid-three", name: "Paid directions", created_at: "2026-09-23T12:00:00.000Z", state: "active",
+    approved_script_version: 7,
+    generation_provenance: {
+      source: "hearth.thumbnail_direction_generation",
+      product_contract: "forge.hearth.thumbnail-direction-generation.v1",
+    },
+    prompt_schema_version: "thumbnail_directions_three.v1",
+    source_response_hash: "a".repeat(64),
+    concept_revision_ids: concepts.map((entry) => entry.concept_revision_id),
+  };
+  const appended = appendConceptSet({ episodePackage: imported, conceptSet, concepts });
+  assert.equal(appended.thumbnail.concept_sets.at(-1)?.concept_revision_ids.length, 3);
+  assert.equal(appended.thumbnail.concept_sets[0]?.concept_revision_ids.length, 5);
+  assert.throws(() => appendConceptSet({
+    episodePackage: imported,
+    conceptSet: { ...conceptSet, concept_revision_ids: conceptSet.concept_revision_ids.slice(0, 2) },
+    concepts: concepts.slice(0, 2),
+  }));
+  assert.throws(() => appendConceptSet({
+    episodePackage: imported,
+    conceptSet: {
+      ...conceptSet,
+      concept_revision_ids: [...conceptSet.concept_revision_ids, "revision-extra"],
+    },
+    concepts: [...concepts, { ...generatedConcepts("paid-three", imported)[3]!, concept_revision_id: "revision-extra" }],
+  }));
+});
+
 test("render recipe is sole live presentation authority and prompt reconstruction is deterministic", () => {
   const imported = hydrateEpisodePackageV3(legacyMetadata);
   const concept = imported.thumbnail.concept_revisions[0]!;

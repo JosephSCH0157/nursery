@@ -3,6 +3,7 @@ import {
   canonicalContentHash,
   deterministicUuid,
   deriveThumbnailPromptPack,
+  thumbnailConceptSetCardinality,
   validateConceptGenerationSet,
   type EpisodePackageV3,
   type ThumbnailBaseVersion,
@@ -24,7 +25,11 @@ export function appendConceptSet(args: {
   conceptSet: ThumbnailConceptSet;
   concepts: readonly ThumbnailConceptRevision[];
 }): EpisodePackageV3 {
-  const errors = validateConceptGenerationSet(args.concepts.map(({ concept_set_id: _ignored, ...concept }) => concept));
+  const expectedCount = thumbnailConceptSetCardinality(args.conceptSet);
+  const errors = validateConceptGenerationSet(
+    args.concepts.map(({ concept_set_id: _ignored, ...concept }) => concept),
+    expectedCount,
+  );
   if (errors.length) throw new Error(errors.join(" "));
   if (args.concepts.some((concept) => concept.concept_set_id !== args.conceptSet.id)) {
     throw new Error("Every concept revision must belong to the new concept set.");
@@ -40,9 +45,9 @@ export function appendConceptSet(args: {
       throw new Error("Every concept must reference an exact canonical strategy and creative brief revision.");
     }
   }
-  if (args.conceptSet.concept_revision_ids.length !== 5
+  if (args.conceptSet.concept_revision_ids.length !== expectedCount
     || args.conceptSet.concept_revision_ids.some((id, index) => id !== args.concepts[index]?.concept_revision_id)) {
-    throw new Error("Concept-set revision identity does not match its five immutable revisions.");
+    throw new Error(`Concept-set revision identity does not match its ${expectedCount} immutable revisions.`);
   }
   const existingIds = new Set(args.episodePackage.thumbnail.concept_revisions.map((entry) => entry.concept_revision_id));
   if (args.concepts.some((entry) => existingIds.has(entry.concept_revision_id))) {

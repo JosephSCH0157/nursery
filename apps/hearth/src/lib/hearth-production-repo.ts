@@ -13,6 +13,7 @@ import { commitEpisodePackageV3Mutation, readCanonicalEpisodePackageV3 } from ".
 import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveImageMapScriptAnchorFromText } from "./hearth-image-map-beats";
 import { readHearthPrimaryScript } from "./hearth-script-repo";
+import { buildPaidThumbnailDirectionMutation } from "./hearth-paid-thumbnail-direction-persistence";
 
 type WrittenBy = {
   tool: string;
@@ -237,6 +238,56 @@ async function syncEpisodePackageMetadata(args: {
 }): Promise<ProductionCommitResult> {
   if (args.kind === "thumbnails") {
     const rawText = readRawTextFromPayload(args.payload);
+    const paidPayload = isRecord(args.payload) && args.payload.output_contract_revision === "thumbnail_directions_three.v1"
+      ? args.payload
+      : null;
+    if (paidPayload) {
+      const resultId = readString(paidPayload.thumbnail_direction_result_id);
+      const operationId = readString(paidPayload.paid_operation_id);
+      const approvalId = readString(paidPayload.script_approval_id);
+      const scriptHash = readString(paidPayload.script_content_hash);
+      const expectedAuthorityHash = readString(paidPayload.thumbnail_planning_subtree_hash);
+      const expectedStrategyId = readString(paidPayload.expected_active_strategy_id);
+      const expectedSetId = readString(paidPayload.expected_active_concept_set_id);
+      const styleAuthority = isRecord(paidPayload.style_authority) ? paidPayload.style_authority : null;
+      const titleInputs = Array.isArray(paidPayload.title_inputs) ? paidPayload.title_inputs : null;
+      if (!resultId || !operationId || !approvalId || !scriptHash || !expectedAuthorityHash || !styleAuthority
+        || !titleInputs || titleInputs.length !== 3) {
+        return { ok: false, status: 422, reason: "Paid thumbnail direction identity is incomplete.", stage: "validate" };
+      }
+      const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
+      let mutation;
+      try {
+        mutation = await buildPaidThumbnailDirectionMutation({
+          episodePackage: canonical.episodePackage,
+          rawText,
+          identity: {
+            resultId, operationId, approvalId, approvalRevision: args.scriptVersion,
+            scriptHash, generatedAt: readGeneratedAtFromPayload(args.payload),
+            styleAuthority, titleInputs, expectedAuthorityHash, expectedStrategyId, expectedSetId,
+          },
+        });
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { ok: false, status: 409, reason, stage: "validate", errors: [reason] };
+      }
+      if (mutation.disposition === "existing") {
+        return { ok: true, entityId: mutation.setId, disposition: "existing" };
+      }
+      const saved = await commitEpisodePackageV3Mutation({
+        workpieceId: args.workpieceId, expectedMetadataUpdatedAt: canonical.metadataUpdatedAt,
+        nextEpisodePackage: mutation.nextEpisodePackage, mutation: { kind: "concept_set", entityId: mutation.setId },
+        eventName: "hearth.thumbnail.direction-set.generated.v1",
+        eventPayload: { script_version: args.scriptVersion, concept_set_id: mutation.setId, paid_operation_id: operationId, paid_result_id: resultId },
+      });
+      if (!saved.ok) return { ok: false, status: saved.status, reason: saved.error, stage: "commit", errors: [saved.error] };
+      const verified = await readCanonicalEpisodePackageV3(args.workpieceId);
+      const verifiedSet = verified.episodePackage.thumbnail.concept_sets.find((set) => set.id === mutation.setId);
+      if (!verifiedSet || verifiedSet.source_response_hash !== mutation.sourceResponseHash || verifiedSet.concept_revision_ids.length !== 3) {
+        return { ok: false, status: 409, reason: "Canonical readback did not contain the paid three-direction set.", stage: "readback" };
+      }
+      return { ok: true, entityId: mutation.setId, disposition: "created" };
+    }
     const parseDiagnostic = diagnoseThumbnailConceptParsing(rawText);
     const parsed = parseDiagnostic.concepts;
     if (parsed.length !== 5) return {

@@ -66,7 +66,7 @@ begin
       on entry.id=compatibility.catalog_entry_id
     join tongs.openai_text_model_catalog_revisions catalog
       on catalog.id=entry.catalog_revision_id
-    where catalog.revision=11 and catalog.lifecycle_state='active'
+    where catalog.lifecycle_state='active'
       and catalog.revision=(select max(current.revision)
         from tongs.openai_text_model_catalog_revisions current
         where current.lifecycle_state='active')

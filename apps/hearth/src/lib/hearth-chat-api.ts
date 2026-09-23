@@ -87,6 +87,18 @@ export type HearthChatResult =
         approvalRevision: number;
         scriptHash: string;
       };
+      thumbnailDirectionIdentity?: {
+        resultId: string;
+        approvalId: string;
+        approvalRevision: number;
+        scriptHash: string;
+        createdAt: string;
+        styleAuthority: Record<string, unknown>;
+        titleInputs: Array<Record<string, unknown>>;
+        thumbnailPlanningSubtreeHash: string;
+        expectedActiveStrategyId: string | null;
+        expectedActiveConceptSetId: string | null;
+      };
       turnResult: HearthTurnResult;
     }
   | {
@@ -1448,6 +1460,25 @@ export async function requestHearthChatReply(
             approvalId: parsed.script_approval_id,
             approvalRevision: parsed.script_approval_revision,
             scriptHash: parsed.script_content_hash,
+          },
+        }
+      : {}),
+    ...(parsed.thumbnail_direction_identity
+      && parsed.script_approval_id
+      && parsed.script_approval_revision != null
+      && parsed.script_content_hash
+      ? {
+          thumbnailDirectionIdentity: {
+            resultId: parsed.thumbnail_direction_identity.result_id,
+            approvalId: parsed.script_approval_id,
+            approvalRevision: parsed.script_approval_revision,
+            scriptHash: parsed.script_content_hash,
+            createdAt: parsed.thumbnail_direction_identity.created_at,
+            styleAuthority: parsed.thumbnail_direction_identity.style_authority,
+            titleInputs: parsed.thumbnail_direction_identity.title_inputs,
+            thumbnailPlanningSubtreeHash: parsed.thumbnail_direction_identity.thumbnail_planning_subtree_hash,
+            expectedActiveStrategyId: parsed.thumbnail_direction_identity.expected_active_strategy_id,
+            expectedActiveConceptSetId: parsed.thumbnail_direction_identity.expected_active_concept_set_id,
           },
         }
       : {}),

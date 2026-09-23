@@ -214,6 +214,18 @@ export async function persistProductionArtifact(args: {
     approvalRevision: number;
     scriptHash: string;
   };
+  thumbnailDirectionIdentity?: {
+    resultId: string;
+    approvalId: string;
+    approvalRevision: number;
+    scriptHash: string;
+    createdAt: string;
+    styleAuthority: Record<string, unknown>;
+    titleInputs: Array<Record<string, unknown>>;
+    thumbnailPlanningSubtreeHash: string;
+    expectedActiveStrategyId: string | null;
+    expectedActiveConceptSetId: string | null;
+  };
   allowRecoveredPackDescriptionProjection?: boolean;
 }) {
   const episodeId = args.workpieceId?.trim();
@@ -242,7 +254,7 @@ export async function persistProductionArtifact(args: {
         generated_at: generatedAt,
         action: args.action,
         raw_text: args.assistantText,
-        ...((args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack") && args.paidOperationId
+        ...((args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack" || args.action === "thumbnails") && args.paidOperationId
           ? { paid_operation_id: args.paidOperationId }
           : {}),
         ...(args.action === "release_prep_pack" && args.framingPackIdentity
@@ -256,12 +268,28 @@ export async function persistProductionArtifact(args: {
               sections: parseReleasePrepPackSections(args.assistantText),
             }
           : {}),
+        ...(args.action === "thumbnails" && args.thumbnailDirectionIdentity
+          ? {
+              thumbnail_direction_result_id: args.thumbnailDirectionIdentity.resultId,
+              product_contract_revision: "forge.hearth.thumbnail-direction-generation.v1",
+              output_contract_revision: "thumbnail_directions_three.v1",
+              script_approval_id: args.thumbnailDirectionIdentity.approvalId,
+              script_approval_revision: args.thumbnailDirectionIdentity.approvalRevision,
+              script_content_hash: args.thumbnailDirectionIdentity.scriptHash,
+              generated_at: args.thumbnailDirectionIdentity.createdAt,
+              style_authority: args.thumbnailDirectionIdentity.styleAuthority,
+              title_inputs: args.thumbnailDirectionIdentity.titleInputs,
+              thumbnail_planning_subtree_hash: args.thumbnailDirectionIdentity.thumbnailPlanningSubtreeHash,
+              expected_active_strategy_id: args.thumbnailDirectionIdentity.expectedActiveStrategyId,
+              expected_active_concept_set_id: args.thumbnailDirectionIdentity.expectedActiveConceptSetId,
+            }
+          : {}),
       };
 
   try {
     let effectivePayload = payload;
     let reuseStoredArtifact = args.reuseStoredArtifact === true;
-    if ((args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack") && args.paidOperationId && !reuseStoredArtifact) {
+    if ((args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack" || args.action === "thumbnails") && args.paidOperationId && !reuseStoredArtifact) {
       const existing = await readWorkpieceProductionArtifact({
         workpieceId: episodeId,
         scriptVersion: args.scriptVersion,
@@ -290,7 +318,7 @@ export async function persistProductionArtifact(args: {
 
     if (!committed.ok) {
       const stage = committed.stage ? ` at ${committed.stage}` : "";
-      const recoveryLocation = (args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack") && args.paidOperationId
+      const recoveryLocation = (args.action === "seo" || args.action === "tags" || args.action === "release_prep_pack" || args.action === "thumbnails") && args.paidOperationId
         ? "The paid result remains recoverable from its canonical operation record."
         : "The paid response remains recoverable from the saved production artifact.";
       args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} ${recoveryLocation}`);

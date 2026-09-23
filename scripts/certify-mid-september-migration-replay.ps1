@@ -27,6 +27,7 @@ $customerCanaryFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_se
 $certificationPath = Join-Path $repoRoot 'supabase/tests/mid_september_migration_replay_certification.sql'
 $framingCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_framing_pack_generation.sql'
 $visualPlanCertificationPath = Join-Path $repoRoot 'supabase/tests/visual_unified_plan_test_product.sql'
+$thumbnailDirectionCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_thumbnail_direction_generation.sql'
 $exclusionManifestPath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_replay_exclusions.json'
 
 $heldMigrationNames = @(
@@ -79,7 +80,8 @@ $newForwardMigrationNames = @(
   '20261011580000_visual_plan_submission_unknown_concurrency_repair.sql',
   '20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql',
   '20261011600000_visual_plan_reference_visual_state_repair.sql',
-  '20261011610000_visual_plan_reconciliation_replay_path_repair.sql'
+  '20261011610000_visual_plan_reconciliation_replay_path_repair.sql',
+  '20261011620000_hearth_thumbnail_direction_generation_test_product.sql'
 )
 $allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
 
@@ -180,14 +182,15 @@ try {
       -not (Test-Path -LiteralPath $certificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $framingCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $visualPlanCertificationPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $thumbnailDirectionCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $exclusionManifestPath -PathType Leaf)) {
     throw 'Historical fixture or certification SQL is missing.'
   }
   if ($heldMigrationNames.Count -ne 34 -or
       ($heldMigrationNames | Sort-Object -Unique).Count -ne 34 -or
-      $newForwardMigrationNames.Count -ne 14 -or
-      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 48) {
-    throw 'Historical replay manifest must contain 34 historical and 14 forward migration files.'
+      $newForwardMigrationNames.Count -ne 15 -or
+      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 49) {
+    throw 'Historical replay manifest must contain 34 historical and 15 forward migration files.'
   }
   $exclusionManifest = Get-Content -LiteralPath $exclusionManifestPath -Raw | ConvertFrom-Json
   $manifestMigrations = @($exclusionManifest.migrations)
@@ -460,6 +463,8 @@ select json_build_object(
   Write-Host 'Running Framing Pack database assertions...'
   Invoke-LocalPsqlScript -Path $framingCertificationPath -DatabaseContainer $databaseContainer
   Invoke-LocalPsqlScript -Path $visualPlanCertificationPath -DatabaseContainer $databaseContainer
+  Write-Host 'Running Thumbnail Directions database assertions...'
+  Invoke-LocalPsqlScript -Path $thumbnailDirectionCertificationPath -DatabaseContainer $databaseContainer
 
   $fingerprintSql = (Get-Content -LiteralPath $certificationPath -Raw) -replace '(?s)^do \$\$.*?end \$\$;\s*',''
   $localFingerprint = Invoke-SupabaseJsonQuery -Target local -Sql $fingerprintSql

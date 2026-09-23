@@ -2952,6 +2952,7 @@ export default function HearthShell({
         assistantText: artifactArgs.assistantText,
         paidOperationId: artifactArgs.paidOperationId,
         framingPackIdentity: artifactArgs.framingPackIdentity,
+        thumbnailDirectionIdentity: artifactArgs.thumbnailDirectionIdentity,
       });
     },
     refreshMyAiCredits,
@@ -5984,6 +5985,11 @@ export default function HearthShell({
       approvalRevision: number;
       scriptHash: string;
     };
+    thumbnailDirectionIdentity?: {
+      resultId: string; approvalId: string; approvalRevision: number; scriptHash: string; createdAt: string;
+      styleAuthority: Record<string, unknown>; titleInputs: Array<Record<string, unknown>>;
+      thumbnailPlanningSubtreeHash: string; expectedActiveStrategyId: string | null; expectedActiveConceptSetId: string | null;
+    };
     allowRecoveredPackDescriptionProjection?: boolean;
   }) {
     const result = await persistHearthProductionArtifact({
@@ -5994,6 +6000,7 @@ export default function HearthShell({
       reuseStoredArtifact: args.reuseStoredArtifact,
       paidOperationId: args.paidOperationId,
       framingPackIdentity: args.framingPackIdentity,
+      thumbnailDirectionIdentity: args.thumbnailDirectionIdentity,
       allowRecoveredPackDescriptionProjection: args.allowRecoveredPackDescriptionProjection,
       workpieceId,
       workspaceId,

@@ -6,6 +6,7 @@ import { resolveOpenAiImageApiKey } from "../image-runtime-config";
 import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import type { HearthResearchRuntime } from "./hearth-research-runtime";
 import type { ApprovedTitleScript } from "./hearth-paid-title-generation";
+import type { PaidThumbnailDirectionInput } from "./hearth-paid-thumbnail-direction-generation";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -84,6 +85,12 @@ export type HearthRuntimeConfig = {
   openAiProviderFetch?: typeof fetch;
   /** Isolated-test seam; production always reads the canonical approval from Tongs. */
   readApprovedTitleScript?: (workspaceId: string, workpieceId: string) => Promise<ApprovedTitleScript | null>;
+  /** Isolated-test seam; production resolves script/title/style/V3 authority from Tongs. */
+  readThumbnailDirectionInput?: (
+    workspaceId: string,
+    workpieceId: string,
+    approved: ApprovedTitleScript,
+  ) => Promise<PaidThumbnailDirectionInput | null>;
   resolveUserIdForAccessToken?: (accessToken: string) => Promise<string | null>;
   /** Supplied-source-only runtime seam for isolated route certification. */
   researchRuntime?: HearthResearchRuntime;

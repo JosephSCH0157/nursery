@@ -140,6 +140,15 @@ export type HearthChatResponse = {
   token_balance: number | null;
   credits_warning?: string;
   framing_pack_result_id?: string;
+  thumbnail_direction_identity?: {
+    result_id: string;
+    created_at: string;
+    style_authority: Record<string, unknown>;
+    title_inputs: Array<Record<string, unknown>>;
+    thumbnail_planning_subtree_hash: string;
+    expected_active_strategy_id: string | null;
+    expected_active_concept_set_id: string | null;
+  };
   script_approval_id?: string;
   script_approval_revision?: number;
   script_content_hash?: string;
@@ -646,6 +655,7 @@ export function parseHearthChatResponse(
   ).trim();
   const gateRaw = readTrimmedField(payload, "gate");
   const tagAuditRaw = readUnknownField(payload, "tag_audit");
+  const thumbnailDirectionIdentityRaw = readUnknownField(payload, "thumbnail_direction_identity");
   const researchResult = normalizeHearthResearchResult(readUnknownField(payload, "research_result"));
   const turnResult = normalizeHearthTurnResult(readUnknownField(payload, "turn_result"));
   const creditsWarning = readTrimmedField(payload, "credits_warning") ?? undefined;
@@ -691,6 +701,22 @@ export function parseHearthChatResponse(
     ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
     ...(isUuid(readTrimmedField(payload, "framing_pack_result_id"))
       ? { framing_pack_result_id: readTrimmedField(payload, "framing_pack_result_id")! }
+      : {}),
+    ...(isRecord(thumbnailDirectionIdentityRaw)
+      && typeof thumbnailDirectionIdentityRaw.result_id === "string"
+      && isUuid(thumbnailDirectionIdentityRaw.result_id)
+      && typeof thumbnailDirectionIdentityRaw.created_at === "string"
+      && isRecord(thumbnailDirectionIdentityRaw.style_authority)
+      && Array.isArray(thumbnailDirectionIdentityRaw.title_inputs)
+      && thumbnailDirectionIdentityRaw.title_inputs.length === 3
+      && thumbnailDirectionIdentityRaw.title_inputs.every(isRecord)
+      && typeof thumbnailDirectionIdentityRaw.thumbnail_planning_subtree_hash === "string"
+      && /^[0-9a-f]{64}$/i.test(thumbnailDirectionIdentityRaw.thumbnail_planning_subtree_hash)
+      && (thumbnailDirectionIdentityRaw.expected_active_strategy_id === null
+        || (typeof thumbnailDirectionIdentityRaw.expected_active_strategy_id === "string" && isUuid(thumbnailDirectionIdentityRaw.expected_active_strategy_id)))
+      && (thumbnailDirectionIdentityRaw.expected_active_concept_set_id === null
+        || (typeof thumbnailDirectionIdentityRaw.expected_active_concept_set_id === "string" && isUuid(thumbnailDirectionIdentityRaw.expected_active_concept_set_id)))
+      ? { thumbnail_direction_identity: thumbnailDirectionIdentityRaw as HearthChatResponse["thumbnail_direction_identity"] }
       : {}),
     ...(isUuid(readTrimmedField(payload, "script_approval_id"))
       ? { script_approval_id: readTrimmedField(payload, "script_approval_id")! }
