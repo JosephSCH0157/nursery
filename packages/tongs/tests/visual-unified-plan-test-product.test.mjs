@@ -14,6 +14,10 @@ const v5AuthorityMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011550000_visual_unified_plan_v5_compatibility_authority.sql",
   import.meta.url,
 ), "utf8");
+const canaryRiskMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011560000_visual_unified_plan_v5_canary_risk_authorization.sql",
+  import.meta.url,
+), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 const provider = readFileSync(new URL("../src/providers/unified-visual-plan-provider.ts", import.meta.url), "utf8");
 const certification = readFileSync(new URL("../../../scripts/certify-visual-unified-plan-gasoline-request.mts", import.meta.url), "utf8");
@@ -105,4 +109,25 @@ test("model catalog revision 11 advances only the Visual Plan provider contract 
   assert.match(v5AuthorityMigration, /financial_environment='live'[\s\S]+status='active'/);
   assert.doesNotMatch(v5AuthorityMigration, /insert into tongs\.(private_pricing|openai_text_cost_policy|openai_text_rollout|customer_paid_execution_scope|openai_text_failure_loss)/);
   assert.doesNotMatch(v5AuthorityMigration, /update tongs\.openai_text_model_catalog/);
+});
+
+test("one additional v5 canary receives finite Test-only aggregate authority", () => {
+  assert.match(canaryRiskMigration, /'bounded_test_risk_acceptance'/);
+  assert.match(canaryRiskMigration, /6286,0,13773,13773,20059/);
+  assert.match(canaryRiskMigration, /'test',2,'operator_authorized'/);
+  assert.match(canaryRiskMigration, /additional_loss_capacity_micros=13773/);
+  assert.match(canaryRiskMigration, /effective_aggregate_limit_micros=20059/);
+  assert.match(canaryRiskMigration, /per_operation_limit_micros=13773/);
+  assert.match(canaryRiskMigration, /maximum_concurrency=1/);
+  assert.match(canaryRiskMigration, /rolling_window_seconds=86400/);
+  assert.match(canaryRiskMigration, /provider_contract_version'='forge\.unified-visual-plan-provider\.v5'/);
+  assert.doesNotMatch(canaryRiskMigration, /insert into tongs\.(private_pricing|customer_paid_execution_scope|openai_text_failure_loss_policy)/i);
+  assert.doesNotMatch(canaryRiskMigration, /update\s+tongs\./i);
+  const riskInserts = canaryRiskMigration.match(
+    /insert into tongs\.openai_text_failure_loss_(?:operator_decisions|rollout_revisions)[\s\S]*?;/gi,
+  ) ?? [];
+  assert.equal(riskInserts.length, 2);
+  for (const statement of riskInserts) {
+    assert.doesNotMatch(statement, /'visual\.unified_plan','live'/i);
+  }
 });
