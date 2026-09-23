@@ -21,7 +21,7 @@ test("chat-added URL Sources enter canonical Tongs authority before the compatib
 test("unified planning freezes the canonical source catalog and materializes direct bindings",()=>{
   assert.match(planner,/read_workpiece_sources/);
   assert.match(planner,/source_catalog:\s*sourceCatalog/);
-  assert.match(planner,/forge\.unified-visual-plan-provider\.v3/);
+  assert.match(planner,/provider_contract_version:\s*UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION/);
   assert.match(planner,/source_status:\s*direct\s*\?\s*"linked"\s*:\s*"unresolved"/);
   assert.match(planner,/commit_visual_source_attribution/);
   assert.match(planner,/commitAttributions\(\s*"image"/);

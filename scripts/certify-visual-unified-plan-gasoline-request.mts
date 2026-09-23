@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { buildBoundedOpenAiProviderRequest } from "../packages/tongs/src/providers/bounded-provider-request.ts";
 import {
-  buildUnifiedVisualPlanProviderRequestBody,
-  type UnifiedVisualSourceCatalogEntry,
+  canonicalizeUnifiedVisualSourceCatalog,
+  prepareUnifiedVisualPlanProviderRequest,
+  UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
 } from "../packages/tongs/src/providers/unified-visual-plan-provider.ts";
 
 const WORKSPACE_ID = "cc5478ff-37be-403e-824c-467fa7da061e";
@@ -14,6 +14,7 @@ const APPROVAL_REVISION = 1;
 const SCRIPT_HASH = "0d32f3762a1ee766cf43ab52568407123f1ede0d0de1d1a7114819c3cc6dedfe";
 const MODEL = "gpt-5.6-luna";
 const MAXIMUM_OUTPUT_TOKENS = 6_144;
+const EXPECTED_SOURCE_CATALOG_ENTRIES = 4;
 
 function readLocalEnvironment(): Record<string, string> {
   const values: Record<string, string> = {};
@@ -67,50 +68,45 @@ if (
 const scriptText = nonemptyString(approval.script_text);
 if (!scriptText) throw new Error("approved gasoline script is empty");
 
-const sourcesResponse = await fetch(`${supabaseUrl}/rest/v1/rpc/read_workpiece_sources`, {
-  method: "POST",
-  headers: { ...headers, "content-profile": "tongs", "accept-profile": "tongs" },
-  body: JSON.stringify({ p_workspace_id: WORKSPACE_ID, p_workpiece_id: WORKPIECE_ID }),
-});
-if (!sourcesResponse.ok) throw new Error(`source read failed (${sourcesResponse.status})`);
-const sourcesRoot = asRecord(await sourcesResponse.json());
-const sourceCatalog: UnifiedVisualSourceCatalogEntry[] = (
-  sourcesRoot && Array.isArray(sourcesRoot.links) ? sourcesRoot.links : []
-).flatMap((value) => {
-  const entry = asRecord(value);
-  const linkRevision = asRecord(entry?.link_revision);
-  const sourceRevision = asRecord(entry?.source_revision);
-  const linkId = nonemptyString(linkRevision?.id);
-  const title = nonemptyString(sourceRevision?.title);
-  const sourceType = nonemptyString(sourceRevision?.source_type);
-  const canonicalUrl = nonemptyString(sourceRevision?.canonical_url);
-  if (!linkId || !title || !sourceType || !canonicalUrl) return [];
-  const provenance = asRecord(sourceRevision?.provenance_json) ?? {};
-  return [{
-    source_key: `src_${linkId.replaceAll("-", "")}`,
-    title,
-    publisher: nonemptyString(sourceRevision?.publisher),
-    source_type: sourceType,
-    canonical_url: canonicalUrl,
-    user_supplied: provenance.user_supplied === true,
-  }];
-});
+async function readRows(path: string): Promise<Record<string, unknown>[]> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+    headers: { ...headers, "accept-profile": "tongs" },
+  });
+  if (!response.ok) throw new Error(`canonical source read failed (${response.status})`);
+  const rows = await response.json() as unknown;
+  if (!Array.isArray(rows)) throw new Error("canonical source rows are unavailable");
+  return rows.flatMap((row) => asRecord(row) ?? []);
+}
 
-const bounded = await buildBoundedOpenAiProviderRequest({
-  body: {
-    ...buildUnifiedVisualPlanProviderRequestBody({
-      scriptText,
-      creatorDirection: null,
-      generationScope: "full_media_plan",
-      sourceCatalog,
-      model: MODEL,
-    }),
-    max_output_tokens: MAXIMUM_OUTPUT_TOKENS,
-  },
+const sequences = await readRows(
+  `workpiece_source_link_sequences?workspace_id=eq.${WORKSPACE_ID}&workpiece_id=eq.${WORKPIECE_ID}&select=current_link_revision_id`,
+);
+const linkRevisionIds = sequences.flatMap((row) => nonemptyString(row.current_link_revision_id) ?? []);
+if (linkRevisionIds.length !== EXPECTED_SOURCE_CATALOG_ENTRIES)
+  throw new Error(`gasoline canonical source count changed (${linkRevisionIds.length})`);
+const linkRevisions = await readRows(
+  `workpiece_source_link_revisions?id=in.(${linkRevisionIds.join(",")})&select=id,source_revision_id,created_at&order=created_at.asc,id.asc`,
+);
+const sourceRevisionIds = linkRevisions.flatMap((row) => nonemptyString(row.source_revision_id) ?? []);
+const sourceRevisions = await readRows(
+  `source_revisions?id=in.(${sourceRevisionIds.join(",")})&select=id,title,publisher,source_type,canonical_url,provenance_json`,
+);
+const sourceById = new Map(sourceRevisions.map((row) => [nonemptyString(row.id), row]));
+const sourceCatalog = canonicalizeUnifiedVisualSourceCatalog(linkRevisions.map((linkRevision) => ({
+  link_revision: linkRevision,
+  source_revision: sourceById.get(nonemptyString(linkRevision.source_revision_id)),
+})));
+if (sourceCatalog.length !== EXPECTED_SOURCE_CATALOG_ENTRIES)
+  throw new Error(`gasoline canonical source catalog is incomplete (${sourceCatalog.length})`);
+
+const bounded = await prepareUnifiedVisualPlanProviderRequest({
+  scriptText,
+  creatorDirection: null,
+  generationScope: "full_media_plan",
+  sourceCatalog,
   model: MODEL,
   maximumOutputTokens: MAXIMUM_OUTPUT_TOKENS,
   maximumAttempts: 1,
-  serviceTier: "standard",
 });
 
 console.log(JSON.stringify({
@@ -122,7 +118,7 @@ console.log(JSON.stringify({
   creator_direction: null,
   source_catalog_entries: sourceCatalog.length,
   model: MODEL,
-  output_contract: "forge.unified-visual-plan-provider.v4",
+  output_contract: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
   serialized_body_sha256: bounded.serializedBodySha256,
   serialized_bytes: bounded.serializedBytes,
   tokenizer_revision: bounded.tokenizerRevision,

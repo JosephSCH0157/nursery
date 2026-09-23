@@ -171,8 +171,10 @@ import {
 import {
   arbitrateUnifiedVisualPlanCoverage,
   buildUnifiedVisualPlanProviderRequestBody,
+  canonicalizeUnifiedVisualSourceCatalog,
   normalizeUnifiedVisualPlanContextAnchors,
   OpenAiUnifiedVisualPlanProvider,
+  prepareUnifiedVisualPlanProviderRequest,
   UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
   validateUnifiedVisualPlan,
   validateUnifiedVisualPlanScope,
@@ -28992,6 +28994,13 @@ export class TongsCommitService {
     const existingOperation = isRecord(existingResult.data)
       ? existingResult.data
       : null;
+    if (readStringField(existingOperation, "state") === "failed")
+      throw new HttpError(
+        409,
+        "unified_visual_plan_terminal_failure",
+        "This Unified Visual Plan operation failed terminally and cannot be replayed.",
+        existingOperation,
+      );
     const frozen = isRecord(existingOperation?.normalized_inputs_json)
       ? existingOperation.normalized_inputs_json
       : null;
@@ -29061,34 +29070,9 @@ export class TongsCommitService {
         sourceRead.error?.message ??
           "Canonical workpiece Sources could not be read.",
       );
-    const sourceCatalog = (
-      Array.isArray(sourceRead.data.links) ? sourceRead.data.links : []
-    ).flatMap((entry): UnifiedVisualSourceCatalogEntry[] => {
-      if (
-        !isRecord(entry) ||
-        !isRecord(entry.link_revision) ||
-        !isRecord(entry.source_revision)
-      )
-        return [];
-      const linkId = readStringField(entry.link_revision, "id"),
-        title = readStringField(entry.source_revision, "title"),
-        sourceType = readStringField(entry.source_revision, "source_type"),
-        canonicalUrl = readStringField(entry.source_revision, "canonical_url");
-      if (!linkId || !title || !sourceType || !canonicalUrl) return [];
-      const provenance = isRecord(entry.source_revision.provenance_json)
-        ? entry.source_revision.provenance_json
-        : {};
-      return [
-        {
-          source_key: `src_${linkId.replaceAll("-", "")}`,
-          title,
-          publisher: readStringField(entry.source_revision, "publisher"),
-          source_type: sourceType,
-          canonical_url: canonicalUrl,
-          user_supplied: provenance.user_supplied === true,
-        },
-      ];
-    });
+    const sourceCatalog = canonicalizeUnifiedVisualSourceCatalog(
+      Array.isArray(sourceRead.data.links) ? sourceRead.data.links : [],
+    );
     const sourceBindings = new Map<
       string,
       {
@@ -29188,21 +29172,14 @@ export class TongsCommitService {
           acceptance: input.spending_acceptance ?? null,
           serviceGate: this.openAiTextGate,
           prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
-            buildBoundedOpenAiProviderRequest({
-              body: {
-                ...buildUnifiedVisualPlanProviderRequestBody({
-                  scriptText,
-                  creatorDirection: readStringField(normalizedInputs, "creator_direction"),
-                  generationScope: (readStringField(normalizedInputs, "generation_scope") ?? "full_media_plan") as UnifiedVisualPlanGenerationScope,
-                  sourceCatalog: frozenCatalog,
-                  model,
-                }),
-                max_output_tokens: maximumOutputTokens,
-              },
+            prepareUnifiedVisualPlanProviderRequest({
+              scriptText,
+              creatorDirection: readStringField(normalizedInputs, "creator_direction"),
+              generationScope: (readStringField(normalizedInputs, "generation_scope") ?? "full_media_plan") as UnifiedVisualPlanGenerationScope,
+              sourceCatalog: frozenCatalog,
               model,
               maximumOutputTokens,
               maximumAttempts,
-              serviceTier: "standard",
             }),
           userGate: authority as unknown as OpenAiTextGateClient,
         });
@@ -29283,6 +29260,7 @@ export class TongsCommitService {
       if (!this.unifiedVisualPlanProvider) {
         throw new HttpError(503, "unified_visual_plan_provider_unavailable", "Unified Visual Plan provider is not configured.");
       }
+      let validationFailureMessage: string | null = null;
       const paidOutcome = await executePaidOpenAiTextRoute({
         gate: this.openAiTextGate,
         routeCode: "visual.unified_plan",
@@ -29291,21 +29269,14 @@ export class TongsCommitService {
         workspaceId: input.workspace_id,
         workpieceId,
         credentialSource: "forge_managed",
-        prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({
-          body: {
-            ...buildUnifiedVisualPlanProviderRequestBody({
-              scriptText,
-              creatorDirection: readStringField(normalizedInputs, "creator_direction"),
-              generationScope,
-              sourceCatalog: frozenCatalog,
-              model: context.model,
-            }),
-            max_output_tokens: context.maximumOutputUnits,
-          },
+        prepareBoundedRequest: (context) => prepareUnifiedVisualPlanProviderRequest({
+          scriptText,
+          creatorDirection: readStringField(normalizedInputs, "creator_direction"),
+          generationScope,
+          sourceCatalog: frozenCatalog,
           model: context.model,
           maximumOutputTokens: context.maximumOutputUnits,
           maximumAttempts: context.maximumAttempts,
-          serviceTier: "standard",
         }),
         requestFingerprintPayload: normalizedInputs,
         recoverCanonical: async () => {
@@ -29362,22 +29333,21 @@ export class TongsCommitService {
             if (invalid.length || scopeInvalid.length) throw new Error(`Invalid fields: ${[...invalid, ...scopeInvalid].join(", ")}`);
             result.plan = normalized;
           } catch (error) {
-            try {
-              await authority.rpc("record_openai_text_validation_failure_evidence", {
-                p_route_code: "visual.unified_plan",
-                p_operation_id: input.operation_id,
-                p_reservation_id: input.paid_execution!.reservationId,
-                p_provider_request_id: result.providerRequestId,
-                p_model: result.model,
-                p_input_units: result.inputTokens,
-                p_output_units: result.outputTokens,
-                p_raw_provider_response_text: result.rawResponseText,
-                p_validation_error_code: result.parseError ?? "visual_plan_contract_invalid",
-                p_validation_contract_revision: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
-              });
-            } catch {
-              // The immutable provider capture already retains the raw response.
-            }
+            validationFailureMessage = error instanceof Error ? error.message : String(error);
+            const evidence = await this.openAiTextGate.rpc("record_openai_text_validation_failure_evidence", {
+              p_route_code: "visual.unified_plan",
+              p_operation_id: input.operation_id,
+              p_reservation_id: input.paid_execution!.reservationId,
+              p_provider_request_id: result.providerRequestId,
+              p_model: result.model,
+              p_input_units: result.inputTokens,
+              p_output_units: result.outputTokens,
+              p_raw_provider_response_text: result.rawResponseText,
+              p_validation_error_code: "visual_plan_contract_invalid",
+              p_validation_contract_revision: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
+            });
+            if (evidence.error)
+              throw new Error(`visual_plan_validation_evidence_failed: ${evidence.error.message}`, { cause: error });
             throw error;
           }
         },
@@ -29409,6 +29379,17 @@ export class TongsCommitService {
       });
       if (paidOutcome.state === "settled" || paidOutcome.state === "settled_replay") {
         return paidOutcome.result as Record<string, Json>;
+      }
+      if (paidOutcome.state === "failed_released" && validationFailureMessage) {
+        const failed = await authority.rpc("fail_unified_visual_plan", {
+          p_operation_id: input.operation_id,
+          p_operation_fingerprint: input.operation_fingerprint,
+          p_failed_stage: "validation",
+          p_failure_code: "visual_plan_contract_invalid",
+          p_failure_message: validationFailureMessage,
+        });
+        if (failed.error)
+          throw new HttpError(502, "unified_visual_plan_terminalization_failed", failed.error.message);
       }
       throw new HttpError(
         paidOutcome.state === "submission_unknown" ? 202 : 502,

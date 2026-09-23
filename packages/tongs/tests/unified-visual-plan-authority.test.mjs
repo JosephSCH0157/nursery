@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { arbitrateUnifiedVisualPlanCoverage, deriveUnifiedVisualMomentBudget, normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
+import { arbitrateUnifiedVisualPlanCoverage, canonicalizeUnifiedVisualSourceCatalog, deriveUnifiedVisualMomentBudget, normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, prepareUnifiedVisualPlanProviderRequest, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
 
 const migration=await readFile(new URL("../../../supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",import.meta.url),"utf8");
 const fourChildMigration=await readFile(new URL("../../../supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",import.meta.url),"utf8");
@@ -61,6 +61,20 @@ test("source-aware validation rejects invented keys and invalid relationship car
   assert.deepEqual(validateUnifiedVisualPlan(plan,"Approved script.",new Set(["src_known"])),["images[0]:direct_source_count"]);
   plan.images[0]={...base,source_keys:["src_known"],source_relationship:"ambiguous"};
   assert.deepEqual(validateUnifiedVisualPlan(plan,"Approved script.",new Set(["src_known"])),["images[0]:ambiguous_source_count"]);
+});
+
+test("canonical source preparation preserves database order and is byte-stable",async()=>{
+  const links=[
+    {link_revision:{id:"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"},source_revision:{title:"B",publisher:null,source_type:"webpage",canonical_url:"https://example.test/b",provenance_json:{user_supplied:true}}},
+    {link_revision:{id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},source_revision:{title:"A",publisher:"Publisher",source_type:"webpage",canonical_url:"https://example.test/a",provenance_json:{user_supplied:false}}},
+  ];
+  const catalog=canonicalizeUnifiedVisualSourceCatalog(links);
+  assert.deepEqual(catalog.map((source)=>source.source_key),["src_bbbbbbbbbbbb4bbb8bbbbbbbbbbbbbbb","src_aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa"]);
+  const input={scriptText:"Approved script.",creatorDirection:null,generationScope:"full_media_plan",sourceCatalog:catalog,model:"gpt-5.6-luna",maximumOutputTokens:6144,maximumAttempts:1};
+  const first=await prepareUnifiedVisualPlanProviderRequest(input);
+  const second=await prepareUnifiedVisualPlanProviderRequest({...input,sourceCatalog:canonicalizeUnifiedVisualSourceCatalog(structuredClone(links))});
+  assert.equal(first.serializedBody,second.serializedBody);
+  assert.equal(first.serializedBodySha256,second.serializedBodySha256);
 });
 
 test("Reference Clip planning can be unresolved without fabricating Source authority",()=>{

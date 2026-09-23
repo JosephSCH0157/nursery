@@ -1,13 +1,13 @@
-import type { BoundedProviderRequest } from "./bounded-provider-request.js";
+import {
+  buildBoundedOpenAiProviderRequest,
+  type BoundedProviderRequest,
+} from "./bounded-provider-request.js";
+import type { UnifiedVisualSourceCatalogEntry } from "./unified-visual-source-catalog.js";
+export {
+  canonicalizeUnifiedVisualSourceCatalog,
+  type UnifiedVisualSourceCatalogEntry,
+} from "./unified-visual-source-catalog.js";
 
-export type UnifiedVisualSourceCatalogEntry = {
-  source_key: string;
-  title: string;
-  publisher: string | null;
-  source_type: string;
-  canonical_url: string;
-  user_supplied: boolean;
-};
 export type UnifiedVisualSourceRelationship =
   | "direct"
   | "supporting"
@@ -101,7 +101,7 @@ export type UnifiedVisualPlanProviderOutput = {
   model: string;
 };
 export const UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION =
-  "forge.unified-visual-plan-provider.v4";
+  "forge.unified-visual-plan-provider.v5";
 export interface UnifiedVisualPlanProvider {
   generate(input: {
     scriptText: string;
@@ -124,6 +124,16 @@ const sourceFields = {
     type: "string",
     enum: ["direct", "supporting", "ambiguous", "none"],
   },
+  source_rationale: { type: "string" },
+} as const;
+const canonicalReferenceSourceFields = {
+  source_keys: {
+    type: "array",
+    minItems: 1,
+    maxItems: 1,
+    items: { type: "string" },
+  },
+  source_relationship: { type: "string", enum: ["direct"] },
   source_rationale: { type: "string" },
 } as const;
 const sourceRequired = [
@@ -224,7 +234,7 @@ const schema = {
         ],
         properties: {
           ...itemContext,
-          ...sourceFields,
+          ...canonicalReferenceSourceFields,
           editorial_reason: { type: "string" },
           desired_material: { type: "string" },
           search_terms: {
@@ -268,7 +278,7 @@ const schema = {
         ],
         properties: {
           ...itemContext,
-          ...sourceFields,
+          ...canonicalReferenceSourceFields,
           visual_subtype: {
             type: "string",
             enum: [
@@ -325,6 +335,27 @@ export function buildUnifiedVisualPlanProviderRequestBody(input: {
     }),
     text: { format: { type: "json_schema", name: "unified_visual_plan", strict: true, schema } },
   };
+}
+
+export function prepareUnifiedVisualPlanProviderRequest(input: {
+  scriptText: string;
+  creatorDirection: string | null;
+  generationScope: UnifiedVisualPlanGenerationScope;
+  sourceCatalog: UnifiedVisualSourceCatalogEntry[];
+  model: string;
+  maximumOutputTokens: number;
+  maximumAttempts: number;
+}): Promise<BoundedProviderRequest> {
+  return buildBoundedOpenAiProviderRequest({
+    body: {
+      ...buildUnifiedVisualPlanProviderRequestBody(input),
+      max_output_tokens: input.maximumOutputTokens,
+    },
+    model: input.model,
+    maximumOutputTokens: input.maximumOutputTokens,
+    maximumAttempts: input.maximumAttempts,
+    serviceTier: "standard",
+  });
 }
 function outputText(payload: Record<string, unknown>): string | null {
   if (typeof payload.output_text === "string" && payload.output_text.trim())

@@ -107,9 +107,27 @@ begin
   ) into evidence_definition;
   if position('visual.unified_plan' in evidence_definition)=0
     or position('forge.unified-visual-plan-provider.v4' in evidence_definition)=0
+    or position('forge.unified-visual-plan-provider.v5' in evidence_definition)=0
     or position('hearth.framing_pack_generation' in evidence_definition)=0
     or position('framing_pack_seven_sections.v1' in evidence_definition)=0
   then raise exception 'generic validation evidence route authority mismatch'; end if;
+
+  if not (select relrowsecurity and relforcerowsecurity from pg_class
+      where oid='tongs.unified_visual_plan_reconciliation_events'::regclass)
+    or has_table_privilege('anon','tongs.unified_visual_plan_reconciliation_events','select')
+    or has_table_privilege('authenticated','tongs.unified_visual_plan_reconciliation_events','select')
+    or not has_table_privilege('service_role','tongs.unified_visual_plan_reconciliation_events','select')
+  then raise exception 'unified Visual Plan reconciliation evidence permissions mismatch'; end if;
+  if has_function_privilege('anon',
+      'tongs.reconcile_unified_visual_plan_validation_failure(text,text,uuid,text,text,text,bigint)','execute')
+    or has_function_privilege('authenticated',
+      'tongs.reconcile_unified_visual_plan_validation_failure(text,text,uuid,text,text,text,bigint)','execute')
+    or not has_function_privilege('service_role',
+      'tongs.reconcile_unified_visual_plan_validation_failure(text,text,uuid,text,text,text,bigint)','execute')
+  then raise exception 'unified Visual Plan reconciliation RPC permissions mismatch'; end if;
+  if position('state=''failed''' in pg_get_functiondef(
+      'tongs.fail_unified_visual_plan(text,text,text,text,text)'::regprocedure))=0
+  then raise exception 'unified Visual Plan failure is not terminal'; end if;
 end $$;
 
 rollback;

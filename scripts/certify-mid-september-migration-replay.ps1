@@ -71,7 +71,8 @@ $newForwardMigrationNames = @(
   '20261011500000_hearth_tag_generation_test_product.sql',
   '20261011510000_hearth_tag_validation_evidence_v2.sql',
   '20261011520000_hearth_framing_pack_generation_test_product.sql',
-  '20261011530000_visual_unified_plan_test_product.sql'
+  '20261011530000_visual_unified_plan_test_product.sql',
+  '20261011540000_visual_unified_plan_canary_repair.sql'
 )
 $allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
 
@@ -177,9 +178,9 @@ try {
   }
   if ($heldMigrationNames.Count -ne 34 -or
       ($heldMigrationNames | Sort-Object -Unique).Count -ne 34 -or
-      $newForwardMigrationNames.Count -ne 6 -or
-      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 40) {
-    throw 'Historical replay manifest must contain 34 historical and 6 forward migration files.'
+      $newForwardMigrationNames.Count -ne 7 -or
+      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 41) {
+    throw 'Historical replay manifest must contain 34 historical and 7 forward migration files.'
   }
   $exclusionManifest = Get-Content -LiteralPath $exclusionManifestPath -Raw | ConvertFrom-Json
   $manifestMigrations = @($exclusionManifest.migrations)

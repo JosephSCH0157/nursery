@@ -94,7 +94,7 @@ async function currentInputs(workspaceId: string, workpieceId: string, generatio
     expected_reference_revision_id: string(referenceRow?.current_plan_revision_id), expected_reference_revision: integer(referenceRow?.current_plan_revision),
     expected_reference_visual_revision_id: string(referenceVisualRow?.current_plan_revision_id), expected_reference_visual_revision: integer(referenceVisualRow?.current_plan_revision),
     creator_direction: null, generation_scope: generationScope, source_catalog:sourceCatalog, contract_version: "forge.unified-visual-plan.v3",
-    provider_contract_version: "forge.unified-visual-plan-provider.v4",
+    provider_contract_version: "forge.unified-visual-plan-provider.v5",
     model_configuration: { model: "gpt-5.6-luna" },
   } };
 }
