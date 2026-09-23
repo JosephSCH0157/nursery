@@ -42,6 +42,7 @@
     "20261011510000_hearth_tag_validation_evidence_v2.sql",
     "20261011520000_hearth_framing_pack_generation_test_product.sql",
     "20261011530000_visual_unified_plan_test_product.sql",
-    "20261011540000_visual_unified_plan_canary_repair.sql"
+    "20261011540000_visual_unified_plan_canary_repair.sql",
+    "20261011550000_visual_unified_plan_v5_compatibility_authority.sql"
   ]
 }

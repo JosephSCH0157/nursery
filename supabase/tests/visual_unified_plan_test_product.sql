@@ -53,8 +53,35 @@ begin
       and compatibility.maximum_input_tokens=32000
       and compatibility.maximum_output_tokens=6144
       and compatibility.maximum_attempts=1
+      and compatibility.supporting_cost_coverage='complete'
       and compatibility.cost_policy_revision_id='17000000-0000-4000-8000-000000000001'
-  ) then raise exception 'Visual Plan Luna compatibility proof failed'; end if;
+      and compatibility.evidence_json->>'provider_contract_version'='forge.unified-visual-plan-provider.v4'
+  ) then raise exception 'historical Visual Plan Luna v4 compatibility proof failed'; end if;
+
+  if not exists (
+    select 1
+    from tongs.openai_text_model_route_compatibility compatibility
+    join tongs.openai_text_model_catalog_entries entry
+      on entry.id=compatibility.catalog_entry_id
+    join tongs.openai_text_model_catalog_revisions catalog
+      on catalog.id=entry.catalog_revision_id
+    where catalog.revision=11 and catalog.lifecycle_state='active'
+      and catalog.revision=(select max(current.revision)
+        from tongs.openai_text_model_catalog_revisions current
+        where current.lifecycle_state='active')
+      and entry.provider_model_id='gpt-5.6-luna'
+      and compatibility.route_code='visual.unified_plan'
+      and compatibility.compatibility_status='generation_verified'
+      and compatibility.maximum_input_tokens=32000
+      and compatibility.maximum_output_tokens=6144
+      and compatibility.maximum_attempts=1
+      and compatibility.supporting_cost_coverage='complete'
+      and compatibility.cost_policy_revision_id='17000000-0000-4000-8000-000000000001'
+      and compatibility.evidence_json->>'provider_contract_version'='forge.unified-visual-plan-provider.v5'
+      and compatibility.evidence_json->>'test_only'='true'
+      and compatibility.evidence_json->>'responses_json_schema'='true'
+      and compatibility.evidence_json->>'canonical_four_child_commit_required'='true'
+  ) then raise exception 'current Visual Plan Luna v5 compatibility proof failed'; end if;
 
   if not exists (
     select 1 from tongs.openai_text_failure_loss_policy_revisions

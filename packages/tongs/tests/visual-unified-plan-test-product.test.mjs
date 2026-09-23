@@ -10,6 +10,10 @@ const repairMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011540000_visual_unified_plan_canary_repair.sql",
   import.meta.url,
 ), "utf8");
+const v5AuthorityMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011550000_visual_unified_plan_v5_compatibility_authority.sql",
+  import.meta.url,
+), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 const provider = readFileSync(new URL("../src/providers/unified-visual-plan-provider.ts", import.meta.url), "utf8");
 const certification = readFileSync(new URL("../../../scripts/certify-visual-unified-plan-gasoline-request.mts", import.meta.url), "utf8");
@@ -86,4 +90,19 @@ test("Visual Plan provider accepts harmless Responses output serialization witho
   assert.match(service, /maximumAttempts:\s*context\.maximumAttempts/);
   assert.match(migration, /maximum_attempts=1/);
   assert.doesNotMatch(service, /visual\.unified_plan[\s\S]{0,1000}maximumAttempts:\s*2/);
+});
+
+test("model catalog revision 11 advances only the Visual Plan provider contract to v5", () => {
+  assert.match(v5AuthorityMigration, /next_catalog_id,11,'active'/);
+  assert.match(v5AuthorityMigration, /provider_contract_version','forge\.unified-visual-plan-provider\.v5'/);
+  assert.match(v5AuthorityMigration, /compatibility_status='generation_verified'/);
+  assert.match(v5AuthorityMigration, /maximum_input_tokens=32000/);
+  assert.match(v5AuthorityMigration, /maximum_output_tokens=6144/);
+  assert.match(v5AuthorityMigration, /maximum_attempts=1/);
+  assert.match(v5AuthorityMigration, /supporting_cost_coverage='complete'/);
+  assert.match(v5AuthorityMigration, /cost_policy_revision_id='17000000-0000-4000-8000-000000000001'/);
+  assert.match(v5AuthorityMigration, /unrelated model-route compatibility changed/);
+  assert.match(v5AuthorityMigration, /financial_environment='live'[\s\S]+status='active'/);
+  assert.doesNotMatch(v5AuthorityMigration, /insert into tongs\.(private_pricing|openai_text_cost_policy|openai_text_rollout|customer_paid_execution_scope|openai_text_failure_loss)/);
+  assert.doesNotMatch(v5AuthorityMigration, /update tongs\.openai_text_model_catalog/);
 });
