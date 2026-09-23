@@ -34,6 +34,10 @@ const referenceVisualStateRepairMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011600000_visual_plan_reference_visual_state_repair.sql",
   import.meta.url,
 ), "utf8");
+const reconciliationReplayPathRepairMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011610000_visual_plan_reconciliation_replay_path_repair.sql",
+  import.meta.url,
+), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 const provider = readFileSync(new URL("../src/providers/unified-visual-plan-provider.ts", import.meta.url), "utf8");
 const hearthAuthority = readFileSync(new URL("../../../apps/hearth/src/lib/hearth-unified-visual-plan-authority.ts", import.meta.url), "utf8");
@@ -237,6 +241,32 @@ test("historical Reference Visual persistence recovery is exact, private, nonbil
   assert.doesNotMatch(referenceVisualStateRepairMigration, /insert into tongs\.supplier_expenses/i);
   assert.doesNotMatch(referenceVisualStateRepairMigration, /insert into tongs\.openai_text_persisted_results/i);
   assert.doesNotMatch(referenceVisualStateRepairMigration, /https:\/\/api\.openai\.com|fetch\(|OpenAiUnifiedVisualPlanProvider/i);
+});
+
+test("Reference Visual persistence reconciliation uses one canonical nested hash path for creation and replay", () => {
+  assert.match(
+    referenceVisualStateRepairMigration,
+    /'reference_visual_plan',jsonb_build_object\('revision_id',reference_visual_revision\.id,'revision',reference_visual_revision\.revision,'content_hash',reference_visual_revision\.content_hash\)/,
+  );
+  assert.match(
+    reconciliationReplayPathRepairMigration,
+    /existing_event\.evidence_json#>>'\{reference_visual_plan,content_hash\}'/,
+  );
+  assert.match(
+    reconciliationReplayPathRepairMigration,
+    /old_path_count<>1/,
+  );
+  assert.match(
+    reconciliationReplayPathRepairMigration,
+    /create or replace function tongs\.reconcile_unified_visual_plan_reference_visual_state_failure/,
+  );
+  assert.match(referenceVisualStateRepairMigration, /op\.operation_fingerprint is distinct from p_operation_fingerprint/);
+  assert.match(referenceVisualStateRepairMigration, /reference_visual_revision\.id is null/);
+  assert.match(referenceVisualStateRepairMigration, /reference_visual_revision\.content_hash is distinct from p_reference_visual_plan_content_hash/);
+  assert.match(referenceVisualStateRepairMigration, /existing_event\.evidence_json->>'provider_response_hash'/);
+  assert.match(referenceVisualStateRepairMigration, /positive_expense_sum is distinct from p_expected_supplier_expense_micros/);
+  assert.doesNotMatch(reconciliationReplayPathRepairMigration, /insert into|update\s+tongs\.|delete from/i);
+  assert.doesNotMatch(reconciliationReplayPathRepairMigration, /supplier_expenses|customer_spending_quotes|funding_reservation_events|api\.openai\.com/i);
 });
 
 test("Visual Plan recovery is readback-only while terminal ambiguity permits only a distinct fresh operation", () => {

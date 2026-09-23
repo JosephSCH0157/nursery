@@ -78,7 +78,8 @@ $newForwardMigrationNames = @(
   '20261011570000_visual_unified_plan_transport_lease_recovery.sql',
   '20261011580000_visual_plan_submission_unknown_concurrency_repair.sql',
   '20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql',
-  '20261011600000_visual_plan_reference_visual_state_repair.sql'
+  '20261011600000_visual_plan_reference_visual_state_repair.sql',
+  '20261011610000_visual_plan_reconciliation_replay_path_repair.sql'
 )
 $allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
 
@@ -184,9 +185,9 @@ try {
   }
   if ($heldMigrationNames.Count -ne 34 -or
       ($heldMigrationNames | Sort-Object -Unique).Count -ne 34 -or
-      $newForwardMigrationNames.Count -ne 13 -or
-      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 47) {
-    throw 'Historical replay manifest must contain 34 historical and 13 forward migration files.'
+      $newForwardMigrationNames.Count -ne 14 -or
+      ($allHeldMigrationNames | Sort-Object -Unique).Count -ne 48) {
+    throw 'Historical replay manifest must contain 34 historical and 14 forward migration files.'
   }
   $exclusionManifest = Get-Content -LiteralPath $exclusionManifestPath -Raw | ConvertFrom-Json
   $manifestMigrations = @($exclusionManifest.migrations)

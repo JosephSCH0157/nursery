@@ -4,6 +4,7 @@ begin;
 do $$
 declare
   evidence_definition text;
+  reference_visual_reconciliation_definition text;
 begin
   if not exists (
     select 1 from tongs.openai_text_route_policies
@@ -181,6 +182,24 @@ begin
     or not has_function_privilege('service_role',
       'tongs.reconcile_unified_visual_plan_validation_failure(text,text,uuid,text,text,text,bigint)','execute')
   then raise exception 'unified Visual Plan reconciliation RPC permissions mismatch'; end if;
+
+  select pg_get_functiondef(
+    'tongs.reconcile_unified_visual_plan_reference_visual_state_failure(text,text,uuid,uuid,bigint,text,text,bigint,bigint,bigint)'::regprocedure
+  ) into reference_visual_reconciliation_definition;
+  if position(
+      'existing_event.evidence_json#>>''{reference_visual_plan,content_hash}'''
+      in reference_visual_reconciliation_definition
+    )=0
+    or position(
+      'existing_event.evidence_json->>''reference_visual_plan_content_hash'''
+      in reference_visual_reconciliation_definition
+    )<>0
+    or position(
+      '''reference_visual_plan'',jsonb_build_object('
+      in reference_visual_reconciliation_definition
+    )=0
+  then raise exception 'Reference Visual reconciliation creation/replay evidence paths diverged'; end if;
+
   if position('state=''failed''' in pg_get_functiondef(
       'tongs.fail_unified_visual_plan(text,text,text,text,text)'::regprocedure))=0
   then raise exception 'unified Visual Plan failure is not terminal'; end if;
