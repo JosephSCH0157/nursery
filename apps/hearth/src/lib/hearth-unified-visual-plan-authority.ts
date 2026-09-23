@@ -1,6 +1,7 @@
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { OPENAI_TEXT_OUTER_REQUEST_DEADLINE_MS } from "../../../../packages/tongs/src/providers/openai-text-timing-contract";
 
 type JsonRecord = Record<string, unknown>;
 type Result<T> = { ok: true; data: T } | { ok: false; status: number; code: string; error: string; stage: string | null };
@@ -38,6 +39,18 @@ async function hash(value: unknown): Promise<string> {
 }
 
 async function json(response: Response): Promise<unknown> { try { return await response.json(); } catch { return null; } }
+
+function requestBodyFromInputs(inputs: JsonRecord, operationId: string, operationFingerprint: string): JsonRecord {
+  return {
+    workspace_id: inputs.workspace_id, script_approval_id: inputs.script_approval_id,
+    expected_image_revision_id: inputs.expected_image_revision_id, expected_image_revision: inputs.expected_image_revision,
+    expected_broll_revision_id: inputs.expected_broll_revision_id, expected_broll_revision: inputs.expected_broll_revision,
+    expected_reference_revision_id: inputs.expected_reference_revision_id, expected_reference_revision: inputs.expected_reference_revision,
+    expected_reference_visual_revision_id: inputs.expected_reference_visual_revision_id, expected_reference_visual_revision: inputs.expected_reference_visual_revision,
+    creator_direction: inputs.creator_direction, generation_scope: string(inputs.generation_scope) ?? "full_media_plan",
+    operation_id: operationId, operation_fingerprint: operationFingerprint,
+  };
+}
 
 function failure(response: Response, value: unknown, fallback: string): Result<never> {
   const root = record(value) ? value : null;
@@ -131,10 +144,9 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
   let operationFingerprint: string;
   const latestState = string(latest.data?.state);
   if (latest.data && latestState !== "verified" && latestState !== "failed") {
-    if (!record(latest.data.normalized_inputs_json)) return { ok: false, status: 502, code: "unified_visual_plan_resume_evidence_missing", error: "The durable Visual Plan operation is missing its canonical inputs.", stage: string(latest.data.state) };
-    inputs = latest.data.normalized_inputs_json;
-    operationId = string(latest.data.operation_id) ?? "";
-    operationFingerprint = string(latest.data.operation_fingerprint) ?? "";
+    return latestState === "submission_unknown"
+      ? { ok: false, status: 202, code: "paid_submission_unknown", error: "OpenAI may have received this Visual Plan request. Forge will not submit it again; use recovery readback while the supplier outcome is reconciled.", stage: "submission_unknown" }
+      : { ok: false, status: 409, code: "unified_visual_plan_recovery_required", error: "A durable Visual Plan operation already exists. Use recovery readback; a normal retry is disabled to prevent another provider submission.", stage: latestState };
   } else {
     const current = await currentInputs(args.workspaceId, args.workpieceId, args.generationScope);
     if (!current.ok) return current;
@@ -142,16 +154,11 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     operationFingerprint = await hash(inputs);
     operationId = `forge:unified-visual-plan:${operationFingerprint}`;
   }
-  const requestBody: JsonRecord = {
-    workspace_id: inputs.workspace_id, script_approval_id: inputs.script_approval_id,
-    expected_image_revision_id: inputs.expected_image_revision_id, expected_image_revision: inputs.expected_image_revision,
-    expected_broll_revision_id: inputs.expected_broll_revision_id, expected_broll_revision: inputs.expected_broll_revision,
-    expected_reference_revision_id: inputs.expected_reference_revision_id, expected_reference_revision: inputs.expected_reference_revision,
-    expected_reference_visual_revision_id: inputs.expected_reference_visual_revision_id, expected_reference_visual_revision: inputs.expected_reference_visual_revision,
-    creator_direction: inputs.creator_direction, generation_scope: string(inputs.generation_scope) ?? "full_media_plan", operation_id: operationId, operation_fingerprint: operationFingerprint,
-  };
+  const requestBody = requestBodyFromInputs(inputs, operationId, operationFingerprint);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/generate`, { method: "POST", json: requestBody });
+    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/generate`, {
+      method: "POST", json: requestBody, signal: AbortSignal.timeout(OPENAI_TEXT_OUTER_REQUEST_DEADLINE_MS),
+    });
     const value = await json(response);
     if (response.ok) return receipt(value);
     const quote = readCustomerSpendingQuote(value);
@@ -165,4 +172,28 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     return failed;
   }
   return { ok: false, status: 409, code: "quote_retry_exhausted", error: "The accepted Visual Plan quote could not be used.", stage: "billing" };
+}
+
+export async function recoverUnifiedVisualPlanOperation(args: { workspaceId: string; workpieceId: string }): Promise<Result<UnifiedVisualPlanReceipt>> {
+  const latest = await readLatestUnifiedVisualPlanOperation(args.workspaceId, args.workpieceId);
+  if (!latest.ok) return latest;
+  if (!latest.data) return { ok: false, status: 404, code: "unified_visual_plan_operation_missing", error: "No durable Visual Plan operation is available for recovery.", stage: "recovery" };
+  const state = string(latest.data.state);
+  if (state === "verified" && record(latest.data.receipt_json)) return receipt(latest.data.receipt_json);
+  if (state === "failed") return { ok: false, status: 409, code: "unified_visual_plan_terminal_failure", error: string(latest.data.failure_message) ?? "The Visual Plan operation failed terminally.", stage: string(latest.data.failed_stage) ?? "failed" };
+  if (state === "submission_unknown") return { ok: false, status: 202, code: "paid_submission_unknown", error: "OpenAI may have received this Visual Plan request. No automatic retry is allowed; recovery remains read-only until reconciliation.", stage: "submission_unknown" };
+  const inputs = record(latest.data.normalized_inputs_json) ? latest.data.normalized_inputs_json : null;
+  const operationId = string(latest.data.operation_id), operationFingerprint = string(latest.data.operation_fingerprint);
+  if (!inputs || !operationId || !operationFingerprint) return { ok: false, status: 502, code: "unified_visual_plan_resume_evidence_missing", error: "The durable Visual Plan operation is missing its canonical recovery evidence.", stage: state };
+  try {
+    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/recover`, {
+      method: "POST",
+      json: requestBodyFromInputs(inputs, operationId, operationFingerprint),
+      signal: AbortSignal.timeout(OPENAI_TEXT_OUTER_REQUEST_DEADLINE_MS),
+    });
+    const value = await json(response);
+    return response.ok ? receipt(value) : failure(response, value, "Tongs could not recover the durable Visual Plan operation.");
+  } catch (error) {
+    return { ok: false, status: 504, code: "unified_visual_plan_recovery_deadline", error: error instanceof Error ? error.message : "Visual Plan recovery timed out.", stage: "recovery" };
+  }
 }

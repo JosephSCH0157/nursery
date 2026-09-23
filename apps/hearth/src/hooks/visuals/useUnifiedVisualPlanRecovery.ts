@@ -1,17 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
-  generateOrResumeUnifiedVisualPlan,
+  recoverUnifiedVisualPlanOperation,
   readLatestUnifiedVisualPlanOperation,
 } from "../../lib/hearth-unified-visual-plan-authority";
 
 type RecoveryDependencies = {
   readLatest: typeof readLatestUnifiedVisualPlanOperation;
-  resume: (args: { workspaceId: string; workpieceId: string }) => ReturnType<typeof generateOrResumeUnifiedVisualPlan>;
+  resume: typeof recoverUnifiedVisualPlanOperation;
 };
 
 const defaultDependencies: RecoveryDependencies = {
   readLatest: readLatestUnifiedVisualPlanOperation,
-  resume: (args) => generateOrResumeUnifiedVisualPlan({ ...args, generationScope: "full_media_plan" }),
+  resume: recoverUnifiedVisualPlanOperation,
 };
 
 const attemptedRecoveryOperations = new Set<string>();
@@ -26,36 +26,63 @@ export function useUnifiedVisualPlanRecovery(args: {
   setError: (message: string) => void;
   refresh: () => Promise<void>;
   dependencies?: RecoveryDependencies;
-}) {
+}): { retryBlocked: boolean } {
   const dependencies = args.dependencies ?? defaultDependencies;
+  const [retryBlocked, setRetryBlocked] = useState(false);
+
+  useEffect(() => { setRetryBlocked(false); }, [args.workpieceId]);
 
   useEffect(() => {
     if (!args.workspaceId || !args.workpieceId || !args.hasApprovedScript) return;
     let cancelled = false;
+    let ownsBusy = false;
     void (async () => {
-      const latest = await dependencies.readLatest(args.workspaceId!, args.workpieceId!);
-      if (cancelled || !latest.ok || !latest.data || latest.data.state === "verified") return;
-      const operationId = String(latest.data.operation_id ?? "");
-      if (!operationId || attemptedRecoveryOperations.has(operationId)) return;
-      attemptedRecoveryOperations.add(operationId);
-      args.setBusy(true);
-      args.setSaveState("saving");
-      args.setMessage(`Resuming canonical Visual Plan from ${String(latest.data.state ?? "the last committed stage").replaceAll("_", " ")}…`);
-      const resumed = await dependencies.resume({ workspaceId: args.workspaceId!, workpieceId: args.workpieceId! });
-      if (cancelled) return;
-      if (!resumed.ok) {
-        args.setSaveState("error");
-        args.setError(`${resumed.stage ? `${resumed.stage}: ` : ""}${resumed.error}`);
-      } else {
-        await args.refresh();
-        if (!cancelled) {
-          args.setSaveState("saved");
-          args.setMessage("Recovered and verified the canonical Visual Plan without another provider request.");
+      try {
+        const latest = await dependencies.readLatest(args.workspaceId!, args.workpieceId!);
+        if (cancelled || !latest.ok || !latest.data || latest.data.state === "verified" || latest.data.state === "failed") return;
+        const operationId = String(latest.data.operation_id ?? "");
+        if (!operationId) return;
+        if (latest.data.state === "submission_unknown") {
+          setRetryBlocked(true);
+          args.setSaveState("error");
+          args.setMessage("Visual Plan submission outcome is unknown. Forge will not submit this request again.");
+          args.setError("OpenAI may have received the request. Use recovery readback or API / Ledger while reconciliation is pending.");
+          return;
         }
+        if (attemptedRecoveryOperations.has(operationId)) return;
+        attemptedRecoveryOperations.add(operationId);
+        ownsBusy = true;
+        args.setBusy(true);
+        args.setSaveState("saving");
+        args.setMessage(`Reading back canonical Visual Plan recovery from ${String(latest.data.state ?? "the last committed stage").replaceAll("_", " ")}…`);
+        const resumed = await dependencies.resume({ workspaceId: args.workspaceId!, workpieceId: args.workpieceId! });
+        if (cancelled) return;
+        if (!resumed.ok) {
+          const unknown = resumed.code === "paid_submission_unknown" || resumed.stage === "submission_unknown";
+          setRetryBlocked(unknown || resumed.code === "unified_visual_plan_recovery_required");
+          args.setSaveState("error");
+          args.setMessage(unknown
+            ? "Visual Plan submission outcome is unknown. Forge will not submit this request again."
+            : "Visual Plan recovery did not authorize another provider submission.");
+          args.setError(`${resumed.stage ? `${resumed.stage}: ` : ""}${resumed.error}`);
+        } else {
+          await args.refresh();
+          if (!cancelled) {
+            setRetryBlocked(false);
+            args.setSaveState("saved");
+            args.setMessage("Recovered and verified the canonical Visual Plan without another provider request.");
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          args.setSaveState("error");
+          args.setError(error instanceof Error ? error.message : "Visual Plan recovery failed.");
+        }
+      } finally {
+        if (ownsBusy) args.setBusy(false);
       }
-      if (!cancelled) args.setBusy(false);
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (ownsBusy) args.setBusy(false); };
   }, [
     args.hasApprovedScript,
     args.refresh,
@@ -67,4 +94,5 @@ export function useUnifiedVisualPlanRecovery(args: {
     args.workpieceId,
     dependencies,
   ]);
+  return { retryBlocked };
 }

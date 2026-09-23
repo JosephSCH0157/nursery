@@ -4084,7 +4084,7 @@ export default function HearthShell({
     await Promise.all([refreshEpisodePackage(), canonicalBrollV2.refresh(), refreshCanonicalReferenceClips(), refreshCanonicalReferenceVisuals()]);
     window.dispatchEvent(new CustomEvent("forge:canonical-reference-clips-changed", { detail: { workspaceId, workpieceId } }));
   }, [canonicalBrollV2.refresh, refreshCanonicalReferenceClips, refreshCanonicalReferenceVisuals, refreshEpisodePackage, workspaceId, workpieceId]);
-  useUnifiedVisualPlanRecovery({
+  const unifiedVisualPlanRecovery = useUnifiedVisualPlanRecovery({
     workspaceId,
     workpieceId,
     hasApprovedScript,
@@ -6562,6 +6562,8 @@ export default function HearthShell({
             ? "No episode package is available."
             : isApprovingScript
               ? "Script approval is in progress."
+              : unifiedVisualPlanRecovery.retryBlocked
+                ? "This Visual Plan has an unresolved provider submission. Normal retry is disabled; use recovery readback or API / Ledger."
               : isMediaMapBusy
                 ? "A media-map operation is already in progress."
                 : null,
@@ -6572,7 +6574,7 @@ export default function HearthShell({
       ),
       onRecoverLastGeneration: () => void onRecoverLastMediaMapGeneration(),
       message: mediaMapMessage,
-      disabled: isApprovingScript || isMediaMapBusy || !episodePackage,
+      disabled: isApprovingScript || isMediaMapBusy || unifiedVisualPlanRecovery.retryBlocked || !episodePackage,
       operationStage: visualPlanOperationStage,
       generationScope: mediaMapGenerationScope,
       budgetPolicy: deriveFullMediaBudgetPolicy({ wordCount }),

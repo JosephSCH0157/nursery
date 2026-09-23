@@ -397,19 +397,35 @@ export class OpenAiUnifiedVisualPlanProvider {
     const model = input.model?.trim() || this.defaultModel;
     let response: Response;
     try {
-      const executeLegacy = () => fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "content-type": "application/json",
+      const executeLegacy = () => executeBoundedOpenAiTextTransport({
+        routeCode: "visual.unified_plan",
+        execute: async ({ signal, markTransmissionStarted }) => {
+          const pending = fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${this.apiKey}`,
+              "content-type": "application/json",
+            },
+            body: input.boundedProviderRequest?.serializedBody ?? JSON.stringify(
+              buildUnifiedVisualPlanProviderRequestBody({ ...input, model }),
+            ),
+            signal,
+          });
+          markTransmissionStarted();
+          return pending;
         },
-        body: input.boundedProviderRequest?.serializedBody ?? JSON.stringify(
-          buildUnifiedVisualPlanProviderRequestBody({ ...input, model }),
-        ),
       });
       response = await executeOpenAiTextTransport({ routeCode: "visual.unified_plan", executeLegacy, coordinatedExecution: input.coordinatedExecution ? () => input.coordinatedExecution!(executeLegacy) : undefined });
     } catch (error) {
       if (error instanceof OpenAiTextBoundaryError || error instanceof OpenAiTextProviderError) throw error;
+      if (error instanceof OpenAiTextTransportFailure) {
+        throw new OpenAiTextProviderError(
+          error.message,
+          error.ambiguous,
+          null,
+          error.evidence,
+        );
+      }
       const cause = error instanceof Error && error.cause && typeof error.cause === "object"
         ? error.cause as { code?: unknown; message?: unknown }
         : null;
@@ -742,3 +758,4 @@ export function validateUnifiedVisualPlanScope(
 }
 import { OpenAiTextBoundaryError, executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
 import { OpenAiTextProviderError } from "./paid-openai-text-execution-coordinator.js";
+import { executeBoundedOpenAiTextTransport, OpenAiTextTransportFailure } from "./openai-text-timing-contract.js";

@@ -3657,6 +3657,9 @@ export type TongsCommitApiService = {
        * resolving or re-entering the paid-provider boundary. API callers
        * cannot set this field. */
       skipPaidFundingResolution?: boolean;
+      /** Readback/recovery only. This path must never prepare a quote or enter
+       * provider transport. */
+      recoveryOnly?: boolean;
     },
   ): Promise<Record<string, Json>>;
   readCurrentReferenceClipPlan(
@@ -28957,6 +28960,7 @@ export class TongsCommitService {
     options?: {
       userAccessToken?: string | null;
       skipPaidFundingResolution?: boolean;
+      recoveryOnly?: boolean;
     },
   ): Promise<Record<string, Json>> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
@@ -28994,6 +28998,13 @@ export class TongsCommitService {
     const existingOperation = isRecord(existingResult.data)
       ? existingResult.data
       : null;
+    if (readStringField(existingOperation, "state") === "submission_unknown")
+      throw new HttpError(
+        202,
+        "paid_submission_unknown",
+        "OpenAI may have received this Visual Plan request. No automatic retry is allowed; recovery is read-only until reconciliation.",
+        existingOperation ?? undefined,
+      );
     if (readStringField(existingOperation, "state") === "failed")
       throw new HttpError(
         409,
@@ -29039,6 +29050,42 @@ export class TongsCommitService {
           readStringField(existingOperation, "operation_fingerprint") ??
           input.operation_fingerprint,
       };
+    }
+    if (existingOperation && !options?.recoveryOnly && !input.paid_execution && !input.spending_acceptance) {
+      throw new HttpError(
+        409,
+        "unified_visual_plan_recovery_required",
+        "A durable Visual Plan operation already exists. Use the recovery endpoint; normal generation cannot resume it.",
+        existingOperation,
+      );
+    }
+    if (options?.recoveryOnly) {
+      if (!existingOperation || !frozen)
+        throw new HttpError(404, "unified_visual_plan_operation_missing", "No durable Visual Plan operation is available for recovery.");
+      const existingState = readStringField(existingOperation, "state");
+      const capturedResponse = isRecord(existingOperation.provider_response_json);
+      if (existingState === "pending" && !capturedResponse) {
+        if (!this.openAiTextGate)
+          throw new HttpError(503, "unified_visual_plan_recovery_unavailable", "Visual Plan recovery authority is unavailable.");
+        const recovered = await this.openAiTextGate.rpc("recover_expired_unified_visual_plan_attempt", {
+          p_operation_id: input.operation_id,
+          p_operation_fingerprint: input.operation_fingerprint,
+        });
+        if (recovered.error || !isRecord(recovered.data))
+          throw new HttpError(502, "unified_visual_plan_stale_attempt_recovery_failed", recovered.error?.message ?? "The expired Visual Plan attempt could not be recovered.");
+        const disposition = readStringField(recovered.data, "disposition");
+        throw new HttpError(
+          disposition === "submission_unknown" || disposition === "submission_unknown_replay" ? 202 : 409,
+          disposition === "submission_unknown" || disposition === "submission_unknown_replay"
+            ? "paid_submission_unknown"
+            : "unified_visual_plan_recovery_in_progress",
+          disposition === "submission_unknown" || disposition === "submission_unknown_replay"
+            ? "The expired provider attempt is submission-unknown and will not be resubmitted automatically."
+            : "The provider attempt is still within its authority window; no recovery mutation was made.",
+          recovered.data,
+        );
+      }
+      options = { ...options, skipPaidFundingResolution: true };
     }
     const approval = await canonical
       .from("script_approval_revisions")
@@ -29373,20 +29420,37 @@ export class TongsCommitService {
           return this.generateUnifiedVisualPlan(
             workpieceId,
             { ...input, paid_execution: null },
-            { ...options, skipPaidFundingResolution: true },
+            { ...options, skipPaidFundingResolution: true, recoveryOnly: true },
           );
         },
       });
       if (paidOutcome.state === "settled" || paidOutcome.state === "settled_replay") {
         return paidOutcome.result as Record<string, Json>;
       }
-      if (paidOutcome.state === "failed_released" && validationFailureMessage) {
+      if (paidOutcome.state === "submission_unknown") {
+        const marked = await this.openAiTextGate.rpc("mark_unified_visual_plan_submission_unknown", {
+          p_operation_id: input.operation_id,
+          p_operation_fingerprint: input.operation_fingerprint,
+          p_reservation_id: input.paid_execution.reservationId,
+          p_evidence_json: {
+            route_code: "visual.unified_plan",
+            reason: "provider_transport_outcome_unknown",
+            automatic_resubmission_allowed: false,
+          },
+        });
+        if (marked.error)
+          throw new HttpError(502, "unified_visual_plan_unknown_terminalization_failed", marked.error.message);
+      }
+      if (paidOutcome.state === "failed_released") {
         const failed = await authority.rpc("fail_unified_visual_plan", {
           p_operation_id: input.operation_id,
           p_operation_fingerprint: input.operation_fingerprint,
-          p_failed_stage: "validation",
-          p_failure_code: "visual_plan_contract_invalid",
-          p_failure_message: validationFailureMessage,
+          p_failed_stage: validationFailureMessage ? "validation" : "provider_transport",
+          p_failure_code: validationFailureMessage
+            ? "visual_plan_contract_invalid"
+            : "visual_plan_provider_failed",
+          p_failure_message: validationFailureMessage
+            ?? "The bounded provider attempt failed without a canonical Visual Plan result.",
         });
         if (failed.error)
           throw new HttpError(502, "unified_visual_plan_terminalization_failed", failed.error.message);
@@ -37369,7 +37433,7 @@ export function createTongsCommitApiHandlerWithService(
         parts[0] === "tongs" &&
         parts[1] === "workpieces" &&
         parts[3] === "visual-plan-v2" &&
-        parts[4] === "generate"
+        (parts[4] === "generate" || parts[4] === "recover")
       ) {
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(
@@ -37378,6 +37442,7 @@ export function createTongsCommitApiHandlerWithService(
         );
         const body = await parseJsonBody(request);
         const userAccessToken = requireUserAccessTokenHeader(request);
+        const recoveryOnly = parts[4] === "recover";
         const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
         if (body.paid_execution != null && !paidExecution)
           throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
@@ -37386,6 +37451,8 @@ export function createTongsCommitApiHandlerWithService(
           throw new HttpError(400, "invalid_spending_acceptance", "spending_acceptance is invalid.");
         if (paidExecution && spendingAcceptance)
           throw new HttpError(400, "conflicting_paid_execution_context", "Provide either paid_execution or spending_acceptance, not both.");
+        if (recoveryOnly && (paidExecution || spendingAcceptance))
+          throw new HttpError(400, "recovery_financial_context_forbidden", "Visual Plan recovery cannot accept spending or provider authority.");
         const result = await service.generateUnifiedVisualPlan(
           workpieceId,
           {
@@ -37459,7 +37526,7 @@ export function createTongsCommitApiHandlerWithService(
             paid_execution: paidExecution,
             spending_acceptance: spendingAcceptance,
           },
-          { userAccessToken },
+          { userAccessToken, recoveryOnly },
         );
         return jsonResponse(200, { ok: true, data: result });
       }

@@ -154,6 +154,28 @@ test("ambiguous submission stays reserved and is never retried", async () => {
   assert.equal(g.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate").length, 1);
 });
 
+test("proven pre-transmission transport failure releases without inventing supplier expense", async () => {
+  const g = gate();
+  const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    executeProvider: async () => {
+      throw new OpenAiTextProviderError("transport setup failed", false, null, {
+        fetch_entered: false,
+        transmitted: false,
+      });
+    },
+  }));
+  assert.deepEqual(result, {
+    state: "failed_released",
+    customerChargeMicros: 0,
+    supplierCostMicros: 0,
+    attempts: 1,
+  });
+  assert.equal(g.calls.some((call) => call.name === "record_openai_text_supplier_attempt_expense"), false);
+  assert.equal(g.calls.find((call) => call.name === "close_openai_text_failure_exposure").args.p_outcome, "success_released");
+  assert.equal(g.calls.find((call) => call.name === "release_operation").args.p_evidence_json.transmitted, false);
+  assert.equal(g.calls.some((call) => call.name === "mark_submission_unknown"), false);
+});
+
 test("persistence failure retains usage, releases the customer, and realizes Forge loss", async () => {
   const g = gate();
   const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({ persistResult: async () => { throw new Error("write failed"); } }));

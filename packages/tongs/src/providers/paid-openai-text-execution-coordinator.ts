@@ -5,6 +5,7 @@ import {
   type AggregateProviderMode,
 } from "./aggregate-financial-admission.js";
 import type { CoordinatedOpenAiRouteCode } from "./paid-openai-text-route-execution.js";
+import { OPENAI_TEXT_ATTEMPT_LEASE_SECONDS } from "./openai-text-timing-contract.js";
 
 type RpcResult = { data: unknown; error: { message: string } | null };
 export type OpenAiTextGateClient = { rpc(name: string, args: Record<string, unknown>): Promise<RpcResult> };
@@ -226,7 +227,7 @@ export class PaidOpenAiTextExecutionCoordinator {
           p_attempt_number: attemptNumber,
           p_caller_class: attemptNumber === 1 ? input.aggregateCallerClass : "retry",
           p_failure_exposure_micros: input.credentialFunding === "forge" ? input.maximumFailureExposureMicros : 0,
-          p_lease_seconds: 120,
+          p_lease_seconds: OPENAI_TEXT_ATTEMPT_LEASE_SECONDS,
           p_evidence_json: {
             provider: "openai",
             route_code: input.routeCode,
@@ -268,6 +269,34 @@ export class PaidOpenAiTextExecutionCoordinator {
         const providerError = error instanceof OpenAiTextProviderError
           ? error
           : new OpenAiTextProviderError(String(error), false, null);
+        const provablyNotTransmitted = providerError.ambiguous === false
+          && providerError.evidence.transmitted === false;
+        if (provablyNotTransmitted) {
+          await this.rpc("close_openai_text_failure_exposure", {
+            p_reservation_id: input.reservationId,
+            p_attempt_key: currentAttemptKey,
+            p_outcome: "success_released",
+            p_actual_supplier_cost_micros: 0,
+            p_evidence_json: providerError.evidence,
+          });
+          await this.releaseBeforeProvider(
+            input,
+            `${currentAttemptKey}:proven-pretransmission-release`,
+            "provider_transport_not_transmitted",
+          );
+          await aggregate.recordOutcome({
+            reservationId: input.reservationId,
+            eventKey: `${currentAttemptKey}:aggregate-preprovider-release`,
+            outcome: "preprovider_release",
+            evidence: providerError.evidence,
+          });
+          return {
+            state: "failed_released",
+            customerChargeMicros: 0,
+            supplierCostMicros: 0,
+            attempts: attemptNumber,
+          };
+        }
         if (providerError.supplierCostMicros == null) supplierCostComplete = false;
         else knownSupplierCostMicros += providerError.supplierCostMicros;
         allCostEvidenceAuthoritative = false;

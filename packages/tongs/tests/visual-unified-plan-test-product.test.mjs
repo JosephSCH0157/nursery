@@ -18,8 +18,14 @@ const canaryRiskMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011560000_visual_unified_plan_v5_canary_risk_authorization.sql",
   import.meta.url,
 ), "utf8");
+const transportRecoveryMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011570000_visual_unified_plan_transport_lease_recovery.sql",
+  import.meta.url,
+), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 const provider = readFileSync(new URL("../src/providers/unified-visual-plan-provider.ts", import.meta.url), "utf8");
+const hearthAuthority = readFileSync(new URL("../../../apps/hearth/src/lib/hearth-unified-visual-plan-authority.ts", import.meta.url), "utf8");
+const hearthRecovery = readFileSync(new URL("../../../apps/hearth/src/hooks/visuals/useUnifiedVisualPlanRecovery.ts", import.meta.url), "utf8");
 const certification = readFileSync(new URL("../../../scripts/certify-visual-unified-plan-gasoline-request.mts", import.meta.url), "utf8");
 
 test("Visual Plan product uses one bounded Luna attempt and four Forge Credits", () => {
@@ -74,7 +80,7 @@ test("Gate 1 and runtime share canonical source and bounded-request builders", (
 
 test("validation failure evidence and parent operation terminalization are replay-safe", () => {
   assert.match(service, /this\.openAiTextGate\.rpc\("record_openai_text_validation_failure_evidence"/);
-  assert.match(service, /paidOutcome\.state === "failed_released" && validationFailureMessage/);
+  assert.match(service, /paidOutcome\.state === "failed_released"\) \{[\s\S]+?fail_unified_visual_plan/);
   assert.match(service, /unified_visual_plan_terminal_failure/);
   assert.match(repairMigration, /state in\([\s\S]+?'failed'/);
   assert.match(repairMigration, /if op\.state='failed'[\s\S]+failed_replay/);
@@ -130,4 +136,34 @@ test("one additional v5 canary receives finite Test-only aggregate authority", (
   for (const statement of riskInserts) {
     assert.doesNotMatch(statement, /'visual\.unified_plan','live'/i);
   }
+});
+
+test("expired Visual Plan attempts become replay-safe submission-unknown without invented cost", () => {
+  assert.match(transportRecoveryMigration, /'submission_unknown'/);
+  assert.match(transportRecoveryMigration, /attempt_event\.lease_expires_at>now\(\)/);
+  assert.match(transportRecoveryMigration, /openai_text_provider_captures/);
+  assert.match(transportRecoveryMigration, /openai_text_usage_evidence/);
+  assert.match(transportRecoveryMigration, /openai_text_persisted_results/);
+  assert.match(transportRecoveryMigration, /close_openai_text_failure_exposure[\s\S]+?'unresolved'/);
+  assert.match(transportRecoveryMigration, /mark_submission_unknown/);
+  assert.match(transportRecoveryMigration, /'ambiguous'/);
+  assert.match(transportRecoveryMigration, /'automatic_resubmission_allowed',false/);
+  assert.match(transportRecoveryMigration, /expense_micros<>0/);
+  assert.doesNotMatch(transportRecoveryMigration, /insert into tongs\.supplier_expenses/i);
+  assert.doesNotMatch(transportRecoveryMigration, /customer_charge_micros\s*=/i);
+  assert.match(transportRecoveryMigration, /on conflict\(event_key\) do nothing/);
+  assert.match(transportRecoveryMigration, /force row level security/);
+});
+
+test("Visual Plan recovery is readback-only and the UI clears busy while blocking retry", () => {
+  assert.match(service, /parts\[4\] === "generate" \|\| parts\[4\] === "recover"/);
+  assert.match(service, /recoveryOnly = parts\[4\] === "recover"/);
+  assert.match(service, /recover_expired_unified_visual_plan_attempt/);
+  assert.match(service, /mark_unified_visual_plan_submission_unknown/);
+  assert.match(hearthAuthority, /\/visual-plan-v2\/recover/);
+  assert.match(hearthAuthority, /No automatic retry is allowed/);
+  assert.match(hearthRecovery, /resume:\s*recoverUnifiedVisualPlanOperation/);
+  assert.match(hearthRecovery, /finally\s*\{[\s\S]+?setBusy\(false\)/);
+  assert.match(hearthRecovery, /setRetryBlocked\(unknown \|\| resumed\.code === "unified_visual_plan_recovery_required"\)/);
+  assert.doesNotMatch(hearthRecovery, /generateUnifiedVisualPlan/);
 });
