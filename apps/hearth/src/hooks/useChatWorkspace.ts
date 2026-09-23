@@ -643,6 +643,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       scriptHash: string;
     };
     thumbnailDirectionIdentity?: {
+      operationId: string;
       resultId: string; approvalId: string; approvalRevision: number; scriptHash: string; createdAt: string;
       styleAuthority: Record<string, unknown>; titleInputs: Array<Record<string, unknown>>;
       thumbnailPlanningSubtreeHash: string; expectedActiveStrategyId: string | null; expectedActiveConceptSetId: string | null;
@@ -664,6 +665,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       scriptHash: string;
     };
     thumbnailDirectionIdentity?: {
+      operationId: string;
       resultId: string; approvalId: string; approvalRevision: number; scriptHash: string; createdAt: string;
       styleAuthority: Record<string, unknown>; titleInputs: Array<Record<string, unknown>>;
       thumbnailPlanningSubtreeHash: string; expectedActiveStrategyId: string | null; expectedActiveConceptSetId: string | null;
@@ -905,9 +907,11 @@ export function useChatWorkspaceRuntime<
           action: params.productionAction,
           scriptVersion: params.productionScriptVersion,
           assistantText,
-          paidOperationId: params.productionAction === "seo" || params.productionAction === "tags" || params.productionAction === "release_prep_pack"
-            ? result.billingReceipt?.operation_id
-            : undefined,
+          paidOperationId: params.productionAction === "thumbnails"
+            ? result.thumbnailDirectionIdentity?.operationId
+            : params.productionAction === "seo" || params.productionAction === "tags" || params.productionAction === "release_prep_pack"
+              ? result.billingReceipt?.operation_id
+              : undefined,
           framingPackIdentity: params.productionAction === "release_prep_pack"
             ? result.framingPackIdentity
             : undefined,

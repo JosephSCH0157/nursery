@@ -88,6 +88,7 @@ export type HearthChatResult =
         scriptHash: string;
       };
       thumbnailDirectionIdentity?: {
+        operationId: string;
         resultId: string;
         approvalId: string;
         approvalRevision: number;
@@ -1469,6 +1470,7 @@ export async function requestHearthChatReply(
       && parsed.script_content_hash
       ? {
           thumbnailDirectionIdentity: {
+            operationId: parsed.thumbnail_direction_identity.operation_id,
             resultId: parsed.thumbnail_direction_identity.result_id,
             approvalId: parsed.script_approval_id,
             approvalRevision: parsed.script_approval_revision,

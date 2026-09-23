@@ -14,6 +14,7 @@ import {
   paidThumbnailDirectionFingerprintPayload,
 } from "../server/hearth/hearth-paid-thumbnail-direction-generation";
 import { validatePaidThumbnailDirectionOutput } from "../../hearth/src/lib/hearth-thumbnail-direction-contract";
+import { parseHearthChatResponse } from "../../hearth/src/lib/hearth-ai-runtime-contract";
 import {
   buildBoundedPaidJsonOpenAiRequest,
   executePaidJsonOpenAiRoute,
@@ -26,6 +27,15 @@ import { buildProductionPrompt } from "../../hearth/src/lib/hearth-production-ac
 import { hashApprovedTitleScript } from "../server/hearth/hearth-paid-title-generation";
 import { buildPaidThumbnailDirectionMutation } from "../../hearth/src/lib/hearth-paid-thumbnail-direction-persistence";
 import { canonicalContentHash, hydrateEpisodePackageV3 } from "../../hearth/src/lib/episode-package-v3";
+import {
+  commitAndFinalizeThumbnailDirections,
+  thumbnailDirectionStyleAuthority,
+  thumbnailDirectionTitleInputs,
+} from "../server/hearth/hearth-thumbnail-direction-canonical";
+import {
+  buildServerTongsHeaders,
+  ServerTongsRequestError,
+} from "../server/tongs/server-tongs-request";
 
 const strategy = [
   "THUMBNAIL_STRATEGY",
@@ -105,6 +115,56 @@ test("paid Thumbnail Directions accepts exact A/B/C and only harmless newline no
     assert.equal(canonical.output.text, crlf.output.text);
     assert.deepEqual(canonical.output.directions.map((entry) => entry.key), ["A", "B", "C"]);
   }
+});
+
+test("server Tongs requests keep deployment and customer authority separate", () => {
+  const headers = buildServerTongsHeaders({
+    apiToken: "server-tongs-token",
+    userAccessToken: "customer-supabase-jwt",
+    headers: { "content-type": "application/json" },
+  });
+  assert.equal(headers.get("authorization"), "Bearer server-tongs-token");
+  assert.equal(headers.get("x-forge-user-authorization"), "Bearer customer-supabase-jwt");
+  assert.throws(
+    () => buildServerTongsHeaders({ apiToken: null, userAccessToken: "customer-supabase-jwt" }),
+    (error: unknown) => error instanceof ServerTongsRequestError
+      && error.code === "tongs_api_credential_missing",
+  );
+});
+
+test("recovery response preserves the paid operation identity for canonical UI refresh", () => {
+  const operationId = "hearth-customer-f7394338315ed537ace439f1de21e75b910ecd4db9a6efd44d725621070738d1";
+  const parsed = parseHearthChatResponse({
+    assistant_text: validOutput,
+    thumbnail_direction_identity: {
+      operation_id: operationId,
+      result_id: "f9e85149-294a-5732-8cb8-4439aaf4df46",
+      created_at: "2026-09-23T12:00:00.000Z",
+      style_authority: { resolved_source: "forge_standard" },
+      title_inputs: [{ key: "A" }, { key: "B" }, { key: "C" }],
+      thumbnail_planning_subtree_hash: "a".repeat(64),
+      expected_active_strategy_id: null,
+      expected_active_concept_set_id: null,
+    },
+    script_approval_id: "be87d40f-516b-4dcf-bd25-094b922cc682",
+    script_approval_revision: 7,
+    script_content_hash: "b".repeat(64),
+    turn_result: {
+      decision: {
+        mode: "production_action", requiresArtifact: true, allowsMutation: false,
+        retrievalScope: "active_episode_only", requestedArtifact: "production", reasons: [],
+      },
+      assistantMessage: validOutput,
+      artifact: null,
+      operations: [],
+      validation: { ok: true, failureKind: "none", message: null },
+      persistence: "saved",
+    },
+    billing_mode: "forge",
+    token_balance: 0,
+    total_tokens: 0,
+  }, "forge");
+  assert.equal(parsed?.thumbnail_direction_identity?.operation_id, operationId);
 });
 
 test("paid Thumbnail Directions rejects two, four, legacy five, reordered, incomplete, and wrapped output", () => {
@@ -298,6 +358,154 @@ test("Create thumbnail directions prepares one two-credit quote and makes no pro
   assert.equal(imageCalls, 0);
   assert.equal(rpcCalls.filter((name) => name === "create_customer_openai_text_quote").length, 1);
   assert.ok(rpcCalls.includes("bind_bounded_provider_quote_request"));
+
+  const preflightBlocked = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge", action_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      messages: [{ role: "user", content: requestContent }], user_authored_text: requestContent,
+      explicit_action: { kind: "production", action: "thumbnails" }, production_action: "thumbnails",
+      production_script_version: 7,
+      spending_acceptance: {
+        operation_id: payload.billing_quote.operation_id,
+        quote_id: payload.billing_quote.quote_id,
+        quote_hash: payload.billing_quote.quote_hash,
+        request_fingerprint: payload.billing_quote.request_fingerprint,
+      },
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: {
+        episodeId: "21d16d6a-905b-491e-8761-028789612ae5",
+        workspaceId: "cc5478ff-37be-403e-824c-467fa7da061e",
+        title: "Untrusted browser title", titleVariants: { A: "", B: "", C: "" },
+        outline: "", body: scriptText, tonePreset: null, sources: [], sparks: [],
+      },
+    }),
+  }));
+  const blockedPayload = await preflightBlocked.json() as Record<string, unknown>;
+  assert.equal(preflightBlocked.status, 503);
+  assert.equal(blockedPayload.code, "thumbnail_direction_persistence_preflight_unavailable");
+  assert.equal(providerCalls, 0);
+  assert.equal(rpcCalls.filter((name) => name === "accept_customer_openai_text_quote").length, 0);
+});
+
+test("retained Thumbnail Directions canonicalize once and receipt replay is provider-free", async () => {
+  const input = canonicalInput();
+  const initialPackage = hydrateEpisodePackageV3({});
+  input.authority = {
+    thumbnailAuthorityVersion: initialPackage.thumbnail.authority_version,
+    activeStrategyId: initialPackage.thumbnail.active_creative_strategy_id,
+    activeConceptSetId: initialPackage.thumbnail.active_concept_set_id,
+    planningSubtreeHash: canonicalContentHash({
+      authority_version: initialPackage.thumbnail.authority_version,
+      active_creative_strategy_id: initialPackage.thumbnail.active_creative_strategy_id,
+      active_concept_set_id: initialPackage.thumbnail.active_concept_set_id,
+      creative_strategies: initialPackage.thumbnail.creative_strategies,
+      creative_briefs: initialPackage.thumbnail.creative_briefs,
+      concept_sets: initialPackage.thumbnail.concept_sets,
+      concept_revisions: initialPackage.thumbnail.concept_revisions,
+    }),
+  };
+  const operationId = "hearth-customer-f7394338315ed537ace439f1de21e75b910ecd4db9a6efd44d725621070738d1";
+  const reservationId = "3ace718a-850d-4a3f-83e9-7bdcbce3948f";
+  const resultId = "f9e85149-294a-5732-8cb8-4439aaf4df46";
+  const staged: Record<string, unknown> = {
+    assistant_text: validOutput,
+    contract: HEARTH_THUMBNAIL_DIRECTION_CONTRACT,
+    output_contract: HEARTH_THUMBNAIL_DIRECTION_OUTPUT_CONTRACT,
+    script_approval_id: input.approved.approvalId,
+    script_approval_revision: input.approved.approvalRevision,
+    script_content_hash: input.approved.scriptHash,
+    style_authority: thumbnailDirectionStyleAuthority(input),
+    title_inputs: thumbnailDirectionTitleInputs(input),
+    thumbnail_authority: {
+      authority_version: input.authority.thumbnailAuthorityVersion,
+      active_strategy_id: input.authority.activeStrategyId,
+      active_concept_set_id: input.authority.activeConceptSetId,
+      planning_subtree_hash: input.authority.planningSubtreeHash,
+    },
+    thumbnail_direction_result_id: resultId,
+    created_at: "2026-09-23T12:00:00.000Z",
+    provider_request_id: "req_thumbnail_existing",
+    input_units: 2542,
+    output_units: 1424,
+    thumbnail_planning_subtree_hash: input.authority.planningSubtreeHash,
+    expected_active_strategy_id: input.authority.activeStrategyId,
+    expected_active_concept_set_id: input.authority.activeConceptSetId,
+  };
+  let metadata: Record<string, unknown> = {};
+  let metadataRevision = "2026-09-23T12:00:00.000Z";
+  let commits = 0;
+  let finalizations = 0;
+  const tongsFetch: typeof fetch = async (_url, init) => {
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get("authorization"), "Bearer server-tongs-token");
+    assert.equal(headers.get("x-forge-user-authorization"), "Bearer customer-supabase-jwt");
+    if (init?.method === "POST") {
+      commits += 1;
+      const body = JSON.parse(String(init.body)) as { json: Record<string, unknown> };
+      metadata = body.json;
+      metadataRevision = `2026-09-23T12:00:0${commits}.000Z`;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      data: metadata,
+      file_row: { updated_at: metadataRevision },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const gate = { async rpc(name: string, args: Record<string, unknown>) {
+    assert.equal(name, "finalize_hearth_thumbnail_direction_generation_result");
+    assert.equal(args.p_operation_id, operationId);
+    assert.equal(args.p_reservation_id, reservationId);
+    finalizations += 1;
+    return { data: {
+      ...staged,
+      canonical_persisted: true,
+      canonical_set_id: args.p_canonical_set_id,
+      canonical_source_response_hash: args.p_canonical_source_response_hash,
+      canonical_committed_at: "2026-09-23T12:01:00.000Z",
+    }, error: null };
+  } };
+  const recover = (recoveryInput = input) => commitAndFinalizeThumbnailDirections({
+    requestUrl: "http://localhost/api/hearth/chat",
+    workpieceId: "21d16d6a-905b-491e-8761-028789612ae5",
+    operationId,
+    reservationId,
+    input: recoveryInput,
+    staged,
+    gate,
+    tongsApiToken: "server-tongs-token",
+    userAccessToken: "customer-supabase-jwt",
+    fetchImpl: tongsFetch,
+  });
+  const first = await recover();
+  const recoveredPackage = hydrateEpisodePackageV3(metadata);
+  const replayInput = structuredClone(input);
+  replayInput.authority = {
+    thumbnailAuthorityVersion: recoveredPackage.thumbnail.authority_version,
+    activeStrategyId: recoveredPackage.thumbnail.active_creative_strategy_id,
+    activeConceptSetId: recoveredPackage.thumbnail.active_concept_set_id,
+    planningSubtreeHash: canonicalContentHash({
+      authority_version: recoveredPackage.thumbnail.authority_version,
+      active_creative_strategy_id: recoveredPackage.thumbnail.active_creative_strategy_id,
+      active_concept_set_id: recoveredPackage.thumbnail.active_concept_set_id,
+      creative_strategies: recoveredPackage.thumbnail.creative_strategies,
+      creative_briefs: recoveredPackage.thumbnail.creative_briefs,
+      concept_sets: recoveredPackage.thumbnail.concept_sets,
+      concept_revisions: recoveredPackage.thumbnail.concept_revisions,
+    }),
+  };
+  const second = await recover(replayInput);
+  assert.equal(first.canonical_set_id, second.canonical_set_id);
+  assert.equal(first.canonical_source_response_hash, second.canonical_source_response_hash);
+  assert.equal(commits, 1);
+  assert.equal(finalizations, 2);
+  const readback = hydrateEpisodePackageV3(metadata);
+  assert.equal(readback.thumbnail.creative_strategies.length, 1);
+  assert.equal(readback.thumbnail.creative_briefs.length, 3);
+  assert.equal(readback.thumbnail.concept_revisions.length, 3);
+  assert.equal(readback.thumbnail.concept_sets.length, 1);
 });
 
 test("malformed paid output makes one provider attempt, records raw evidence, and never persists or retries", async () => {

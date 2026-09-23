@@ -15,13 +15,21 @@ export type ThumbnailDirectionView = {
 const DIRECTION_KEYS = ["A", "B", "C"] as const;
 
 export function buildThumbnailDirections(pkg: EpisodePackageV3, conceptSetId: string | null): ThumbnailDirectionView[] {
-  const latestByLineage = new Map<string, EpisodePackageV3["thumbnail"]["concept_revisions"][number]>();
-  for (const entry of pkg.thumbnail.concept_revisions) {
-    if (!conceptSetId || entry.concept_set_id === conceptSetId) latestByLineage.set(entry.concept_lineage_id, entry);
-  }
-  const concepts = [...latestByLineage.values()]
-    .sort((left, right) => left.concept_lineage_id.localeCompare(right.concept_lineage_id) || left.revision_number - right.revision_number)
-    .slice(0, 3);
+  const conceptSet = conceptSetId
+    ? (pkg.thumbnail.concept_sets ?? []).find((entry) => entry.id === conceptSetId) ?? null
+    : null;
+  const concepts = conceptSet
+    ? conceptSet.concept_revision_ids
+      .map((id) => pkg.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === id) ?? null)
+      .filter((entry): entry is EpisodePackageV3["thumbnail"]["concept_revisions"][number] => Boolean(entry))
+      .slice(0, 3)
+    : (() => {
+        const latestByLineage = new Map<string, EpisodePackageV3["thumbnail"]["concept_revisions"][number]>();
+        for (const entry of pkg.thumbnail.concept_revisions) latestByLineage.set(entry.concept_lineage_id, entry);
+        return [...latestByLineage.values()]
+          .sort((left, right) => left.concept_lineage_id.localeCompare(right.concept_lineage_id) || left.revision_number - right.revision_number)
+          .slice(0, 3);
+      })();
   const titles = pkg.seo.titles.slice(0, 3);
   return concepts.map((concept, index) => {
     const title = titles[index] ?? null;

@@ -75,6 +75,8 @@ export type HearthRuntimeConfig = {
   supabaseUrl: string | null;
   supabaseServiceRoleKey: string | null;
   supabaseRpcKey: string | null;
+  /** Server-only credential for the local/deployed Tongs HTTP boundary. */
+  tongsApiToken?: string | null;
   sttBucket: string;
   disableForgeLaneAi: boolean;
   disableUserKeys: boolean;
@@ -83,6 +85,8 @@ export type HearthRuntimeConfig = {
   /** Server-only dependency injection used by isolated execution-boundary tests. */
   openAiTextGate?: OpenAiTextGateClient | null;
   openAiProviderFetch?: typeof fetch;
+  /** Isolated-test seam for the server-to-Tongs HTTP boundary. */
+  tongsFetch?: typeof fetch;
   /** Isolated-test seam; production always reads the canonical approval from Tongs. */
   readApprovedTitleScript?: (workspaceId: string, workpieceId: string) => Promise<ApprovedTitleScript | null>;
   /** Isolated-test seam; production resolves script/title/style/V3 authority from Tongs. */
@@ -163,6 +167,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
     supabaseUrl,
     supabaseServiceRoleKey,
     supabaseRpcKey,
+    tongsApiToken: readEnv("TONGS_API_TOKEN") || null,
     sttBucket: (
       readEnv("TONGS_WORKPIECE_BUCKET")
       || readEnv("HEARTH_STT_BUCKET")

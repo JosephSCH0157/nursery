@@ -5986,6 +5986,7 @@ export default function HearthShell({
       scriptHash: string;
     };
     thumbnailDirectionIdentity?: {
+      operationId: string;
       resultId: string; approvalId: string; approvalRevision: number; scriptHash: string; createdAt: string;
       styleAuthority: Record<string, unknown>; titleInputs: Array<Record<string, unknown>>;
       thumbnailPlanningSubtreeHash: string; expectedActiveStrategyId: string | null; expectedActiveConceptSetId: string | null;

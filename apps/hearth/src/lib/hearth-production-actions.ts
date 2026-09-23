@@ -215,6 +215,7 @@ export async function persistProductionArtifact(args: {
     scriptHash: string;
   };
   thumbnailDirectionIdentity?: {
+    operationId: string;
     resultId: string;
     approvalId: string;
     approvalRevision: number;

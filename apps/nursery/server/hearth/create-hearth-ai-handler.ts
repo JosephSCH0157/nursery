@@ -167,13 +167,18 @@ import {
   type PaidThumbnailDirectionInput,
 } from "./hearth-paid-thumbnail-direction-generation";
 import { validatePaidThumbnailDirectionOutput } from "../../../hearth/src/lib/hearth-thumbnail-direction-contract";
-import { buildPaidThumbnailDirectionMutation } from "../../../hearth/src/lib/hearth-paid-thumbnail-direction-persistence";
 import {
-  EPISODE_PACKAGE_V3_SCHEMA,
   canonicalContentHash,
   hydrateEpisodePackageV3,
-  serializeEpisodePackageV3,
 } from "../../../hearth/src/lib/episode-package-v3";
+import {
+  commitAndFinalizeThumbnailDirections,
+  readCanonicalThumbnailMetadata,
+  readLatestStagedThumbnailDirectionResult,
+  thumbnailDirectionStyleAuthority,
+  thumbnailDirectionTitleInputs,
+} from "./hearth-thumbnail-direction-canonical";
+import { ServerTongsRequestError } from "../tongs/server-tongs-request";
 import {
   ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
@@ -2506,6 +2511,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     supabaseUrl,
     supabaseServiceRoleKey,
     supabaseRpcKey,
+    tongsApiToken,
     sttBucket,
     disableForgeLaneAi,
     disableUserKeys,
@@ -5593,6 +5599,102 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             code: "paid_request_fingerprint_mismatch",
           });
         }
+        if (paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && thumbnailDirectionInput
+          && userId && episodeContext.workspaceId && bearerToken && supabaseService && openAiTextGate
+          && !spendingAcceptance && !paidExecutionHandle) {
+          let retained;
+          try {
+            retained = await readLatestStagedThumbnailDirectionResult({
+              service: supabaseService,
+              userId,
+              workspaceId: episodeContext.workspaceId,
+              workpieceId: episodeContext.episodeId,
+            });
+          } catch {
+            return admissionFailureResponse({
+              status: 503,
+              error: "Hearth could not inspect retained Thumbnail Directions safely.",
+              code: "thumbnail_direction_recovery_unavailable",
+            });
+          }
+          if (retained) {
+            try {
+              const recovered = await commitAndFinalizeThumbnailDirections({
+                requestUrl: request.url,
+                workpieceId: episodeContext.episodeId,
+                operationId: retained.operationId,
+                reservationId: retained.reservationId,
+                input: thumbnailDirectionInput,
+                staged: retained.staged,
+                gate: openAiTextGate,
+                tongsApiToken,
+                userAccessToken: bearerToken,
+                fetchImpl: config.tongsFetch,
+              });
+              return jsonResponse(200, {
+                ok: true,
+                assistant_text: recovered.assistant_text,
+                reply: recovered.assistant_text,
+                script_approval_id: recovered.script_approval_id,
+                script_approval_revision: recovered.script_approval_revision,
+                script_content_hash: recovered.script_content_hash,
+                thumbnail_direction_identity: {
+                  operation_id: retained.operationId,
+                  result_id: recovered.thumbnail_direction_result_id,
+                  created_at: recovered.created_at,
+                  style_authority: recovered.style_authority,
+                  title_inputs: recovered.title_inputs,
+                  thumbnail_planning_subtree_hash: recovered.thumbnail_planning_subtree_hash,
+                  expected_active_strategy_id: recovered.expected_active_strategy_id,
+                  expected_active_concept_set_id: recovered.expected_active_concept_set_id,
+                },
+                recovery_receipt: {
+                  operation_id: retained.operationId,
+                  reservation_id: retained.reservationId,
+                  result_id: recovered.thumbnail_direction_result_id,
+                  canonical_set_id: recovered.canonical_set_id,
+                  canonical_source_response_hash: recovered.canonical_source_response_hash,
+                  canonical_committed_at: recovered.canonical_committed_at,
+                  replay: Boolean(retained.canonicalReceipt),
+                  customer_charge_micros: 0,
+                },
+                turn_result: buildTurnResult({ assistantMessage: String(recovered.assistant_text ?? "") }),
+                ...buildBillingSnapshot(lane),
+              });
+            } catch (error) {
+              const missingCredential = error instanceof ServerTongsRequestError
+                && error.code === "tongs_api_credential_missing";
+              return admissionFailureResponse({
+                status: missingCredential ? 503 : 409,
+                error: missingCredential
+                  ? "Canonical Thumbnail Directions persistence is unavailable before provider submission."
+                  : error instanceof Error ? error.message : "Retained Thumbnail Directions recovery failed.",
+                code: missingCredential
+                  ? "thumbnail_direction_persistence_preflight_unavailable"
+                  : "thumbnail_direction_recovery_stale",
+              });
+            }
+          }
+        }
+        if (paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && thumbnailDirectionInput
+          && (spendingAcceptance || paidExecutionHandle)) {
+          try {
+            if (!bearerToken) throw new Error("Customer authorization is unavailable.");
+            await readCanonicalThumbnailMetadata({
+              requestUrl: request.url,
+              workpieceId: episodeContext.episodeId,
+              tongsApiToken,
+              userAccessToken: bearerToken,
+              fetchImpl: config.tongsFetch,
+            });
+          } catch {
+            return admissionFailureResponse({
+              status: 503,
+              error: "Canonical Thumbnail Directions persistence is unavailable before provider submission.",
+              code: "thumbnail_direction_persistence_preflight_unavailable",
+            });
+          }
+        }
         if (paidRouteCode === HEARTH_TITLE_ROUTE && titleContractVersion === 1) {
           // Historical accepted v1 quotes are read-only: replay a settled result,
           // but never submit another provider attempt under the old title policy.
@@ -6242,127 +6344,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             }
             if (paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && approvedTitleScript && thumbnailDirectionInput) {
               const thumbnailApproval = approvedTitleScript;
-              const styleAuthority = {
-                resolved_source: thumbnailDirectionInput.style.resolvedSource,
-                authority_revision: thumbnailDirectionInput.style.authorityRevision,
-                binding_id: thumbnailDirectionInput.style.bindingId,
-                binding_revision: thumbnailDirectionInput.style.bindingRevision,
-                profile_revision_id: thumbnailDirectionInput.style.profileRevisionId,
-                profile_content_hash: thumbnailDirectionInput.style.profileContentHash,
-                planning_rules: thumbnailDirectionInput.style.planningRules,
-              };
-              const titleInputs = thumbnailDirectionInput.titles.map((title) => ({
-                key: title.key,
-                id: title.id,
-                revision: title.revision,
-                text: title.text,
-                thumbnail_text: title.thumbnailText,
-              }));
-              const readCanonicalThumbnailMetadata = async () => {
-                const url = new URL(
-                  `/tongs/workpieces/${encodeURIComponent(episodeContext.episodeId)}/read-file?path=${encodeURIComponent("metadata.json")}`,
-                  request.url,
-                );
-                const response = await fetch(url, {
-                  method: "GET",
-                  headers: {
-                    authorization: `Bearer ${bearerToken}`,
-                    "x-forge-user-authorization": `Bearer ${bearerToken}`,
-                  },
+              const styleAuthority = thumbnailDirectionStyleAuthority(thumbnailDirectionInput);
+              const titleInputs = thumbnailDirectionTitleInputs(thumbnailDirectionInput);
+              const persistCanonicalThumbnailDirections = (staged: Record<string, unknown>) =>
+                commitAndFinalizeThumbnailDirections({
+                  requestUrl: request.url,
+                  workpieceId: episodeContext.episodeId,
+                  operationId: paidExecutionHandle!.operationId,
+                  reservationId: paidExecutionHandle!.reservationId,
+                  input: thumbnailDirectionInput,
+                  staged,
+                  gate: openAiTextGate,
+                  tongsApiToken,
+                  userAccessToken: bearerToken!,
+                  fetchImpl: config.tongsFetch,
                 });
-                const body = await response.json().catch(() => null) as unknown;
-                if (!response.ok || !isRecord(body) || body.ok !== true || !isRecord(body.data)) {
-                  throw new Error("Canonical Thumbnail Directions metadata read failed.");
-                }
-                const fileRow = isRecord(body.file_row) ? body.file_row : null;
-                return {
-                  metadata: body.data,
-                  metadataUpdatedAt: readOptionalString(fileRow?.updated_at),
-                  episodePackage: hydrateEpisodePackageV3(body.data),
-                };
-              };
-              const commitAndFinalizeThumbnailDirections = async (staged: Record<string, unknown>) => {
-                const resultId = readOptionalString(staged.thumbnail_direction_result_id);
-                const generatedAt = readOptionalString(staged.created_at);
-                const stagedStyle = isRecord(staged.style_authority) ? staged.style_authority : null;
-                const stagedTitles = Array.isArray(staged.title_inputs)
-                  ? staged.title_inputs.filter(isRecord)
-                  : [];
-                if (!resultId || !generatedAt || !stagedStyle || stagedTitles.length !== 3) {
-                  throw new Error("Staged Thumbnail Directions identity is incomplete.");
-                }
-                const canonical = await readCanonicalThumbnailMetadata();
-                const mutation = await buildPaidThumbnailDirectionMutation({
-                  episodePackage: canonical.episodePackage,
-                  rawText: String(staged.assistant_text ?? ""),
-                  identity: {
-                    resultId,
-                    operationId: paidExecutionHandle!.operationId,
-                    approvalId: thumbnailApproval.approvalId,
-                    approvalRevision: thumbnailApproval.approvalRevision,
-                    scriptHash: thumbnailApproval.scriptHash,
-                    generatedAt,
-                    styleAuthority: stagedStyle,
-                    titleInputs: stagedTitles,
-                    expectedAuthorityHash: String(staged.thumbnail_planning_subtree_hash ?? ""),
-                    expectedStrategyId: readOptionalString(staged.expected_active_strategy_id),
-                    expectedSetId: readOptionalString(staged.expected_active_concept_set_id),
-                  },
-                });
-                if (mutation.disposition === "created") {
-                  const commitUrl = new URL(
-                    `/tongs/workpieces/${encodeURIComponent(episodeContext.episodeId)}/commit-file`,
-                    request.url,
-                  );
-                  const committed = await fetch(commitUrl, {
-                    method: "POST",
-                    headers: {
-                      authorization: `Bearer ${bearerToken}`,
-                      "x-forge-user-authorization": `Bearer ${bearerToken}`,
-                      "content-type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      path: "metadata.json",
-                      content_type: "application/json",
-                      json: {
-                        ...canonical.metadata,
-                        updated_at: new Date().toISOString(),
-                        episode: serializeEpisodePackageV3(mutation.nextEpisodePackage),
-                      },
-                      expected_previous_updated_at: canonical.metadataUpdatedAt,
-                      written_by: { tool: "hearth", tool_version: "3", lane: "canonical" },
-                      event_name: "hearth.thumbnail.direction-set.generated.v1",
-                      event_payload: {
-                        schema: EPISODE_PACKAGE_V3_SCHEMA,
-                        concept_set_id: mutation.setId,
-                        paid_operation_id: paidExecutionHandle!.operationId,
-                        paid_result_id: resultId,
-                      },
-                      correlation_id: crypto.randomUUID(),
-                    }),
-                  });
-                  if (!committed.ok) {
-                    throw new Error(`Canonical Thumbnail Directions commit failed (${committed.status}).`);
-                  }
-                }
-                const readback = await readCanonicalThumbnailMetadata();
-                const set = readback.episodePackage.thumbnail.concept_sets.find((entry) => entry.id === mutation.setId);
-                if (!set || set.concept_revision_ids.length !== 3
-                  || set.source_response_hash !== mutation.sourceResponseHash) {
-                  throw new Error("Canonical Thumbnail Directions readback failed.");
-                }
-                const finalized = await openAiTextGate.rpc("finalize_hearth_thumbnail_direction_generation_result", {
-                  p_operation_id: paidExecutionHandle!.operationId,
-                  p_reservation_id: paidExecutionHandle!.reservationId,
-                  p_result_id: resultId,
-                  p_canonical_set_id: mutation.setId,
-                  p_canonical_source_response_hash: mutation.sourceResponseHash,
-                });
-                if (finalized.error || !isRecord(finalized.data)) {
-                  throw new Error(finalized.error?.message ?? "Thumbnail Directions canonical receipt failed.");
-                }
-                return finalized.data;
-              };
               const paidThumbnailDirections = await executePaidJsonOpenAiRoute({
                 gate: openAiTextGate,
                 routeCode: HEARTH_THUMBNAIL_DIRECTION_ROUTE,
@@ -6443,7 +6439,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     p_result_json: value,
                   });
                   if (saved.error || !isRecord(saved.data)) throw new Error(saved.error?.message ?? "Thumbnail Direction persistence failed.");
-                  return commitAndFinalizeThumbnailDirections(saved.data);
+                  return persistCanonicalThumbnailDirections(saved.data);
                 },
                 recover: async () => {
                   const saved = await openAiTextGate.rpc("read_staged_hearth_thumbnail_direction_generation_result", {
@@ -6453,7 +6449,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   if (saved.error || !isRecord(saved.data)) return null;
                   const finalized = saved.data.canonical_persisted === true
                     ? saved.data
-                    : await commitAndFinalizeThumbnailDirections(saved.data);
+                    : await persistCanonicalThumbnailDirections(saved.data);
                   return {
                     result: finalized,
                     providerRequestId: readOptionalString(finalized.provider_request_id),
@@ -6470,6 +6466,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 script_approval_revision: paidThumbnailDirections.result.script_approval_revision,
                 script_content_hash: paidThumbnailDirections.result.script_content_hash,
                 thumbnail_direction_identity: {
+                  operation_id: paidExecutionHandle.operationId,
                   result_id: paidThumbnailDirections.result.thumbnail_direction_result_id,
                   created_at: paidThumbnailDirections.result.created_at,
                   style_authority: paidThumbnailDirections.result.style_authority,

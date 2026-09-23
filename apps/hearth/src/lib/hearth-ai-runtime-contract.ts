@@ -141,6 +141,7 @@ export type HearthChatResponse = {
   credits_warning?: string;
   framing_pack_result_id?: string;
   thumbnail_direction_identity?: {
+    operation_id: string;
     result_id: string;
     created_at: string;
     style_authority: Record<string, unknown>;
@@ -703,6 +704,8 @@ export function parseHearthChatResponse(
       ? { framing_pack_result_id: readTrimmedField(payload, "framing_pack_result_id")! }
       : {}),
     ...(isRecord(thumbnailDirectionIdentityRaw)
+      && typeof thumbnailDirectionIdentityRaw.operation_id === "string"
+      && thumbnailDirectionIdentityRaw.operation_id.trim().length >= 8
       && typeof thumbnailDirectionIdentityRaw.result_id === "string"
       && isUuid(thumbnailDirectionIdentityRaw.result_id)
       && typeof thumbnailDirectionIdentityRaw.created_at === "string"

@@ -41,3 +41,29 @@ test("focused direction builder pairs concepts and titles into three complete ch
   assert.deepEqual(directions.map((entry) => entry.thumbnailText), ["THUMB 0", "THUMB 1", "THUMB 2"]);
   assert.equal(directions[1]?.visual, "Subject 1");
 });
+
+test("canonical concept-set order preserves paid A/B/C direction identity", () => {
+  const concepts = [
+    { key: "A", lineage: "line-z", id: "concept-a", headline: "Direction A" },
+    { key: "B", lineage: "line-a", id: "concept-b", headline: "Direction B" },
+    { key: "C", lineage: "line-m", id: "concept-c", headline: "Direction C" },
+  ].map((entry, index) => ({
+    concept_set_id: "set", concept_lineage_id: entry.lineage, revision_number: 1,
+    concept_revision_id: entry.id, headline: entry.headline, image_concept: `Visual ${entry.key}`,
+    creative_brief_id: `brief-${entry.key}`, creative_brief_revision: 1,
+    strategy_id: "strategy", strategy_revision: 1,
+    provenance: { direction_key: entry.key },
+    index,
+  }));
+  const pkg = {
+    seo: { titles: concepts.map((_, index) => ({ id: `title-${index}`, revision: 1, text: `Title ${index}`, thumbnail_text: `THUMB ${index}` })) },
+    thumbnail: {
+      concept_sets: [{ id: "set", concept_revision_ids: ["concept-a", "concept-b", "concept-c"] }],
+      concept_revisions: concepts,
+      creative_briefs: concepts.map((entry) => ({ id: entry.creative_brief_id, revision: 1, subject_direction: entry.image_concept, emotional_tone: entry.headline })),
+      creative_strategies: [],
+    },
+  } as never;
+  const directions = buildThumbnailDirections(pkg, "set");
+  assert.deepEqual(directions.map((entry) => entry.name), ["Direction A", "Direction B", "Direction C"]);
+});
