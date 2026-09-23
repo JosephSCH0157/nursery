@@ -46,10 +46,10 @@ export function useUnifiedVisualPlanRecovery(args: {
         const operationId = String(latest.data.operation_id ?? "");
         if (!operationId) return;
         if (latest.data.state === "submission_unknown") {
-          setRetryBlocked(true);
+          setRetryBlocked(false);
           args.setSaveState("error");
-          args.setMessage("Visual Plan submission outcome is unknown. Forge will not submit this request again.");
-          args.setError("OpenAI may have received the request. Use recovery readback or API / Ledger while reconciliation is pending.");
+          args.setMessage("The prior Visual Plan submission outcome is unknown and will not be submitted again. A fresh operation may be started separately.");
+          args.setError("OpenAI may have received the prior request. Its full supplier exposure remains committed while a fresh operation uses separate authority.");
           return;
         }
         if (attemptedRecoveryOperations.has(operationId)) return;

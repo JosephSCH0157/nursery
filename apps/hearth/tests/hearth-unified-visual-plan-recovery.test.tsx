@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useUnifiedVisualPlanRecovery } from "../src/hooks/visuals/useUnifiedVisualPlanRecovery";
 
-test("submission_unknown projects the durable retry guard without recovery execution", async () => {
+test("submission_unknown preserves ambiguity without blocking a distinct fresh operation", async () => {
   const dom = new JSDOM("<!doctype html><div id=\"root\"></div>", { url: "http://localhost/" });
   const previousWindow = globalThis.window;
   const previousDocument = globalThis.document;
@@ -52,10 +52,10 @@ test("submission_unknown projects the durable retry guard without recovery execu
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     await act(async () => { root.render(createElement(Harness)); });
-    assert.equal(retryBlocked, true);
+    assert.equal(retryBlocked, false);
     assert.equal(resumeCalls, 0);
     assert.deepEqual(operationStates, ["submission_unknown"]);
-    assert.deepEqual(messages, ["Visual Plan submission outcome is unknown. Forge will not submit this request again."]);
+    assert.deepEqual(messages, ["The prior Visual Plan submission outcome is unknown and will not be submitted again. A fresh operation may be started separately."]);
   } finally {
     await act(async () => { root.unmount(); });
     Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });

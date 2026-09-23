@@ -143,16 +143,14 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
   let operationId: string;
   let operationFingerprint: string;
   const latestState = string(latest.data?.state);
-  if (latest.data && latestState !== "verified" && latestState !== "failed") {
-    return latestState === "submission_unknown"
-      ? { ok: false, status: 202, code: "paid_submission_unknown", error: "OpenAI may have received this Visual Plan request. Forge will not submit it again; use recovery readback while the supplier outcome is reconciled.", stage: "submission_unknown" }
-      : { ok: false, status: 409, code: "unified_visual_plan_recovery_required", error: "A durable Visual Plan operation already exists. Use recovery readback; a normal retry is disabled to prevent another provider submission.", stage: latestState };
+  if (latest.data && latestState !== "verified" && latestState !== "failed" && latestState !== "submission_unknown") {
+    return { ok: false, status: 409, code: "unified_visual_plan_recovery_required", error: "A durable Visual Plan operation already exists. Use recovery readback; a normal retry is disabled to prevent another provider submission.", stage: latestState };
   } else {
     const current = await currentInputs(args.workspaceId, args.workpieceId, args.generationScope);
     if (!current.ok) return current;
     inputs = { ...current.data, creator_direction: args.creatorDirection?.trim() || null };
     operationFingerprint = await hash(inputs);
-    operationId = `forge:unified-visual-plan:${operationFingerprint}`;
+    operationId = `forge:unified-visual-plan:${operationFingerprint}:${crypto.randomUUID()}`;
   }
   const requestBody = requestBodyFromInputs(inputs, operationId, operationFingerprint);
   for (let attempt = 0; attempt < 2; attempt += 1) {

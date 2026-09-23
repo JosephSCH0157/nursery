@@ -174,7 +174,7 @@ test("terminal submission-unknown liability remains committed without consuming 
   assert.doesNotMatch(submissionUnknownConcurrencyMigration, /update\s+tongs\./i);
 });
 
-test("Visual Plan recovery is readback-only and the UI clears busy while blocking retry", () => {
+test("Visual Plan recovery is readback-only while terminal ambiguity permits only a distinct fresh operation", () => {
   assert.match(service, /parts\[4\] === "generate" \|\| parts\[4\] === "recover"/);
   assert.match(service, /recoveryOnly = parts\[4\] === "recover"/);
   assert.match(service, /recover_expired_unified_visual_plan_attempt/);
@@ -183,6 +183,8 @@ test("Visual Plan recovery is readback-only and the UI clears busy while blockin
   assert.match(hearthAuthority, /No automatic retry is allowed/);
   assert.match(hearthRecovery, /resume:\s*recoverUnifiedVisualPlanOperation/);
   assert.match(hearthRecovery, /finally\s*\{[\s\S]+?setBusy\(false\)/);
+  assert.match(hearthRecovery, /latest\.data\.state === "submission_unknown"[\s\S]+?setRetryBlocked\(false\)/);
+  assert.match(hearthAuthority, /operationId = `forge:unified-visual-plan:\$\{operationFingerprint\}:\$\{crypto\.randomUUID\(\)\}`/);
   assert.match(hearthRecovery, /setRetryBlocked\(unknown \|\| resumed\.code === "unified_visual_plan_recovery_required"\)/);
   assert.doesNotMatch(hearthRecovery, /generateUnifiedVisualPlan/);
 });

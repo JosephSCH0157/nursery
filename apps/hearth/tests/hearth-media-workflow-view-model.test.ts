@@ -156,13 +156,14 @@ test("stage navigation contains no automatic generation, credit, Hammer, or Quen
   for(const forbidden of [/generateThumbnail/,/consume.*credit/i,/publish/i,/experiment/i,/timeline/i])assert.doesNotMatch(source,forbidden);
 });
 
-test("submission uncertainty projection preserves the operation guard without financial or provider actions",async()=>{
+test("submission uncertainty projection preserves history while allowing a distinct fresh operation",async()=>{
   const shell=await readFile(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
   const recovery=await readFile(new URL("../src/hooks/visuals/useUnifiedVisualPlanRecovery.ts",import.meta.url),"utf8");
   const projection=await readFile(new URL("../src/lib/hearth-media-workflow-view-model.ts",import.meta.url),"utf8");
   assert.match(shell,/unifiedVisualPlanRecovery\.retryBlocked/);
   assert.match(shell,/disabled: isApprovingScript \|\| isMediaMapBusy \|\| unifiedVisualPlanRecovery\.retryBlocked/);
-  assert.match(recovery,/Visual Plan submission outcome is unknown\. Forge will not submit this request again\./);
+  assert.match(recovery,/prior Visual Plan submission outcome is unknown and will not be submitted again/);
   assert.match(recovery,/if \(latest\.data\.state === "submission_unknown"\)/);
+  assert.match(recovery,/setRetryBlocked\(false\)/);
   for(const forbidden of [/\bfetch\s*\(/,/requestCustomerSpending/,/reserve/i,/provider attempt/i])assert.doesNotMatch(projection,forbidden);
 });
