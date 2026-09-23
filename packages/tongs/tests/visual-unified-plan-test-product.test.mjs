@@ -26,6 +26,10 @@ const submissionUnknownConcurrencyMigration = readFileSync(new URL(
   "../../../supabase/migrations/20261011580000_visual_plan_submission_unknown_concurrency_repair.sql",
   import.meta.url,
 ), "utf8");
+const paidScopeConcurrencyMigration = readFileSync(new URL(
+  "../../../supabase/migrations/20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql",
+  import.meta.url,
+), "utf8");
 const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 const provider = readFileSync(new URL("../src/providers/unified-visual-plan-provider.ts", import.meta.url), "utf8");
 const hearthAuthority = readFileSync(new URL("../../../apps/hearth/src/lib/hearth-unified-visual-plan-authority.ts", import.meta.url), "utf8");
@@ -172,6 +176,21 @@ test("terminal submission-unknown liability remains committed without consuming 
   assert.match(submissionUnknownConcurrencyMigration, /customer_credit_units=4 and full_cost_ceiling_micros=13773/);
   assert.doesNotMatch(submissionUnknownConcurrencyMigration, /insert into tongs\.(supplier_expenses|customer_paid_execution_scope_authorizations|private_pricing_revisions|openai_text_failure_loss_policy_revisions)/i);
   assert.doesNotMatch(submissionUnknownConcurrencyMigration, /update\s+tongs\./i);
+});
+
+test("terminal submission-unknown releases stale paid-scope concurrency only with canonical evidence", () => {
+  assert.match(paidScopeConcurrencyMigration, /_funding_reservation_counts_paid_scope_concurrency/);
+  assert.match(paidScopeConcurrencyMigration, /binding\.route_code='visual\.unified_plan'/);
+  assert.match(paidScopeConcurrencyMigration, /operation\.state='submission_unknown'/);
+  assert.match(paidScopeConcurrencyMigration, /terminal_event\.event_type='submission_unknown'/);
+  assert.match(paidScopeConcurrencyMigration, /attempt_event\.event_type='provider_attempt_shadowed'/);
+  assert.match(paidScopeConcurrencyMigration, /attempt_event\.lease_expires_at<=now\(\)/);
+  assert.match(paidScopeConcurrencyMigration, /automatic_resubmission_allowed'='false'/);
+  assert.match(paidScopeConcurrencyMigration, /recovery\.event_type='expired_attempt_submission_unknown'/);
+  assert.match(paidScopeConcurrencyMigration, /committed<>20059 or failure_loss_concurrency<>0/);
+  assert.match(paidScopeConcurrencyMigration, /maximum_concurrency/);
+  assert.doesNotMatch(paidScopeConcurrencyMigration, /insert into tongs\.(supplier_expenses|customer_paid_execution_scope_authorizations|private_pricing_revisions|openai_text_failure_loss_policy_revisions)/i);
+  assert.doesNotMatch(paidScopeConcurrencyMigration, /update\s+tongs\./i);
 });
 
 test("Visual Plan recovery is readback-only while terminal ambiguity permits only a distinct fresh operation", () => {
