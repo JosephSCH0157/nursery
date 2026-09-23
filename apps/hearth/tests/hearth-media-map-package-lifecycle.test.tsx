@@ -8,6 +8,7 @@ import EpisodeMediaMapPanel from "../src/components/visuals/EpisodeMediaMapPanel
 
 const noop = () => undefined;
 const baseProps = {
+  canonicalItems: [],
   entries: [],
   selectedEntryId: null,
   scriptVersionLabel: "v1",
@@ -18,6 +19,7 @@ const baseProps = {
   packageError: null,
   generateDisabledReason: null,
   message: null,
+  operationStage: "idle" as const,
   generationScope: "full_media_plan",
   budgetPolicy: {
     estimatedDurationSec: 504,
@@ -67,7 +69,45 @@ test("successful zero-entry package load shows saved and enables generation", ()
   const html = render("loaded", false);
   assert.match(html, />saved</);
   assert.doesNotMatch(html, /Create visual plan[\s\S]*?disabled/);
-  assert.match(html, /0 mapped beats/);
+  assert.match(html, /0 canonical visuals/);
+});
+
+test("approved episode at canonical revision 0 renders the initial creation state without mutation", () => {
+  let mutationCount = 0;
+  const trackMutation = () => { mutationCount += 1; };
+  const html = renderToStaticMarkup(createElement(EpisodeMediaMapPanel, {
+    ...baseProps,
+    packageState: "loaded" as const,
+    disabled: false,
+    onGenerateFromPlans: trackMutation,
+    onActivateMap: trackMutation,
+    onAddEntry: trackMutation,
+    onSaveEntry: trackMutation,
+    onDeleteEntry: trackMutation,
+  }));
+  assert.match(html, /Create visual plan/);
+  assert.match(html, /0 canonical visuals/);
+  assert.match(html, /No visual plan is applied yet/);
+  assert.equal(mutationCount, 0);
+});
+
+test("existing canonical Visual Plan state still renders", () => {
+  const html = renderToStaticMarkup(createElement(EpisodeMediaMapPanel, {
+    ...baseProps,
+    canonicalItems: [{
+      id: "visual-1",
+      kind: "image" as const,
+      focus: "Gas station price board",
+      description: "Establish the episode's gasoline-price question.",
+      status: "planned",
+    }],
+    packageState: "loaded" as const,
+    disabled: false,
+  }));
+  assert.match(html, /Regenerate visual plan/);
+  assert.match(html, /1 canonical visuals/);
+  assert.match(html, /Gas station price board/);
+  assert.doesNotMatch(html, /No visual plan is applied yet/);
 });
 
 test("failed package load shows its error and never shows saved", () => {

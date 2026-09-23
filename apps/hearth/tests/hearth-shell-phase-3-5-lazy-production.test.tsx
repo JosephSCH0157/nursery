@@ -168,6 +168,7 @@ test("lazy chunk failure is contained to the production surface", async () => {
     });
     assert.match(dom.container.textContent ?? "", /Hearth remains mounted/);
     assert.match(dom.container.textContent ?? "", /This panel could not be loaded/);
+    assert.match(dom.container.textContent ?? "", /Reload panel/);
     assert.equal(dom.container.querySelector("[role=\"alert\"]") !== null, true);
   } finally {
     console.error = previousConsoleError;

@@ -24,8 +24,17 @@ class ProductionChunkErrorBoundary extends Component<
     return { failed: true };
   }
 
-  componentDidCatch(_error: Error, _info: ErrorInfo): void {
+  componentDidCatch(error: Error, info: ErrorInfo): void {
     // The surface contains the chunk failure. Canonical authority state is unchanged.
+    // React.lazy caches a rejected import, so a full document reload is required
+    // before the browser can request the production surface again.
+    if (import.meta.env?.DEV) {
+      console.error(
+        `[hearth] Production surface "${this.props.surfaceKey}" failed to load.`,
+        error,
+        info.componentStack,
+      );
+    }
   }
 
   componentDidUpdate(previousProps: LazyProductionSurfaceBoundaryProps): void {
@@ -39,6 +48,9 @@ class ProductionChunkErrorBoundary extends Component<
       return (
         <section className="hs-visuals-skeleton" role="alert">
           <strong>This panel could not be loaded.</strong>
+          <button type="button" onClick={() => window.location.reload()}>
+            Reload panel
+          </button>
         </section>
       );
     }
