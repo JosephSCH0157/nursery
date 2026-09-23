@@ -39,6 +39,51 @@ export interface ImageProvider {
   generateImage(input: GenerateImageInput): Promise<GenerateImageOutput>;
 }
 
+export const THUMBNAIL_BASE_GENERATION_CONTRACT = Object.freeze({
+  routeCode: "hearth.thumbnail_base_generation",
+  provider: "openai",
+  model: "gpt-image-2-2026-04-21",
+  endpoint: "/v1/images/generations",
+  size: "1536x1024",
+  quality: "high" as const,
+  outputFormat: "png" as const,
+  imageCount: 1 as const,
+  maximumAttempts: 1 as const,
+  referenceImagesAllowed: false as const,
+});
+
+export type OpenAiImageGenerationRequestBody = {
+  model: string;
+  prompt: string;
+  size: string;
+  quality: "low" | "medium" | "high";
+  output_format: "png";
+};
+
+/** Canonical no-reference request. Property order is part of the serialized-byte contract. */
+export function buildOpenAiImageGenerationRequestBody(input: Pick<GenerateImageInput, "prompt" | "model" | "size" | "aspect" | "quality">,
+  defaultModel: string = THUMBNAIL_BASE_GENERATION_CONTRACT.model): OpenAiImageGenerationRequestBody {
+  const prompt = readString(input.prompt);
+  if (!prompt) throw new Error("Image prompt is required");
+  return {
+    model: readString(input.model) ?? defaultModel,
+    prompt,
+    size: readString(input.size) ?? mapAspectToSize(input.aspect),
+    quality: input.quality ?? "high",
+    output_format: "png",
+  };
+}
+
+export function serializeOpenAiImageGenerationRequestBody(body: OpenAiImageGenerationRequestBody): string {
+  return JSON.stringify(body);
+}
+
+export async function hashOpenAiImageGenerationRequestBody(body: OpenAiImageGenerationRequestBody): Promise<string> {
+  const bytes = new TextEncoder().encode(serializeOpenAiImageGenerationRequestBody(body));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (part) => part.toString(16).padStart(2, "0")).join("");
+}
+
 export const IMAGE_REFERENCE_CONTRACT_VERSION = "forge-image-reference-v2" as const;
 
 export function buildImageReferenceInstruction(purpose: NonNullable<GenerateImageInput["referenceImage"]>["purpose"]): string {
@@ -189,10 +234,11 @@ export class OpenAiImageProvider implements ImageProvider {
           method: "POST", headers: { authorization: `Bearer ${this.apiKey}` }, body: form,
         });
       } else {
+        const requestBody = buildOpenAiImageGenerationRequestBody({ ...input, prompt, size, model, quality }, this.model);
         response = await fetch("https://api.openai.com/v1/images/generations", {
           method: "POST",
           headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
-          body: JSON.stringify({ model, prompt, size, quality, output_format: "png" }),
+          body: serializeOpenAiImageGenerationRequestBody(requestBody),
         });
       }
     } catch (error) {

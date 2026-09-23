@@ -16,6 +16,11 @@ import {
 import { appendLaunchSnapshot, appendPublicationEvent, canReuseLaunchSnapshotForPublish, proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { tongsFetch } from "./tongs-fetch";
+import {
+  deriveCustomerOperationId,
+  readCustomerSpendingQuote,
+  requestCustomerSpendingAcceptance,
+} from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type ThumbnailMutationKind = Parameters<typeof proveThumbnailMutation>[0]["kind"];
 
@@ -597,22 +602,41 @@ export async function generateForgeAiBaseArtwork(args: {
   if (!strategy || !brief) return { ok: false, saveState: "error", status: 409, error: "Canonical strategy or creative brief authority is unavailable." };
   const promptPack = deriveThumbnailPromptPack({ recipe, concept, strategy, brief });
   if (promptPack.review_state !== "reviewed") return { ok: false, saveState: "error", status: 409, error: "Prompt template changed and requires review." };
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/generate-thumbnail`, {
-    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
-    json: {
-      workspace_id: args.workspaceId, episode_id: args.workpieceId, operation_id: args.operationId,
+  if (recipe.generation_reference) return { ok: false, saveState: "error", status: 409, error: "Reference-image generation is not certified for the current Thumbnail Base Test product." };
+  const operationId = await deriveCustomerOperationId("hearth-thumbnail-base", {
+    workspace_id: args.workspaceId, workpiece_id: args.workpieceId,
+    render_recipe_id: recipe.id, render_recipe_revision: recipe.revision,
+    concept_revision_id: concept.concept_revision_id, prompt_package_hash: promptPack.canonical_hash,
+  });
+  const requestBody = (spendingAcceptance?: ReturnType<typeof requestCustomerSpendingAcceptance>) => ({
+      workspace_id: args.workspaceId, episode_id: args.workpieceId, operation_id: operationId,
       prompt: `${promptPack.positive_prompt}\n\nAvoid: ${promptPack.negative_prompt}`,
-      aspect: recipe.intended_aspect_ratio, lane: "forge",
-      confirm_spend: args.confirmSpend, always_approve_ai_spend: args.alwaysApproveAiSpend,
+      aspect: recipe.intended_aspect_ratio, size: "1536x1024", lane: "forge",
       canonical_stage_only: true, concept_revision_id: concept.concept_revision_id,
       render_recipe_id: recipe.id, render_recipe_revision: recipe.revision,
       prompt_package_hash: promptPack.canonical_hash,
       prompt_serialization_version: promptPack.serialization_version,
       provider_settings: recipe.provider_settings,
-      generation_reference: recipe.generation_reference ?? null,
-    },
+      generation_reference: null,
+      ...(spendingAcceptance ? { spending_acceptance: spendingAcceptance } : {}),
   });
-  const body = await json(response);
+  let response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/generate-thumbnail`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: requestBody(),
+  });
+  let body = await json(response);
+  if (!response.ok) {
+    const quote = readCustomerSpendingQuote(body);
+    if (quote) {
+      const acceptance = requestCustomerSpendingAcceptance(quote);
+      if (!acceptance) return { ok: false, saveState: "error", status: response.status,
+        error: quote.funding_eligible ? "The 45 Forge Credit price was not accepted. No funds were reserved and no provider request was sent." : "Not enough Forge Credits for Thumbnail Base generation." };
+      response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/generate-thumbnail`, {
+        method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` }, json: requestBody(acceptance),
+      });
+      body = await json(response);
+    }
+  }
   const data = isRecord(body) && isRecord(body.data) ? body.data : null;
   const asset = data && isRecord(data.asset) ? data.asset : null;
   const assetId = readString(asset?.id);

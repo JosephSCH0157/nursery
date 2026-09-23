@@ -3,9 +3,26 @@ import assert from "node:assert/strict";
 import {
   ImageProviderRequestError,
   OpenAiImageProvider,
+  buildOpenAiImageGenerationRequestBody,
   buildImageReferenceInstruction,
   extractOpenAiImageUsage,
+  hashOpenAiImageGenerationRequestBody,
+  serializeOpenAiImageGenerationRequestBody,
 } from "../dist/providers/image-provider.js";
+
+test("canonical no-reference image request has deterministic exact bytes and hash", async () => {
+  const body = buildOpenAiImageGenerationRequestBody({
+    prompt: "Title-agnostic gasoline base artwork",
+    model: "gpt-image-2-2026-04-21",
+    size: "1536x1024",
+    quality: "high",
+  });
+  const serialized = serializeOpenAiImageGenerationRequestBody(body);
+  assert.equal(serialized, '{"model":"gpt-image-2-2026-04-21","prompt":"Title-agnostic gasoline base artwork","size":"1536x1024","quality":"high","output_format":"png"}');
+  assert.equal(await hashOpenAiImageGenerationRequestBody(body), "73b759bde48225c63b7ce1329239b7d0f4bd610c84389c64efb2bf850d39bde0");
+  assert.deepEqual(Object.keys(body), ["model", "prompt", "size", "quality", "output_format"]);
+  assert.equal("image" in body || "images" in body, false);
+});
 
 test("OpenAiImageProvider submits one explicit pinned GPT Image 2 request and preserves usage evidence", async (t) => {
   const calls = [];

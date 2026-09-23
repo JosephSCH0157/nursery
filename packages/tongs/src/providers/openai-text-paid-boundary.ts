@@ -4,6 +4,7 @@ export const OPENAI_TEXT_ROUTE_CODES = [
   "hearth.tag_generation",
   "hearth.framing_pack_generation",
   "hearth.thumbnail_direction_generation",
+  "hearth.thumbnail_base_generation",
   "hearth.script_generation",
   "hearth.research_synthesis",
   "visual.unified_plan",

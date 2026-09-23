@@ -7,6 +7,7 @@ import { evaluateReadabilityMasks, parseHexColor, THUMBNAIL_CONTRAST_EVALUATOR_V
 
 export const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
 export const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
+export const THUMBNAIL_BASE_CROP_CONTRACT_VERSION = "forge-thumbnail-base-center-crop-v1";
 export { THUMBNAIL_CONTRAST_EVALUATOR_VERSION, THUMBNAIL_READABILITY_CONTRACT_VERSION };
 
 export type ThumbnailCompositeEncoding = {
@@ -56,7 +57,7 @@ function escapeXml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-function wrapTitle(title: string, maxLines: number): string[] {
+export function wrapThumbnailTitle(title: string, maxLines: number): string[] {
   const words = title.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   const target = Math.max(1, Math.ceil(words.length / maxLines));
@@ -66,7 +67,50 @@ function wrapTitle(title: string, maxLines: number): string[] {
     if (!current || (current.split(" ").length >= target && lines.length < maxLines)) lines.push(word);
     else lines[lines.length - 1] = `${current} ${word}`;
   }
-  return lines.slice(0, maxLines);
+  return lines;
+}
+
+export type ThumbnailCoverCropGeometry = {
+  contractVersion: typeof THUMBNAIL_BASE_CROP_CONTRACT_VERSION;
+  mode: "cover";
+  anchor: "centre";
+  sourceWidth: number;
+  sourceHeight: number;
+  outputWidth: number;
+  outputHeight: number;
+  scale: number;
+  scaledWidth: number;
+  scaledHeight: number;
+  cropLeft: number;
+  cropTop: number;
+  cropRight: number;
+  cropBottom: number;
+  sourceSafeRegion: { left: number; top: number; right: number; bottom: number };
+};
+
+export function thumbnailCoverCropGeometry(sourceWidth: number, sourceHeight: number,
+  outputWidth: number, outputHeight: number): ThumbnailCoverCropGeometry {
+  if (![sourceWidth, sourceHeight, outputWidth, outputHeight].every((value) => Number.isInteger(value) && value > 0)) {
+    throw new Error("Thumbnail crop dimensions must be positive integers.");
+  }
+  const scale = Math.max(outputWidth / sourceWidth, outputHeight / sourceHeight);
+  const scaledWidth = sourceWidth * scale;
+  const scaledHeight = sourceHeight * scale;
+  const cropLeft = (scaledWidth - outputWidth) / 2;
+  const cropTop = (scaledHeight - outputHeight) / 2;
+  const sourceCropLeft = cropLeft / scale;
+  const sourceCropTop = cropTop / scale;
+  return {
+    contractVersion: THUMBNAIL_BASE_CROP_CONTRACT_VERSION,
+    mode: "cover", anchor: "centre", sourceWidth, sourceHeight, outputWidth, outputHeight,
+    scale, scaledWidth, scaledHeight, cropLeft, cropTop,
+    cropRight: scaledWidth - outputWidth - cropLeft,
+    cropBottom: scaledHeight - outputHeight - cropTop,
+    sourceSafeRegion: {
+      left: sourceCropLeft, top: sourceCropTop,
+      right: sourceWidth - sourceCropLeft, bottom: sourceHeight - sourceCropTop,
+    },
+  };
 }
 
 export async function normalizeThumbnailLogoForRender(logoBytes: Uint8Array): Promise<Uint8Array> {
@@ -93,7 +137,7 @@ export async function renderThumbnailComposite(args: {
   if (!Number.isInteger(width) || width < 320 || width > 7680 || !Number.isInteger(height) || height < 180 || height > 4320) {
     throw new Error("Composite dimensions are outside the supported range.");
   }
-  const lines = wrapTitle(recipe.title_text, Math.max(1, Math.min(4, recipe.max_lines)));
+  const lines = wrapThumbnailTitle(recipe.title_text, Math.max(1, Math.min(4, recipe.max_lines)));
   if (lines.length === 0) throw new Error("Composite title text is required.");
   const fontData = await bundledFontData();
   const padding = Math.round(width * Math.max(0.02, Math.min(0.25, recipe.horizontal_padding_percent / 100)));
@@ -114,7 +158,10 @@ export async function renderThumbnailComposite(args: {
   const svg = (body: string) => Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><style>${fontStyle}</style>${body}</svg>`);
   const coreMaskSvg = svg(textNodes(null, `fill="#fff"`));
   const lineMaskSvgs = lines.map((_line, index) => svg(textNodes(index, `fill="#fff"`)));
-  const baseArtwork = await sharp(args.baseBytes).resize(width, height, { fit: "cover" }).ensureAlpha().png().toBuffer();
+  const baseArtwork = await sharp(args.baseBytes).resize(width, height, {
+    fit: "cover",
+    position: "centre",
+  }).ensureAlpha().png().toBuffer();
   const logoVisible = recipe.presentation_override?.logo_visible !== false;
   let logoOverlay: { input: Buffer; top: number; left: number; blend: "over" } | null = null;
   if (logoVisible && args.logoBytes?.length && recipe.brand) {

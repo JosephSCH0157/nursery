@@ -176,7 +176,8 @@ test("render recipe is sole live presentation authority and prompt reconstructio
   assert.equal(first.canonical_serialized, second.canonical_serialized);
   assert.equal(first.canonical_hash, second.canonical_hash);
   assert.equal(first.canonical_hash.length, 64);
-  assert.equal(first.positive_prompt.includes("DURABLE"), true);
+  assert.equal(first.positive_prompt.includes("DURABLE"), false);
+  assert.equal(first.canonical_serialized.includes('"text":"DURABLE"'), false);
   assert.equal(first.canonical_serialized.includes('"id":"title-1"'), true);
   const changedProviderSettings = deriveThumbnailPromptPack({
     recipe: { ...recipe, provider_settings: { guidance: 7 } },
@@ -196,6 +197,35 @@ test("render recipe is sole live presentation authority and prompt reconstructio
   assert.equal(reloaded.thumbnail.render_recipes[0]?.presentation_override?.logo_placement, "top_left");
   assert.equal(imported.thumbnail.render_recipes.length, 0, "cancelling before save leaves canonical authority unchanged");
   assert.equal(deriveThumbnailPromptPack({ recipe, concept, templateVersion: "v2" }).review_state, "needs_review");
+});
+
+test("base-art prompt excludes full title and explicit thumbnail copy while preserving compositor identity", () => {
+  const imported = hydrateEpisodePackageV3(legacyMetadata);
+  const concept = imported.thumbnail.concept_revisions[0]!;
+  const titleLiteral = "Why Is Gasoline So Expensive in the United States?";
+  const thumbnailCopy = "GAS PRICES EXPOSED";
+  const recipe: ThumbnailRenderRecipe = {
+    id: "recipe-title-boundary", revision: 2, concept_revision_id: concept.concept_revision_id,
+    strategy_id: concept.strategy_id, strategy_revision: concept.strategy_revision,
+    creative_brief_id: concept.creative_brief_id, creative_brief_revision: concept.creative_brief_revision,
+    title_id: "seo-title-a", title_revision: 1, provider_id: "forge", provider_settings: { thumbnail_text: thumbnailCopy },
+    generation_reference: null, intended_aspect_ratio: "16:9", brand_template_id: null, brand_template_revision: null,
+    title_text: titleLiteral, treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
+    prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
+    composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION, composition_revision: 2,
+    prompt_review_state: "reviewed", last_reviewed_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
+    created_at: "2026-09-23T12:00:00.000Z", updated_at: "2026-09-23T12:00:00.000Z",
+  };
+  const prompt = deriveThumbnailPromptPack({ recipe, concept });
+  for (const forbidden of [titleLiteral, thumbnailCopy]) {
+    assert.equal(prompt.positive_prompt.includes(forbidden), false);
+    assert.equal(prompt.negative_prompt.includes(forbidden), false);
+  }
+  assert.match(prompt.positive_prompt, /later Forge typography/);
+  assert.match(prompt.canonical_serialized, /"id":"seo-title-a"/);
+  assert.doesNotMatch(prompt.canonical_serialized, /Why Is Gasoline|GAS PRICES EXPOSED/);
+  const normalizedParts = prompt.positive_prompt.split(". ").map((value) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+  assert.equal(new Set(normalizedParts).size, normalizedParts.length);
 });
 
 test("active render recipe restores the exact independent concept/title pairing", () => {

@@ -6,9 +6,33 @@ import sharp from "sharp";
 import {
   normalizeThumbnailLogoForRender,
   renderThumbnailComposite,
+  thumbnailCoverCropGeometry,
+  wrapThumbnailTitle,
+  THUMBNAIL_BASE_CROP_CONTRACT_VERSION,
   THUMBNAIL_BUNDLED_FONT_VERSION,
   THUMBNAIL_COMPOSITION_ENGINE_VERSION,
 } from "../dist/thumbnail-composite.js";
+
+test("1536x1024 base art uses the explicit deterministic center crop to 1280x720", () => {
+  const crop = thumbnailCoverCropGeometry(1536, 1024, 1280, 720);
+  assert.equal(crop.contractVersion, THUMBNAIL_BASE_CROP_CONTRACT_VERSION);
+  assert.equal(crop.mode, "cover");
+  assert.equal(crop.anchor, "centre");
+  assert.equal(crop.scale, 5 / 6);
+  assert.equal(crop.scaledWidth, 1280);
+  assert.ok(Math.abs(crop.scaledHeight - 853.3333333333334) < 1e-9);
+  assert.equal(crop.cropLeft, 0);
+  assert.ok(Math.abs(crop.cropTop - 66.66666666666669) < 1e-9);
+  assert.equal(crop.sourceSafeRegion.left, 0);
+  assert.ok(Math.abs(crop.sourceSafeRegion.top - 80) < 1e-9);
+  assert.equal(crop.sourceSafeRegion.right, 1536);
+  assert.equal(crop.sourceSafeRegion.bottom, 944);
+});
+
+test("compositor retains every word of the full canonical title", () => {
+  const title = "Why Is Gasoline So Expensive in the United States?";
+  assert.equal(wrapThumbnailTitle(title, 3).join(" "), title);
+});
 import { contrastRatio, evaluateReadabilityMasks, nearestRankP10, THUMBNAIL_READABILITY_THRESHOLD } from "../dist/thumbnail-readability.js";
 import {
   resolveThumbnailOperationReplay,

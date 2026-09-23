@@ -11,10 +11,10 @@ import type { BrandApplicationProvenance, BrandBindingProjection } from "@forge/
 import type { HearthGenerationReferenceImage } from "./hearth-generation-reference";
 
 export const EPISODE_PACKAGE_V3_SCHEMA = "forge.episode.package.v3" as const;
-export const THUMBNAIL_PROMPT_TEMPLATE_VERSION = "hearth-thumbnail-prompt-v1" as const;
+export const THUMBNAIL_PROMPT_TEMPLATE_VERSION = "hearth-thumbnail-base-prompt-v2" as const;
 export const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1" as const;
 export const THUMBNAIL_AUTHORITY_VERSION = "hearth-thumbnail-authority-v1" as const;
-export const THUMBNAIL_PROMPT_SERIALIZATION_VERSION = "hearth-thumbnail-prompt-canonical-v1" as const;
+export const THUMBNAIL_PROMPT_SERIALIZATION_VERSION = "hearth-thumbnail-base-prompt-canonical-v2" as const;
 
 export type ThumbnailCreativeStrategy = {
   id: string;
@@ -637,6 +637,25 @@ export function validateConceptGenerationSet(
   return errors;
 }
 
+function sanitizeBaseArtProviderSettings(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => sanitizeBaseArtProviderSettings(entry))
+      .filter((entry) => entry !== undefined);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !/(?:title|text|copy|prompt)/i.test(key))
+        .map(([key, entry]) => [key, sanitizeBaseArtProviderSettings(entry)])
+        .filter(([, entry]) => entry !== undefined),
+    );
+  }
+  // Provider prose is not creative authority and could contain compositor-owned
+  // copy under an unanticipated key. Numeric and boolean tuning remains bound.
+  return typeof value === "string" ? undefined : value;
+}
+
 export function deriveThumbnailPromptPack(args: {
   recipe: ThumbnailRenderRecipe;
   concept: ThumbnailConceptRevision;
@@ -650,7 +669,7 @@ export function deriveThumbnailPromptPack(args: {
     serialization_version: THUMBNAIL_PROMPT_SERIALIZATION_VERSION,
     template_version: templateVersion,
     provider_id: args.recipe.provider_id,
-    provider_settings: args.recipe.provider_settings,
+    provider_settings: sanitizeBaseArtProviderSettings(args.recipe.provider_settings),
     generation_reference: args.recipe.generation_reference ? {
       asset_id: args.recipe.generation_reference.asset_id,
       content_hash: args.recipe.generation_reference.content_hash,
@@ -671,7 +690,6 @@ export function deriveThumbnailPromptPack(args: {
     strategy: args.strategy ? {
       episode_promise: args.strategy.episode_promise,
       intended_viewer: args.strategy.intended_viewer,
-      curiosity_mechanism: args.strategy.curiosity_mechanism,
       editorial_positioning: args.strategy.editorial_positioning,
       expectation_integrity: args.strategy.expectation_integrity,
     } : null,
@@ -681,7 +699,6 @@ export function deriveThumbnailPromptPack(args: {
       composition_direction: args.brief.composition_direction,
       emotional_tone: args.brief.emotional_tone,
       visual_hierarchy: args.brief.visual_hierarchy,
-      title_compatibility: args.brief.title_compatibility,
       expectation_integrity_rationale: args.brief.expectation_integrity_rationale,
       provider_neutral_render_direction: args.brief.provider_neutral_render_direction,
     } : null,
@@ -691,17 +708,31 @@ export function deriveThumbnailPromptPack(args: {
       mood_style: args.concept.mood_style,
       prompt_basis: args.concept.normalized_prompt_basis,
     },
-    canonical_title: {
+    compositor_title_authority: {
       id: args.recipe.title_id,
       revision: args.recipe.title_revision,
-      text: args.recipe.title_text,
     },
     exclusions: ["all burned-in text", "unrequested text", "logos", "watermarks", "unsupported claims"],
   };
-  const positive = [args.brief?.provider_neutral_render_direction, args.brief?.composition_direction,
-    args.concept.normalized_prompt_basis, args.concept.image_concept, args.concept.mood_style,
-    `Reserve composition space for the exact approved title applied by the compositor: ${args.recipe.title_text}`]
-    .map((value) => value?.trim() ?? "").filter(Boolean).join(". ");
+  const normalizeForComparison = (value: string) => value.toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
+  const promptParts = [
+    args.brief?.provider_neutral_render_direction,
+    args.brief?.composition_direction,
+    args.concept.normalized_prompt_basis,
+    args.concept.image_concept,
+    args.concept.mood_style,
+    args.brief?.emotional_tone,
+    "Reserve clean negative space for later Forge typography according to the canonical composition authority",
+  ].map((value) => value?.trim().replace(/[.\s]+$/g, "") ?? "").filter(Boolean);
+  const positive = promptParts.filter((value, index, all) => {
+    const normalized = normalizeForComparison(value);
+    return normalized.length > 0 && all.findIndex((candidate) => {
+      const compared = normalizeForComparison(candidate);
+      return compared === normalized || (compared.length >= 80 && normalized.length >= 80
+        && (compared.includes(normalized) || normalized.includes(compared)));
+    }) === index;
+  }).join(". ");
   const canonicalSerialized = canonicalSerialize(payload);
   return {
     template_version: templateVersion,

@@ -65,6 +65,7 @@ export async function buildBoundedOpenAiProviderRequest(args: {
   maximumAttempts: number;
   serviceTier?: string;
   protocolOverheadTokens?: number;
+  preserveBodyPropertyOrder?: boolean;
 }): Promise<BoundedProviderRequest> {
   const maximumOutputTokens = positiveSafeInteger(
     args.maximumOutputTokens,
@@ -83,7 +84,9 @@ export async function buildBoundedOpenAiProviderRequest(args: {
   if (!model) throw new Error("provider_request_model_required");
   const body = normalizeJson(args.body) as Record<string, JsonValue>;
   if (body.model !== model) throw new Error("provider_request_model_mismatch");
-  const serializedBody = JSON.stringify(body);
+  const serializedBody = args.preserveBodyPropertyOrder
+    ? JSON.stringify(args.body)
+    : JSON.stringify(body);
   const bytes = new TextEncoder().encode(serializedBody);
   const tokenizer = getEncoding("o200k_base");
   const tokenizerInputTokens = tokenizer.encode(serializedBody).length;

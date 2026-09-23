@@ -147,6 +147,10 @@ type PaidImageGenerationContext = {
 import {
   ImageProviderRequestError,
   IMAGE_REFERENCE_CONTRACT_VERSION,
+  buildOpenAiImageGenerationRequestBody,
+  hashOpenAiImageGenerationRequestBody,
+  serializeOpenAiImageGenerationRequestBody,
+  THUMBNAIL_BASE_GENERATION_CONTRACT,
   extractOpenAiImageUsage,
   OpenAiImageProvider,
   type GenerateImageInput,
@@ -1660,6 +1664,11 @@ export type GenerateEpisodeThumbnailRequest = {
   render_recipe_id?: string;
   render_recipe_revision?: number;
   generation_reference?: GenerationReferenceRequest | null;
+  prompt_package_hash?: string;
+  prompt_serialization_version?: string;
+  provider_settings?: Record<string, Json>;
+  spending_acceptance?: OpenAiTextSpendingAcceptance | null;
+  paid_execution?: OpenAiTextPaidExecutionHandle | null;
 };
 
 export type LegacyGenerateEpisodeThumbnailResponse = {
@@ -7278,6 +7287,14 @@ function normalizeGenerateEpisodeThumbnailRequest(
     body.canonical_stage_only,
     "canonical_stage_only",
   );
+  const spendingAcceptance = normalizeOpenAiTextSpendingAcceptance(body.spending_acceptance);
+  if (body.spending_acceptance != null && !spendingAcceptance)
+    throw new HttpError(400, "invalid_spending_acceptance", "spending_acceptance is invalid.");
+  const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
+  if (body.paid_execution != null && !paidExecution)
+    throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
+  if (spendingAcceptance && paidExecution)
+    throw new HttpError(400, "conflicting_paid_execution_context", "Provide either paid_execution or spending_acceptance, not both.");
   if (canonicalStageOnly !== true) {
     throw new HttpError(
       410,
@@ -7353,6 +7370,15 @@ function normalizeGenerateEpisodeThumbnailRequest(
     generation_reference: normalizeGenerationReference(
       body.generation_reference,
     ),
+    prompt_package_hash: normalizeSha256(body.prompt_package_hash, "prompt_package_hash"),
+    prompt_serialization_version: normalizeNonEmptyString(body.prompt_serialization_version, "prompt_serialization_version"),
+    provider_settings: (() => {
+      const value = normalizeJsonValue(body.provider_settings ?? {});
+      if (!isRecord(value)) throw new HttpError(400, "invalid_provider_settings", "provider_settings must be an object");
+      return value;
+    })(),
+    spending_acceptance: spendingAcceptance,
+    paid_execution: paidExecution,
     user_access_token:
       userAccessTokenFromHeader ??
       (typeof body.user_access_token === "string"
@@ -10217,6 +10243,7 @@ export class TongsCommitService {
       workspaceId,
     });
     const episodePackage = normalizeEpisodePackageRecord(metadata);
+
     return {
       metadata,
       episodePackage,
@@ -22450,6 +22477,37 @@ export class TongsCommitService {
     });
     const episodePackage = normalizeEpisodePackageRecord(metadata);
 
+    if (input.canonical_stage_only) {
+      await this.assertWorkspaceRoleFromAccessToken(workspace.id, "editor", input.user_access_token);
+      const episodeV3 = isRecord(metadata.episode) ? metadata.episode : null;
+      const thumbnailV3 = episodeV3 && isRecord(episodeV3.thumbnail) ? episodeV3.thumbnail : null;
+      const seoV3 = episodeV3 && isRecord(episodeV3.seo) ? episodeV3.seo : null;
+      const recipes = Array.isArray(thumbnailV3?.render_recipes) ? thumbnailV3.render_recipes.filter(isRecord) : [];
+      const concepts = Array.isArray(thumbnailV3?.concept_revisions) ? thumbnailV3.concept_revisions.filter(isRecord) : [];
+      const titles = Array.isArray(seoV3?.titles) ? seoV3.titles.filter(isRecord) : [];
+      const recipe = recipes.find((row) => readStringField(row, "id") === input.render_recipe_id
+        && Number(row.revision) === input.render_recipe_revision) ?? null;
+      const concept = concepts.find((row) => readStringField(row, "concept_revision_id") === input.concept_revision_id) ?? null;
+      const title = recipe ? titles.find((row) => readStringField(row, "id") === readStringField(recipe, "title_id")
+        && Number(row.revision) === Number(recipe.title_revision)) ?? null : null;
+      const canonicalTitle = title ? (readStringField(title, "thumbnail_text") ?? readStringField(title, "text")) : null;
+      if (!recipe || !concept || !title
+        || readStringField(thumbnailV3 ?? {}, "active_render_recipe_id") !== input.render_recipe_id
+        || readStringField(recipe, "concept_revision_id") !== input.concept_revision_id
+        || readStringField(recipe, "title_text") !== canonicalTitle
+        || readStringField(recipe, "prompt_review_state") !== "reviewed"
+        || readStringField(recipe, "prompt_template_version") !== "hearth-thumbnail-base-prompt-v2") {
+        throw new HttpError(409, "thumbnail_base_preflight_stale_authority",
+          "The exact reviewed recipe, concept, or full canonical title is no longer current. No quote or provider request was created.");
+      }
+      const compositor = await import("./thumbnail-composite.js");
+      if (typeof compositor.renderThumbnailComposite !== "function"
+        || compositor.THUMBNAIL_BASE_CROP_CONTRACT_VERSION !== "forge-thumbnail-base-center-crop-v1") {
+        throw new HttpError(503, "thumbnail_base_preflight_compositor_unavailable",
+          "The canonical 3:2 to 16:9 compositor is unavailable. No quote or provider request was created.");
+      }
+    }
+
     const conceptById = new Map(
       episodePackage.thumbnail.concepts.map((concept) => [concept.id, concept]),
     );
@@ -22496,13 +22554,10 @@ export class TongsCommitService {
       });
     }
 
-    const finalPrompt = [
-      conceptPrompt,
-      ...buildHearthVisualStylePromptLines(stylePreset),
-      THUMBNAIL_EDITORIAL_BASE_HINT,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
+    const finalPrompt = input.canonical_stage_only
+      ? conceptPrompt
+      : [conceptPrompt, ...buildHearthVisualStylePromptLines(stylePreset), THUMBNAIL_EDITORIAL_BASE_HINT]
+          .filter(Boolean).join("\n\n");
 
     const resolvedPaidSize =
       input.size?.trim() ||
@@ -22511,6 +22566,21 @@ export class TongsCommitService {
       workpieceId,
       input.generation_reference,
     );
+    if (input.canonical_stage_only && (referenceImage || input.generation_reference)) {
+      throw new HttpError(409, "thumbnail_base_reference_not_certified", "The current Thumbnail Base Test product allows no reference image.");
+    }
+    if (input.canonical_stage_only && (resolvedPaidSize !== THUMBNAIL_BASE_GENERATION_CONTRACT.size
+      || input.aspect !== "16:9")) {
+      throw new HttpError(409, "thumbnail_base_request_shape_not_certified", "The current Thumbnail Base Test product requires one 1536x1024 high PNG for the 16:9 center-crop contract.");
+    }
+    const providerBody = buildOpenAiImageGenerationRequestBody({
+      prompt: finalPrompt,
+      model: THUMBNAIL_BASE_GENERATION_CONTRACT.model,
+      size: THUMBNAIL_BASE_GENERATION_CONTRACT.size,
+      quality: THUMBNAIL_BASE_GENERATION_CONTRACT.quality,
+    });
+    const providerBodySerialized = serializeOpenAiImageGenerationRequestBody(providerBody);
+    const providerBodySha256 = await hashOpenAiImageGenerationRequestBody(providerBody);
     const finalPromptHash = await sha256Hex(
       canonicalJsonBytes({
         prompt: finalPrompt,
@@ -22524,25 +22594,125 @@ export class TongsCommitService {
     let imageResult: Awaited<
       ReturnType<ImageProvider["generateImage"]>
     > | null = null;
+    let recoveredPaidAsset: ThumbnailAssetSummary | null = null;
     if (lane === "forge") {
-      paidContext = await this.executePaidImageGeneration({
+      const requestFingerprintPayload = {
+        route_code: THUMBNAIL_BASE_GENERATION_CONTRACT.routeCode,
+        workspace_id: workspace.id,
+        workpiece_id: workpieceId,
+        operation_id: input.operation_id,
+        model: providerBody.model,
+        endpoint: THUMBNAIL_BASE_GENERATION_CONTRACT.endpoint,
+        provider_body_sha256: providerBodySha256,
+        render_recipe_id: input.render_recipe_id,
+        render_recipe_revision: input.render_recipe_revision,
+        concept_revision_id: input.concept_revision_id,
+        prompt_package_hash: input.prompt_package_hash,
+        prompt_serialization_version: input.prompt_serialization_version,
+        provider_settings: input.provider_settings ?? {},
+        reference_image: null,
+        image_count: 1,
+      };
+      const requestFingerprint = await fingerprintOpenAiTextPaidRequest(requestFingerprintPayload);
+      let paidExecution = input.paid_execution ?? null;
+      if (!paidExecution) {
+        try {
+          paidExecution = await resolveOrdinaryOpenAiTextFunding({
+            routeCode: "hearth.thumbnail_base_generation",
+            operationId: input.operation_id,
+            userId,
+            workspaceId: workspace.id,
+            workpieceId,
+            requestFingerprint,
+            model: providerBody.model,
+            credentialFunding: "forge",
+            acceptance: input.spending_acceptance ?? null,
+            serviceGate: this.openAiTextGate,
+            userGate: this.imagePromptAuthorityClient(input.user_access_token ?? null) as unknown as OpenAiTextGateClient,
+            prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) => buildBoundedOpenAiProviderRequest({
+              body: { ...providerBody, model }, model, maximumOutputTokens, maximumAttempts,
+              serviceTier: "standard", protocolOverheadTokens: 0, preserveBodyPropertyOrder: true,
+            }),
+          });
+        } catch (error) {
+          throwOpenAiFundingHttpError(error);
+        }
+      }
+      if (!paidExecution) throw new HttpError(423, "thumbnail_base_paid_execution_inactive", "Dedicated Thumbnail Base paid execution is not active.");
+      const paidOutcome = await executePaidOpenAiTextRoute({
+        gate: this.openAiTextGate,
+        routeCode: "hearth.thumbnail_base_generation",
+        handle: paidExecution,
         userId,
         workspaceId: workspace.id,
         workpieceId,
-        operationId: input.operation_id,
-        tool: "hearth_thumbnail",
-        originatingEntityId: input.concept_revision_id ?? conceptId,
-        promptRevisionId: null,
-        promptContentHash: finalPromptHash,
-        prompt: finalPrompt,
-        size: resolvedPaidSize,
-        quality: "high",
-        creatorApproved: Boolean(
-          input.confirm_spend || input.always_approve_ai_spend,
-        ),
-        referenceImage,
+        credentialSource: "forge_managed",
+        requestFingerprintPayload,
+        prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({
+          body: { ...providerBody, model: context.model }, model: context.model,
+          maximumOutputTokens: context.maximumOutputUnits, maximumAttempts: context.maximumAttempts,
+          serviceTier: "standard", protocolOverheadTokens: 0, preserveBodyPropertyOrder: true,
+        }),
+        executeProvider: async (context, _attemptNumber, boundedRequest) => {
+          if (!boundedRequest || boundedRequest.serializedBody !== providerBodySerialized
+            || boundedRequest.serializedBodySha256 !== providerBodySha256) {
+            throw new OpenAiTextBoundaryError("funding_context_required");
+          }
+          const image = await this.imageProvider!.generateImage({
+            prompt: providerBody.prompt, model: context.model, size: providerBody.size, quality: providerBody.quality,
+          });
+          return {
+            value: image, requestId: image.providerRequestId, inputUnits: 1, outputUnits: 1,
+            supplierCostMicros: 167450, supplierCostAuthoritative: true,
+            supportingCostMicros: 0, supportingCostAuthoritative: true, costCoverageComplete: true,
+            evidence: { route_code: THUMBNAIL_BASE_GENERATION_CONTRACT.routeCode, provider_body_sha256: providerBodySha256,
+              endpoint: THUMBNAIL_BASE_GENERATION_CONTRACT.endpoint, provider_response_id: image.providerResponseId,
+              supplier_cost_micros: 167450 },
+            privateCaptureEvidence: { provider_response: image.responseEvidence, generated_bytes_base64: image.bytesBase64 },
+          };
+        },
+        validateResult: (image) => {
+          if (image.mimeType !== "image/png" || !image.bytesBase64.trim()) throw new Error("Thumbnail Base provider result is not one PNG image.");
+        },
+        persistCanonical: async (image) => {
+          const asset = await this.stageThumbnailAsset(workpieceId, {
+            workspace_id: workspace.id, operation_id: input.operation_id, asset_kind: THUMBNAIL_ASSET_KIND,
+            mime_type: image.mimeType, bytes_base64: image.bytesBase64, provider: image.provider,
+            provider_request_id: image.providerRequestId, prompt: null,
+            metadata: { authority: "episode_package_v3", product_route: THUMBNAIL_BASE_GENERATION_CONTRACT.routeCode,
+              concept_revision_id: input.concept_revision_id, render_recipe_id: input.render_recipe_id,
+              render_recipe_revision: input.render_recipe_revision, intended_aspect_ratio: input.aspect,
+              prompt_persisted: false, prompt_package_hash: input.prompt_package_hash,
+              prompt_serialization_version: input.prompt_serialization_version, provider_body_sha256: providerBodySha256,
+              generation_reference: null },
+          }, { userAccessToken: input.user_access_token });
+          const evidence = await this.openAiTextGate.rpc("record_hearth_thumbnail_base_generation_result", {
+            p_operation_id: input.operation_id,
+            p_request_fingerprint: requestFingerprint,
+            p_provider_body_sha256: providerBodySha256,
+            p_prompt_package_hash: input.prompt_package_hash,
+            p_render_recipe_id: input.render_recipe_id,
+            p_render_recipe_revision: input.render_recipe_revision,
+            p_concept_revision_id: input.concept_revision_id,
+            p_provider_request_id: image.providerRequestId,
+            p_provider_response_id: image.providerResponseId,
+            p_staged_asset_id: asset.id,
+            p_canonical_receipt_json: { asset_id: asset.id, asset_path: asset.path, asset_content_hash: asset.content_hash,
+              provider_body_sha256: providerBodySha256, prompt_package_hash: input.prompt_package_hash },
+          });
+          if (evidence.error) throw new Error(`Thumbnail Base result evidence persistence failed: ${evidence.error.message}`);
+          recoveredPaidAsset = asset;
+          return { asset: asset as unknown as Record<string, unknown>, provider_body_sha256: providerBodySha256,
+            prompt_package_hash: input.prompt_package_hash ?? "", operation_id: input.operation_id };
+        },
       });
-      imageResult = paidContext.image ?? null;
+      if (paidOutcome.state !== "settled" && paidOutcome.state !== "settled_replay") {
+        throw new HttpError(paidOutcome.state === "submission_unknown" ? 202 : 502, `thumbnail_base_${paidOutcome.state}`,
+          paidOutcome.state === "submission_unknown" ? "The image submission is unresolved and was not resubmitted." : "Thumbnail Base generation failed; the customer was not charged.");
+      }
+      const resultAsset = isRecord(paidOutcome.result.asset) ? paidOutcome.result.asset : null;
+      if (!recoveredPaidAsset && resultAsset) recoveredPaidAsset = resultAsset as unknown as ThumbnailAssetSummary;
+      imageResult = paidOutcome.state === "settled" ? null : imageResult;
     } else {
       imageResult = await this.imageProvider.generateImage({
         prompt: finalPrompt,
@@ -22552,7 +22722,7 @@ export class TongsCommitService {
         referenceImage,
       });
     }
-    if (!imageResult) {
+    if (!imageResult && !recoveredPaidAsset) {
       throw new HttpError(
         502,
         "paid_image_generation_missing",
@@ -22563,16 +22733,16 @@ export class TongsCommitService {
     const requestId = input.operation_id;
     const versionId = randomUuid();
     const createdAt = new Date().toISOString();
-    const stagedAsset = await this.stageThumbnailAsset(
+    const stagedAsset = recoveredPaidAsset ?? await this.stageThumbnailAsset(
       workpieceId,
       {
         workspace_id: workspace.id,
         operation_id: requestId,
         asset_kind: THUMBNAIL_ASSET_KIND,
-        mime_type: imageResult.mimeType,
-        bytes_base64: imageResult.bytesBase64,
-        provider: imageResult.provider,
-        provider_request_id: imageResult.providerRequestId,
+        mime_type: imageResult!.mimeType,
+        bytes_base64: imageResult!.bytesBase64,
+        provider: imageResult!.provider,
+        provider_request_id: imageResult!.providerRequestId,
         prompt: input.canonical_stage_only ? null : finalPrompt,
         metadata: input.canonical_stage_only
           ? {
@@ -22595,7 +22765,7 @@ export class TongsCommitService {
               aspect: input.aspect ?? "16:9",
               size: input.size ?? null,
               finalPrompt,
-              revisedPrompt: imageResult.revisedPrompt ?? null,
+              revisedPrompt: imageResult!.revisedPrompt ?? null,
             }),
       },
       { userAccessToken: input.user_access_token },
@@ -22612,12 +22782,12 @@ export class TongsCommitService {
       id: versionId,
       concept_id: conceptId,
       created_at: createdAt,
-      provider: imageResult.provider,
+      provider: imageResult!.provider,
       prompt: finalPrompt,
-      provider_request_id: imageResult.providerRequestId,
+      provider_request_id: imageResult!.providerRequestId,
       asset_id: stagedAsset.id,
       asset_path: stagedAsset.path,
-      mime_type: imageResult.mimeType,
+      mime_type: imageResult!.mimeType,
       status: "ready",
       error: null,
     };
@@ -22707,8 +22877,8 @@ export class TongsCommitService {
         storage_key: assetRow.storage_key,
         mime_type: assetRow.mime_type,
         bytes: assetRow.bytes,
-        provider: imageResult.provider,
-        provider_request_id: imageResult.providerRequestId,
+        provider: imageResult!.provider,
+        provider_request_id: imageResult!.providerRequestId,
         request_id: requestId,
       },
       updated_episode_package: episodePackage,
