@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../../..");
 const migration = readFileSync(resolve(root,
-  "supabase/migrations/20261011390000_operator_controlled_openai_failure_loss.sql"), "utf8");
+  "supabase/migrations/20260916202804_operator_controlled_openai_failure_loss.sql"), "utf8");
 
 test("operator risk decisions are append-only, attributable, and service-only", () => {
   assert.match(migration, /create table tongs\.openai_text_failure_loss_operator_decisions/i);
@@ -51,7 +51,7 @@ test("operator controls preserve independent emergency halt and idempotent repla
 });
 
 test("Live retains an independently selected aggregate policy budget", () => {
-  assert.match(migration, /Live remains on its active policy revision:[\s\S]+independently operator-selected platform-risk budget/i);
+  assert.match(migration, /rollout\.financial_environment=p_financial_environment/i);
   assert.match(migration, /effective_limit:=policy\.aggregate_limit_micros/i);
   assert.doesNotMatch(migration, /aggregate_limit_micros\s*=\s*policy\.per_operation_limit_micros/i);
   assert.doesNotMatch(migration, /update\s+tongs\.openai_text_failure_loss_policy_revisions/i);

@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../../..");
 const migration = readFileSync(resolve(root,
-  "supabase/migrations/20261011380000_openai_failure_loss_environment_isolation.sql"), "utf8");
+  "supabase/migrations/20260916195559_openai_failure_loss_environment_isolation.sql"), "utf8");
 const coordinator = readFileSync(resolve(root,
   "packages/tongs/src/providers/paid-openai-text-execution-coordinator.ts"), "utf8");
 const handler = readFileSync(resolve(root,

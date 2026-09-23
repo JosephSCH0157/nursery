@@ -9,7 +9,7 @@ const webhook = readFileSync(resolve(root, "supabase/functions/stripe-webhook/in
 const recovery = readFileSync(resolve(root, "supabase/functions/recover-pending-deposit-fees/index.ts"), "utf8");
 const financialEnvironment = readFileSync(resolve(root, "supabase/functions/_shared/financial-environment.ts"), "utf8");
 const parityMigration = readFileSync(resolve(root, "supabase/migrations/20261011140000_tongs_unified_financial_environment.sql"), "utf8");
-const availabilityMigration = readFileSync(resolve(root, "supabase/migrations/20261011260000_tongs_credit_pack_purchase_availability.sql"), "utf8");
+const availabilityMigration = readFileSync(resolve(root, "supabase/migrations/20260916130712_tongs_credit_pack_purchase_availability.sql"), "utf8");
 
 test("AI-credit checkout is authenticated, catalog-bound, and cannot itself grant funds", () => {
   assert.match(checkout, /supabaseAdmin\.auth\.getUser\(\s*token/);

@@ -5,11 +5,11 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../../..");
 const correction = readFileSync(resolve(root,
-  "supabase/migrations/20261011400000_openai_realized_loss_corrections.sql"), "utf8");
+  "supabase/migrations/20260917012316_openai_realized_loss_corrections.sql"), "utf8");
 const canary = readFileSync(resolve(root,
-  "supabase/migrations/20261011410000_hearth_script_generation_test_canary.sql"), "utf8");
+  "supabase/migrations/20260917012424_hearth_script_generation_test_canary.sql"), "utf8");
 const persistenceBoundary = readFileSync(resolve(root,
-  "supabase/migrations/20261011430000_hearth_script_paid_result_persistence_boundary.sql"), "utf8");
+  "supabase/migrations/20260917024621_hearth_script_paid_result_persistence_boundary.sql"), "utf8");
 const coordinator = readFileSync(resolve(root,
   "packages/tongs/src/providers/paid-openai-text-execution-coordinator.ts"), "utf8");
 const paidJson = readFileSync(resolve(root,

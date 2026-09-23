@@ -92,12 +92,16 @@ export type UnifiedVisualPlanGenerationScope =
 export type UnifiedVisualPlanProviderOutput = {
   plan: UnifiedVisualPlanResult;
   rawResponse: Record<string, unknown>;
+  rawResponseText: string;
+  parseError: string | null;
   providerRequestId: string | null;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
   model: string;
 };
+export const UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION =
+  "forge.unified-visual-plan-provider.v4";
 export interface UnifiedVisualPlanProvider {
   generate(input: {
     scriptText: string;
@@ -323,6 +327,8 @@ export function buildUnifiedVisualPlanProviderRequestBody(input: {
   };
 }
 function outputText(payload: Record<string, unknown>): string | null {
+  if (typeof payload.output_text === "string" && payload.output_text.trim())
+    return payload.output_text;
   const output = payload.output;
   if (!Array.isArray(output)) return null;
   for (const item of output) {
@@ -342,7 +348,7 @@ function outputText(payload: Record<string, unknown>): string | null {
 export class OpenAiUnifiedVisualPlanProvider {
   private readonly apiKey: string;
   private readonly defaultModel: string;
-  constructor(apiKey: string, defaultModel = "gpt-5-mini") {
+  constructor(apiKey: string, defaultModel = "gpt-5.6-luna") {
     if (!apiKey.trim())
       throw new Error("OpenAI visual-plan API key is required");
     this.apiKey = apiKey;
@@ -402,9 +408,21 @@ export class OpenAiUnifiedVisualPlanProvider {
           `Visual planning failed (${response.status})`,
       );
     const text = outputText(payload);
-    if (!text)
-      throw new Error("Visual-plan provider returned no structured output");
-    const plan = JSON.parse(text) as UnifiedVisualPlanResult;
+    let parseError: string | null = null;
+    let plan: UnifiedVisualPlanResult = {
+      images: [],
+      broll: [],
+      reference_clips: [],
+      reference_visuals: [],
+    };
+    if (!text) parseError = "visual_plan_output_missing";
+    else {
+      try {
+        plan = JSON.parse(text) as UnifiedVisualPlanResult;
+      } catch {
+        parseError = "visual_plan_json_invalid";
+      }
+    }
     const usage = (
       payload.usage && typeof payload.usage === "object" ? payload.usage : {}
     ) as Record<string, unknown>;
@@ -415,6 +433,8 @@ export class OpenAiUnifiedVisualPlanProvider {
     return {
       plan,
       rawResponse: payload,
+      rawResponseText: rawText,
+      parseError,
       providerRequestId: response.headers.get("x-request-id"),
       inputTokens,
       outputTokens,

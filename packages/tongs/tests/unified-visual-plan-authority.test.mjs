@@ -115,6 +115,18 @@ test("Unified provider submits once and validates exact script-relative mixed ou
   try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null,generationScope:"full_media_plan"});assert.equal(calls,1);assert.equal(providerInput.generation_scope,"full_media_plan");assert.deepEqual(result.plan,plan);assert.deepEqual(validateUnifiedVisualPlan(result.plan,script),[]);}finally{globalThis.fetch=originalFetch;}
 });
 
+test("Unified provider accepts the Responses output_text convenience serialization",async()=>{
+  const originalFetch=globalThis.fetch;let calls=0;const script="Approved script.";const plan={images:[{context_before:"",context_focus:script,context_after:"",description:"Approved image",visual_intent:"Explain",creator_direction:"Clear",style:"documentary",placement_hint:"on phrase",source_keys:[],source_relationship:"none",source_rationale:"No source applies."}],broll:[],reference_clips:[],reference_visuals:[]};
+  globalThis.fetch=async()=>{calls+=1;return Response.json({output_text:JSON.stringify(plan),usage:{input_tokens:11,output_tokens:22}},{headers:{"x-request-id":"request-output-text"}});};
+  try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null,generationScope:"full_media_plan",sourceCatalog:[]});assert.equal(calls,1);assert.equal(result.parseError,null);assert.deepEqual(result.plan,plan);assert.equal(result.inputTokens,11);assert.equal(result.outputTokens,22);}finally{globalThis.fetch=originalFetch;}
+});
+
+test("Unified provider retains malformed paid output for one-attempt validation evidence",async()=>{
+  const originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls+=1;return Response.json({output_text:"{not-json",usage:{input_tokens:13,output_tokens:7}},{headers:{"x-request-id":"request-malformed"}});};
+  try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:"Approved script.",creatorDirection:null,generationScope:"full_media_plan",sourceCatalog:[]});assert.equal(calls,1);assert.equal(result.parseError,"visual_plan_json_invalid");assert.deepEqual(result.plan,{images:[],broll:[],reference_clips:[],reference_visuals:[]});assert.match(result.rawResponseText,/not-json/);}finally{globalThis.fetch=originalFetch;}
+});
+
 test("Unified provider turns a network failure into an actionable creator-facing error",async()=>{
   const originalFetch=globalThis.fetch;
   globalThis.fetch=async()=>{throw Object.assign(new Error("fetch failed"),{cause:{code:"ECONNRESET"}});};

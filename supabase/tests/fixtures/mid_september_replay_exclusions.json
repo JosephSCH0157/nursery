@@ -40,6 +40,7 @@
     "20261011490000_hearth_title_generation_episode_titles_v2.sql",
     "20261011500000_hearth_tag_generation_test_product.sql",
     "20261011510000_hearth_tag_validation_evidence_v2.sql",
-    "20261011520000_hearth_framing_pack_generation_test_product.sql"
+    "20261011520000_hearth_framing_pack_generation_test_product.sql",
+    "20261011530000_visual_unified_plan_test_product.sql"
   ]
 }

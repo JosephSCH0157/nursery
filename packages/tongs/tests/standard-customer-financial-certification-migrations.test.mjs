@@ -9,7 +9,7 @@ async function migration(name) {
 }
 
 test("standard-customer aggregate certification is exact, scoped, and service-only", async () => {
-  const sql = await migration("20261011200000_tongs_standard_customer_certification_aggregate.sql");
+  const sql = await migration("20260916114619_tongs_standard_customer_certification_aggregate.sql");
   assert.match(sql, /'test', 1, 'active', 11015, 0, 1, 86400/);
   assert.match(sql, /'gpt-5\.6-luna'/);
   assert.match(sql, /'openai\.text\.hearth_chat'/);
@@ -20,8 +20,8 @@ test("standard-customer aggregate certification is exact, scoped, and service-on
 });
 
 test("Forge Credit denomination, packs, allowance, markup, and rounding are exact", async () => {
-  const economy = await migration("20261011160000_tongs_forge_credit_economy.sql");
-  const pricing = await migration("20261011170000_tongs_standard_customer_luna_catalog.sql");
+  const economy = await migration("20260916110806_tongs_forge_credit_economy.sql");
+  const pricing = await migration("20260916113132_tongs_standard_customer_luna_catalog.sql");
   assert.match(economy, /'forge\.credit-economy\.v1', 1, 'active', 5000, 'USD', 3300/);
   assert.match(economy, /'pre_tax_customer_value'/);
   assert.match(economy, /'ai_small','forge_credits_2000'.*10000000,2000/s);
@@ -46,13 +46,13 @@ test("Test and Live Stripe mappings carry identical logical pack quantities", as
 });
 
 test("aggregate selection uses canonical reservation environment", async () => {
-  const sql = await migration("20261011220000_tongs_aggregate_financial_environment_selection.sql");
+  const sql = await migration("20260916114943_tongs_aggregate_financial_environment_selection.sql");
   assert.match(sql, /r\.funding_environment=''test''/);
   assert.doesNotMatch(sql, /return 'test_customer'/);
 });
 
 test("legacy processor-fee catch-up cannot create a negative allocation", async () => {
-  const sql = await migration("20261011230000_tongs_deposit_fee_allocation_catchup.sql");
+  const sql = await migration("20260916115105_tongs_deposit_fee_allocation_catchup.sql");
   assert.match(sql, /v_fee_allocation:=greatest\(/);
   assert.match(sql, /least\(v_prior_fee_allocated/);
 });

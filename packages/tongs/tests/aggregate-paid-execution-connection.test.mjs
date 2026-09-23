@@ -7,7 +7,7 @@ const coordinatorUrl = new URL("../src/providers/paid-openai-text-execution-coor
 const runwayUrl = new URL("../src/providers/runway-paid-execution-boundary.ts", import.meta.url);
 const workpieceUrl = new URL("../src/workpiece-commit-api.ts", import.meta.url);
 const repairMigrationUrl = new URL("../../../supabase/migrations/20261007120000_tongs_non_spending_financial_repairs.sql", import.meta.url);
-const settledReplayReliefSafetyMigrationUrl = new URL("../../../supabase/migrations/20261011350000_settled_openai_replay_relief_safety.sql", import.meta.url);
+const settledReplayReliefSafetyMigrationUrl = new URL("../../../supabase/migrations/20260916181807_settled_openai_replay_relief_safety.sql", import.meta.url);
 
 test("all eight OpenAI text routes map to aggregate capability terms", async () => {
   const sql = await readFile(migrationUrl, "utf8");

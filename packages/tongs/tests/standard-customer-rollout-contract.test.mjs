@@ -5,10 +5,10 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../../..");
 const source = (path) => readFileSync(resolve(root, path), "utf8");
-const rollout = source("supabase/migrations/20261011240000_tongs_standard_customer_rollout.sql");
-const beta = source("supabase/migrations/20261011250000_tongs_beta_credit_controls.sql");
-const providerAuthority = source("supabase/migrations/20261011280000_tongs_normal_customer_provider_authority.sql");
-const purchaseCallerRole = source("supabase/migrations/20261011290000_tongs_credit_pack_availability_caller_role.sql");
+const rollout = source("supabase/migrations/20260916130700_tongs_standard_customer_rollout.sql");
+const beta = source("supabase/migrations/20260916130706_tongs_beta_credit_controls.sql");
+const providerAuthority = source("supabase/migrations/20260916131632_tongs_normal_customer_provider_authority.sql");
+const purchaseCallerRole = source("supabase/migrations/20260916132017_tongs_credit_pack_availability_caller_role.sql");
 const api = source("packages/tongs/src/workpiece-commit-api.ts");
 
 test("normal customers are credit-bounded without certification operation or rolling quotas", () => {

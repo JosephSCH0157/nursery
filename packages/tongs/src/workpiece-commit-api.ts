@@ -173,6 +173,7 @@ import {
   buildUnifiedVisualPlanProviderRequestBody,
   normalizeUnifiedVisualPlanContextAnchors,
   OpenAiUnifiedVisualPlanProvider,
+  UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
   validateUnifiedVisualPlan,
   validateUnifiedVisualPlanScope,
   type UnifiedVisualPlanGenerationScope,
@@ -29160,8 +29161,8 @@ export class TongsCommitService {
       generation_scope: input.generation_scope,
       source_catalog: sourceCatalog,
       contract_version: "forge.unified-visual-plan.v3",
-      provider_contract_version: "forge.unified-visual-plan-provider.v3",
-      model_configuration: { model: "gpt-5-mini" },
+      provider_contract_version: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
+      model_configuration: { model: "gpt-5.6-luna" },
     };
     const expectedFingerprint = await sha256Hex(
       canonicalJsonBytes(normalizedInputs),
@@ -29182,7 +29183,7 @@ export class TongsCommitService {
           workspaceId: input.workspace_id,
           workpieceId,
           requestFingerprint: expectedFingerprint,
-          model: "gpt-5-mini",
+          model: "gpt-5.6-luna",
           credentialFunding: "forge",
           acceptance: input.spending_acceptance ?? null,
           serviceGate: this.openAiTextGate,
@@ -29339,15 +29340,46 @@ export class TongsCommitService {
             supportingCostMicros: context.supportingCostCeilingMicros,
             supportingCostAuthoritative: false,
             costCoverageComplete: true,
-            evidence: { provider_reference: result.providerRequestId, supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct", route_code: "visual.unified_plan" },
-            supportingCostEvidence: { allocation_kind: "accepted_fixed_supporting_allocation", component: "plan_validation_child_commits_and_readback", evidence_status: "estimated" },
+            evidence: {
+              provider_reference: result.providerRequestId,
+              supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct",
+              route_code: "visual.unified_plan",
+              validation_contract_revision: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
+            },
+            privateCaptureEvidence: {
+              raw_provider_response_text: result.rawResponseText,
+              validation_contract_revision: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
+            },
+            supportingCostEvidence: { allocation_kind: "platform_overhead", component: "plan_validation_child_commits_and_readback", evidence_status: "verified_zero_variable_cost" },
           };
         },
-        validateResult: (result) => {
-          const normalized = arbitrateUnifiedVisualPlanCoverage(normalizeUnifiedVisualPlanContextAnchors(result.plan, scriptText), scriptText);
-          const invalid = validateUnifiedVisualPlan(normalized, scriptText, new Set(frozenCatalog.map((source) => source.source_key)));
-          const scopeInvalid = validateUnifiedVisualPlanScope(normalized, generationScope);
-          if (invalid.length || scopeInvalid.length) throw new Error(`Invalid fields: ${[...invalid, ...scopeInvalid].join(", ")}`);
+        validateResult: async (result) => {
+          try {
+            if (result.parseError) throw new Error(result.parseError);
+            const normalized = arbitrateUnifiedVisualPlanCoverage(normalizeUnifiedVisualPlanContextAnchors(result.plan, scriptText), scriptText);
+            const invalid = validateUnifiedVisualPlan(normalized, scriptText, new Set(frozenCatalog.map((source) => source.source_key)));
+            const scopeInvalid = validateUnifiedVisualPlanScope(normalized, generationScope);
+            if (invalid.length || scopeInvalid.length) throw new Error(`Invalid fields: ${[...invalid, ...scopeInvalid].join(", ")}`);
+            result.plan = normalized;
+          } catch (error) {
+            try {
+              await authority.rpc("record_openai_text_validation_failure_evidence", {
+                p_route_code: "visual.unified_plan",
+                p_operation_id: input.operation_id,
+                p_reservation_id: input.paid_execution!.reservationId,
+                p_provider_request_id: result.providerRequestId,
+                p_model: result.model,
+                p_input_units: result.inputTokens,
+                p_output_units: result.outputTokens,
+                p_raw_provider_response_text: result.rawResponseText,
+                p_validation_error_code: result.parseError ?? "visual_plan_contract_invalid",
+                p_validation_contract_revision: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
+              });
+            } catch {
+              // The immutable provider capture already retains the raw response.
+            }
+            throw error;
+          }
         },
         persistCanonical: async (result) => {
           const recorded = await authority.rpc("record_unified_visual_plan_provider_response", {
@@ -29411,7 +29443,7 @@ export class TongsCommitService {
           workpieceId,
           feature: AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,
           subfeature: AI_USAGE_SUBFEATURE.INTERPRETATION,
-          model: "gpt-5-mini",
+          model: "gpt-5.6-luna",
           trigger: AI_USAGE_TRIGGER.USER,
           actionId: input.operation_id,
           execute: async () => {
@@ -29605,7 +29637,7 @@ export class TongsCommitService {
             p_model_evidence_json: {
               source_keys: item.source_keys,
               provider_contract_version:
-                "forge.unified-visual-plan-provider.v3",
+                UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
             },
             p_members: members,
             p_expected_revision: 0,

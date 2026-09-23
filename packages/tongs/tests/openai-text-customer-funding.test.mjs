@@ -16,7 +16,7 @@ const quoteHash = "b".repeat(64);
 
 test("existing funding handle SQL returns the strict environment-bound shape without weakening delivery authority", () => {
   const repair = readFileSync(new URL(
-    "../../../supabase/migrations/20261011340000_tongs_existing_openai_funding_handle_environment.sql",
+    "../../../supabase/migrations/20260916180205_tongs_existing_openai_funding_handle_environment.sql",
     import.meta.url,
   ), "utf8");
   const original = readFileSync(new URL(
