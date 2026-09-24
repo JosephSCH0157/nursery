@@ -12,6 +12,11 @@ import type {
   ThumbnailCompositeRecipe,
 } from "./thumbnail-composite.js";
 
+type ReferenceVisualReadinessEvaluator =
+  typeof evaluateReferenceVisualReadiness;
+const defaultReferenceVisualReadinessEvaluator =
+  evaluateReferenceVisualReadiness;
+
 type ThumbnailCompositeModule = typeof import("./thumbnail-composite.js");
 
 async function loadNativeThumbnailCompositeModule(): Promise<ThumbnailCompositeModule> {
@@ -2510,6 +2515,12 @@ export type TongsCommitApiOptions = {
   brollMotionInterpretationProvider?: BrollMotionInterpretationProvider;
   /** Server-only injection for isolated billing-boundary certification. */
   openAiTextGate?: OpenAiTextGateClient;
+  /**
+   * Dev/runtime seam that keeps the server preflight on the same live shared
+   * readiness module as the Hearth client. Production callers use the built
+   * shared-package implementation by default.
+   */
+  referenceVisualReadinessEvaluator?: ReferenceVisualReadinessEvaluator;
 };
 
 export type AcquireBrollCandidateRequest = {
@@ -9429,6 +9440,7 @@ export class TongsCommitService {
   readonly unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null;
   readonly openAiTextGate: OpenAiTextGateClient;
   readonly cleanupReviewGenerator: CleanupGenerator | undefined;
+  readonly referenceVisualReadinessEvaluator: ReferenceVisualReadinessEvaluator;
 
   readonly userClientFactory:
     | ((accessToken: string) => SupabaseClient<Database>)
@@ -9449,9 +9461,12 @@ export class TongsCommitService {
     runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null = null,
     openAiTextGate?: OpenAiTextGateClient,
     cleanupReviewGenerator?: CleanupGenerator,
+    referenceVisualReadinessEvaluator: ReferenceVisualReadinessEvaluator =
+      defaultReferenceVisualReadinessEvaluator,
   ) {
     this.supabase = supabase;
     this.cleanupReviewGenerator = cleanupReviewGenerator;
+    this.referenceVisualReadinessEvaluator = referenceVisualReadinessEvaluator;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
@@ -27970,6 +27985,8 @@ export class TongsCommitService {
           typeof value === "string" && value ? [value] : [],
         )
       : [];
+    const evaluateReferenceVisualReadiness =
+      this.referenceVisualReadinessEvaluator;
     const readiness = evaluateReferenceVisualReadiness({
       subtype: subtype as Parameters<typeof evaluateReferenceVisualReadiness>[0]["subtype"],
       evidence: opportunity.evidence.filter(isRecord),
@@ -35847,6 +35864,7 @@ export function createTongsCommitService(
       ),
     options.openAiTextGate,
     options.cleanupReviewGenerator,
+    options.referenceVisualReadinessEvaluator,
   );
 }
 

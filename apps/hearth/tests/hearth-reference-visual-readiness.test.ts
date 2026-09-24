@@ -191,6 +191,55 @@ test("recipe binding is exact and becomes stale when qualifying evidence changes
   assert.equal(stale.code, "recipe_stale");
 });
 
+test("a prepared timeline remains current when unrelated confirmed evidence is present", () => {
+  const result = evaluateReferenceVisualReadiness({
+    subtype: "timeline",
+    evidence: [
+      {
+        id: "evidence-octane-history",
+        source_set_member_id: "supporting-member-current",
+        confirmation_state: "creator_confirmed",
+        label: "1995: Gasoline grade price differences were about 10 cents per gallon",
+        raw_excerpt:
+          "From 1995 through 2006, gasoline grade price differences were typically about 10 cents per gallon.",
+      },
+      {
+        id: "evidence-unrelated-generator-report",
+        source_set_member_id: "supporting-member-current",
+        confirmation_state: "creator_confirmed",
+        label: "2025: Final Annual Electric Generator Report data",
+        raw_excerpt: "Final Annual Electric Generator Report data",
+      },
+      {
+        id: "evidence-seasonal-prices",
+        source_set_member_id: "primary-member-current",
+        confirmation_state: "creator_confirmed",
+        label: "2004: Retail gasoline prices rise in spring and peak in late summer",
+        raw_excerpt:
+          "Historically, retail gasoline prices rise in spring and peak in late summer, when people drive more frequently.",
+      },
+    ],
+    currentSourceMemberIds: [
+      "primary-member-current",
+      "supporting-member-current",
+    ],
+    recipeEvidenceRevisionIds: [
+      "evidence-octane-history",
+      "evidence-seasonal-prices",
+    ],
+    editorialFocus:
+      "Gasoline demand usually rises in summer, which can contribute to higher prices.",
+    desiredMaterial:
+      "A seasonal gasoline-demand visual showing the summer increase and contribution to prices.",
+  });
+
+  assert.equal(result.ready, true);
+  assert.deepEqual(result.eligibleEvidenceRevisionIds, [
+    "evidence-octane-history",
+    "evidence-seasonal-prices",
+  ]);
+});
+
 test("the 2008 text-only drift cannot prepare a recipe and numeric recipes stay anchored to the opportunity focus", () => {
   assert.equal(proposeReferenceVisualRecipe(opportunity([textOnly])), null);
   assert.equal(
@@ -243,10 +292,25 @@ test("UI, recipe preparation, client preflight, and server renderer all consume 
     ),
     "utf8",
   );
+  const devMiddleware = readFileSync(
+    new URL(
+      "../../nursery/scripts/mw-tongs-commit-api.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  );
   assert.match(authority, /referenceVisualReadiness/);
   assert.match(panel, /evidenceReadiness/);
   assert.match(renderer, /evaluateReferenceVisualReadiness/);
   assert.match(server, /evaluateReferenceVisualReadiness/);
+  assert.match(
+    devMiddleware,
+    /packages\/shared\/reference-visual-readiness\.ts/,
+  );
+  assert.match(
+    devMiddleware,
+    /referenceVisualReadinessEvaluator\s*=\s*\n?\s*evaluateReferenceVisualReadiness/,
+  );
 });
 
 test("unmet readiness stops before any render request", async () => {

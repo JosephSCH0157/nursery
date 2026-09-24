@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createClient } from "@supabase/supabase-js";
+import { evaluateReferenceVisualReadiness } from "../../../packages/shared/reference-visual-readiness.ts";
 import { generateCanonicalCleanupCandidates } from "../server/tongs/hammer-cleanup-review-generator";
 import type { Database } from "../../../packages/tongs/src/db.types.ts";
 import { handleHammerShortsAuthorityRequest } from "../../../packages/tongs/src/hammer-shorts-authority.ts";
@@ -191,6 +192,11 @@ export async function createNurseryTongsMiddleware(opts?: {
     config.options.supabaseUrl,
   );
   const providerBoundary = resolveNurseryTongsProviderBoundary(config);
+  // Keep Vite's in-process Tongs preflight attached to this source module.
+  // A bare @forge/shared import is externalized by the config runner and can
+  // otherwise remain cached while Hearth HMR begins using a rebuilt dist file.
+  providerBoundary.options.referenceVisualReadinessEvaluator =
+    evaluateReferenceVisualReadiness;
   if (opts?.testOnlyOptionsOverride) {
     const localApi = /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/i.test(config.options.supabaseUrl);
     if (process.env.NODE_ENV === "production" || !localApi) {
