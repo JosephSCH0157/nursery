@@ -13,6 +13,10 @@ const service = readFileSync(new URL("../src/workpiece-commit-api.ts", import.me
 const client = readFileSync(new URL("../../../apps/hearth/src/lib/hearth-thumbnail-v3-api.ts", import.meta.url), "utf8");
 const promptAuthority = readFileSync(new URL("../../../apps/hearth/src/lib/episode-package-v3.ts", import.meta.url), "utf8");
 const compositor = readFileSync(new URL("../src/thumbnail-composite.ts", import.meta.url), "utf8");
+const quoteRepair = readFileSync(new URL(
+  "../../../supabase/migrations/20261011640000_thumbnail_base_quote_model_resolution_repair.sql",
+  import.meta.url,
+), "utf8");
 
 test("Thumbnail Base is one exact no-reference image generation", () => {
   assert.match(boundary, /"hearth\.thumbnail_base_generation"/);
@@ -46,6 +50,22 @@ test("prompt, crop, and compositor authority keep title text out of provider bas
   assert.match(compositor, /fit:\s*"cover"/);
   assert.match(compositor, /position:\s*"centre"/);
   assert.doesNotMatch(compositor, /slice\(0,\s*4\)/);
+});
+
+test("Thumbnail Base preflight loads the compositor outside Vite's request module runner", () => {
+  assert.match(service, /loadNativeThumbnailCompositeModule/);
+  assert.match(service, /new Function\([\s\S]+return import\(specifier\)/);
+  assert.doesNotMatch(service, /await import\("\.\/thumbnail-composite\.js"\)/);
+});
+
+test("Thumbnail Base model resolution uses its existing image SKU without changing authority", () => {
+  assert.match(quoteRepair, /hearth\.thumbnail_base_generation[\s\S]+openai-image:/);
+  assert.match(quoteRepair, /all other routes retain openai-text SKU resolution/i);
+  assert.match(quoteRepair, /customer_credit_units = 45/);
+  assert.match(quoteRepair, /full_cost_ceiling_micros = 167450/);
+  assert.match(quoteRepair, /Live Thumbnail Base scope must remain absent/);
+  assert.doesNotMatch(quoteRepair, /insert into tongs\.customer_paid_execution_scope_authorizations/i);
+  assert.doesNotMatch(quoteRepair, /insert into tongs\.private_pricing_revisions/i);
 });
 
 test("result evidence is private, immutable, replay-safe, and actually written", () => {

@@ -10,6 +10,17 @@ import type {
   ThumbnailCompositeEncoding,
   ThumbnailCompositeRecipe,
 } from "./thumbnail-composite.js";
+
+type ThumbnailCompositeModule = typeof import("./thumbnail-composite.js");
+
+async function loadNativeThumbnailCompositeModule(): Promise<ThumbnailCompositeModule> {
+  const moduleUrl = new URL("../dist/thumbnail-composite.js", import.meta.url).href;
+  const nativeImport = new Function(
+    "specifier",
+    "return import(specifier)",
+  ) as (specifier: string) => Promise<ThumbnailCompositeModule>;
+  return nativeImport(moduleUrl);
+}
 import {
   assessEntriesAgainstApprovedScript,
   markEntriesProvenanceUnknown,
@@ -21452,18 +21463,8 @@ export class TongsCommitService {
       );
     }
     if (reusable) return thumbnailAssetSummary(reusable);
-    const compositorModuleUrl = new URL(
-      "../dist/thumbnail-composite.js",
-      import.meta.url,
-    ).href;
-    const nativeImport = new Function(
-      "specifier",
-      "return import(specifier)",
-    ) as (
-      specifier: string,
-    ) => Promise<typeof import("./thumbnail-composite.js")>;
     const { renderThumbnailComposite } =
-      await nativeImport(compositorModuleUrl);
+      await loadNativeThumbnailCompositeModule();
     const rendered = await renderThumbnailComposite({
       baseBytes,
       width: input.width,
@@ -22500,7 +22501,7 @@ export class TongsCommitService {
         throw new HttpError(409, "thumbnail_base_preflight_stale_authority",
           "The exact reviewed recipe, concept, or full canonical title is no longer current. No quote or provider request was created.");
       }
-      const compositor = await import("./thumbnail-composite.js");
+      const compositor = await loadNativeThumbnailCompositeModule();
       if (typeof compositor.renderThumbnailComposite !== "function"
         || compositor.THUMBNAIL_BASE_CROP_CONTRACT_VERSION !== "forge-thumbnail-base-center-crop-v1") {
         throw new HttpError(503, "thumbnail_base_preflight_compositor_unavailable",
