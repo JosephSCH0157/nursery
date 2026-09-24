@@ -1,49 +1,37 @@
-import type {
-  ReferenceVisualOpportunity,
-  ReferenceVisualSubtype,
-} from "./hearth-reference-visual-authority";
+import type { ReferenceVisualOpportunity } from "./hearth-reference-visual-authority";
+import {
+  projectReferenceVisualCustomerWorkflow,
+  type ReferenceVisualCustomerWorkflow,
+} from "./hearth-reference-visual-customer-workflow";
 
 export type ReferenceMaterialVisualAction =
-  | "add_source"
-  | "review_rights"
-  | "acquire_image"
-  | "design_visual"
-  | "approve"
-  | "ready"
-  | "skipped";
+  "continue" | "approve" | "ready" | "skipped";
 
 export type ReferenceMaterialActionTarget =
-  | "source_drawer"
-  | "rights_drawer"
-  | "acquisition_drawer"
-  | "reference_visual_workflow"
-  | "approval"
-  | "none";
+  "reference_visual_workflow" | "approval" | "none";
 
 export type ReferenceMaterialVisualProjection = {
   action: ReferenceMaterialVisualAction;
   label: string;
   target: ReferenceMaterialActionTarget;
   disabled: boolean;
+  workflow: ReferenceVisualCustomerWorkflow;
 };
 
 export type ReferenceReviewFailureIntent =
-  | "approve"
-  | "skip"
-  | "use_source"
-  | "save_edits"
-  | "replace";
+  "approve" | "skip" | "use_source" | "save_edits" | "replace";
 
 export function isReferenceVisualFailureActionable(
   intent: ReferenceReviewFailureIntent,
   projection: ReferenceMaterialVisualProjection,
 ): boolean {
-  if (projection.action === "ready" || projection.action === "skipped") return false;
-  if (intent === "approve") return projection.action === "approve";
-  if (intent === "use_source") return projection.action === "add_source";
-  if (intent === "save_edits") return projection.action === "design_visual";
-  if (intent === "replace")
-    return projection.action === "add_source" || projection.action === "acquire_image";
+  if (projection.action === "ready" || projection.action === "skipped")
+    return false;
+  if (intent === "approve")
+    return (
+      projection.action === "approve" ||
+      (projection.action === "continue" && projection.label === "Review visual")
+    );
   return intent === "skip";
 }
 
@@ -57,31 +45,52 @@ export type ReferenceVisualWorkflowFocus = {
   returnCardKey: string;
 };
 
-const ARCHIVAL_TYPES = new Set<ReferenceVisualSubtype>([
-  "archival_still",
-  "archival_sequence",
-]);
-
 export function projectReferenceMaterialVisualAction(args: {
-  sourceLinked: boolean;
-  rightsSaved: boolean;
-  subtype: ReferenceVisualSubtype;
-  candidateReady: boolean;
+  opportunity: ReferenceVisualOpportunity;
   resolution: "approved" | "skipped" | null;
+  hammerVerified?: boolean;
+  approvalBlocked?: boolean;
 }): ReferenceMaterialVisualProjection {
+  const workflow = projectReferenceVisualCustomerWorkflow({
+    opportunity: args.opportunity,
+  });
   if (args.resolution === "skipped")
-    return { action: "skipped", label: "Skipped", target: "none", disabled: true };
-  if (args.resolution === "approved")
-    return { action: "ready", label: "Ready", target: "none", disabled: true };
-  if (!args.sourceLinked)
-    return { action: "add_source", label: "Add Source", target: "source_drawer", disabled: false };
-  if (args.candidateReady)
-    return { action: "approve", label: "Approve", target: "approval", disabled: false };
-  if (!args.rightsSaved)
-    return { action: "review_rights", label: "Review rights", target: "rights_drawer", disabled: false };
-  if (ARCHIVAL_TYPES.has(args.subtype))
-    return { action: "acquire_image", label: "Acquire image", target: "acquisition_drawer", disabled: false };
-  return { action: "design_visual", label: "Design visual", target: "reference_visual_workflow", disabled: false };
+    return {
+      action: "skipped",
+      label: "Skipped",
+      target: "none",
+      disabled: true,
+      workflow,
+    };
+  if (args.resolution === "approved" && args.hammerVerified)
+    return {
+      action: "ready",
+      label: "Ready",
+      target: "none",
+      disabled: true,
+      workflow,
+    };
+  const candidateReady = args.opportunity.candidates.some(
+    (candidate) => candidate.currentForPlan !== false && candidate.releaseReady,
+  );
+  if (args.resolution === null && candidateReady && !args.approvalBlocked)
+    return {
+      action: "approve",
+      label: "Approve",
+      target: "approval",
+      disabled: false,
+      workflow,
+    };
+  return {
+    action: "continue",
+    label:
+      args.resolution === "approved" && !args.hammerVerified
+        ? "Review visual"
+        : workflow.nextAction,
+    target: "reference_visual_workflow",
+    disabled: false,
+    workflow,
+  };
 }
 
 export function buildReferenceVisualWorkflowFocus(args: {

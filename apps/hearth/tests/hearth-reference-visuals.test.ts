@@ -8,6 +8,7 @@ const referenceClipAuthority=readFileSync(new URL("../src/lib/hearth-reference-c
 const referenceClipPanel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceClipPanel.tsx",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/components/visuals/CanonicalReferenceMaterialPanel.tsx",import.meta.url),"utf8");
 const materialWorkflow=readFileSync(new URL("../src/lib/hearth-reference-material-workflow.ts",import.meta.url),"utf8");
+const visualStyles=readFileSync(new URL("../src/views/surfaces/VisualsSurface.css",import.meta.url),"utf8");
 const unified=readFileSync(new URL("../src/lib/hearth-unified-visual-plan-authority.ts",import.meta.url),"utf8");
 const postResetSelection=readFileSync(new URL("../../../supabase/migrations/20260812153000_tongs_reference_visual_post_reset_selection.sql",import.meta.url),"utf8");
 
@@ -17,14 +18,16 @@ test("Reference Material projects Clips and Visuals into one creator review queu
  assert.match(shell,/readCanonicalReferenceVisualCollections/);
  for(const decision of ["Edit","Replace","Skip"])assert.match(shell,new RegExp(`>\\s*${decision}\\s*<`));
  assert.doesNotMatch(shell,/"Prepare image"/);
- assert.match(materialWorkflow,/"Review rights"/);
- assert.match(materialWorkflow,/"Design visual"/);
+ assert.match(materialWorkflow,/projectReferenceVisualCustomerWorkflow/);
+ assert.doesNotMatch(materialWorkflow,/rights_drawer|source_drawer|acquisition_drawer/);
  assert.match(shell,/"Add Source"/);
- assert.match(shell,/Save rights/);
- assert.match(shell,/Acquire image/);
+ assert.doesNotMatch(shell,/Save rights/);
+ assert.doesNotMatch(shell,/Acquire image/);
+ assert.doesNotMatch(shell,/"prepare"/);
+ assert.doesNotMatch(shell,/commitReferenceVisualRights|acquireReferenceVisual/);
  assert.doesNotMatch(shell,/Save rights and add image/);
  assert.match(shell,/No canonical Source linked/);
- assert.match(shell,/unsourced planning suggestion, not episode Reference Material/);
+ assert.match(shell,/unsourced planning suggestion,\s+not episode\s+Reference Material/);
  assert.match(shell,/Add Source/);
  assert.doesNotMatch(shell,/role="tablist"/);
 });
@@ -33,8 +36,27 @@ test("the canonical detailed Reference Visual workflow is production-reachable f
  assert.match(shell,/import CanonicalReferenceVisualPanel/);
  assert.match(shell,/<CanonicalReferenceVisualPanel/);
  assert.match(shell,/focus=\{visualWorkflowFocus\}/);
+ assert.match(shell,/data-presentation-mode="workspace"/);
+ assert.match(shell,/if \(visualWorkflowFocus\) \{[\s\S]*return \([\s\S]*<CanonicalReferenceVisualPanel[\s\S]*\);[\s\S]*\}[\s\S]*return \([\s\S]*hs-reference-review-queue/);
+ assert.match(shell,/returnCardKey\.current = visualWorkflowFocus\?\.returnCardKey/);
+ assert.match(shell,/card\?\.scrollIntoView\(\{[\s\S]*?behavior: preferredScrollBehavior\(\),[\s\S]*?block: "center",?[\s\S]*?\}\)/);
+ assert.match(shell,/card\?\.focus\(\{ preventScroll: true \}\)/);
+ assert.match(shell,/item\.family === "reference_clip" \? \([\s\S]*>\s*Edit\s*</);
  assert.match(panel,/focus\?\.opportunityId/);
  assert.match(panel,/Back to Reference Material/);
+});
+
+test("the stage rail controls one active workflow body without locking completed stages",()=>{
+ assert.match(panel,/setActiveStageId\(stageId\)/);
+ assert.match(panel,/stage\.id===activeStageId\?" is-active":""/);
+ assert.match(panel,/aria-current=\{stage\.id===activeStageId\?"step":undefined\}/);
+ for(const stage of ["source","evidence","usage-rights","design","generate"])assert.ok(panel.includes(`activeStageId==="${stage}"`),`missing active-body gate for ${stage}`);
+ assert.match(panel,/preferredScrollBehavior/);
+ assert.match(panel,/prefers-reduced-motion: reduce/);
+ assert.doesNotMatch(panel,/disabled=\{stage\.status==="upcoming"\}/);
+ assert.match(panel,/candidate\.currentForPlan===false\|\|!candidate\.releaseReady/);
+ assert.match(panel,/candidate\.currentForPlan===false\?"Historical"/);
+ assert.match(visualStyles,/button\.is-active/);
 });
 
 test("Hearth consumes the fourth canonical child and never falls back to cdc_plan",()=>{

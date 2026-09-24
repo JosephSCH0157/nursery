@@ -269,7 +269,7 @@ test("Hammer verification reads the Tongs response envelope before exact identit
     /candidate_revision_id ===\s+item\.candidate\?\.revisionId/,
   );
 });
-test("Edit, Replace, and Skip remain distinct creator operations", () => {
+test("Clip Edit and Replace remain distinct while Visual mutations use the workspace", () => {
   const source = readFileSync(
     new URL(
       "../src/components/visuals/CanonicalReferenceMaterialPanel.tsx",
@@ -278,10 +278,10 @@ test("Edit, Replace, and Skip remain distinct creator operations", () => {
     "utf8",
   );
   assert.match(source, /drawer\?\.mode === "replace"/);
-  assert.match(source, />\s*Save edits\s*</);
-  assert.match(source, /commitReferenceVisualRecipe/);
-  assert.match(source, /await begin\(item, "save_edits"\)/);
-  assert.match(source, /setDrawer\(null\)[\s\S]*await refresh\(\)/);
+  assert.match(source, /item\.family === "reference_clip" \? \([\s\S]*>\s*Edit\s*</);
+  assert.match(source, /openReferenceVisualWorkflow\(item\)/);
+  assert.doesNotMatch(source, /commitReferenceVisualRecipe/);
+  assert.doesNotMatch(source, /drawer\?\.mode === "prepare"/);
   assert.equal(
     /drawer\?\.mode === "replace"[\s\S]*Why skip\?/.test(
       source.slice(

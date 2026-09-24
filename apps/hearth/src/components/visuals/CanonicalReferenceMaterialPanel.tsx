@@ -6,16 +6,8 @@ import {
   verifyReferenceClipHammerReadback,
   type ReferenceClipState,
 } from "../../lib/hearth-reference-clip-authority";
-import { createCanonicalWorkpieceSource } from "../../lib/hearth-reference-clip-authority";
+import { readCanonicalReferenceVisualCollections } from "../../lib/hearth-reference-visual-collections";
 import {
-  addReferenceVisualSource,
-  ingestReferenceVisualSource,
-  readCanonicalReferenceVisualCollections,
-} from "../../lib/hearth-reference-visual-collections";
-import {
-  acquireReferenceVisual,
-  commitReferenceVisualRecipe,
-  commitReferenceVisualRights,
   selectReferenceVisual,
   type ReferenceVisualState,
 } from "../../lib/hearth-reference-visual-authority";
@@ -44,13 +36,7 @@ import {
 import { subscribeToForgeUserAccessToken } from "../../lib/tongs-fetch";
 import CanonicalReferenceVisualPanel from "./CanonicalReferenceVisualPanel";
 
-type DrawerMode = "edit" | "replace" | "prepare" | "skip";
-type EditDraft = {
-  title: string;
-  subtitle: string;
-  attribution: string;
-  accessibility: string;
-};
+type DrawerMode = "edit" | "replace" | "skip";
 type Failure = {
   intent: "approve" | "skip" | "use_source" | "save_edits" | "replace";
   message: string;
@@ -61,6 +47,11 @@ const statusLabel = (state: ReferenceReviewItem["state"]) =>
     : state === "ready"
       ? "Ready"
       : "Needs your decision";
+const preferredScrollBehavior = (): ScrollBehavior =>
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
 function hostTitle(value: string) {
   try {
     return new URL(value).hostname.replace(/^www\./, "");
@@ -90,20 +81,8 @@ export default function CanonicalReferenceMaterialPanel({
       null,
     ),
     [sourceUrl, setSourceUrl] = useState(""),
-    [rightsStatus, setRightsStatus] = useState("rights_unresolved"),
-    [rightsAttribution, setRightsAttribution] = useState(""),
-    [rightsAcknowledged, setRightsAcknowledged] = useState(false),
-    [rightsSaved, setRightsSaved] = useState(false),
-    [rightsMessage, setRightsMessage] = useState<string | null>(null),
-    [acquisitionError, setAcquisitionError] = useState<string | null>(null),
     [visualWorkflowFocus, setVisualWorkflowFocus] =
       useState<ReferenceVisualWorkflowFocus | null>(null),
-    [editDraft, setEditDraft] = useState<EditDraft>({
-      title: "",
-      subtitle: "",
-      attribution: "",
-      accessibility: "",
-    }),
     [skipReason, setSkipReason] = useState<VisualSkipReason>(
       "editorially_unneeded",
     ),
@@ -111,7 +90,8 @@ export default function CanonicalReferenceMaterialPanel({
   const alive = useRef(true),
     refreshSequence = useRef(0),
     attempts = useRef(new Map<string, string>()),
-    retryParents = useRef(new Map<string, string>());
+    retryParents = useRef(new Map<string, string>()),
+    returnCardKey = useRef<string | null>(null);
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
     const [clipResult, visualResult, dispositionResult, failureResult] =
@@ -134,13 +114,14 @@ export default function CanonicalReferenceMaterialPanel({
     if (clipResult.ok) setClips(clipResult.data);
     if (visualResult.ok) setVisuals(visualResult.data);
     if (dispositionResult.ok) setDispositions(dispositionResult.data);
-    const projected = clipResult.ok && visualResult.ok && dispositionResult.ok
-      ? projectReferenceReviewItems({
-          clips: clipResult.data,
-          visuals: visualResult.data,
-          dispositions: dispositionResult.data,
-        })
-      : null;
+    const projected =
+      clipResult.ok && visualResult.ok && dispositionResult.ok
+        ? projectReferenceReviewItems({
+            clips: clipResult.data,
+            visuals: visualResult.data,
+            dispositions: dispositionResult.data,
+          })
+        : null;
     if (failureResult.ok) {
       const persisted: Record<string, Failure> = {};
       retryParents.current.clear();
@@ -148,18 +129,23 @@ export default function CanonicalReferenceMaterialPanel({
         const item = projected?.find((entry) => entry.key === failure.key);
         if (item?.family === "reference_visual") {
           const opportunity = visualResult.ok
-            ? visualResult.data?.opportunities.find((entry) => entry.id === item.opportunityId)
+            ? visualResult.data?.opportunities.find(
+                (entry) => entry.id === item.opportunityId,
+              )
             : null;
-          if (!opportunity || !isReferenceVisualFailureActionable(
-            failure.intent,
-            projectReferenceMaterialVisualAction({
-              sourceLinked: opportunity.sourceStatus === "linked" && Boolean(opportunity.sources?.length),
-              rightsSaved: Boolean(opportunity.rights),
-              subtype: opportunity.subtype,
-              candidateReady: Boolean(item.candidate),
-              resolution: item.resolution,
-            }),
-          )) continue;
+          if (
+            !opportunity ||
+            !isReferenceVisualFailureActionable(
+              failure.intent,
+              projectReferenceMaterialVisualAction({
+                opportunity,
+                resolution: item.resolution,
+                hammerVerified: false,
+                approvalBlocked: Boolean(item.approveDisabledReason),
+              }),
+            )
+          )
+            continue;
         }
         persisted[failure.key] = {
           intent: failure.intent,
@@ -228,101 +214,9 @@ export default function CanonicalReferenceMaterialPanel({
     ),
     activeDrawer = drawer
       ? (items.find((item) => item.key === drawer.key) ?? null)
-      : null,
-    activeVisualOpportunity = activeDrawer?.family === "reference_visual"
-      ? visuals?.opportunities.find((entry) => entry.id === activeDrawer.opportunityId) ?? null
       : null;
   function openDrawer(item: ReferenceReviewItem, mode: DrawerMode) {
-    if (mode === "edit" && item.family === "reference_visual") {
-      const opportunity = visuals?.opportunities.find(
-        (entry) => entry.id === item.opportunityId,
-      );
-      setEditDraft({
-        title: String(opportunity?.recipe?.title ?? item.proposal),
-        subtitle: String(opportunity?.recipe?.subtitle ?? ""),
-        attribution: String(opportunity?.recipe?.attribution_text ?? ""),
-        accessibility: String(
-          opportunity?.recipe?.accessibility_text ?? item.proposal,
-        ),
-      });
-    }
-    if (mode === "prepare") {
-      const opportunity = item.family === "reference_visual"
-        ? visuals?.opportunities.find((entry) => entry.id === item.opportunityId)
-        : null;
-      const rights = opportunity?.rights;
-      setSourceUrl(item.sourceUrl ?? "");
-      setRightsStatus(typeof rights?.rights_status === "string" ? rights.rights_status : "rights_unresolved");
-      setRightsAttribution(typeof rights?.attribution_text === "string" ? rights.attribution_text : "");
-      setRightsAcknowledged(rights?.creator_acknowledged_responsibility === true);
-      setRightsSaved(Boolean(rights));
-      setRightsMessage(rights ? "Rights saved" : null);
-      setAcquisitionError(null);
-    }
     setDrawer({ key: item.key, mode });
-  }
-
-  function rightsDraftMatches(opportunity: NonNullable<typeof activeVisualOpportunity>) {
-    const rights = opportunity.rights;
-    if (!rights) return false;
-    const attribution = rightsAttribution.trim();
-    return rights.rights_status === rightsStatus
-      && rights.creator_acknowledged_responsibility === rightsAcknowledged
-      && rights.attribution_required === Boolean(attribution)
-      && String(rights.attribution_text ?? "") === attribution;
-  }
-
-  async function saveLinkedVisualRights(item: ReferenceReviewItem) {
-    if (item.family !== "reference_visual" || !visuals) return;
-    const opportunity = visuals.opportunities.find((entry) => entry.id === item.opportunityId);
-    if (!opportunity) return;
-    setAcquisitionError(null);
-    if (rightsDraftMatches(opportunity)) {
-      setRightsSaved(true);
-      setRightsMessage("Rights saved");
-      setDrawer(null);
-      return;
-    }
-    if (!opportunity || !(await begin(item, "replace"))) return;
-    const rights = await commitReferenceVisualRights({
-      workspaceId,
-      workpieceId,
-      opportunity,
-      status: rightsStatus,
-      declaration: {
-        creator_acknowledged_responsibility: rightsAcknowledged,
-        rights_holder: null,
-        attribution_required: Boolean(rightsAttribution.trim()),
-        attribution_text: rightsAttribution.trim() || null,
-        fair_use_rationale: null,
-        permission_evidence: {},
-        platform_terms: {},
-        territories: [],
-        provenance: { entered_in: "hearth_reference_material" },
-        access_controls_bypassed: false,
-      },
-    });
-    if (!rights.ok) {
-      setRightsMessage(null);
-      fail(item, "replace", rights.error);
-      return;
-    }
-    const withRights = await readCanonicalReferenceVisualCollections(workspaceId, workpieceId);
-    const current = withRights.ok ? withRights.data?.opportunities.find((entry) => entry.id === item.opportunityId) : null;
-    if (!withRights.ok || !current?.rights || !rightsDraftMatches(current)) {
-      setRightsMessage(null);
-      fail(item, "replace", withRights.ok ? "The rights declaration did not match canonical readback." : withRights.error);
-      return;
-    }
-    if (!(await succeed(item, "replace", {
-      rights_saved: true,
-      rights_declaration_revision_id: String(current.rights.id ?? ""),
-      canonical_candidate_created: false,
-    }))) return;
-    setVisuals(withRights.data);
-    setRightsSaved(true);
-    setRightsMessage("Rights saved");
-    setDrawer(null);
   }
 
   function openReferenceVisualWorkflow(item: ReferenceReviewItem) {
@@ -340,72 +234,28 @@ export default function CanonicalReferenceMaterialPanel({
         returnCardKey: item.key,
       }),
     );
-    requestAnimationFrame(() =>
-      document
-        .querySelector<HTMLElement>(".hs-reference-visuals")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
-    );
   }
 
   function closeReferenceVisualWorkflow() {
-    const returnCardKey = visualWorkflowFocus?.returnCardKey;
+    returnCardKey.current = visualWorkflowFocus?.returnCardKey ?? null;
     setVisualWorkflowFocus(null);
     void refresh();
-    if (returnCardKey)
-      requestAnimationFrame(() =>
-        document
-          .getElementById(`${returnCardKey}-card`)
-          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-      );
   }
 
-  async function acquireLinkedVisual(item: ReferenceReviewItem) {
-    if (item.family !== "reference_visual" || !sourceUrl.trim()) return;
-    setAcquisitionError(null);
-    const readback = await readCanonicalReferenceVisualCollections(workspaceId, workpieceId);
-    const current = readback.ok
-      ? readback.data?.opportunities.find((entry) => entry.id === item.opportunityId)
-      : null;
-    if (!readback.ok || !current) {
-      setAcquisitionError(readback.ok ? "This Reference Visual opportunity is no longer current." : readback.error);
-      return;
-    }
-    setVisuals(readback.data);
-    if (!current.rights) {
-      setRightsSaved(false);
-      setRightsMessage(null);
-      setAcquisitionError("Save rights before acquiring archival material.");
-      return;
-    }
-    if (current.subtype !== "archival_still" && current.subtype !== "archival_sequence") {
-      setAcquisitionError(`This ${current.subtype.replaceAll("_", " ")} uses the Reference Visual design workflow; rights remain saved and no archival image was acquired.`);
-      return;
-    }
-    if (!current.sourceSetRevisionId || !(current.sources?.length)) {
-      setAcquisitionError("The current Source collection is unavailable. Rights remain saved.");
-      return;
-    }
-    if (!(await begin(item, "replace"))) return;
-    const acquired = await acquireReferenceVisual({
-      workspaceId,
-      workpieceId,
-      opportunity: current,
-      type: "external_fetch",
-      sourceUrl: sourceUrl.trim(),
+  useEffect(() => {
+    if (visualWorkflowFocus || !returnCardKey.current) return;
+    const cardKey = returnCardKey.current;
+    returnCardKey.current = null;
+    requestAnimationFrame(() => {
+      const card = document.getElementById(`${cardKey}-card`);
+      card?.scrollIntoView({
+        behavior: preferredScrollBehavior(),
+        block: "center",
+      });
+      card?.focus({ preventScroll: true });
     });
-    if (!acquired.ok) {
-      setAcquisitionError(acquired.error);
-      fail(item, "replace", acquired.error);
-      return;
-    }
-    if (!(await succeed(item, "replace", {
-      canonical_candidate_created: true,
-      rights_declaration_revision_id: String(current.rights.id ?? ""),
-      source_set_revision_id: current.sourceSetRevisionId,
-    }))) return;
-    setDrawer(null);
-    await refresh();
-  }
+  }, [visualWorkflowFocus]);
+
   async function begin(item: ReferenceReviewItem, intent: Failure["intent"]) {
     setPendingKeys((current) => new Set(current).add(item.key));
     setFailures((current) => {
@@ -651,121 +501,52 @@ export default function CanonicalReferenceMaterialPanel({
   }
   async function useSource(item: ReferenceReviewItem) {
     const url = sourceUrl.trim();
-    if (!url || !(await begin(item, "use_source"))) return;
     if (item.family === "reference_visual") {
-      if (!visuals) {
-        fail(item, "use_source", "Reference Visuals are not available.");
-        return;
-      }
-      const opportunity = visuals.opportunities.find(
-        (entry) => entry.id === item.opportunityId,
-      );
-      if (!opportunity) {
-        fail(
-          item,
-          "use_source",
-          "This proposal changed before the Source could be used.",
-        );
-        return;
-      }
-      const inspected = await ingestReferenceVisualSource({
-        workspaceId,
-        workpieceId,
-        url,
-        contextFocus: opportunity.focus,
-        editorialReason: opportunity.editorialReason,
-        desiredMaterial: opportunity.desiredMaterial,
-      });
-      if (!inspected.ok) {
-        fail(item, "use_source", inspected.error);
-        return;
-      }
-      const proposal = inspected.data,
-        created = await createCanonicalWorkpieceSource({
-          workspaceId,
-          workpieceId,
-          draft: {
-            sourceType: "web",
-            title: proposal.title ?? hostTitle(url),
-            author: proposal.author ?? "",
-            publisher: proposal.publisher ?? "",
-            publishedAt: proposal.publishedAt ?? "",
-            canonicalUrl: proposal.canonicalUrl,
-            documentIdentity: `url:${proposal.canonicalUrl}`,
-            relationshipType: "reference_visual_evidence",
-            relationshipNote: proposal.suggestedUse,
-            citation: {
-              span_text: opportunity.focus,
-              before: opportunity.before,
-              after: opportunity.after,
-            },
-            mediaRange: {},
-            provenanceContext: {
-              reference_visual_opportunity_id: opportunity.id,
-              retrieved_at: proposal.retrievedAt,
-              source_ingestion: "deterministic_or_creator_authorized",
-            },
-          },
-        });
-      if (!created.ok) {
-        fail(item, "use_source", created.error);
-        return;
-      }
-      const linked = await addReferenceVisualSource({
-        workspaceId,
-        workpieceId,
-        state: visuals,
-        opportunityId: opportunity.id,
-        source: created.data,
-      });
-      if (!linked.ok) {
-        fail(item, "use_source", linked.error);
-        return;
-      }
-      setVisuals(linked.data);
-    } else {
-      if (!clips) {
-        fail(item, "use_source", "Reference Clips are not available.");
-        return;
-      }
-      const opportunity = clips.opportunities.find(
-        (entry) => entry.id === item.opportunityId,
-      );
-      if (!opportunity) {
-        fail(
-          item,
-          "use_source",
-          "This proposal changed before the Source could be used.",
-        );
-        return;
-      }
-      const linked = await createAndFulfillReferenceClipSource({
-        workspaceId,
-        workpieceId,
-        opportunity,
-        draft: {
-          sourceType: "web",
-          title: hostTitle(url),
-          author: "",
-          publisher: hostTitle(url),
-          publishedAt: "",
-          canonicalUrl: url,
-          documentIdentity: `url:${url}`,
-          relationshipNote: "Creator chose Use this source.",
-          citation: {
-            focus: opportunity.focus,
-            before: opportunity.before,
-            after: opportunity.after,
-          },
-          mediaRange: {},
-        },
-      });
-      if (!linked.ok) {
-        fail(item, "use_source", linked.error);
-        return;
-      }
-      setClips(linked.data);
+      openReferenceVisualWorkflow(item);
+      return;
     }
+    if (!url || !(await begin(item, "use_source"))) return;
+    if (!clips) {
+      fail(item, "use_source", "Reference Clips are not available.");
+      return;
+    }
+    const opportunity = clips.opportunities.find(
+      (entry) => entry.id === item.opportunityId,
+    );
+    if (!opportunity) {
+      fail(
+        item,
+        "use_source",
+        "This proposal changed before the Source could be used.",
+      );
+      return;
+    }
+    const linked = await createAndFulfillReferenceClipSource({
+      workspaceId,
+      workpieceId,
+      opportunity,
+      draft: {
+        sourceType: "web",
+        title: hostTitle(url),
+        author: "",
+        publisher: hostTitle(url),
+        publishedAt: "",
+        canonicalUrl: url,
+        documentIdentity: `url:${url}`,
+        relationshipNote: "Creator chose Use this source.",
+        citation: {
+          focus: opportunity.focus,
+          before: opportunity.before,
+          after: opportunity.after,
+        },
+        mediaRange: {},
+      },
+    });
+    if (!linked.ok) {
+      fail(item, "use_source", linked.error);
+      return;
+    }
+    setClips(linked.data);
     if (
       !(await succeed(item, "use_source", {
         proposal_updated: true,
@@ -777,87 +558,16 @@ export default function CanonicalReferenceMaterialPanel({
     setDrawer(null);
     await refresh();
   }
-  async function saveEdits(item: ReferenceReviewItem) {
-    if (item.family !== "reference_visual" || !visuals) {
-      setFailures((current) => ({
-        ...current,
-        [item.key]: {
-          intent: "save_edits",
-          message:
-            "Reference Clip timecode editing requires its native amendment contract.",
-        },
-      }));
-      return;
-    }
-    const opportunity = visuals.opportunities.find(
-      (entry) => entry.id === item.opportunityId,
-    );
-    if (
-      !opportunity ||
-      !editDraft.title.trim() ||
-      !(await begin(item, "save_edits"))
-    )
-      return;
-    const saved = await commitReferenceVisualRecipe({
-      workspaceId,
-      workpieceId,
-      opportunity,
-      title: editDraft.title.trim(),
-      subtitle: editDraft.subtitle.trim(),
-      attribution: editDraft.attribution.trim(),
-      accessibility: editDraft.accessibility.trim(),
-    });
-    if (!saved.ok) {
-      fail(item, "save_edits", saved.error);
-      return;
-    }
-    const readback = await readCanonicalReferenceVisualCollections(
-      workspaceId,
-      workpieceId,
-    );
-    const updated = readback.ok
-      ? readback.data?.opportunities.find(
-          (entry) => entry.id === item.opportunityId,
-        )
-      : null;
-    if (
-      !readback.ok ||
-      !updated?.recipe ||
-      String(updated.recipe.title ?? "") !== editDraft.title.trim()
-    ) {
-      fail(
-        item,
-        "save_edits",
-        readback.ok
-          ? "The saved edit did not match canonical readback."
-          : readback.error,
-      );
-      return;
-    }
-    if (
-      !(await succeed(item, "save_edits", {
-        proposal_updated: true,
-        native_recipe_revision_id: String(updated.recipe.id ?? ""),
-      }))
-    )
-      return;
-    setVisuals(readback.data);
-    setDrawer(null);
-    await refresh();
-  }
   async function retry(item: ReferenceReviewItem) {
     const failure = failures[item.key];
     if (!failure) return;
-      if (failure.intent === "approve") await approve(item);
-      else if (failure.intent === "skip") await skip(item);
-      else if (failure.intent === "use_source") await useSource(item);
-      else if (failure.intent === "save_edits") await saveEdits(item);
-      else if (item.family === "reference_visual") {
-        const action = visualPrimaryAction(item);
-        if (!action || !isReferenceVisualFailureActionable(failure.intent, action)) return;
-        if (action.action === "add_source") openDrawer(item, "replace");
-        else if (action.action === "acquire_image") openDrawer(item, "prepare");
-      } else openDrawer(item, "replace");
+    if (failure.intent === "approve") await approve(item);
+    else if (failure.intent === "skip") await skip(item);
+    else if (item.family === "reference_visual")
+      openReferenceVisualWorkflow(item);
+    else if (failure.intent === "use_source") await useSource(item);
+    else if (failure.intent === "save_edits") openDrawer(item, "edit");
+    else openDrawer(item, "replace");
   }
 
   function visualPrimaryAction(item: ReferenceReviewItem) {
@@ -867,13 +577,12 @@ export default function CanonicalReferenceMaterialPanel({
     );
     if (!opportunity) return null;
     return projectReferenceMaterialVisualAction({
-      sourceLinked:
-        opportunity.sourceStatus === "linked" &&
-        Boolean(opportunity.sources?.length),
-      rightsSaved: Boolean(opportunity.rights),
-      subtype: opportunity.subtype,
-      candidateReady: Boolean(item.candidate),
+      opportunity,
       resolution: item.resolution,
+      hammerVerified: verifiedKeys.has(item.key),
+      approvalBlocked: Boolean(
+        item.approveDisabledReason || failures[item.key]?.intent === "approve",
+      ),
     });
   }
 
@@ -886,15 +595,25 @@ export default function CanonicalReferenceMaterialPanel({
     }
     const action = visualPrimaryAction(item);
     if (!action || action.target === "none") return;
-    if (action.target === "source_drawer") openDrawer(item, "replace");
-    else if (
-      action.target === "rights_drawer" ||
-      action.target === "acquisition_drawer"
-    )
-      openDrawer(item, "prepare");
-    else if (action.target === "reference_visual_workflow")
+    if (action.target === "reference_visual_workflow")
       openReferenceVisualWorkflow(item);
     else if (action.target === "approval") void approve(item);
+  }
+  if (visualWorkflowFocus) {
+    return (
+      <section
+        className="hs-reference-material hs-reference-review is-workspace-mode"
+        aria-label="Reference Visual workspace"
+        data-presentation-mode="workspace"
+      >
+        <CanonicalReferenceVisualPanel
+          workspaceId={workspaceId}
+          workpieceId={workpieceId}
+          focus={visualWorkflowFocus}
+          onClose={closeReferenceVisualWorkflow}
+        />
+      </section>
+    );
   }
   return (
     <section
@@ -929,7 +648,8 @@ export default function CanonicalReferenceMaterialPanel({
         {items.map((item) => {
           const failed = failures[item.key];
           const visualAction = visualPrimaryAction(item);
-          const primaryLabel = visualAction?.label ??
+          const primaryLabel =
+            visualAction?.label ??
             (item.sourceSummary.length
               ? item.candidate
                 ? "Approve"
@@ -939,6 +659,7 @@ export default function CanonicalReferenceMaterialPanel({
             <article
               key={item.key}
               id={`${item.key}-card`}
+              tabIndex={-1}
               className={`hs-reference-review-card is-${item.state}`}
               aria-labelledby={`${item.key}-title`}
             >
@@ -989,10 +710,18 @@ export default function CanonicalReferenceMaterialPanel({
                       : "No canonical Source linked"}
                   </small>
                 </p>
-                {item.sourceUrl ? <p><a href={item.sourceUrl} target="_blank" rel="noreferrer">Open linked Source</a></p> : null}
+                {item.sourceUrl ? (
+                  <p>
+                    <a href={item.sourceUrl} target="_blank" rel="noreferrer">
+                      Open linked Source
+                    </a>
+                  </p>
+                ) : null}
                 {!item.sourceSummary.length ? (
                   <p className="hs-reference-review-warning">
-                    This is an unsourced planning suggestion, not episode Reference Material. It will not block completion unless you attach a canonical Source.
+                    This is an unsourced planning suggestion, not episode
+                    Reference Material. It will not block completion unless you
+                    attach a canonical Source.
                   </p>
                 ) : null}
                 {item.warning ? (
@@ -1013,39 +742,40 @@ export default function CanonicalReferenceMaterialPanel({
                     disabled={
                       item.state === "hearth_is_working" ||
                       Boolean(visualAction?.disabled) ||
-                      (Boolean(item.candidate) && !!item.approveDisabledReason)
+                      (visualAction?.action === "approve" &&
+                        !!item.approveDisabledReason)
                     }
                     title={
-                      item.candidate
-                        ? item.approveDisabledReason ?? undefined
-                        : visualAction?.action === "review_rights"
-                          ? "Review and save the rights declaration for this Source."
-                          : visualAction?.action === "acquire_image"
-                            ? "Acquire archival material using the saved rights declaration."
-                            : visualAction?.action === "design_visual"
-                              ? "Continue the exact opportunity in the canonical Reference Visual workflow."
-                              : item.sourceSummary.length
-                                ? "Continue preparing this Reference Material."
-                                : "Attach a canonical Source to make this Reference Material."
+                      item.family === "reference_visual"
+                        ? visualAction?.workflow.nextActionDetail
+                        : item.candidate
+                          ? (item.approveDisabledReason ?? undefined)
+                          : item.sourceSummary.length
+                            ? "Continue preparing this Reference Material."
+                            : "Attach a canonical Source to make this Reference Material."
                     }
                     onClick={() => activatePrimaryAction(item)}
                   >
                     {primaryLabel}
                   </button>
-                  <button
-                    type="button"
-                    disabled={item.state === "hearth_is_working"}
-                    onClick={() => openDrawer(item, "edit")}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    disabled={item.state === "hearth_is_working"}
-                    onClick={() => openDrawer(item, "replace")}
-                  >
-                    Replace
-                  </button>
+                  {item.family === "reference_clip" ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={item.state === "hearth_is_working"}
+                        onClick={() => openDrawer(item, "edit")}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        disabled={item.state === "hearth_is_working"}
+                        onClick={() => openDrawer(item, "replace")}
+                      >
+                        Replace
+                      </button>
+                    </>
+                  ) : null}
                   <button
                     type="button"
                     disabled={item.state === "hearth_is_working"}
@@ -1076,14 +806,6 @@ export default function CanonicalReferenceMaterialPanel({
           );
         })}
       </div>
-      {visualWorkflowFocus ? (
-        <CanonicalReferenceVisualPanel
-          workspaceId={workspaceId}
-          workpieceId={workpieceId}
-          focus={visualWorkflowFocus}
-          onClose={closeReferenceVisualWorkflow}
-        />
-      ) : null}
       {activeDrawer ? (
         <div
           className="hs-reference-review-scrim"
@@ -1106,10 +828,6 @@ export default function CanonicalReferenceMaterialPanel({
                     ? "Edit editorial details"
                     : drawer?.mode === "replace"
                       ? "Replace the material"
-                      : drawer?.mode === "prepare"
-                        ? activeVisualOpportunity?.rights
-                          ? "Acquire archival image"
-                          : "Review rights"
                       : "Skip this proposal"}
                 </h4>
               </div>
@@ -1123,85 +841,10 @@ export default function CanonicalReferenceMaterialPanel({
             </header>
             {drawer?.mode === "edit" ? (
               <>
-                <p>
-                  Keep the proposed material and Sources. Review timing,
-                  evidence interpretation, intended use, crop, and render
-                  details below.
-                </p>
-                {activeDrawer.family === "reference_visual" ? (
-                  <>
-                    <label>
-                      Headline
-                      <input
-                        value={editDraft.title}
-                        onChange={(event) =>
-                          setEditDraft((current) => ({
-                            ...current,
-                            title: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Supporting line
-                      <textarea
-                        value={editDraft.subtitle}
-                        onChange={(event) =>
-                          setEditDraft((current) => ({
-                            ...current,
-                            subtitle: event.target.value,
-                          }))
-                        }
-                        rows={3}
-                      />
-                    </label>
-                    <label>
-                      Visible attribution
-                      <input
-                        value={editDraft.attribution}
-                        onChange={(event) =>
-                          setEditDraft((current) => ({
-                            ...current,
-                            attribution: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Accessibility description
-                      <textarea
-                        value={editDraft.accessibility}
-                        onChange={(event) =>
-                          setEditDraft((current) => ({
-                            ...current,
-                            accessibility: event.target.value,
-                          }))
-                        }
-                        rows={3}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="hs-primary-btn"
-                      disabled={
-                        !editDraft.title.trim() ||
-                        pendingKeys.has(activeDrawer.key)
-                      }
-                      onClick={() => void saveEdits(activeDrawer)}
-                    >
-                      Save edits
-                    </button>
-                  </>
-                ) : (
-                  <p className="hs-reference-review-help">
-                    Reference Clip timing is edited while choosing or preparing
-                    its material. Use Replace to keep the script anchor and
-                    prepare that revised clip.
-                  </p>
-                )}
                 <p className="hs-reference-review-help">
-                  A new immutable render can remain an edit. Saving edits never
-                  approves the proposal.
+                  Reference Clip timing is edited while choosing or preparing
+                  its material. Use Replace to keep the script anchor and
+                  prepare that revised clip.
                 </p>
               </>
             ) : drawer?.mode === "replace" ? (
@@ -1236,33 +879,6 @@ export default function CanonicalReferenceMaterialPanel({
                 >
                   Use this source
                 </button>
-              </>
-            ) : drawer?.mode === "prepare" ? (
-              <>
-                <p>{activeVisualOpportunity?.rights ? "The current rights declaration is saved. Review it below before choosing the separate archival acquisition action." : "The Source is linked. Save the rights declaration first. Hearth will not copy or acquire an image from this action."}</p>
-                <p><a href={sourceUrl} target="_blank" rel="noreferrer">Open linked image</a></p>
-                <label>
-                  Rights status
-                  <select value={rightsStatus} onChange={(event) => { setRightsStatus(event.target.value); setRightsSaved(false); setRightsMessage(null); }}>
-                    <option value="rights_unresolved">Rights unresolved</option>
-                    <option value="creator_owned">Creator-owned</option>
-                    <option value="licensed">Licensed</option>
-                    <option value="public_domain">Public domain</option>
-                    <option value="permission_obtained">Permission obtained</option>
-                    <option value="platform_permitted">Platform-permitted</option>
-                    <option value="fair_use_asserted_by_creator">Fair use asserted by creator</option>
-                  </select>
-                </label>
-                <label>Attribution text (if required)<input value={rightsAttribution} onChange={(event) => { setRightsAttribution(event.target.value); setRightsSaved(false); setRightsMessage(null); }} /></label>
-                <label className="hs-reference-visual-check"><input type="checkbox" checked={rightsAcknowledged} onChange={(event) => { setRightsAcknowledged(event.target.checked); setRightsSaved(false); setRightsMessage(null); }} /> I confirm that I am responsible for rights and permissions and did not bypass access controls.</label>
-                <button type="button" className="hs-primary-btn" disabled={!rightsAcknowledged || rightsStatus === "rights_unresolved" || pendingKeys.has(activeDrawer.key)} onClick={() => void saveLinkedVisualRights(activeDrawer)}>Save rights</button>
-                {rightsMessage ? <p role="status">{rightsMessage}</p> : null}
-                {rightsSaved && (activeVisualOpportunity?.subtype === "archival_still" || activeVisualOpportunity?.subtype === "archival_sequence") ? (
-                  <button type="button" disabled={pendingKeys.has(activeDrawer.key)} onClick={() => void acquireLinkedVisual(activeDrawer)}>Acquire image</button>
-                ) : rightsSaved ? (
-                  <p className="hs-reference-review-help">Rights are saved. This {activeVisualOpportunity?.subtype.replaceAll("_", " ") ?? "Reference Visual"} continues through the Reference Visual design workflow; no archival acquisition is available here.</p>
-                ) : null}
-                {acquisitionError ? <p role="alert" className="hs-error-text-small">Acquisition failed: {acquisitionError}</p> : null}
               </>
             ) : (
               <>

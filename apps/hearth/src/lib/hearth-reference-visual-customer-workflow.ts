@@ -1,4 +1,7 @@
-import type { ReferenceVisualOpportunity } from "./hearth-reference-visual-authority";
+import {
+  referenceVisualReadiness,
+  type ReferenceVisualOpportunity,
+} from "./hearth-reference-visual-authority";
 
 export type ReferenceVisualCustomerStageId =
   "source" | "evidence" | "usage-rights" | "design" | "generate";
@@ -26,10 +29,19 @@ export type ReferenceVisualCustomerWorkflow = {
 
 type WorkflowInput = {
   opportunity: ReferenceVisualOpportunity;
-  evidenceReady: boolean;
-  recipeCurrent: boolean;
-  renderedType: boolean;
+  evidenceReady?: boolean;
+  recipeCurrent?: boolean;
+  renderedType?: boolean;
 };
+
+const RENDERED_TYPES = new Set([
+  "chart",
+  "timeline",
+  "document_excerpt",
+  "quote_card",
+  "stat_card",
+  "comparison",
+]);
 
 const text = (value: unknown) =>
   typeof value === "string" && value.trim() ? value.trim() : null;
@@ -40,6 +52,15 @@ export function projectReferenceVisualCustomerWorkflow({
   recipeCurrent,
   renderedType,
 }: WorkflowInput): ReferenceVisualCustomerWorkflow {
+  const isRenderedType =
+    renderedType ?? RENDERED_TYPES.has(opportunity.subtype);
+  const isEvidenceReady =
+    evidenceReady ?? referenceVisualReadiness(opportunity).evidenceReady;
+  const isRecipeCurrent =
+    recipeCurrent ??
+    Boolean(
+      opportunity.recipe && referenceVisualReadiness(opportunity, true).ready,
+    );
   const sources = opportunity.sources ?? [];
   const sourceReady =
     opportunity.sourceStatus === "linked" && sources.length > 0;
@@ -54,7 +75,7 @@ export function projectReferenceVisualCustomerWorkflow({
   const selectableCandidate = currentCandidates.some(
     (candidate) => candidate.releaseReady,
   );
-  const designReady = renderedType ? recipeCurrent : selectableCandidate;
+  const designReady = isRenderedType ? isRecipeCurrent : selectableCandidate;
   const generatedReady = Boolean(opportunity.selectedCandidateRevisionId);
 
   let currentStageId: ReferenceVisualCustomerStageId = "generate";
@@ -66,7 +87,7 @@ export function projectReferenceVisualCustomerWorkflow({
     currentStageId = "source";
     nextAction = "Choose a Source";
     nextActionDetail = "Attach the Source that supports this visual.";
-  } else if (!evidenceReady) {
+  } else if (!isEvidenceReady) {
     currentStageId = "evidence";
     nextAction = "Confirm supporting evidence";
     nextActionDetail = "Choose the exact source material this visual will use.";
@@ -82,29 +103,29 @@ export function projectReferenceVisualCustomerWorkflow({
       "Save the rights declaration required for quoted or third-party material.";
   } else if (!designReady) {
     currentStageId = "design";
-    nextAction = renderedType
+    nextAction = isRenderedType
       ? "Prepare visual design"
       : "Prepare archival media";
-    nextActionDetail = renderedType
+    nextActionDetail = isRenderedType
       ? "Review the wording and prepare a design from the confirmed evidence."
       : "Add genuine archival media covered by the saved rights declaration.";
   } else if (!generatedReady) {
     currentStageId = "generate";
     nextAction = selectableCandidate
       ? "Choose a finished visual"
-      : renderedType
+      : isRenderedType
         ? "Generate visual"
         : "Add archival media";
     nextActionDetail = selectableCandidate
       ? "A current, release-ready candidate is waiting for your selection."
-      : renderedType
+      : isRenderedType
         ? "The Source, evidence, usage, rights, and design are ready."
         : "Verify the archival stills that will appear in the finished visual.";
   }
 
   const completed: Record<ReferenceVisualCustomerStageId, boolean> = {
     source: sourceReady,
-    evidence: evidenceReady,
+    evidence: isEvidenceReady,
     "usage-rights": usageRightsReady,
     design: designReady,
     generate: generatedReady,
@@ -115,7 +136,7 @@ export function projectReferenceVisualCustomerWorkflow({
           sources.length > 1 ? ` + ${sources.length - 1} supporting` : ""
         }`
       : "Source needed",
-    evidence: evidenceReady
+    evidence: isEvidenceReady
       ? `${opportunity.evidence.length} confirmed item${
           opportunity.evidence.length === 1 ? "" : "s"
         }`
@@ -128,10 +149,10 @@ export function projectReferenceVisualCustomerWorkflow({
           : "Rights action needed"
       : "Usage confirmation needed",
     design: designReady
-      ? renderedType
+      ? isRenderedType
         ? "Design prepared"
         : "Ready for archival media"
-      : renderedType
+      : isRenderedType
         ? "Waiting for confirmed inputs"
         : "Waiting for usage and rights",
     generate: generatedReady
@@ -141,27 +162,28 @@ export function projectReferenceVisualCustomerWorkflow({
         : "Not generated yet",
   };
 
-  const stageDefinitions: Array<
-    Omit<ReferenceVisualCustomerStage, "status">
-  > = [
-    { id: "source", label: "Source", summary: summaries.source },
-    { id: "evidence", label: "Evidence", summary: summaries.evidence },
-    {
-      id: "usage-rights",
-      label: "Usage & rights",
-      summary: summaries["usage-rights"],
-    },
-    { id: "design", label: "Design", summary: summaries.design },
-    { id: "generate", label: "Generate", summary: summaries.generate },
-  ];
-  const stages: ReferenceVisualCustomerStage[] = stageDefinitions.map((stage) => ({
-    ...stage,
-    status: completed[stage.id]
-      ? "complete"
-      : stage.id === currentStageId
-        ? "current"
-        : "upcoming",
-  }));
+  const stageDefinitions: Array<Omit<ReferenceVisualCustomerStage, "status">> =
+    [
+      { id: "source", label: "Source", summary: summaries.source },
+      { id: "evidence", label: "Evidence", summary: summaries.evidence },
+      {
+        id: "usage-rights",
+        label: "Usage & rights",
+        summary: summaries["usage-rights"],
+      },
+      { id: "design", label: "Design", summary: summaries.design },
+      { id: "generate", label: "Generate", summary: summaries.generate },
+    ];
+  const stages: ReferenceVisualCustomerStage[] = stageDefinitions.map(
+    (stage) => ({
+      ...stage,
+      status: completed[stage.id]
+        ? "complete"
+        : stage.id === currentStageId
+          ? "current"
+          : "upcoming",
+    }),
+  );
 
   return {
     stages,
