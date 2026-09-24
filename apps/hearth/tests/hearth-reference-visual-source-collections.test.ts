@@ -6,6 +6,7 @@ import {projectReferenceVisualEvidencePresentation,projectReferenceVisualSourceC
 const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
 const visualAuthority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
+const visualStyles=readFileSync(new URL("../src/views/surfaces/VisualsSurface.css",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
 const dispositionControl=readFileSync(new URL("../src/components/visuals/VisualOpportunityDispositionControl.tsx",import.meta.url),"utf8");
 const migration=readFileSync(new URL("../../../supabase/migrations/20260810130000_tongs_reference_visual_source_sets.sql",import.meta.url),"utf8");
@@ -111,6 +112,12 @@ test("every selected Source exposes evidence coverage and a manual fallback",()=
  assert.match(panel,/Enter evidence for this Source/);
  assert.match(panel,/Confirm evidence for Source/);
  assert.match(panel,/evidenceMemberId===member\.memberId/);
+ assert.match(panel,/event\.key!=="Escape"/);
+ assert.match(panel,/function cancelManualEvidence\(\)/);
+ assert.match(panel,/manualEvidenceOpen&&evidenceMemberId===memberId/);
+ assert.match(panel,/window\.removeEventListener\("keydown",cancel\)/);
+ assert.match(visualStyles,/content:"Cancel manual entry"/);
+ assert.match(visualStyles,/press Escape to cancel manual entry without saving/i);
 });
 
 test("evidence reset readback preserves ordered canonical Source collections",()=>{
