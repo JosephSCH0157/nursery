@@ -2704,6 +2704,7 @@ export type RenderReferenceVisualRequest = {
 export type AcquireReferenceVisualRequest = {
   workspace_id: string;
   opportunity_revision_id: string;
+  source_set_revision_id: string;
   rights_declaration_revision_id: string;
   acquisition_type: "upload" | "external_fetch";
   bytes_base64?: string | null;
@@ -28206,14 +28207,17 @@ export class TongsCommitService {
     );
     if (
       !isRecord(opportunity) ||
-      !isRecord(opportunity.opportunity_revision) ||
-      !isRecord(opportunity.rights_declaration)
+      !isRecord(opportunity.opportunity_revision)
     )
       throw new HttpError(
         409,
-        "linked_archival_opportunity_required",
-        "A current linked archival opportunity and rights declaration are required.",
+        "reference_visual_opportunity_revision_conflict",
+        "The requested Reference Visual opportunity revision is no longer current.",
+        { supplied_opportunity_revision_id: input.opportunity_revision_id },
       );
+    const currentSourceSet = isRecord(opportunity.source_set)
+      ? opportunity.source_set
+      : null;
     const collectionLinked = Array.isArray(opportunity.sources)
       ? opportunity.sources.some(
           (member) =>
@@ -28223,20 +28227,32 @@ export class TongsCommitService {
         )
       : readStringField(opportunity.opportunity_revision, "source_status") ===
         "linked";
-    if (
-      opportunity.rights_declaration.id !==
-        input.rights_declaration_revision_id ||
-      !collectionLinked ||
-      !(["archival_still", "archival_sequence"] as string[]).includes(
-        readStringField(opportunity.opportunity_revision, "visual_subtype") ??
-          "",
-      )
-    )
+    if (!isRecord(opportunity.rights_declaration))
       throw new HttpError(
         409,
-        "reference_visual_revision_conflict",
-        "The requested archival opportunity, Source collection, or rights declaration is no longer current.",
+        "reference_visual_rights_required",
+        "A current rights declaration is required before archival acquisition.",
       );
+    if (opportunity.rights_declaration.id !== input.rights_declaration_revision_id)
+      throw new HttpError(409, "reference_visual_rights_revision_conflict",
+        "The requested rights declaration revision is no longer current.", {
+          expected_rights_declaration_revision_id: opportunity.rights_declaration.id,
+          supplied_rights_declaration_revision_id: input.rights_declaration_revision_id,
+        });
+    if (!collectionLinked || currentSourceSet?.id !== input.source_set_revision_id)
+      throw new HttpError(409, "reference_visual_source_collection_revision_conflict",
+        "The requested Source collection revision is no longer current.", {
+          expected_source_set_revision_id: currentSourceSet?.id ?? null,
+          supplied_source_set_revision_id: input.source_set_revision_id,
+        });
+    const currentSubtype =
+      readStringField(opportunity.opportunity_revision, "visual_subtype") ?? "";
+    if (!(["archival_still", "archival_sequence"] as string[]).includes(currentSubtype))
+      throw new HttpError(409, "reference_visual_archival_subtype_required",
+        "This Reference Visual is not an archival acquisition opportunity.", {
+          expected_visual_subtypes: ["archival_still", "archival_sequence"],
+          supplied_visual_subtype: currentSubtype,
+        });
     const uploadBytes = input.bytes_base64
       ? decodeBase64(input.bytes_base64)
       : null;
@@ -28244,6 +28260,7 @@ export class TongsCommitService {
       workspace_id: input.workspace_id,
       workpiece_id: workpieceId,
       opportunity_revision_id: input.opportunity_revision_id,
+      source_set_revision_id: input.source_set_revision_id,
       rights_declaration_revision_id: input.rights_declaration_revision_id,
       acquisition_type: input.acquisition_type,
       source_url: input.source_url ?? null,
@@ -28264,6 +28281,7 @@ export class TongsCommitService {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
       p_opportunity_revision_id: input.opportunity_revision_id,
+      p_source_set_revision_id: input.source_set_revision_id,
       p_rights_declaration_revision_id: input.rights_declaration_revision_id,
       p_acquisition_type: input.acquisition_type,
       p_operation_id: input.operation_id,
@@ -38160,6 +38178,10 @@ export function createTongsCommitApiHandlerWithService(
             opportunity_revision_id: normalizeUuid(
               body.opportunity_revision_id,
               "opportunity_revision_id",
+            ),
+            source_set_revision_id: normalizeUuid(
+              body.source_set_revision_id,
+              "source_set_revision_id",
             ),
             rights_declaration_revision_id: normalizeUuid(
               body.rights_declaration_revision_id,

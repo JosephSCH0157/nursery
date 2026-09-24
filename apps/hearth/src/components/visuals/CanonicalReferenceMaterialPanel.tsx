@@ -86,6 +86,9 @@ export default function CanonicalReferenceMaterialPanel({
     [rightsStatus, setRightsStatus] = useState("rights_unresolved"),
     [rightsAttribution, setRightsAttribution] = useState(""),
     [rightsAcknowledged, setRightsAcknowledged] = useState(false),
+    [rightsSaved, setRightsSaved] = useState(false),
+    [rightsMessage, setRightsMessage] = useState<string | null>(null),
+    [acquisitionError, setAcquisitionError] = useState<string | null>(null),
     [editDraft, setEditDraft] = useState<EditDraft>({
       title: "",
       subtitle: "",
@@ -198,6 +201,9 @@ export default function CanonicalReferenceMaterialPanel({
     ),
     activeDrawer = drawer
       ? (items.find((item) => item.key === drawer.key) ?? null)
+      : null,
+    activeVisualOpportunity = activeDrawer?.family === "reference_visual"
+      ? visuals?.opportunities.find((entry) => entry.id === activeDrawer.opportunityId) ?? null
       : null;
   function openDrawer(item: ReferenceReviewItem, mode: DrawerMode) {
     if (mode === "edit" && item.family === "reference_visual") {
@@ -214,17 +220,41 @@ export default function CanonicalReferenceMaterialPanel({
       });
     }
     if (mode === "prepare") {
+      const opportunity = item.family === "reference_visual"
+        ? visuals?.opportunities.find((entry) => entry.id === item.opportunityId)
+        : null;
+      const rights = opportunity?.rights;
       setSourceUrl(item.sourceUrl ?? "");
-      setRightsStatus("rights_unresolved");
-      setRightsAttribution("");
-      setRightsAcknowledged(false);
+      setRightsStatus(typeof rights?.rights_status === "string" ? rights.rights_status : "rights_unresolved");
+      setRightsAttribution(typeof rights?.attribution_text === "string" ? rights.attribution_text : "");
+      setRightsAcknowledged(rights?.creator_acknowledged_responsibility === true);
+      setRightsSaved(Boolean(rights));
+      setRightsMessage(rights ? "Rights saved" : null);
+      setAcquisitionError(null);
     }
     setDrawer({ key: item.key, mode });
   }
 
-  async function prepareLinkedVisual(item: ReferenceReviewItem) {
-    if (item.family !== "reference_visual" || !visuals || !sourceUrl.trim()) return;
+  function rightsDraftMatches(opportunity: NonNullable<typeof activeVisualOpportunity>) {
+    const rights = opportunity.rights;
+    if (!rights) return false;
+    const attribution = rightsAttribution.trim();
+    return rights.rights_status === rightsStatus
+      && rights.creator_acknowledged_responsibility === rightsAcknowledged
+      && rights.attribution_required === Boolean(attribution)
+      && String(rights.attribution_text ?? "") === attribution;
+  }
+
+  async function saveLinkedVisualRights(item: ReferenceReviewItem) {
+    if (item.family !== "reference_visual" || !visuals) return;
     const opportunity = visuals.opportunities.find((entry) => entry.id === item.opportunityId);
+    if (!opportunity) return;
+    setAcquisitionError(null);
+    if (rightsDraftMatches(opportunity)) {
+      setRightsSaved(true);
+      setRightsMessage("Rights saved");
+      return;
+    }
     if (!opportunity || !(await begin(item, "replace"))) return;
     const rights = await commitReferenceVisualRights({
       workspaceId,
@@ -244,13 +274,72 @@ export default function CanonicalReferenceMaterialPanel({
         access_controls_bypassed: false,
       },
     });
-    if (!rights.ok) { fail(item, "replace", rights.error); return; }
+    if (!rights.ok) {
+      setRightsMessage(null);
+      fail(item, "replace", rights.error);
+      return;
+    }
     const withRights = await readCanonicalReferenceVisualCollections(workspaceId, workpieceId);
     const current = withRights.ok ? withRights.data?.opportunities.find((entry) => entry.id === item.opportunityId) : null;
-    if (!withRights.ok || !current?.rights) { fail(item, "replace", withRights.ok ? "The rights declaration was not present in canonical readback." : withRights.error); return; }
-    const acquired = await acquireReferenceVisual({ workspaceId, workpieceId, opportunity: current, type: "external_fetch", sourceUrl: sourceUrl.trim() });
-    if (!acquired.ok) { fail(item, "replace", acquired.error); return; }
-    if (!(await succeed(item, "replace", { canonical_candidate_created: true }))) return;
+    if (!withRights.ok || !current?.rights || !rightsDraftMatches(current)) {
+      setRightsMessage(null);
+      fail(item, "replace", withRights.ok ? "The rights declaration did not match canonical readback." : withRights.error);
+      return;
+    }
+    if (!(await succeed(item, "replace", {
+      rights_saved: true,
+      rights_declaration_revision_id: String(current.rights.id ?? ""),
+      canonical_candidate_created: false,
+    }))) return;
+    setVisuals(withRights.data);
+    setRightsSaved(true);
+    setRightsMessage("Rights saved");
+  }
+
+  async function acquireLinkedVisual(item: ReferenceReviewItem) {
+    if (item.family !== "reference_visual" || !sourceUrl.trim()) return;
+    setAcquisitionError(null);
+    const readback = await readCanonicalReferenceVisualCollections(workspaceId, workpieceId);
+    const current = readback.ok
+      ? readback.data?.opportunities.find((entry) => entry.id === item.opportunityId)
+      : null;
+    if (!readback.ok || !current) {
+      setAcquisitionError(readback.ok ? "This Reference Visual opportunity is no longer current." : readback.error);
+      return;
+    }
+    setVisuals(readback.data);
+    if (!current.rights) {
+      setRightsSaved(false);
+      setRightsMessage(null);
+      setAcquisitionError("Save rights before acquiring archival material.");
+      return;
+    }
+    if (current.subtype !== "archival_still" && current.subtype !== "archival_sequence") {
+      setAcquisitionError(`This ${current.subtype.replaceAll("_", " ")} uses the Reference Visual design workflow; rights remain saved and no archival image was acquired.`);
+      return;
+    }
+    if (!current.sourceSetRevisionId || !(current.sources?.length)) {
+      setAcquisitionError("The current Source collection is unavailable. Rights remain saved.");
+      return;
+    }
+    if (!(await begin(item, "replace"))) return;
+    const acquired = await acquireReferenceVisual({
+      workspaceId,
+      workpieceId,
+      opportunity: current,
+      type: "external_fetch",
+      sourceUrl: sourceUrl.trim(),
+    });
+    if (!acquired.ok) {
+      setAcquisitionError(acquired.error);
+      fail(item, "replace", acquired.error);
+      return;
+    }
+    if (!(await succeed(item, "replace", {
+      canonical_candidate_created: true,
+      rights_declaration_revision_id: String(current.rights.id ?? ""),
+      source_set_revision_id: current.sourceSetRevisionId,
+    }))) return;
     setDrawer(null);
     await refresh();
   }
@@ -1012,11 +1101,11 @@ export default function CanonicalReferenceMaterialPanel({
               </>
             ) : drawer?.mode === "prepare" ? (
               <>
-                <p>The Source is linked. Confirm that you may use this image before Hearth copies it into the episode’s canonical assets.</p>
+                <p>The Source is linked. Save the rights declaration first. Hearth will not copy or acquire an image until you choose a separate acquisition action.</p>
                 <p><a href={sourceUrl} target="_blank" rel="noreferrer">Open linked image</a></p>
                 <label>
                   Rights status
-                  <select value={rightsStatus} onChange={(event) => setRightsStatus(event.target.value)}>
+                  <select value={rightsStatus} onChange={(event) => { setRightsStatus(event.target.value); setRightsSaved(false); setRightsMessage(null); }}>
                     <option value="rights_unresolved">Rights unresolved</option>
                     <option value="creator_owned">Creator-owned</option>
                     <option value="licensed">Licensed</option>
@@ -1026,9 +1115,16 @@ export default function CanonicalReferenceMaterialPanel({
                     <option value="fair_use_asserted_by_creator">Fair use asserted by creator</option>
                   </select>
                 </label>
-                <label>Attribution text (if required)<input value={rightsAttribution} onChange={(event) => setRightsAttribution(event.target.value)} /></label>
-                <label className="hs-reference-visual-check"><input type="checkbox" checked={rightsAcknowledged} onChange={(event) => setRightsAcknowledged(event.target.checked)} /> I confirm that I am responsible for rights and permissions and did not bypass access controls.</label>
-                <button type="button" className="hs-primary-btn" disabled={!rightsAcknowledged || rightsStatus === "rights_unresolved" || pendingKeys.has(activeDrawer.key)} onClick={() => void prepareLinkedVisual(activeDrawer)}>Save rights and add image</button>
+                <label>Attribution text (if required)<input value={rightsAttribution} onChange={(event) => { setRightsAttribution(event.target.value); setRightsSaved(false); setRightsMessage(null); }} /></label>
+                <label className="hs-reference-visual-check"><input type="checkbox" checked={rightsAcknowledged} onChange={(event) => { setRightsAcknowledged(event.target.checked); setRightsSaved(false); setRightsMessage(null); }} /> I confirm that I am responsible for rights and permissions and did not bypass access controls.</label>
+                <button type="button" className="hs-primary-btn" disabled={!rightsAcknowledged || rightsStatus === "rights_unresolved" || pendingKeys.has(activeDrawer.key)} onClick={() => void saveLinkedVisualRights(activeDrawer)}>Save rights</button>
+                {rightsMessage ? <p role="status">{rightsMessage}</p> : null}
+                {rightsSaved && (activeVisualOpportunity?.subtype === "archival_still" || activeVisualOpportunity?.subtype === "archival_sequence") ? (
+                  <button type="button" disabled={pendingKeys.has(activeDrawer.key)} onClick={() => void acquireLinkedVisual(activeDrawer)}>Acquire image</button>
+                ) : rightsSaved ? (
+                  <p className="hs-reference-review-help">Rights are saved. This {activeVisualOpportunity?.subtype.replaceAll("_", " ") ?? "Reference Visual"} continues through the Reference Visual design workflow; no archival acquisition is available here.</p>
+                ) : null}
+                {acquisitionError ? <p role="alert" className="hs-error-text-small">Acquisition failed: {acquisitionError}</p> : null}
               </>
             ) : (
               <>

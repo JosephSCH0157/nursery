@@ -17,7 +17,9 @@ test("Reference Material projects Clips and Visuals into one creator review queu
  for(const decision of ["Edit","Replace","Skip"])assert.match(shell,new RegExp(`>\\s*${decision}\\s*<`));
  assert.match(shell,/"Prepare image"/);
  assert.match(shell,/"Add Source"/);
- assert.match(shell,/Save rights and add image/);
+ assert.match(shell,/Save rights/);
+ assert.match(shell,/Acquire image/);
+ assert.doesNotMatch(shell,/Save rights and add image/);
  assert.match(shell,/No canonical Source linked/);
  assert.match(shell,/unsourced planning suggestion, not episode Reference Material/);
  assert.match(shell,/Add Source/);

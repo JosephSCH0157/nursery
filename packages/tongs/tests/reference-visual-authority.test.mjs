@@ -15,6 +15,7 @@ const migrationSql = [
   "20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",
   "20260811130000_tongs_restore_collection_aware_reference_visual_acquisition.sql",
   "20260811140000_tongs_restore_reference_visual_archival_completion_rpcs.sql",
+  "20261011680000_reference_material_rights_acquisition_boundary_repair.sql",
 ].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
 const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -192,4 +193,20 @@ test("the forward acquisition repair restores the RPC with current Source collec
   assert.match(sql, /create or replace function tongs\.commit_reference_visual_sequence/);
   assert.match(sql, /create table if not exists tongs\.reference_visual_sequence_sequences/);
   assert.match(sql, /current_source_collection_required/);
+  assert.match(sql, /p_source_set_revision_id uuid/);
+  assert.match(sql, /source_set_revision_id,rights_declaration_revision_id/);
+  assert.match(sql, /current_source_set\.id<>p_source_set_revision_id/);
+  assert.match(sql, /archival_opportunity_required/);
+});
+
+test("acquisition rejects each stale authority with a specific conflict before transport", () => {
+  const method = service.slice(service.indexOf("async acquireReferenceVisual"), service.indexOf("private async referenceClipRpc"));
+  for (const code of [
+    "reference_visual_opportunity_revision_conflict",
+    "reference_visual_rights_revision_conflict",
+    "reference_visual_source_collection_revision_conflict",
+    "reference_visual_archival_subtype_required",
+  ]) assert.match(method, new RegExp(code));
+  assert.match(method, /p_source_set_revision_id: input\.source_set_revision_id/);
+  assert.match(method, /source_set_revision_id: input\.source_set_revision_id/);
 });

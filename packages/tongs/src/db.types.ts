@@ -10863,6 +10863,7 @@ export type Database = {
           receipt_json: Json | null
           result_candidate_revision_id: string | null
           rights_declaration_revision_id: string
+          source_set_revision_id: string | null
           source_evidence_json: Json | null
           state: string
           updated_at: string
@@ -10883,6 +10884,7 @@ export type Database = {
           receipt_json?: Json | null
           result_candidate_revision_id?: string | null
           rights_declaration_revision_id: string
+          source_set_revision_id?: string | null
           source_evidence_json?: Json | null
           state?: string
           updated_at?: string
@@ -10903,6 +10905,7 @@ export type Database = {
           receipt_json?: Json | null
           result_candidate_revision_id?: string | null
           rights_declaration_revision_id?: string
+          source_set_revision_id?: string | null
           source_evidence_json?: Json | null
           state?: string
           updated_at?: string
@@ -10923,6 +10926,13 @@ export type Database = {
             columns: ["rights_declaration_revision_id"]
             isOneToOne: false
             referencedRelation: "reference_visual_rights_declaration_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_visual_acquisition_operations_source_set_revision_id_fkey"
+            columns: ["source_set_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_source_set_revisions"
             referencedColumns: ["id"]
           },
           {
@@ -17197,6 +17207,7 @@ export type Database = {
           p_operation_id: string
           p_opportunity_revision_id: string
           p_rights_declaration_revision_id: string
+          p_source_set_revision_id: string
           p_workpiece_id: string
           p_workspace_id: string
         }
