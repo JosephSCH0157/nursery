@@ -64,8 +64,12 @@ export function projectReferenceVisualCustomerWorkflow({
       opportunity.recipe && referenceVisualReadiness(opportunity, true).ready,
     );
   const sources = opportunity.sources ?? [];
+  const comparisonSourcesReady =
+    opportunity.subtype !== "comparison" || sources.length === 2;
   const sourceReady =
-    opportunity.sourceStatus === "linked" && sources.length > 0;
+    opportunity.sourceStatus === "linked" &&
+    sources.length > 0 &&
+    comparisonSourcesReady;
   const sourceUse = text(opportunity.sourceUse?.use_classification);
   const usageReady = Boolean(sourceUse);
   const rightsRequired = usageReady && sourceUse !== "facts_data_only";
@@ -87,8 +91,18 @@ export function projectReferenceVisualCustomerWorkflow({
 
   if (!sourceReady) {
     currentStageId = "source";
-    nextAction = "Choose a Source";
-    nextActionDetail = "Attach the Source that supports this visual.";
+    if (opportunity.subtype === "comparison" && sources.length === 1) {
+      nextAction = "Add a comparison Source";
+      nextActionDetail =
+        "Keep the confirmed evidence and add the second Source this comparison requires.";
+    } else if (opportunity.subtype === "comparison" && sources.length > 2) {
+      nextAction = "Choose two comparison Sources";
+      nextActionDetail =
+        "Keep exactly the two Sources this comparison will place side by side.";
+    } else {
+      nextAction = "Choose a Source";
+      nextActionDetail = "Attach the Source that supports this visual.";
+    }
   } else if (!isEvidenceReady) {
     currentStageId = "evidence";
     nextAction = "Confirm supporting evidence";
@@ -138,12 +152,22 @@ export function projectReferenceVisualCustomerWorkflow({
       ? `${text(sources[0]?.source.title) ?? "Current Source"}${
           sources.length > 1 ? ` + ${sources.length - 1} supporting` : ""
         }`
+      : opportunity.subtype === "comparison" && sources.length === 1
+        ? `${text(sources[0]?.source.title) ?? "Current Source"} · second Source needed`
+        : opportunity.subtype === "comparison" && sources.length > 2
+          ? `${sources.length} Sources linked · choose two`
       : "Source needed",
     evidence: isEvidenceReady
       ? `${opportunity.evidence.length} confirmed item${
           opportunity.evidence.length === 1 ? "" : "s"
         }`
-      : "Confirmation needed",
+      : opportunity.subtype === "comparison" &&
+          !comparisonSourcesReady &&
+          opportunity.evidence.length > 0
+        ? `${opportunity.evidence.length} confirmed item${
+            opportunity.evidence.length === 1 ? "" : "s"
+          } preserved`
+        : "Confirmation needed",
     "usage-rights": usageReady
       ? sourceUse === "facts_data_only"
         ? "Facts/data only · no rights action needed"

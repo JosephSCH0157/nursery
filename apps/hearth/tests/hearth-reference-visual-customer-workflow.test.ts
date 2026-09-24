@@ -113,6 +113,89 @@ test("facts-only usage keeps the rights stage visible and satisfied", () => {
   assert.equal(workflow.nextAction, "Prepare visual design");
 });
 
+test("a one-Source comparison asks for its second Source instead of looping on confirmed evidence", () => {
+  const workflow = projectReferenceVisualCustomerWorkflow({
+    opportunity: opportunity({
+      subtype: "comparison",
+      sourceStatus: "linked",
+      sources: [
+        {
+          memberId: "member-1",
+          ordinal: 1,
+          sourceRevisionId: "source-1",
+          sourceLinkRevisionId: "link-1",
+          sourceRevision: 1,
+          sourceLinkRevision: 1,
+          source: { title: "Gasoline price fluctuations" },
+          link: {},
+        },
+      ],
+      evidence: Array.from({ length: 15 }, (_, index) => ({
+        id: `evidence-${index + 1}`,
+        source_set_member_id: "member-1",
+        confirmation_state: "creator_confirmed",
+        label: `Confirmed item ${index + 1}`,
+        raw_excerpt: `Supported evidence ${index + 1}`,
+      })),
+    }),
+    evidenceReady: false,
+    recipeCurrent: false,
+    renderedType: true,
+  });
+
+  assert.equal(workflow.currentStageId, "source");
+  assert.equal(workflow.nextAction, "Add a comparison Source");
+  assert.equal(
+    workflow.nextActionDetail,
+    "Keep the confirmed evidence and add the second Source this comparison requires.",
+  );
+  assert.equal(
+    workflow.sourceSummary,
+    "Gasoline price fluctuations · second Source needed",
+  );
+  assert.equal(workflow.evidenceSummary, "15 confirmed items preserved");
+  assert.equal(workflow.stages[0]?.status, "current");
+  assert.equal(workflow.stages[1]?.status, "blocked");
+});
+
+test("a two-Source comparison advances to evidence confirmation", () => {
+  const workflow = projectReferenceVisualCustomerWorkflow({
+    opportunity: opportunity({
+      subtype: "comparison",
+      sourceStatus: "linked",
+      sources: [
+        {
+          memberId: "member-1",
+          ordinal: 1,
+          sourceRevisionId: "source-1",
+          sourceLinkRevisionId: "link-1",
+          sourceRevision: 1,
+          sourceLinkRevision: 1,
+          source: { title: "First report" },
+          link: {},
+        },
+        {
+          memberId: "member-2",
+          ordinal: 2,
+          sourceRevisionId: "source-2",
+          sourceLinkRevisionId: "link-2",
+          sourceRevision: 1,
+          sourceLinkRevision: 1,
+          source: { title: "Second report" },
+          link: {},
+        },
+      ],
+    }),
+    evidenceReady: false,
+    recipeCurrent: false,
+    renderedType: true,
+  });
+
+  assert.equal(workflow.currentStageId, "evidence");
+  assert.equal(workflow.nextAction, "Confirm supporting evidence");
+  assert.equal(workflow.sourceSummary, "First report + 1 supporting");
+});
+
 test("quoted material stops at rights until the declaration is current", () => {
   const workflow = projectReferenceVisualCustomerWorkflow({
     opportunity: opportunity({
@@ -273,6 +356,7 @@ test("archival media remains in Design until a current candidate is ready", () =
 test("Reference Visuals expose the stable summary, stage navigation, and entry focus contract", () => {
   for (const copy of [
     "Current Source",
+    "Open Current Source",
     "Usage &amp; rights",
     "Reference Visual workflow stages",
     "Generate &amp; review",

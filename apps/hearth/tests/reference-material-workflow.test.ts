@@ -91,6 +91,28 @@ test("Reference Material uses the detailed workflow projection for its next acti
   );
 });
 
+test("Reference Material sends a one-Source comparison back to Source instead of repeating evidence confirmation", () => {
+  const comparison = project(
+    opportunity({
+      subtype: "comparison",
+      sourceStatus: "linked",
+      sources: [linkedSource],
+      evidence: Array.from({ length: 15 }, (_, index) => ({
+        id: `evidence-${index + 1}`,
+        source_set_member_id: linkedSource.memberId,
+        confirmation_state: "creator_confirmed",
+        label: `Confirmed item ${index + 1}`,
+        raw_excerpt: `Supported evidence ${index + 1}`,
+      })),
+    }),
+  );
+
+  assert.equal(comparison.action, "continue");
+  assert.equal(comparison.label, "Add a comparison Source");
+  assert.equal(comparison.workflow.currentStageId, "source");
+  assert.equal(comparison.target, "reference_visual_workflow");
+});
+
 test("only a current release-ready candidate is directly approvable", () => {
   const candidate = {
     revisionId: "candidate-1",
