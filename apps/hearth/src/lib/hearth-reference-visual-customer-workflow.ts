@@ -7,13 +7,14 @@ export type ReferenceVisualCustomerStageId =
   "source" | "evidence" | "usage-rights" | "design" | "generate";
 
 export type ReferenceVisualCustomerStageStatus =
-  "complete" | "current" | "upcoming";
+  "complete" | "current" | "blocked";
 
 export type ReferenceVisualCustomerStage = {
   id: ReferenceVisualCustomerStageId;
   label: string;
   summary: string;
   status: ReferenceVisualCustomerStageStatus;
+  optional: boolean;
 };
 
 export type ReferenceVisualCustomerWorkflow = {
@@ -21,6 +22,7 @@ export type ReferenceVisualCustomerWorkflow = {
   currentStageId: ReferenceVisualCustomerStageId;
   nextAction: string;
   nextActionDetail: string;
+  isComplete: boolean;
   sourceSummary: string;
   evidenceSummary: string;
   usageSummary: string;
@@ -130,6 +132,7 @@ export function projectReferenceVisualCustomerWorkflow({
     design: designReady,
     generate: generatedReady,
   };
+  const isComplete = Object.values(completed).every(Boolean);
   const summaries: Record<ReferenceVisualCustomerStageId, string> = {
     source: sourceReady
       ? `${text(sources[0]?.source.title) ?? "Current Source"}${
@@ -164,15 +167,16 @@ export function projectReferenceVisualCustomerWorkflow({
 
   const stageDefinitions: Array<Omit<ReferenceVisualCustomerStage, "status">> =
     [
-      { id: "source", label: "Source", summary: summaries.source },
-      { id: "evidence", label: "Evidence", summary: summaries.evidence },
+      { id: "source", label: "Source", summary: summaries.source, optional: false },
+      { id: "evidence", label: "Evidence", summary: summaries.evidence, optional: false },
       {
         id: "usage-rights",
         label: "Usage & rights",
         summary: summaries["usage-rights"],
+        optional: sourceUse === "facts_data_only",
       },
-      { id: "design", label: "Design", summary: summaries.design },
-      { id: "generate", label: "Generate", summary: summaries.generate },
+      { id: "design", label: "Design", summary: summaries.design, optional: false },
+      { id: "generate", label: "Generate", summary: summaries.generate, optional: false },
     ];
   const stages: ReferenceVisualCustomerStage[] = stageDefinitions.map(
     (stage) => ({
@@ -181,7 +185,7 @@ export function projectReferenceVisualCustomerWorkflow({
         ? "complete"
         : stage.id === currentStageId
           ? "current"
-          : "upcoming",
+          : "blocked",
     }),
   );
 
@@ -190,6 +194,7 @@ export function projectReferenceVisualCustomerWorkflow({
     currentStageId,
     nextAction,
     nextActionDetail,
+    isComplete,
     sourceSummary: summaries.source,
     evidenceSummary: summaries.evidence,
     usageSummary: summaries["usage-rights"],

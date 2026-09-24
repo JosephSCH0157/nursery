@@ -74,6 +74,11 @@ test("customer workflow keeps five stable stages and starts with Source", () => 
   );
   assert.equal(workflow.currentStageId, "source");
   assert.equal(workflow.nextAction, "Choose a Source");
+  assert.deepEqual(
+    workflow.stages.map(({ status }) => status),
+    ["current", "blocked", "blocked", "blocked", "blocked"],
+  );
+  assert.equal(workflow.isComplete, false);
 });
 
 test("facts-only usage keeps the rights stage visible and satisfied", () => {
@@ -102,6 +107,7 @@ test("facts-only usage keeps the rights stage visible and satisfied", () => {
 
   const usage = workflow.stages.find((stage) => stage.id === "usage-rights");
   assert.equal(usage?.status, "complete");
+  assert.equal(usage?.optional, true);
   assert.equal(usage?.summary, "Facts/data only · no rights action needed");
   assert.equal(workflow.currentStageId, "design");
   assert.equal(workflow.nextAction, "Prepare visual design");
@@ -189,6 +195,51 @@ test("only current release-ready candidates become the recommended selection", (
   assert.equal(current.nextAction, "Choose a finished visual");
 });
 
+test("a selected current visual completes the workflow without losing its review target", () => {
+  const workflow = projectReferenceVisualCustomerWorkflow({
+    opportunity: opportunity({
+      sourceStatus: "linked",
+      sources: [
+        {
+          memberId: "member-1",
+          ordinal: 1,
+          sourceRevisionId: "source-1",
+          sourceLinkRevisionId: "link-1",
+          sourceRevision: 1,
+          sourceLinkRevision: 1,
+          source: { title: "Current report" },
+          link: {},
+        },
+      ],
+      evidence: [{ id: "evidence-1" }],
+      sourceUse: { use_classification: "facts_data_only" },
+      recipe: { id: "recipe-1" },
+      selectedCandidateRevisionId: "candidate-1",
+    }),
+    evidenceReady: true,
+    recipeCurrent: true,
+    renderedType: true,
+  });
+
+  assert.equal(workflow.isComplete, true);
+  assert.equal(workflow.currentStageId, "generate");
+  assert.equal(workflow.nextAction, "Review finished visual");
+  assert.ok(workflow.stages.every((stage) => stage.status === "complete"));
+});
+
+test("a retained selection cannot mask an incomplete upstream stage", () => {
+  const workflow = projectReferenceVisualCustomerWorkflow({
+    opportunity: opportunity({ selectedCandidateRevisionId: "historical-selection" }),
+    evidenceReady: false,
+    recipeCurrent: false,
+    renderedType: true,
+  });
+
+  assert.equal(workflow.isComplete, false);
+  assert.equal(workflow.currentStageId, "source");
+  assert.equal(workflow.stages.find((stage) => stage.id === "generate")?.status, "complete");
+});
+
 test("archival media remains in Design until a current candidate is ready", () => {
   const workflow = projectReferenceVisualCustomerWorkflow({
     opportunity: opportunity({
@@ -229,9 +280,21 @@ test("Reference Visuals expose the stable summary, stage navigation, and entry f
     assert.ok(panelSource.includes(copy), `missing ${copy}`);
   }
   assert.match(panelSource, /aria-current=/);
+  assert.match(
+    panelSource,
+    /aria-current=\{stage\.id===customerWorkflow\.currentStageId\?"step":undefined\}/,
+  );
+  assert.match(panelSource, /data-browsed=/);
+  assert.match(panelSource, /Recommended now/);
+  assert.match(panelSource, /Reviewing completed stage/);
+  assert.match(panelSource, /Previewing later step/);
+  assert.match(panelSource, /Return to next step/);
+  assert.match(panelSource, /primary=\{index===0\}/);
   assert.match(panelSource, /reference-visual-workspace-heading/);
   assert.match(panelSource, /focus\(\{preventScroll:true\}\)/);
   assert.match(visualStyles, /hs-reference-visual-summary/);
   assert.match(visualStyles, /hs-reference-visual-stage-rail/);
+  assert.match(visualStyles, /button\.is-blocked/);
+  assert.match(visualStyles, /hs-reference-visual-stage-context/);
   assert.match(visualStyles, /@media\(max-width:640px\)/);
 });

@@ -49,11 +49,13 @@ test("the canonical detailed Reference Visual workflow is production-reachable f
 test("the stage rail controls one active workflow body without locking completed stages",()=>{
  assert.match(panel,/setActiveStageId\(stageId\)/);
  assert.match(panel,/stage\.id===activeStageId\?" is-active":""/);
- assert.match(panel,/aria-current=\{stage\.id===activeStageId\?"step":undefined\}/);
+ assert.match(panel,/aria-current=\{stage\.id===customerWorkflow\.currentStageId\?"step":undefined\}/);
+ assert.match(panel,/data-browsed=\{stage\.id===activeStageId\?"true":undefined\}/);
  for(const stage of ["source","evidence","usage-rights","design","generate"])assert.ok(panel.includes(`activeStageId==="${stage}"`),`missing active-body gate for ${stage}`);
  assert.match(panel,/preferredScrollBehavior/);
  assert.match(panel,/prefers-reduced-motion: reduce/);
- assert.doesNotMatch(panel,/disabled=\{stage\.status==="upcoming"\}/);
+ assert.doesNotMatch(panel,/disabled=\{stage\.status==="blocked"\}/);
+ assert.match(panel,/Return to next step/);
  assert.match(panel,/candidate\.currentForPlan===false\|\|!candidate\.releaseReady/);
  assert.match(panel,/candidate\.currentForPlan===false\?"Historical"/);
  assert.match(visualStyles,/button\.is-active/);
