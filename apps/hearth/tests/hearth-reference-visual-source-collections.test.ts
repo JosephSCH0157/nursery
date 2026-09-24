@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
-import {validateReferenceVisualSourceSetReceipt} from "../src/lib/hearth-reference-visual-collections";
+import {projectReferenceVisualSourceChoice,validateReferenceVisualSourceSetReceipt} from "../src/lib/hearth-reference-visual-collections";
 
 const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
 const visualAuthority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
@@ -30,9 +30,28 @@ test("collection receipts reject stale conflicts, malformed members, and wrong o
  assert.equal(validateReferenceVisualSourceSetReceipt({disposition:"committed",members:"bad",source_set_revision:{revision:2}},intended,1).ok,false);
 });
 
+test("Source choices distinguish promotion from adding support without dropping members",()=>{
+ const primary={sourceRevisionId:"source-a",sourceLinkRevisionId:"link-a"},support={sourceRevisionId:"source-b",sourceLinkRevisionId:"link-b"},newSource={sourceRevisionId:"source-c",sourceLinkRevisionId:"link-c"};
+ assert.deepEqual(projectReferenceVisualSourceChoice([primary,support],support,"promote"),[support,primary]);
+ assert.deepEqual(projectReferenceVisualSourceChoice([primary,support],newSource,"promote"),[newSource,primary,support]);
+ assert.deepEqual(projectReferenceVisualSourceChoice([primary,support],newSource,"support"),[primary,support,newSource]);
+ assert.deepEqual(projectReferenceVisualSourceChoice([primary,support],support,"support"),[primary,support]);
+});
+
 test("URL-first workflow exposes working, decision, and ready states without requiring fabricated dates",()=>{
- assert.match(panel,/Hearth is working/);assert.match(panel,/Ready/);assert.match(panel,/publicationDateStatus==="not_provided"\?"Not provided"/);for(const action of ["Approve","Replace","Skip"])assert.ok(panel.includes(`>${action}<`));assert.match(panel,/Save edits/);assert.match(panel,/readCanonicalReferenceVisualCollections/);assert.match(panel,/Approved Sources/);
+ assert.match(panel,/Hearth is working/);assert.match(panel,/Ready/);assert.match(panel,/publicationDateStatus==="not_provided"\?"Not provided"/);for(const action of ["Replace","Skip"])assert.ok(panel.includes(`>${action}<`));assert.match(panel,/Save edits/);assert.match(panel,/readCanonicalReferenceVisualCollections/);assert.match(panel,/Current Source/);assert.match(panel,/Supporting Sources/);assert.doesNotMatch(panel,/Approved Sources/);
  assert.match(panel,/Source title/);assert.match(panel,/Publisher or organization/);assert.match(panel,/setSourceProposal\(\{\.\.\.sourceProposal,title:event\.target\.value\}\)/);
+});
+
+test("Source UX distinguishes current-source changes from support additions",()=>{
+ for(const copy of ["Change Current Source","Add supporting Source","Make Current","Remove Current Source"])assert.match(panel,new RegExp(copy));
+ assert.match(panel,/projectReferenceVisualSourceChoice\(current,chosen,sourceAction==="change"\?"promote":"support"\)/);
+ assert.match(panel,/projectReferenceVisualSourceChoice\(current,\{sourceRevisionId:member\.sourceRevisionId,sourceLinkRevisionId:member\.sourceLinkRevisionId\},"promote"\)/);
+ assert.match(panel,/sourceAction==="change"&&index===0\?"promote":"support"/);
+ assert.match(panel,/every existing Source is retained as support/i);
+ assert.match(panel,/Current Source stays current/);
+ assert.match(panel,/sources\.filter\(source=>!\(opportunity\.sources\?\?\[\]\)\.some\(member=>member\.sourceRevisionId===source\.sourceRevisionId&&member\.sourceLinkRevisionId===source\.sourceLinkRevisionId\)\)/);
+ assert.ok(panel.indexOf("hs-reference-visual-current-source")<panel.indexOf("hs-reference-visual-supporting-sources"));
 });
 
 test("post-action and authority-event refreshes keep the work area mounted",()=>{
