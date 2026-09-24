@@ -56,8 +56,9 @@ test("the stage rail controls one active workflow body without locking completed
  assert.match(panel,/prefers-reduced-motion: reduce/);
  assert.doesNotMatch(panel,/disabled=\{stage\.status==="blocked"\}/);
  assert.match(panel,/Return to next step/);
- assert.match(panel,/candidate\.currentForPlan===false\|\|!candidate\.releaseReady/);
- assert.match(panel,/candidate\.currentForPlan===false\?"Historical"/);
+ assert.match(panel,/currentCandidates=opportunity\?\.candidates\.filter\(candidate=>candidate\.currentForPlan!==false\)/);
+ assert.match(panel,/Historical candidates/);
+ assert.match(panel,/they are not current and cannot be selected/);
  assert.match(visualStyles,/button\.is-active/);
 });
 

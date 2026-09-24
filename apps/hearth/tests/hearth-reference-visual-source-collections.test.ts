@@ -139,6 +139,6 @@ test("evidence confirmation accepts canonical replay without relaxing other muta
 });
 
 test("mixed-use attribution remains a distinct blocker after numeric readiness",()=>{
- assert.match(panel,/Mixed-use attribution required\./);
+ assert.match(panel,/Attribution is required before design\./);
  assert.match(panel,/evidenceReadiness\?\.evidenceReady&&sourceUse\.classification==="mixed"&&!recipe\.attribution\.trim\(\)/);
 });
