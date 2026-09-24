@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { evaluateReferenceVisualReadiness } from "@forge/shared/reference-visual-readiness";
 import { coordinateCleanupReview, CleanupReviewError } from "./hammer-cleanup-review-coordinator.js";
 import type { CleanupGenerator } from "./hammer-cleanup-review-contract.js";
 import type { Database, Json } from "./db.types.js";
@@ -27927,6 +27928,33 @@ export class TongsCommitService {
         "reference_visual_renderer_unavailable",
         "This Reference Visual subtype has no deterministic renderer.",
       );
+    const currentSourceMemberIds = (Array.isArray(opportunity.sources)
+      ? opportunity.sources.filter(isRecord)
+      : []
+    ).flatMap((member) => {
+      const id = readStringField(member, "id");
+      return id ? [id] : [];
+    });
+    const recipeEvidenceRevisionIds = Array.isArray(
+      opportunity.recipe.evidence_revision_ids,
+    )
+      ? opportunity.recipe.evidence_revision_ids.flatMap((value) =>
+          typeof value === "string" && value ? [value] : [],
+        )
+      : [];
+    const readiness = evaluateReferenceVisualReadiness({
+      subtype: subtype as Parameters<typeof evaluateReferenceVisualReadiness>[0]["subtype"],
+      evidence: opportunity.evidence.filter(isRecord),
+      currentSourceMemberIds,
+      recipeEvidenceRevisionIds,
+      editorialFocus: readStringField(opportunityRevision, "context_focus") ?? "",
+      desiredMaterial: readStringField(opportunityRevision, "desired_material") ?? "",
+    });
+    if (!readiness.ready)
+      throw new HttpError(409, readiness.code, readiness.message, {
+        eligible_evidence_revision_ids: readiness.eligibleEvidenceRevisionIds,
+        recipe_evidence_revision_ids: recipeEvidenceRevisionIds,
+      });
     const rendererVersion =
       subtype === "timeline" ||
       subtype === "quote_card" ||
@@ -28037,8 +28065,13 @@ export class TongsCommitService {
           : [];
       }),
     );
+    const boundEvidenceIds = new Set(recipeEvidenceRevisionIds);
     const evidence: ReferenceVisualEvidence[] = opportunity.evidence
       .filter(isRecord)
+      .filter((entry) => {
+        const id = readStringField(entry, "id");
+        return Boolean(id && boundEvidenceIds.has(id));
+      })
       .map((entry) => {
         const memberId = readStringField(entry, "source_set_member_id");
         return {
@@ -28056,25 +28089,6 @@ export class TongsCommitService {
           source_title: memberId ? (sourceTitles.get(memberId) ?? null) : null,
         };
       });
-    const evidencedMembers = new Set(
-      evidence
-        .map((entry) => entry.source_set_member_id)
-        .filter((id): id is string => !!id),
-    );
-    if (
-      (subtype === "stat_card" || subtype === "comparison") &&
-      sourceTitles.size > 1 &&
-      [...sourceTitles.keys()].some((id) => !evidencedMembers.has(id))
-    )
-      throw new HttpError(
-        409,
-        "reference_visual_source_coverage_required",
-        "Confirm at least one evidence point from every selected Source before rendering this multi-source visual.",
-        {
-          selected_source_member_ids: [...sourceTitles.keys()],
-          evidenced_source_member_ids: [...evidencedMembers],
-        },
-      );
     try {
       const rendered = await this.brollAcquisitionRuntime.renderReferenceVisual(
         recipe,
@@ -29009,6 +29023,10 @@ export class TongsCommitService {
         "reference_visual_opportunity_not_current",
         "The Reference Visual opportunity is no longer current.",
       );
+    const opportunityRevision = isRecord(opportunity.opportunity_revision)
+      ? opportunity.opportunity_revision
+      : null;
+    const subtype = readStringField(opportunityRevision, "visual_subtype");
     const sources: ExtractedReferenceVisualEvidence[] = await Promise.all(
       opportunity.sources.map(async (member, index) => {
         if (!isRecord(member) || !isRecord(member.source_revision))
@@ -29037,9 +29055,21 @@ export class TongsCommitService {
             error: "This Source has no retrievable canonical URL.",
           };
         try {
+          const claims = await extractReferenceSourceEvidence(url);
+          if (subtype === "stat_card" || subtype === "chart")
+            claims.sort((left, right) =>
+              Number(right.numericValue != null && Boolean(right.unit && right.label)) -
+              Number(left.numericValue != null && Boolean(left.unit && left.label)),
+            );
+          else if (subtype === "timeline")
+            claims.sort(
+              (left, right) =>
+                Number(Boolean(right.evidenceDate)) -
+                Number(Boolean(left.evidenceDate)),
+            );
           return {
             ...base,
-            claims: await extractReferenceSourceEvidence(url),
+            claims,
             error: null,
           };
         } catch (error) {

@@ -13,6 +13,7 @@
     "hearth-visual-styles.ts",
     "thumbnail-ledger-intelligence.ts",
     "brand-library.ts",
+    "reference-visual-readiness.ts",
     "episode-workspace/**/*.ts",
     "henry/**/*.ts",
     "script-tags/**/*.ts"

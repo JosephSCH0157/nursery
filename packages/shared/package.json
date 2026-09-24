@@ -32,6 +32,11 @@
       "types": "./dist/hearth-visual-styles.d.ts",
       "import": "./dist/hearth-visual-styles.js",
       "default": "./dist/hearth-visual-styles.js"
+    },
+    "./reference-visual-readiness": {
+      "types": "./dist/reference-visual-readiness.d.ts",
+      "import": "./dist/reference-visual-readiness.js",
+      "default": "./dist/reference-visual-readiness.js"
     }
   },
   "scripts": {

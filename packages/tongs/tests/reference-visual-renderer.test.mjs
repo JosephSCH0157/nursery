@@ -24,6 +24,8 @@ test("all V1 deterministic renderer contracts are available and maps remain unsu
       ? [{ ...evidence[0], evidence_date: "2025-01-01" }, { id: "e2", numeric_value: 74, unit: "percent", label: "Later production decline", evidence_date: "2026-01-01" }]
       : visual_subtype === "comparison"
         ? [{ ...evidence[0], source_set_member_id: "source-a", source_title: "Source A" }, { id: "e2", numeric_value: 74, unit: "percent", label: "Later production decline", source_set_member_id: "source-b", source_title: "Source B" }]
+        : visual_subtype === "document_excerpt" || visual_subtype === "quote_card"
+          ? [{ ...evidence[0], raw_excerpt: "Production declined 72 percent." }]
         : evidence;
     const result = await renderCanonicalReferenceVisual({ ...recipe, visual_subtype }, supportedEvidence);
     assert.equal(result.rendererName, visual_subtype === "timeline" || visual_subtype === "quote_card" || visual_subtype === "document_excerpt" || visual_subtype === "comparison" || visual_subtype === "stat_card" ? `forge_${visual_subtype}_v3` : `forge_${visual_subtype}_v1`);

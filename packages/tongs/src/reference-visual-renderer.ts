@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { evaluateReferenceVisualReadiness } from "@forge/shared/reference-visual-readiness";
 
 export type ReferenceVisualEvidence = {
   id: string;
@@ -277,10 +278,13 @@ function renderBodyV2(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEv
 }
 
 export async function renderCanonicalReferenceVisual(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): Promise<ReferenceVisualRender> {
-  if (!evidence.length) throw new Error("Reference Visual rendering requires confirmed canonical evidence.");
-  if (recipe.visual_subtype === "timeline" && (evidence.length < 2 || evidence.some((entry) => !hasTimelineDate(entry)))) throw new Error("A timeline requires at least two confirmed evidence items with explicit dates.");
-  if ((recipe.visual_subtype === "chart" || recipe.visual_subtype === "stat_card") && !evidence.some((entry) => entry.numeric_value != null)) throw new Error(`A ${recipe.visual_subtype === "chart" ? "chart" : "stat card"} requires confirmed numeric evidence.`);
-  if (recipe.visual_subtype === "comparison" && new Set(evidence.map((entry) => entry.source_set_member_id).filter(Boolean)).size !== 2) throw new Error("A comparison requires confirmed evidence from exactly two canonical Source members.");
+  const sourceMemberIds = [...new Set(evidence.flatMap((entry) => entry.source_set_member_id ? [entry.source_set_member_id] : []))];
+  const readiness = evaluateReferenceVisualReadiness({
+    subtype: recipe.visual_subtype,
+    evidence,
+    currentSourceMemberIds: sourceMemberIds.length ? sourceMemberIds : undefined,
+  });
+  if (!readiness.evidenceReady) throw new Error(readiness.message);
   const v2 = recipe.renderer_contract_version === "forge.reference-visual-renderer.v2";
   const modernLayout = v2 || recipe.visual_subtype === "stat_card";
   const rendererVersion = recipe.visual_subtype === "timeline" || recipe.visual_subtype === "quote_card" || recipe.visual_subtype === "document_excerpt" || recipe.visual_subtype === "comparison" || recipe.visual_subtype === "stat_card" ? "3" : v2 ? "2" : "1";
