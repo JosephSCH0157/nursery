@@ -16,9 +16,12 @@ const migrationSql = [
   "20260811130000_tongs_restore_collection_aware_reference_visual_acquisition.sql",
   "20260811140000_tongs_restore_reference_visual_archival_completion_rpcs.sql",
   "20261011680000_reference_material_rights_acquisition_boundary_repair.sql",
+  "20260924174757_reference_visual_source_transition_authority.sql",
 ].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
 const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
+const hearthAuthority = await readFile(new URL("../../../apps/hearth/src/lib/hearth-reference-visual-authority.ts", import.meta.url), "utf8");
+const hearthPanel = await readFile(new URL("../../../apps/hearth/src/components/visuals/CanonicalReferenceVisualPanel.tsx", import.meta.url), "utf8");
 
 test("Reference Visual authority separates opportunities, evidence, recipes, candidates, and sequences", () => {
   for (const table of [
@@ -211,4 +214,38 @@ test("acquisition rejects each stale authority with a specific conflict before t
   ]) assert.match(method, new RegExp(code));
   assert.match(method, /p_source_set_revision_id: input\.source_set_revision_id/);
   assert.match(method, /source_set_revision_id: input\.source_set_revision_id/);
+});
+
+test("Source transitions preserve compatible evidence while binding current authority to the exact collection", () => {
+  for (const table of [
+    "reference_visual_rights_declaration_revisions",
+    "reference_visual_render_operations",
+    "reference_visual_candidate_revisions",
+  ]) assert.match(sql, new RegExp(`alter table tongs\\.${table}[\\s\\S]*add column source_set_revision_id`));
+  assert.match(sql, /active\.source_revision_id=e\.source_revision_id[\s\S]*active\.workpiece_source_link_revision_id=e\.workpiece_source_link_revision_id/);
+  assert.match(sql, /primary_source\.ordinal=1/);
+  assert.match(sql, /historical_source_set_member_id/);
+  assert.match(sql, /reference_visual_rights_current_for_source_set/);
+  assert.match(sql, /reference_visual_candidate_current_for_plan/);
+  assert.match(sql, /'release_ready'.*'current_for_plan'/s);
+  assert.match(sql, /candidate_not_current_for_plan/);
+  assert.match(sql, /forge\.reference-visual\.hammer\.v4/);
+  assert.match(service, /p_source_set_revision_id: input\.source_set_revision_id/);
+  assert.match(service, /reference_visual_source_collection_revision_conflict/);
+  assert.match(hearthAuthority, /sourceSetRevisionId:str\(sourceSet\?\.id\)/);
+  assert.match(hearthAuthority, /rightsSequenceRevision:rightsVersion\?\.revision\?\?0/);
+  assert.match(hearthPanel, /members:\[promoted,\.\.\.supporting\]/);
+});
+
+test("new and replaced authority functions are not executable by PUBLIC or anon", () => {
+  for (const fn of [
+    "commit_reference_visual_rights_declaration",
+    "begin_reference_visual_render_v2",
+    "begin_reference_visual_acquisition",
+    "select_reference_visual_candidate",
+    "read_current_reference_visual_plan",
+    "read_reference_visual_visual_package",
+  ]) assert.match(sql, new RegExp(`revoke all on function tongs\\.${fn}\\([^)]+\\) from public,anon`));
+  assert.match(sql, /security definer set search_path=pg_catalog,tongs/g);
+  assert.match(sql, /authenticated direct mutation leaked for immutable Reference Visual authority tables/);
 });

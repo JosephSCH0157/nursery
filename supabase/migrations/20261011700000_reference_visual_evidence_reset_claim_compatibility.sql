@@ -183,6 +183,16 @@ $$;
 revoke all on function tongs.read_current_reference_visual_plan(uuid,uuid) from public,anon;
 grant execute on function tongs.read_current_reference_visual_plan(uuid,uuid) to authenticated,service_role;
 
+-- The Source-transition migration is CLI-timestamped earlier than this already-
+-- applied future-dated migration. Reinstall its stable implementation wrapper so
+-- local replay and migration-first linked deployment converge on the same contract.
+create or replace function tongs.read_current_reference_visual_plan(p_workspace_id uuid,p_workpiece_id uuid)
+returns jsonb language sql stable security definer set search_path=pg_catalog,tongs as $$
+ select tongs.read_reference_visual_plan_source_transition(p_workspace_id,p_workpiece_id)
+$$;
+revoke all on function tongs.read_current_reference_visual_plan(uuid,uuid) from public,anon;
+grant execute on function tongs.read_current_reference_visual_plan(uuid,uuid) to authenticated,service_role;
+
 comment on table tongs.reference_visual_evidence_claim_activations is
   'Append-only evidence-claim reactivation events after a Reference Visual reset; historical claim identity is never rewritten.';
 

@@ -28,6 +28,8 @@ function opportunity(
     revisionId: "opportunity-revision",
     revision: 1,
     sourceStatus: "linked",
+    sourceSetRevisionId: "source-set-revision",
+    sourceSetRevision: 1,
     sources: [member("member-a")],
     subtype: "stat_card",
     focus:

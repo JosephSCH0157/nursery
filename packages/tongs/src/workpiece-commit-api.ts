@@ -2699,6 +2699,7 @@ export type CommitYouTubeReferenceClipRequest = {
 export type RenderReferenceVisualRequest = {
   workspace_id: string;
   opportunity_revision_id: string;
+  source_set_revision_id: string;
   recipe_revision_id: string;
   source_use_revision_id: string;
   rights_declaration_revision_id: string | null;
@@ -27942,6 +27943,19 @@ export class TongsCommitService {
         "reference_visual_renderer_unavailable",
         "This Reference Visual subtype has no deterministic renderer.",
       );
+    const currentSourceSet = isRecord(opportunity.source_set)
+      ? opportunity.source_set
+      : null;
+    if (readStringField(currentSourceSet, "id") !== input.source_set_revision_id)
+      throw new HttpError(
+        409,
+        "reference_visual_source_collection_revision_conflict",
+        "The requested Source collection revision is no longer current.",
+        {
+          expected_source_set_revision_id: readStringField(currentSourceSet, "id"),
+          supplied_source_set_revision_id: input.source_set_revision_id,
+        },
+      );
     const currentSourceMemberIds = (Array.isArray(opportunity.sources)
       ? opportunity.sources.filter(isRecord)
       : []
@@ -27985,6 +27999,7 @@ export class TongsCommitService {
       workspace_id: input.workspace_id,
       workpiece_id: workpieceId,
       opportunity_revision_id: input.opportunity_revision_id,
+      source_set_revision_id: input.source_set_revision_id,
       recipe_revision_id: input.recipe_revision_id,
       source_use_revision_id: input.source_use_revision_id,
       rights_declaration_revision_id: input.rights_declaration_revision_id,
@@ -28005,6 +28020,7 @@ export class TongsCommitService {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
       p_opportunity_revision_id: input.opportunity_revision_id,
+      p_source_set_revision_id: input.source_set_revision_id,
       p_recipe_revision_id: input.recipe_revision_id,
       p_source_use_revision_id: input.source_use_revision_id,
       p_rights_declaration_revision_id: input.rights_declaration_revision_id,
@@ -38232,6 +38248,10 @@ export function createTongsCommitApiHandlerWithService(
             opportunity_revision_id: normalizeUuid(
               body.opportunity_revision_id,
               "opportunity_revision_id",
+            ),
+            source_set_revision_id: normalizeUuid(
+              body.source_set_revision_id,
+              "source_set_revision_id",
             ),
             recipe_revision_id: normalizeUuid(
               body.recipe_revision_id,
