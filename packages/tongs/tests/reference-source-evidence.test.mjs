@@ -10,7 +10,7 @@ test("extracts dated and numeric claims without inventing publication dates",asy
   assert.deepEqual(claims.map(claim=>claim.provenance.historical_date_text),["1894","1920"]);
   assert.equal(claims[1].numericValue,12);
   assert.equal(claims[1].unit,"million");
-  assert.equal(claims[0].provenance.extraction_contract,"forge.reference-source-evidence.v3");
+  assert.equal(claims[0].provenance.extraction_contract,"forge.reference-source-evidence.v4");
 });
 
 function textPdf(lines){
@@ -35,7 +35,25 @@ test("extracts dated currency claims from a canonical PDF report",async()=>{
   assert.ok(claims.length>=1);
   assert.ok(claims.some(claim=>claim.numericValue===12345678.9&&claim.unit==="dollars"));
   assert.ok(claims.every(claim=>claim.documentLocator.kind==="pdf_text"));
-  assert.equal(claims[0].provenance.extraction_contract,"forge.reference-source-evidence.v3");
+  assert.equal(claims[0].provenance.extraction_contract,"forge.reference-source-evidence.v4");
+});
+
+test("numeric-stat mode rejects dates, report years, and an irrelevant seasonal gasoline fact",async()=>{
+  const claims=await extractReferenceSourceEvidence("https://www.eia.gov/gasoline",async()=>htmlResponse(`<main>
+    <p>Publication date September 6, 2024.</p>
+    <p>See the 2025 Annual Report and the earlier 2008 edition.</p>
+    <p>Retail gasoline prices in August were about 40 cents per gallon higher than in January.</p>
+  </main>`),{intent:"numeric_stat",editorialFocus:"The cost of crude oil is usually the largest component of the retail price of gasoline.",desiredMaterial:"An EIA-backed gasoline price component graphic."});
+  assert.deepEqual(claims,[]);
+});
+
+test("numeric-stat mode accepts a relevant value with measure, exact excerpt, and relevance evidence",async()=>{
+  const claims=await extractReferenceSourceEvidence("https://www.eia.gov/gasoline",async()=>htmlResponse(`<main><p>Crude oil accounted for 52 percent of the retail gasoline price in 2024.</p></main>`),{intent:"numeric_stat",editorialFocus:"The cost of crude oil is usually the largest component of the retail price of gasoline.",desiredMaterial:"An EIA-backed gasoline price component graphic."});
+  assert.equal(claims.length,1);
+  assert.equal(claims[0].numericValue,52);
+  assert.equal(claims[0].unit,"percent");
+  assert.equal(claims[0].editorialRelevance.supports,true);
+  assert.equal(claims[0].evidenceIntent,"numeric_stat");
 });
 
 test("AI Mode shares are research leads and expose only external citations",async()=>{

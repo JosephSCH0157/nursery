@@ -4,6 +4,7 @@ import test from "node:test";
 import {validateReferenceVisualSourceSetReceipt} from "../src/lib/hearth-reference-visual-collections";
 
 const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
+const visualAuthority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
 const dispositionControl=readFileSync(new URL("../src/components/visuals/VisualOpportunityDispositionControl.tsx",import.meta.url),"utf8");
@@ -83,4 +84,26 @@ test("evidence reset readback preserves ordered canonical Source collections",()
  assert.match(resetReadbackRepair,/reference_visual_source_set_members sm/);
  assert.match(resetReadbackRepair,/order by sm\.ordinal/);
  assert.match(resetReadbackRepair,/reference_visual_evidence_resets/);
+});
+
+test("numeric evidence extraction is explicit, fail closed, and has a complete no-result path",()=>{
+ assert.match(collection,/evidence_intent:args\.intent/);
+ assert.match(collection,/args\.intent==="numeric_stat"&&\(!Number\.isFinite\(numericValue\)\|\|!unit\|\|relevance\.supports!==true\)/);
+ assert.match(panel,/evidenceIntentFor/);
+ assert.match(panel,/No supported numeric statistic was found in the current Source collection for this stat card\./);
+ for(const action of ["Enter supported numeric evidence manually","Add or choose another Source","Change visual type"])assert.match(panel,new RegExp(action));
+ assert.match(panel,/!evidence\.raw_excerpt\.trim\(\)\|\|!evidence\.numeric_value\.trim\(\)\|\|!evidence\.unit\.trim\(\)\|\|!evidence\.label\.trim\(\)/);
+});
+
+test("evidence confirmation accepts canonical replay without relaxing other mutations",()=>{
+ assert.match(visualAuthority,/requireEvidenceCommittedOrReplay/);
+ assert.match(visualAuthority,/disposition==="committed"\|\|disposition==="replay"/);
+ assert.match(visualAuthority,/canonical_evidence_id/);
+ assert.match(visualAuthority,/canonical_evidence_revision_id/);
+ assert.match(visualAuthority,/clearReferenceVisualEvidence[\s\S]*?requireCommitted/);
+});
+
+test("mixed-use attribution remains a distinct blocker after numeric readiness",()=>{
+ assert.match(panel,/Mixed-use attribution required\./);
+ assert.match(panel,/evidenceReadiness\?\.evidenceReady&&sourceUse\.classification==="mixed"&&!recipe\.attribution\.trim\(\)/);
 });

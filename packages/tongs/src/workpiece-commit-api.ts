@@ -40,6 +40,7 @@ import {
   inspectReferenceResearchLead,
   type ReferenceSourceIngestion,
   type ReferenceSourceEvidenceClaim,
+  type ReferenceEvidenceIntent,
 } from "./reference-source-ingestion.js";
 import { inspectYouTubeReference } from "./youtube-reference.js";
 import {
@@ -2737,6 +2738,7 @@ export type IngestReferenceVisualSourceRequest = {
 export type ExtractReferenceVisualEvidenceRequest = {
   workspace_id: string;
   opportunity_id: string;
+  evidence_intent: ReferenceEvidenceIntent;
 };
 export type ExtractedReferenceVisualEvidence = {
   sourceSetMemberId: string;
@@ -29026,7 +29028,20 @@ export class TongsCommitService {
     const opportunityRevision = isRecord(opportunity.opportunity_revision)
       ? opportunity.opportunity_revision
       : null;
-    const subtype = readStringField(opportunityRevision, "visual_subtype");
+    const subtype = readStringField(opportunityRevision, "visual_subtype"),
+      editorialFocus = readStringField(opportunityRevision, "context_focus") ?? "",
+      desiredMaterial = readStringField(opportunityRevision, "desired_material") ?? "",
+      existingEvidence = Array.isArray(opportunity.evidence)
+        ? opportunity.evidence.filter(isRecord)
+        : [],
+      alreadyConfirmed = (memberId: string, claim: ReferenceSourceEvidenceClaim) =>
+        existingEvidence.some((evidence) =>
+          readStringField(evidence, "source_set_member_id") === memberId &&
+          canonicalJsonbText(evidence.document_locator_json ?? {}) === canonicalJsonbText(claim.documentLocator) &&
+          (readStringField(evidence, "raw_excerpt") ?? "").replace(/\s+/g, " ") === claim.rawExcerpt.trim().replace(/\s+/g, " ") &&
+          (evidence.numeric_value == null ? null : Number(evidence.numeric_value)) === claim.numericValue &&
+          (readStringField(evidence, "unit") ?? "").toLowerCase().replace(/\s+/g, " ") === (claim.unit ?? "").toLowerCase().replace(/\s+/g, " "),
+        );
     const sources: ExtractedReferenceVisualEvidence[] = await Promise.all(
       opportunity.sources.map(async (member, index) => {
         if (!isRecord(member) || !isRecord(member.source_revision))
@@ -29055,7 +29070,11 @@ export class TongsCommitService {
             error: "This Source has no retrievable canonical URL.",
           };
         try {
-          const claims = await extractReferenceSourceEvidence(url);
+          const claims = (await extractReferenceSourceEvidence(url, fetch, {
+            intent: input.evidence_intent,
+            editorialFocus,
+            desiredMaterial,
+          })).filter((claim) => !alreadyConfirmed(base.sourceSetMemberId, claim));
           if (subtype === "stat_card" || subtype === "chart")
             claims.sort((left, right) =>
               Number(right.numericValue != null && Boolean(right.unit && right.label)) -
@@ -38112,6 +38131,12 @@ export function createTongsCommitApiHandlerWithService(
               body.opportunity_id,
               "opportunity_id",
             ),
+            evidence_intent: (() => {
+              const intent = normalizeNonEmptyString(body.evidence_intent, "evidence_intent") as ReferenceEvidenceIntent;
+              if (!["general_support", "numeric_stat", "dated_timeline", "comparison_support"].includes(intent))
+                throw new HttpError(400, "invalid_evidence_intent", "Evidence intent is invalid.");
+              return intent;
+            })(),
           },
           { userAccessToken },
         );
