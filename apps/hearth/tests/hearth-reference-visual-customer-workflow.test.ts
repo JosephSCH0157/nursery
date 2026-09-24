@@ -382,3 +382,19 @@ test("Reference Visuals expose the stable summary, stage navigation, and entry f
   assert.match(visualStyles, /hs-reference-visual-stage-context/);
   assert.match(visualStyles, /@media\(max-width:640px\)/);
 });
+
+test("the current Generate stage owns the rendered-visual action", () => {
+  const generateStage = panelSource.indexOf(
+    'id="reference-visual-stage-generate"',
+  );
+  const generateAction = panelSource.indexOf(
+    'className="hs-primary-btn hs-reference-visual-generate"',
+  );
+
+  assert.ok(generateStage >= 0);
+  assert.ok(generateAction > generateStage);
+  assert.equal(
+    panelSource.match(/hs-reference-visual-generate/g)?.length,
+    1,
+  );
+});
