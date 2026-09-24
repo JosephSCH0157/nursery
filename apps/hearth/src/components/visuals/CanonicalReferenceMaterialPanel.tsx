@@ -37,6 +37,7 @@ import {
 } from "../../lib/hearth-reference-review-attempts";
 import {
   buildReferenceVisualWorkflowFocus,
+  isReferenceVisualFailureActionable,
   projectReferenceMaterialVisualAction,
   type ReferenceVisualWorkflowFocus,
 } from "../../lib/hearth-reference-material-workflow";
@@ -133,10 +134,33 @@ export default function CanonicalReferenceMaterialPanel({
     if (clipResult.ok) setClips(clipResult.data);
     if (visualResult.ok) setVisuals(visualResult.data);
     if (dispositionResult.ok) setDispositions(dispositionResult.data);
+    const projected = clipResult.ok && visualResult.ok && dispositionResult.ok
+      ? projectReferenceReviewItems({
+          clips: clipResult.data,
+          visuals: visualResult.data,
+          dispositions: dispositionResult.data,
+        })
+      : null;
     if (failureResult.ok) {
       const persisted: Record<string, Failure> = {};
       retryParents.current.clear();
       for (const failure of failureResult.data) {
+        const item = projected?.find((entry) => entry.key === failure.key);
+        if (item?.family === "reference_visual") {
+          const opportunity = visualResult.ok
+            ? visualResult.data?.opportunities.find((entry) => entry.id === item.opportunityId)
+            : null;
+          if (!opportunity || !isReferenceVisualFailureActionable(
+            failure.intent,
+            projectReferenceMaterialVisualAction({
+              sourceLinked: opportunity.sourceStatus === "linked" && Boolean(opportunity.sources?.length),
+              rightsSaved: Boolean(opportunity.rights),
+              subtype: opportunity.subtype,
+              candidateReady: Boolean(item.candidate),
+              resolution: item.resolution,
+            }),
+          )) continue;
+        }
         persisted[failure.key] = {
           intent: failure.intent,
           message: failure.message,
@@ -145,13 +169,8 @@ export default function CanonicalReferenceMaterialPanel({
       }
       setFailures(persisted);
     }
-    if (clipResult.ok && visualResult.ok && dispositionResult.ok) {
-      const projected = projectReferenceReviewItems({
-          clips: clipResult.data,
-          visuals: visualResult.data,
-          dispositions: dispositionResult.data,
-        }),
-        resolved = projected.filter((item) => item.resolution !== null),
+    if (projected) {
+      const resolved = projected.filter((item) => item.resolution !== null),
         checks = await Promise.all(
           resolved.map(async (item) => ({
             key: item.key,
@@ -833,8 +852,12 @@ export default function CanonicalReferenceMaterialPanel({
       else if (failure.intent === "skip") await skip(item);
       else if (failure.intent === "use_source") await useSource(item);
       else if (failure.intent === "save_edits") await saveEdits(item);
-      else if (item.family === "reference_visual") activatePrimaryAction(item);
-      else openDrawer(item, "replace");
+      else if (item.family === "reference_visual") {
+        const action = visualPrimaryAction(item);
+        if (!action || !isReferenceVisualFailureActionable(failure.intent, action)) return;
+        if (action.action === "add_source") openDrawer(item, "replace");
+        else if (action.action === "acquire_image") openDrawer(item, "prepare");
+      } else openDrawer(item, "replace");
   }
 
   function visualPrimaryAction(item: ReferenceReviewItem) {

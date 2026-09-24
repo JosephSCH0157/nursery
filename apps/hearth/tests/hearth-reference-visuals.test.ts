@@ -97,9 +97,13 @@ test("creator-added Reference Visual opportunities use the canonical amendment r
 
 test("Reference Visual evidence has a distinct canonical start-over action that preserves Sources",()=>{
  assert.match(panel,/Clear evidence and start over/);
- assert.match(panel,/Linked Sources stay attached/);
+ assert.match(panel,/Linked Sources, Source use, and rights stay attached/);
+ assert.match(panel,/role="dialog"/);
+ assert.match(panel,/verifying canonical readback/);
+ assert.doesNotMatch(panel,/window\.confirm\("Clear all confirmed evidence/);
  assert.match(panel,/clearReferenceVisualEvidence/);
  assert.match(authority,/reset_reference_visual_evidence/);
+ assert.match(authority,/p_reset_request_id/);
 });
 
 test("candidate selection reports failures and can continue its revision chain after start over",()=>{

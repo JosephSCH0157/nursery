@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildReferenceVisualWorkflowFocus,
+  isReferenceVisualFailureActionable,
   projectReferenceMaterialVisualAction,
 } from "../src/lib/hearth-reference-material-workflow";
 import type { ReferenceVisualOpportunity } from "../src/lib/hearth-reference-visual-authority";
@@ -65,10 +66,16 @@ test("a rights-complete stat card advances to design instead of reopening rights
   assert.notEqual(state.target, "acquisition_drawer");
 });
 
-test("retry uses the currently projected target instead of the obsolete prepare loop", () => {
+test("stale acquisition failure is not actionable after the workflow advances to design", () => {
   const current = project({ subtype: "stat_card", rightsSaved: true });
   assert.equal(current.target, "reference_visual_workflow");
   assert.notEqual(current.target, "rights_drawer");
+  assert.equal(isReferenceVisualFailureActionable("replace", current), false);
+  assert.equal(isReferenceVisualFailureActionable("save_edits", current), true);
+  assert.equal(
+    isReferenceVisualFailureActionable("replace", project({ subtype: "archival_still" })),
+    true,
+  );
 });
 
 test("the detailed workflow transition preserves exact canonical identity", () => {

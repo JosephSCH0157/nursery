@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const migration = await readFile(new URL("../../../supabase/migrations/20261011690000_reference_visual_evidence_claim_identity.sql", import.meta.url), "utf8");
+const resetCompatibility = await readFile(new URL("../../../supabase/migrations/20261011700000_reference_visual_evidence_reset_claim_compatibility.sql", import.meta.url), "utf8");
 
 test("canonical evidence claims bind exact source and claim identity", () => {
   assert.match(migration, /reference_visual_evidence_claim_fingerprint/);
@@ -30,4 +31,16 @@ test("new claim and reconciliation authorities force RLS with least privilege", 
   assert.match(migration, /reference_visual_evidence_claims force row level security/);
   assert.match(migration, /reference_visual_evidence_duplicate_reconciliations force row level security/);
   assert.doesNotMatch(migration, /grant (?:insert|update|delete).* to authenticated/i);
+});
+
+test("evidence reset is append-only, replay-safe, and claim compatible", () => {
+  assert.match(resetCompatibility, /reference_visual_evidence_claim_activations/);
+  assert.match(resetCompatibility, /force row level security/);
+  assert.match(resetCompatibility, /p_reset_request_id uuid/);
+  assert.match(resetCompatibility, /clock_timestamp\(\)/);
+  assert.match(resetCompatibility, /greatest\(claim\.created_at/);
+  assert.match(resetCompatibility, /'source_use_preserved',true/);
+  assert.match(resetCompatibility, /'rights_preserved',true/);
+  assert.doesNotMatch(resetCompatibility, /delete\s+from\s+tongs\.reference_visual_(?:evidence|recipe|candidate|selection)/i);
+  assert.doesNotMatch(resetCompatibility, /grant (?:insert|update|delete).* to authenticated/i);
 });

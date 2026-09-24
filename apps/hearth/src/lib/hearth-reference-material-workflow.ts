@@ -27,6 +27,26 @@ export type ReferenceMaterialVisualProjection = {
   disabled: boolean;
 };
 
+export type ReferenceReviewFailureIntent =
+  | "approve"
+  | "skip"
+  | "use_source"
+  | "save_edits"
+  | "replace";
+
+export function isReferenceVisualFailureActionable(
+  intent: ReferenceReviewFailureIntent,
+  projection: ReferenceMaterialVisualProjection,
+): boolean {
+  if (projection.action === "ready" || projection.action === "skipped") return false;
+  if (intent === "approve") return projection.action === "approve";
+  if (intent === "use_source") return projection.action === "add_source";
+  if (intent === "save_edits") return projection.action === "design_visual";
+  if (intent === "replace")
+    return projection.action === "add_source" || projection.action === "acquire_image";
+  return intent === "skip";
+}
+
 export type ReferenceVisualWorkflowFocus = {
   workspaceId: string;
   workpieceId: string;
