@@ -11,6 +11,7 @@ const repository = readFileSync(new URL("lib/hearth-image-map-repo.ts", root), "
 
 test("Hearth reserves deterministic interpretation and trusts only matching canonical readback", () => {
   assert.match(authority, /forge:image-prompt:interpret:\$\{fingerprint\}/);
+  assert.match(authority, /validator: "forge\.image-prompt-validator\.v2"/);
   assert.match(authority, /expected_prompt_revision_id: expectedId/);
   assert.match(authority, /prompt_readback_mismatch/);
   assert.match(hook, /status: "pending", stage: "pending"/);

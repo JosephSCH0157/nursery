@@ -168,7 +168,14 @@ import {
   type ImageProvider,
 } from "./providers/image-provider.js";
 import {
+  buildNarrativeInterpretationCanonicalInput,
   buildNarrativeInterpretationProviderRequestBody,
+  NARRATIVE_INTERPRETATION_CONTRACT_VERSION,
+  NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS,
+  NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS,
+  NARRATIVE_INTERPRETATION_MODEL,
+  NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION,
+  NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
   OpenAiNarrativeInterpretationProvider,
   validateSubstantiveVisualBrief,
   synthesizeConcreteVendorPrompt,
@@ -32952,18 +32959,10 @@ export class TongsCommitService {
     );
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     const authority = this.imagePromptAuthorityClient(token);
-    const normalizedInputs = {
-      source_context: input.source_context,
-      creator_direction: input.creator_direction,
-      interpretation_contract_version: "forge.image-prompt-interpretation.v2",
-      validator_version: "forge.image-prompt-validator.v1",
-      synthesis_contract_version: "forge.image-prompt-synthesis.v3",
-    };
-    const requestJson: Record<string, unknown> = {
-      ...input.source_context,
-      creator_direction: input.creator_direction,
-      image_moment_id: input.image_moment_id,
-      style: input.style,
+    const sourceContext = {
+      before: typeof input.source_context.before === "string" ? input.source_context.before : null,
+      focus: typeof input.source_context.focus === "string" ? input.source_context.focus : "",
+      after: typeof input.source_context.after === "string" ? input.source_context.after : null,
     };
     const expectedFingerprint = await sha256Hex(
       canonicalJsonBytes({
@@ -32978,9 +32977,9 @@ export class TongsCommitService {
         creator_direction: input.creator_direction,
         style: input.style,
         contracts: {
-          interpretation: normalizedInputs.interpretation_contract_version,
-          validator: normalizedInputs.validator_version,
-          synthesis: normalizedInputs.synthesis_contract_version,
+          interpretation: NARRATIVE_INTERPRETATION_CONTRACT_VERSION,
+          validator: NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
+          synthesis: NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION,
         },
       }),
     );
@@ -32991,6 +32990,164 @@ export class TongsCommitService {
         "Interpretation operation fingerprint does not match the canonical request.",
         { expected_operation_fingerprint: expectedFingerprint },
       );
+
+    // This RPC is read-only. It proves current map/script/prompt/persistence
+    // authority before a quote can reserve customer funds or a provider call.
+    const preflight = await authority.rpc("preflight_image_prompt_interpretation", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_image_moment_id: input.image_moment_id,
+      p_image_map_revision_id: input.image_map_revision_id,
+      p_script_approval_id: input.script_approval_id,
+      p_expected_prompt_revision_id: input.expected_prompt_revision_id,
+      p_expected_prompt_revision: input.expected_prompt_revision,
+      p_creator_direction: input.creator_direction,
+      p_visual_style: input.style,
+    });
+    if (preflight.error || !isRecord(preflight.data)
+      || readStringField(preflight.data, "disposition") !== "ready") {
+      throw new HttpError(409, "image_prompt_preflight_failed",
+        preflight.error?.message ?? "Canonical image-prompt persistence preflight failed.",
+        isRecord(preflight.data) ? preflight.data : null);
+    }
+    const imageMapRevision = Number(preflight.data.image_map_revision);
+    const scriptApprovalRevision = Number(preflight.data.script_approval_revision);
+    if (!Number.isSafeInteger(imageMapRevision) || imageMapRevision < 1
+      || !Number.isSafeInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) {
+      throw new HttpError(502, "image_prompt_preflight_invalid", "Image-prompt preflight returned invalid canonical revisions.");
+    }
+    const requestJson = buildNarrativeInterpretationCanonicalInput({
+      imageMomentId: input.image_moment_id,
+      imageMapRevisionId: input.image_map_revision_id,
+      imageMapRevision,
+      scriptApprovalId: input.script_approval_id,
+      scriptApprovalRevision,
+      sourceContext,
+      creatorDirection: input.creator_direction,
+      visualStyle: input.style,
+    });
+    const certifiedRequest = await buildBoundedOpenAiProviderRequest({
+      body: {
+        ...buildNarrativeInterpretationProviderRequestBody({ request: requestJson, model: NARRATIVE_INTERPRETATION_MODEL }),
+        max_output_tokens: NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS,
+      },
+      model: NARRATIVE_INTERPRETATION_MODEL,
+      maximumOutputTokens: NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS,
+      maximumAttempts: NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS,
+      serviceTier: "standard",
+    });
+    const paidRequestFingerprintPayload = {
+      operation_fingerprint: expectedFingerprint,
+      provider_body_sha256: certifiedRequest.serializedBodySha256,
+    };
+    const paidRequestFingerprint = await fingerprintOpenAiTextPaidRequest(paidRequestFingerprintPayload);
+    const normalizedInputs = {
+      source_context: sourceContext,
+      creator_direction: input.creator_direction,
+      style: input.style,
+      provider_body_sha256: certifiedRequest.serializedBodySha256,
+      interpretation_contract_version: NARRATIVE_INTERPRETATION_CONTRACT_VERSION,
+      validator_version: NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
+      synthesis_contract_version: NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION,
+    };
+
+    const commitValidatedResult = async (result: {
+      brief: ImagePromptVisualBrief;
+      model: string;
+      providerRequestId: string | null;
+      inputTokens: number;
+      outputTokens: number;
+      rawResponse?: Record<string, unknown>;
+    }): Promise<Record<string, Json>> => {
+      const finalPrompt = synthesizeConcreteVendorPrompt(result.brief, input.style);
+      const recorded = await authority.rpc("record_image_prompt_provider_response", {
+        p_operation_id: input.operation_id,
+        p_operation_fingerprint: input.operation_fingerprint,
+        p_provider_response_json: {
+          canonical_brief: result.brief as unknown as Json,
+          model: result.model,
+          provider_request_id: result.providerRequestId,
+          input_units: result.inputTokens,
+          output_units: result.outputTokens,
+          provider_body_sha256: certifiedRequest.serializedBodySha256,
+        },
+      });
+      if (recorded.error) throw new Error(recorded.error.message);
+      const committed = await authority.rpc("commit_image_prompt_interpretation", {
+        p_operation_id: input.operation_id,
+        p_operation_fingerprint: input.operation_fingerprint,
+        p_visual_brief_json: result.brief,
+        p_ai_synthesized_prompt: finalPrompt,
+        p_final_prompt: finalPrompt,
+        p_interpretation_contract_version: NARRATIVE_INTERPRETATION_CONTRACT_VERSION,
+        p_validator_version: NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
+        p_synthesis_contract_version: NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION,
+        p_interpretation_model: result.model,
+        p_interpretation_request_json: requestJson,
+        p_actor_id: auth.userId,
+      });
+      if (committed.error || !isRecord(committed.data)
+        || readStringField(committed.data, "disposition") !== "committed") {
+        throw new Error(committed.error?.message ?? "Tongs rejected narrative interpretation persistence");
+      }
+      const promptRevision = isRecord(committed.data.prompt_revision) ? committed.data.prompt_revision : null;
+      const revisionId = promptRevision ? readStringField(promptRevision, "id") : null;
+      const contentHash = promptRevision ? readStringField(promptRevision, "content_hash") : null;
+      const readback = await authority.rpc("read_current_image_prompt", {
+        p_workspace_id: input.workspace_id,
+        p_workpiece_id: workpieceId,
+        p_image_moment_id: input.image_moment_id,
+      });
+      const readbackRevision = isRecord(readback.data) && isRecord(readback.data.prompt_revision)
+        ? readback.data.prompt_revision : null;
+      if (readback.error || !revisionId || !contentHash || !readbackRevision
+        || readStringField(readbackRevision, "id") !== revisionId
+        || readStringField(readbackRevision, "content_hash") !== contentHash) {
+        throw new Error(readback.error?.message ?? "Canonical image-prompt readback did not match the committed revision.");
+      }
+      const finalized = await this.openAiTextGate.rpc("finalize_visual_narrative_interpretation_result", {
+        p_operation_id: input.operation_id,
+        p_request_fingerprint: paidRequestFingerprint,
+        p_canonical_prompt_revision_id: revisionId,
+        p_canonical_content_hash: contentHash,
+      });
+      if (finalized.error) throw new Error(`Narrative result finalization failed: ${finalized.error.message}`);
+      return committed.data as Record<string, Json>;
+    };
+
+    const recoverStagedResult = async (): Promise<{
+      result: Record<string, Json>;
+      providerRequestId: string | null;
+      inputUnits: number;
+      outputUnits: number;
+    } | null> => {
+      const staged = await this.openAiTextGate.rpc("read_staged_visual_narrative_interpretation_result", {
+        p_operation_id: input.operation_id,
+        p_request_fingerprint: paidRequestFingerprint,
+      });
+      if (staged.error) throw new Error(`Narrative recovery read failed: ${staged.error.message}`);
+      if (!isRecord(staged.data)) return null;
+      const storedBrief = staged.data.visual_brief_json;
+      if (!isRecord(storedBrief)) throw new Error("Stored narrative result has no validated visual brief.");
+      const brief = storedBrief as unknown as ImagePromptVisualBrief;
+      const invalid = validateSubstantiveVisualBrief(brief);
+      if (invalid.length) throw new Error(`Stored narrative result is invalid: ${invalid.join(", ")}`);
+      const recovered = await commitValidatedResult({
+        brief,
+        model: readStringField(staged.data, "model") ?? NARRATIVE_INTERPRETATION_MODEL,
+        providerRequestId: readStringField(staged.data, "provider_request_id"),
+        inputTokens: Number(staged.data.input_units ?? 0),
+        outputTokens: Number(staged.data.output_units ?? 0),
+      });
+      return { result: recovered, providerRequestId: readStringField(staged.data, "provider_request_id"),
+        inputUnits: Number(staged.data.input_units ?? 0), outputUnits: Number(staged.data.output_units ?? 0) };
+    };
+
+    // Persistence-only recovery is deliberately attempted before preparing a
+    // fresh quote. A staged validated provider result can never spend twice.
+    const stagedRecovery = await recoverStagedResult();
+    if (stagedRecovery) return stagedRecovery.result;
+
     if (!input.paid_execution) {
       try {
         const paidExecution = await resolveOrdinaryOpenAiTextFunding({
@@ -32999,22 +33156,12 @@ export class TongsCommitService {
           userId: auth.userId,
           workspaceId: input.workspace_id,
           workpieceId,
-          requestFingerprint: expectedFingerprint,
-          model: "gpt-5-mini",
+          requestFingerprint: paidRequestFingerprint,
+          model: NARRATIVE_INTERPRETATION_MODEL,
           credentialFunding: "forge",
           acceptance: input.spending_acceptance ?? null,
           serviceGate: this.openAiTextGate,
-          prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
-            buildBoundedOpenAiProviderRequest({
-              body: {
-                ...buildNarrativeInterpretationProviderRequestBody({ request: requestJson, model }),
-                max_output_tokens: maximumOutputTokens,
-              },
-              model,
-              maximumOutputTokens,
-              maximumAttempts,
-              serviceTier: "standard",
-            }),
+          prepareBoundedRequest: () => Promise.resolve(certifiedRequest),
           userGate: authority as unknown as OpenAiTextGateClient,
         });
         if (paidExecution) input = { ...input, paid_execution: paidExecution };
@@ -33022,6 +33169,7 @@ export class TongsCommitService {
         throwOpenAiFundingHttpError(error);
       }
     }
+    if (!input.paid_execution) throw new HttpError(423, "narrative_interpretation_paid_execution_inactive", "Narrative interpretation paid execution is not active.");
     const begun = await authority.rpc("begin_image_prompt_interpretation", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
@@ -33055,13 +33203,9 @@ export class TongsCommitService {
     const state = operation ? readStringField(operation, "state") : null;
     if (state === "committed" && isRecord(operation?.receipt_json) && !input.paid_execution)
       return operation.receipt_json as Record<string, Json>;
-    let providerResponse = isRecord(operation?.provider_response_json)
-      ? operation.provider_response_json
-      : null;
-    let brief: ImagePromptVisualBrief;
-    let model = "gpt-5-mini";
+    const providerResponse = isRecord(operation?.provider_response_json) ? operation.provider_response_json : null;
     if (input.paid_execution) {
-      if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
+      if (input.paid_execution.requestFingerprint !== paidRequestFingerprint) {
         throw new HttpError(
           409,
           "paid_request_fingerprint_mismatch",
@@ -33075,7 +33219,6 @@ export class TongsCommitService {
           "Narrative interpretation provider is not configured",
         );
       }
-      let paidModel = "gpt-5-mini";
       const paidOutcome = await executePaidOpenAiTextRoute({
         gate: this.openAiTextGate,
         routeCode: "visual.narrative_interpretation",
@@ -33084,51 +33227,24 @@ export class TongsCommitService {
         workspaceId: input.workspace_id,
         workpieceId,
         credentialSource: "forge_managed",
-        prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({
-          body: {
-            ...buildNarrativeInterpretationProviderRequestBody({ request: requestJson, model: context.model }),
-            max_output_tokens: context.maximumOutputUnits,
-          },
-          model: context.model,
-          maximumOutputTokens: context.maximumOutputUnits,
-          maximumAttempts: context.maximumAttempts,
-          serviceTier: "standard",
-        }),
-        requestFingerprintPayload: {
-          workspace_id: input.workspace_id,
-          workpiece_id: workpieceId,
-          image_moment_id: input.image_moment_id,
-          image_map_revision_id: input.image_map_revision_id,
-          script_approval_id: input.script_approval_id,
-          expected_prompt_revision_id: input.expected_prompt_revision_id,
-          expected_prompt_revision: input.expected_prompt_revision,
-          source_context: input.source_context,
-          creator_direction: input.creator_direction,
-          style: input.style,
-          contracts: {
-            interpretation: normalizedInputs.interpretation_contract_version,
-            validator: normalizedInputs.validator_version,
-            synthesis: normalizedInputs.synthesis_contract_version,
-          },
-        },
+        prepareBoundedRequest: () => Promise.resolve(certifiedRequest),
+        requestFingerprintPayload: paidRequestFingerprintPayload,
         recoverCanonical: async () => {
-          if (state !== "committed" || !isRecord(operation?.receipt_json) || !providerResponse) return null;
-          return {
-            result: operation.receipt_json as Record<string, Json>,
-            providerRequestId: readStringField(providerResponse, "provider_request_id"),
-            inputUnits: Number(providerResponse.input_units ?? 0),
-            outputUnits: Number(providerResponse.output_units ?? 0),
+          if (state === "committed" && isRecord(operation?.receipt_json) && providerResponse) return {
+            result: operation.receipt_json as Record<string, Json>, providerRequestId: readStringField(providerResponse, "provider_request_id"),
+            inputUnits: Number(providerResponse.input_units ?? 0), outputUnits: Number(providerResponse.output_units ?? 0),
           };
+          return recoverStagedResult();
         },
         executeProvider: async (context, _attemptNumber, boundedProviderRequest) => {
-          if (!boundedProviderRequest) throw new OpenAiTextBoundaryError("funding_context_required");
+          if (!boundedProviderRequest || boundedProviderRequest.serializedBodySha256 !== certifiedRequest.serializedBodySha256
+            || boundedProviderRequest.serializedBody !== certifiedRequest.serializedBody) throw new OpenAiTextBoundaryError("funding_context_required");
           const result = await this.narrativeInterpretationProvider!.interpret({
             request: requestJson,
             model: context.model,
             boundedProviderRequest,
             coordinatedExecution: (execute) => execute(),
           });
-          paidModel = result.model;
           return {
             value: result,
             requestId: result.providerRequestId,
@@ -33145,52 +33261,47 @@ export class TongsCommitService {
               provider_reference: result.providerRequestId,
               supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct",
               route_code: "visual.narrative_interpretation",
+              provider_body_sha256: certifiedRequest.serializedBodySha256,
+              validation_contract_revision: NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
             },
+            privateCaptureEvidence: { raw_provider_response_text: result.rawResponseText,
+              validation_contract_revision: NARRATIVE_INTERPRETATION_VALIDATOR_VERSION },
             supportingCostEvidence: {
-              allocation_kind: "accepted_fixed_supporting_allocation",
+              allocation_kind: "platform_overhead",
               component: "validation_and_tongs_persistence",
-              evidence_status: "estimated",
+              evidence_status: "verified_zero_variable_cost",
             },
           };
         },
-        validateResult: (result) => {
+        validateResult: async (result) => {
           const invalid = validateSubstantiveVisualBrief(result.brief);
-          if (invalid.length) throw new Error(`Invalid fields: ${invalid.join(", ")}`);
+          if (invalid.length) {
+            const evidence = await this.openAiTextGate.rpc("record_openai_text_validation_failure_evidence", {
+              p_route_code: "visual.narrative_interpretation", p_operation_id: input.operation_id,
+              p_reservation_id: input.paid_execution!.reservationId, p_provider_request_id: result.providerRequestId,
+              p_model: result.model, p_input_units: result.inputTokens, p_output_units: result.outputTokens,
+              p_raw_provider_response_text: result.rawResponseText,
+              p_validation_error_code: "image_prompt_visual_brief_invalid",
+              p_validation_contract_revision: NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
+            });
+            if (evidence.error) throw new Error(`narrative_validation_evidence_failed: ${evidence.error.message}`);
+            throw new Error(`Invalid fields: ${invalid.join(", ")}`);
+          }
         },
         persistCanonical: async (result) => {
-          const paidProviderResponse = {
-            canonical_brief: result.brief as unknown as Json,
-            raw_provider_response: result.rawResponse as unknown as Json,
-            model: result.model,
-            provider_request_id: result.providerRequestId,
-            input_units: result.inputTokens,
-            output_units: result.outputTokens,
-          };
-          const recorded = await authority.rpc("record_image_prompt_provider_response", {
-            p_operation_id: input.operation_id,
-            p_operation_fingerprint: input.operation_fingerprint,
-            p_provider_response_json: paidProviderResponse,
-          });
-          if (recorded.error) throw new Error(recorded.error.message);
           const finalPrompt = synthesizeConcreteVendorPrompt(result.brief, input.style);
-          const committed = await authority.rpc("commit_image_prompt_interpretation", {
-            p_operation_id: input.operation_id,
-            p_operation_fingerprint: input.operation_fingerprint,
-            p_visual_brief_json: result.brief,
-            p_ai_synthesized_prompt: finalPrompt,
-            p_final_prompt: finalPrompt,
-            p_interpretation_contract_version: "forge.image-prompt-interpretation.v2",
-            p_validator_version: "forge.image-prompt-validator.v1",
-            p_synthesis_contract_version: "forge.image-prompt-synthesis.v3",
-            p_interpretation_model: paidModel,
-            p_interpretation_request_json: requestJson,
-            p_actor_id: auth.userId,
+          const staged = await this.openAiTextGate.rpc("stage_visual_narrative_interpretation_result", {
+            p_operation_id: input.operation_id, p_request_fingerprint: paidRequestFingerprint,
+            p_provider_body_sha256: certifiedRequest.serializedBodySha256,
+            p_provider_request_id: result.providerRequestId, p_input_units: result.inputTokens,
+            p_output_units: result.outputTokens, p_visual_brief_json: result.brief,
+            p_contracts_json: requestJson.output_contract, p_image_map_revision_id: input.image_map_revision_id,
+            p_image_map_revision: imageMapRevision, p_script_approval_id: input.script_approval_id,
+            p_script_approval_revision: scriptApprovalRevision, p_creator_direction: input.creator_direction,
+            p_visual_style: input.style, p_synthesized_prompt: finalPrompt,
           });
-          if (committed.error || !isRecord(committed.data)
-            || readStringField(committed.data, "disposition") !== "committed") {
-            throw new Error(committed.error?.message ?? "Tongs rejected narrative interpretation persistence");
-          }
-          return committed.data;
+          if (staged.error) throw new Error(`Narrative result staging failed: ${staged.error.message}`);
+          return commitValidatedResult(result);
         },
       });
       if (paidOutcome.state === "settled" || paidOutcome.state === "settled_replay") {
@@ -33204,142 +33315,7 @@ export class TongsCommitService {
           : "Narrative interpretation failed or is already in progress; the customer was not charged.",
       );
     }
-    if (providerResponse) {
-      const storedBrief = providerResponse.canonical_brief;
-      if (!isRecord(storedBrief))
-        throw new HttpError(
-          502,
-          "invalid_provider_recovery",
-          "Stored interpretation response has no canonical brief",
-        );
-      brief = storedBrief as unknown as ImagePromptVisualBrief;
-      model = readStringField(providerResponse, "model") ?? model;
-    } else {
-      if (!this.narrativeInterpretationProvider)
-        throw new HttpError(
-          503,
-          "image_prompt_interpreter_unavailable",
-          "Narrative interpretation provider is not configured",
-        );
-      let interpreted;
-      try {
-        interpreted = await this.runAIRequest({
-          lane: AI_USAGE_LANE.FORGE,
-          userId: auth.userId,
-          workspaceId: input.workspace_id,
-          workpieceId,
-          feature: AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,
-          subfeature: AI_USAGE_SUBFEATURE.INTERPRETATION,
-          model,
-          trigger: AI_USAGE_TRIGGER.USER,
-          actionId: input.operation_id,
-          execute: async () => {
-            const result =
-              await this.narrativeInterpretationProvider!.interpret({
-                request: requestJson,
-                model,
-              });
-            return {
-              result,
-              inputTokens: result.inputTokens,
-              outputTokens: result.outputTokens,
-              totalTokens: result.totalTokens,
-              providerRequestId: result.providerRequestId,
-            };
-          },
-        });
-      } catch (error) {
-        await authority.rpc("fail_image_prompt_operation", {
-          p_operation_id: input.operation_id,
-          p_operation_fingerprint: input.operation_fingerprint,
-          p_failed_stage: "provider",
-          p_failure_code: "provider_failed",
-          p_failure_message:
-            error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-      brief = interpreted.result.brief;
-      model = interpreted.result.model;
-      providerResponse = {
-        canonical_brief: brief as unknown as Json,
-        raw_provider_response: interpreted.result
-          .rawResponse as unknown as Json,
-        model,
-      };
-      const recorded = await authority.rpc(
-        "record_image_prompt_provider_response",
-        {
-          p_operation_id: input.operation_id,
-          p_operation_fingerprint: input.operation_fingerprint,
-          p_provider_response_json: providerResponse,
-        },
-      );
-      if (recorded.error)
-        throw new HttpError(
-          502,
-          "provider_response_record_failed",
-          recorded.error.message,
-        );
-    }
-    const invalid = validateSubstantiveVisualBrief(brief);
-    if (invalid.length) {
-      await authority.rpc("fail_image_prompt_operation", {
-        p_operation_id: input.operation_id,
-        p_operation_fingerprint: input.operation_fingerprint,
-        p_failed_stage: "validation",
-        p_failure_code: "interpretation_incomplete",
-        p_failure_message: `Invalid fields: ${invalid.join(", ")}`,
-      });
-      throw new HttpError(
-        422,
-        "interpretation_incomplete",
-        "Narrative interpretation is incomplete.",
-        { invalid_fields: invalid },
-      );
-    }
-    const finalPrompt = synthesizeConcreteVendorPrompt(brief, input.style);
-    const committed = await authority.rpc(
-      "commit_image_prompt_interpretation",
-      {
-        p_operation_id: input.operation_id,
-        p_operation_fingerprint: input.operation_fingerprint,
-        p_visual_brief_json: brief,
-        p_ai_synthesized_prompt: finalPrompt,
-        p_final_prompt: finalPrompt,
-        p_interpretation_contract_version:
-          "forge.image-prompt-interpretation.v2",
-        p_validator_version: "forge.image-prompt-validator.v1",
-        p_synthesis_contract_version: "forge.image-prompt-synthesis.v3",
-        p_interpretation_model: model,
-        p_interpretation_request_json: requestJson,
-        p_actor_id: auth.userId,
-      },
-    );
-    if (committed.error || !isRecord(committed.data)) {
-      await authority.rpc("fail_image_prompt_operation", {
-        p_operation_id: input.operation_id,
-        p_operation_fingerprint: input.operation_fingerprint,
-        p_failed_stage: "commit",
-        p_failure_code: "image_prompt_commit_failed",
-        p_failure_message:
-          committed.error?.message ?? "Tongs could not commit interpretation",
-      });
-      throw new HttpError(
-        502,
-        "image_prompt_commit_failed",
-        committed.error?.message ?? "Tongs could not commit interpretation",
-      );
-    }
-    const commitDisposition = readStringField(committed.data, "disposition");
-    if (commitDisposition !== "committed")
-      throw new HttpError(
-        409,
-        commitDisposition ?? "image_prompt_commit_rejected",
-        "Tongs rejected the interpretation commit.",
-        committed.data,
-      );
-    return committed.data as Record<string, Json>;
+    throw new HttpError(502, "narrative_interpretation_unreachable", "Narrative interpretation did not reach a durable state.");
   }
 
   async editImageMapPrompt(

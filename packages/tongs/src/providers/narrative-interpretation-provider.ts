@@ -14,14 +14,50 @@ export type ImagePromptVisualBrief = {
   source_context: { before: string|null; focus: string; after: string|null };
 };
 export type InterpretImagePromptInput={request:Record<string,unknown>;model?:string|null;boundedProviderRequest?:BoundedProviderRequest;coordinatedExecution?:<T>(execute:()=>Promise<T>)=>Promise<T>};
-export type InterpretImagePromptOutput={brief:ImagePromptVisualBrief;rawResponse:Record<string,unknown>;providerRequestId:string|null;inputTokens:number;outputTokens:number;totalTokens:number;model:string};
+export type InterpretImagePromptOutput={brief:ImagePromptVisualBrief;rawResponse:Record<string,unknown>;rawResponseText:string;providerRequestId:string|null;inputTokens:number;outputTokens:number;totalTokens:number;model:string};
 export interface NarrativeInterpretationProvider{interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>}
+
+export const NARRATIVE_INTERPRETATION_MODEL="gpt-5.6-luna";
+export const NARRATIVE_INTERPRETATION_CONTRACT_VERSION="forge.image-prompt-interpretation.v2";
+export const NARRATIVE_INTERPRETATION_VALIDATOR_VERSION="forge.image-prompt-validator.v2";
+export const NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION="forge.image-prompt-synthesis.v3";
+export const NARRATIVE_INTERPRETATION_MAXIMUM_INPUT_TOKENS=4096;
+export const NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS=1024;
+export const NARRATIVE_INTERPRETATION_MAXIMUM_RESPONSE_BYTES=16384;
+export const NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS=1;
 
 const required=["narrative_purpose","central_message","primary_subjects","relationship_or_action","emotional_tone","visual_mode","setting","composition","essential_visual_evidence","avoid","source_context"];
 const briefSchema={type:"object",additionalProperties:false,required,properties:{
   narrative_purpose:{type:"string"},central_message:{type:"string"},primary_subjects:{type:"array",items:{type:"string"},minItems:1,maxItems:4},relationship_or_action:{type:"string"},emotional_tone:{type:"string"},visual_mode:{type:"string",enum:["literal","documentary","editorial","metaphorical","historical_reconstruction","diagrammatic"]},setting:{type:"string"},composition:{type:"string"},essential_visual_evidence:{type:"array",items:{type:"string"},minItems:1,maxItems:5},avoid:{type:"array",items:{type:"string"},minItems:1,maxItems:5},source_context:{type:"object",additionalProperties:false,required:["before","focus","after"],properties:{before:{type:["string","null"]},focus:{type:"string"},after:{type:["string","null"]}}}
 }};
-const systemInstruction=`Interpret one canonical podcast image moment before writing any image prompt. Return concrete, moment-specific visual meaning. Name visible people, products, objects, actions, and supported environments. Interpret rivalry, cooperation, decline, transformation, and figurative language from context. Keep the brief selective: 2-4 primary subjects, one concise action or relationship, a one-sentence setting, a mood phrase, composition in at most two short sentences, 3-5 essential visible details, and 3-5 specific exclusions. Each list item should name one defining detail, not a scene-within-a-scene. Never substitute generic phrases such as appropriate context, supporting the stated narrative idea, clear editorial hierarchy, visual evidence of the idea, or grounded and documentary. Do not write a vendor prompt or request multiple candidates, alternate angles, or multiple interpretations. Return only the structured brief.`;
+const systemInstruction=`Interpret one canonical podcast image moment before writing any image prompt. Return concrete, moment-specific visual meaning. Name visible people, products, objects, actions, and supported environments. Interpret rivalry, cooperation, decline, transformation, and figurative language from context. Keep the brief selective: 1-4 primary subjects, one concise action or relationship, a one-sentence setting, a mood phrase, composition in at most two short sentences, 1-5 essential visible details, and 1-5 specific exclusions. Each list item should name one defining detail, not a scene-within-a-scene. Never substitute generic phrases such as appropriate context, supporting the stated narrative idea, clear editorial hierarchy, visual evidence of the idea, or grounded and documentary. Do not write a vendor prompt or request multiple candidates, alternate angles, or multiple interpretations. Return only the structured brief.`;
+
+export function buildNarrativeInterpretationCanonicalInput(input:{
+  imageMomentId:string;
+  imageMapRevisionId:string;
+  imageMapRevision:number;
+  scriptApprovalId:string;
+  scriptApprovalRevision:number;
+  sourceContext:{before:string|null;focus:string;after:string|null};
+  creatorDirection:string;
+  visualStyle:string|null;
+}):Record<string,unknown>{
+  return{
+    image_moment_id:input.imageMomentId,
+    image_map_revision_id:input.imageMapRevisionId,
+    image_map_revision:input.imageMapRevision,
+    script_approval_id:input.scriptApprovalId,
+    script_approval_revision:input.scriptApprovalRevision,
+    source_context:input.sourceContext,
+    creator_direction:input.creatorDirection,
+    visual_style:input.visualStyle,
+    output_contract:{
+      interpretation:NARRATIVE_INTERPRETATION_CONTRACT_VERSION,
+      validator:NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,
+      synthesis:NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION,
+    },
+  };
+}
 
 export function buildNarrativeInterpretationProviderRequestBody(input:{request:Record<string,unknown>;model:string}):Record<string,unknown>{
   return{model:input.model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}};
@@ -35,7 +71,7 @@ function outputText(payload:Record<string,unknown>):string|null{
 export class OpenAiNarrativeInterpretationProvider implements NarrativeInterpretationProvider{
   private readonly apiKey:string;
   private readonly defaultModel:string;
-  constructor(apiKey:string,defaultModel="gpt-5-mini"){
+  constructor(apiKey:string,defaultModel=NARRATIVE_INTERPRETATION_MODEL){
     if(!apiKey.trim())throw new Error("OpenAI interpretation API key is required");
     this.apiKey=apiKey;
     this.defaultModel=defaultModel;
@@ -50,21 +86,34 @@ export class OpenAiNarrativeInterpretationProvider implements NarrativeInterpret
       const detail=typeof cause?.code==="string"?cause.code:typeof cause?.message==="string"?cause.message:null;
       throw new OpenAiTextProviderError(`OpenAI could not be reached while creating the detailed image prompt${detail?` (${detail})`:""}; no prompt or image was lost. The submission is unresolved and was not retried.`,true,null,{phase:"provider_transport",route_code:"visual.narrative_interpretation"});
     }
-    const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
+    const rawText=await response.text();
+    if(new TextEncoder().encode(rawText).byteLength>NARRATIVE_INTERPRETATION_MAXIMUM_RESPONSE_BYTES)throw new Error("Interpretation provider response exceeds the certified byte ceiling");
+    let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
     if(!response.ok)throw new Error((payload.error as {message?:string}|undefined)?.message||rawText||`Interpretation failed (${response.status})`);
-    const text=outputText(payload);if(!text)throw new Error("Interpretation provider returned no structured output");
-    const brief=JSON.parse(text) as ImagePromptVisualBrief;const usage=(payload.usage&&typeof payload.usage==="object"?payload.usage:{}) as Record<string,unknown>;
+    const text=outputText(payload);
+    let brief:ImagePromptVisualBrief;
+    try{brief=(text?JSON.parse(text):{}) as ImagePromptVisualBrief;}catch{brief={} as ImagePromptVisualBrief;}
+    const usage=(payload.usage&&typeof payload.usage==="object"?payload.usage:{}) as Record<string,unknown>;
     const inputTokens=typeof usage.input_tokens==="number"?usage.input_tokens:0;const outputTokens=typeof usage.output_tokens==="number"?usage.output_tokens:0;
-    return{brief,rawResponse:payload,providerRequestId:response.headers.get("x-request-id"),inputTokens,outputTokens,totalTokens:inputTokens+outputTokens,model};
+    return{brief,rawResponse:payload,rawResponseText:rawText,providerRequestId:response.headers.get("x-request-id"),inputTokens,outputTokens,totalTokens:inputTokens+outputTokens,model};
   }
 }
 
 const genericPhrases=[/supporting the stated narrative idea/i,/contextually accurate environment/i,/clear editorial hierarchy/i,/visual evidence of (the idea|supporting)/i,/clear, grounded,? and documentary/i,/appropriate context/i,/make the relationship clear/i,/show the same story through .*different editorial reads/i,/offer alternate angles/i,/create multiple interpretations/i];
 export function validateSubstantiveVisualBrief(brief:ImagePromptVisualBrief):string[]{
-  const invalid:string[]=[];const strings:Record<string,string>={narrative_purpose:brief.narrative_purpose,central_message:brief.central_message,relationship_or_action:brief.relationship_or_action,emotional_tone:brief.emotional_tone,setting:brief.setting,composition:brief.composition};
-  for(const [key,value] of Object.entries(strings))if(!value?.trim()||genericPhrases.some((pattern)=>pattern.test(value)))invalid.push(key);
-  for(const [key,value] of Object.entries({primary_subjects:brief.primary_subjects,essential_visual_evidence:brief.essential_visual_evidence,avoid:brief.avoid}))if(!Array.isArray(value)||value.length===0||value.some((entry)=>!entry.trim()||genericPhrases.some((pattern)=>pattern.test(entry))))invalid.push(key);
-  if(!brief.source_context?.focus?.trim())invalid.push("source_context");
+  const invalid:string[]=[];
+  if(!brief||typeof brief!=="object"||new TextEncoder().encode(JSON.stringify(brief)).byteLength>NARRATIVE_INTERPRETATION_MAXIMUM_RESPONSE_BYTES)return["response"];
+  const row=brief as unknown as Record<string,unknown>;
+  const strings={narrative_purpose:row.narrative_purpose,central_message:row.central_message,relationship_or_action:row.relationship_or_action,emotional_tone:row.emotional_tone,setting:row.setting,composition:row.composition};
+  for(const [key,value] of Object.entries(strings))if(typeof value!=="string"||!value.trim()||genericPhrases.some((pattern)=>pattern.test(value)))invalid.push(key);
+  for(const [key,value,minimum,maximum] of [
+    ["primary_subjects",row.primary_subjects,1,4],
+    ["essential_visual_evidence",row.essential_visual_evidence,1,5],
+    ["avoid",row.avoid,1,5],
+  ] as const)if(!Array.isArray(value)||value.length<minimum||value.length>maximum||value.some((entry)=>typeof entry!=="string"||!entry.trim()||genericPhrases.some((pattern)=>pattern.test(entry))))invalid.push(key);
+  if(!["literal","documentary","editorial","metaphorical","historical_reconstruction","diagrammatic"].includes(String(row.visual_mode??"")))invalid.push("visual_mode");
+  const source=row.source_context;
+  if(!source||typeof source!=="object"||Array.isArray(source)||typeof (source as Record<string,unknown>).focus!=="string"||!(source as Record<string,string>).focus.trim())invalid.push("source_context");
   return [...new Set(invalid)];
 }
 function cleanPromptFragment(value:string):string{

@@ -68,10 +68,10 @@ const CONTRACTS: Record<OpenAiTextRouteCode, OpenAiTextRouteContract> = {
     activationBlocker: "test_canary_only",
   },
   "visual.narrative_interpretation": {
-    routeCode: "visual.narrative_interpretation", costPolicyRevisionId: "11000000-0000-4000-8000-000000000004",
-    runtimeModels: ["gpt-5-mini"], maximumInputUnits: 32000, maximumOutputUnits: 8000,
+    routeCode: "visual.narrative_interpretation", costPolicyRevisionId: "19000000-0000-4000-8000-000000000001",
+    runtimeModels: ["gpt-5.6-luna"], maximumInputUnits: 4096, maximumOutputUnits: 1024,
     maximumAttempts: 1, usableResultRequires: ["validation", "canonical_persistence"], activationReady: false,
-    activationBlocker: "supporting_cost_policy_unpriced",
+    activationBlocker: "test_canary_only",
   },
   "motion.broll_interpretation": {
     routeCode: "motion.broll_interpretation", costPolicyRevisionId: "11000000-0000-4000-8000-000000000005",

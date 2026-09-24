@@ -119,7 +119,7 @@ export async function interpretCanonicalImagePrompt(args: { workpieceId: string;
   if (!current.ok) return current;
   const expectedId = current.data?.revision.id ?? null;
   const expectedRevision = current.data?.revision.revision ?? 0;
-  const contracts = { interpretation: "forge.image-prompt-interpretation.v2", validator: "forge.image-prompt-validator.v1", synthesis: "forge.image-prompt-synthesis.v3" };
+  const contracts = { interpretation: "forge.image-prompt-interpretation.v2", validator: "forge.image-prompt-validator.v2", synthesis: "forge.image-prompt-synthesis.v3" };
   const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, image_moment_id: args.imageMomentId, image_map_revision_id: authority.revisionId, script_approval_id: authority.sourceScriptApprovalId, expected_prompt_revision_id: expectedId, expected_prompt_revision: expectedRevision, source_context: args.sourceContext, creator_direction: args.creatorDirection, style: args.style, contracts };
   const fingerprint = await sha256Canonical(intent);
   const operationId = `forge:image-prompt:interpret:${fingerprint}`;
