@@ -8,6 +8,7 @@ import {
 } from "./episode-package-v2";
 import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
 import { tongsFetch } from "./tongs-fetch";
+import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 const imageMapCandidatePreviewCache = new Map<string, { dataUrl: string; path: string }>();
 
@@ -88,6 +89,7 @@ export type GenerateWorkpieceImageMapCandidatesResult =
     requiresConfirmation?: boolean;
     authorizedCustomerCeiling?: number;
     authorizationMessage?: string;
+    billingQuote?: NonNullable<ReturnType<typeof readCustomerSpendingQuote>>;
   };
 
 export type SelectWorkpieceImageMapCandidateResult =
@@ -439,11 +441,13 @@ export async function generateWorkpieceImageMapCandidates(args: {
   confirmSpend?: boolean;
   alwaysApproveAiSpend?: boolean;
   generationReference?: import("./hearth-generation-reference").HearthGenerationReferenceImage | null;
+  spendingAcceptance?: ReturnType<typeof requestCustomerSpendingAcceptance>;
 }): Promise<GenerateWorkpieceImageMapCandidatesResult> {
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/generate-candidates`,
     {
       method: "POST",
+      ...(args.spendingAcceptance ? { signal: AbortSignal.timeout(240_000) } : {}),
       json: {
         workspace_id: args.workspaceId,
         image_map_entry_id: args.imageMapEntryId,
@@ -460,6 +464,7 @@ export async function generateWorkpieceImageMapCandidates(args: {
         confirm_spend: args.confirmSpend,
         always_approve_ai_spend: args.alwaysApproveAiSpend,
         generation_reference: args.generationReference ?? null,
+        ...(args.spendingAcceptance ? { spending_acceptance: args.spendingAcceptance } : {}),
       },
     },
   );
@@ -484,12 +489,19 @@ export async function generateWorkpieceImageMapCandidates(args: {
   }
 
   if (!response.ok) {
+    const billingQuote = readCustomerSpendingQuote(body);
     const error = readApiErrorMessage(body);
     return {
       ok: false,
       status: response.status,
       reason: "request_failed",
       ...(error ? { error } : {}),
+      ...(billingQuote ? {
+        requiresConfirmation: true,
+        authorizedCustomerCeiling: billingQuote.credit_charge,
+        authorizationMessage: `${billingQuote.credit_charge} Forge Credits\nFunding: ${billingQuote.funding_label}`,
+        billingQuote,
+      } : {}),
     };
   }
 

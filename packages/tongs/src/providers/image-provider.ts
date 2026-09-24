@@ -6,6 +6,8 @@ export type GenerateImageInput = {
   size?: string | null;
   model?: string | null;
   quality?: "low" | "medium" | "high";
+  imageCount?: number;
+  deadlineMs?: number;
   referenceImage?: {
     bytesBase64: string;
     mimeType: "image/png" | "image/jpeg" | "image/webp";
@@ -37,7 +39,24 @@ export type GenerateImageOutput = {
 
 export interface ImageProvider {
   generateImage(input: GenerateImageInput): Promise<GenerateImageOutput>;
+  generateImages?(input: GenerateImageInput): Promise<GenerateImageOutput[]>;
 }
+
+export const TIMELINE_IMAGE_GENERATION_CONTRACT = Object.freeze({
+  routeCode: "hearth.timeline_image_generation",
+  provider: "openai",
+  model: "gpt-image-2-2026-04-21",
+  endpoint: "/v1/images/generations",
+  size: "1536x1024",
+  quality: "high" as const,
+  outputFormat: "png" as const,
+  imageCount: 2 as const,
+  maximumAttempts: 1 as const,
+  referenceImagesAllowed: false as const,
+  providerDeadlineMs: 180_000,
+  attemptLeaseSeconds: 210,
+  outerRequestDeadlineMs: 240_000,
+});
 
 export const THUMBNAIL_BASE_GENERATION_CONTRACT = Object.freeze({
   routeCode: "hearth.thumbnail_base_generation",
@@ -58,10 +77,11 @@ export type OpenAiImageGenerationRequestBody = {
   size: string;
   quality: "low" | "medium" | "high";
   output_format: "png";
+  n?: number;
 };
 
 /** Canonical no-reference request. Property order is part of the serialized-byte contract. */
-export function buildOpenAiImageGenerationRequestBody(input: Pick<GenerateImageInput, "prompt" | "model" | "size" | "aspect" | "quality">,
+export function buildOpenAiImageGenerationRequestBody(input: Pick<GenerateImageInput, "prompt" | "model" | "size" | "aspect" | "quality" | "imageCount">,
   defaultModel: string = THUMBNAIL_BASE_GENERATION_CONTRACT.model): OpenAiImageGenerationRequestBody {
   const prompt = readString(input.prompt);
   if (!prompt) throw new Error("Image prompt is required");
@@ -71,6 +91,7 @@ export function buildOpenAiImageGenerationRequestBody(input: Pick<GenerateImageI
     size: readString(input.size) ?? mapAspectToSize(input.aspect),
     quality: input.quality ?? "high",
     output_format: "png",
+    ...(typeof input.imageCount === "number" ? { n: input.imageCount } : {}),
   };
 }
 
@@ -172,19 +193,16 @@ export function extractOpenAiImageUsage(payload: unknown): ImageProviderUsage | 
   };
 }
 
-function parseOpenAiImagePayload(payload: unknown): { b64: string; revisedPrompt: string | null } | null {
-  if (!payload || typeof payload !== "object") return null;
+function parseOpenAiImagePayload(payload: unknown): Array<{ b64: string; revisedPrompt: string | null }> {
+  if (!payload || typeof payload !== "object") return [];
   const data = (payload as Record<string, unknown>).data;
-  if (!Array.isArray(data) || data.length === 0) return null;
-  const first = data[0];
-  if (!first || typeof first !== "object") return null;
-  const row = first as Record<string, unknown>;
-  const b64 = readString(row.b64_json);
-  if (!b64) return null;
-  return {
-    b64,
-    revisedPrompt: readString(row.revised_prompt),
-  };
+  if (!Array.isArray(data) || data.length === 0) return [];
+  return data.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const b64 = readString(row.b64_json);
+    return b64 ? [{ b64, revisedPrompt: readString(row.revised_prompt) }] : [];
+  });
 }
 
 function extractOpenAiError(detail: string): string | null {
@@ -210,6 +228,12 @@ export class OpenAiImageProvider implements ImageProvider {
   }
 
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
+    const images = await this.generateImages(input);
+    if (!images[0]) throw new Error("OpenAI image generation returned no image payload");
+    return images[0];
+  }
+
+  async generateImages(input: GenerateImageInput): Promise<GenerateImageOutput[]> {
     const prompt = readString(input.prompt);
     if (!prompt) {
       throw new Error("Image prompt is required");
@@ -239,6 +263,7 @@ export class OpenAiImageProvider implements ImageProvider {
           method: "POST",
           headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
           body: serializeOpenAiImageGenerationRequestBody(requestBody),
+          signal: AbortSignal.timeout(input.deadlineMs ?? TIMELINE_IMAGE_GENERATION_CONTRACT.providerDeadlineMs),
         });
       }
     } catch (error) {
@@ -270,7 +295,7 @@ export class OpenAiImageProvider implements ImageProvider {
     }
 
     const parsed = parseOpenAiImagePayload(payload);
-    if (!parsed) {
+    if (!parsed.length) {
       const payloadRecord = payload && typeof payload === "object" && !Array.isArray(payload)
         ? payload as Record<string, unknown>
         : {};
@@ -291,12 +316,12 @@ export class OpenAiImageProvider implements ImageProvider {
       : {};
     const usage = extractOpenAiImageUsage(payload);
     const providerResponseId = readString(payloadRecord.id);
-    return {
-      bytesBase64: parsed.b64,
+    return parsed.map((image) => ({
+      bytesBase64: image.b64,
       mimeType: "image/png",
       provider: "openai",
       providerRequestId,
-      revisedPrompt: parsed.revisedPrompt,
+      revisedPrompt: image.revisedPrompt,
       tokensUsed: extractUsageTokens(payload),
       usage,
       providerResponseId,
@@ -310,6 +335,6 @@ export class OpenAiImageProvider implements ImageProvider {
         reference_purpose: input.referenceImage?.purpose ?? null,
         reference_contract_version: input.referenceImage ? IMAGE_REFERENCE_CONTRACT_VERSION : null,
       },
-    };
+    }));
   }
 }

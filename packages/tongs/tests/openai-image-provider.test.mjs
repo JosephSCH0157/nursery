@@ -24,6 +24,30 @@ test("canonical no-reference image request has deterministic exact bytes and has
   assert.equal("image" in body || "images" in body, false);
 });
 
+test("Timeline Image request is one exact n=2 body and parses exactly two outputs", async (t) => {
+  const prompt = `Create a realistic metaphorical scene showing Gasoline pump and nozzle, World map, Oil tanker: The pump is visually linked to the tanker and world map by a continuous maritime supply route.
+
+Set it in A cinematic editorial environment blending a clean gas-station foreground with a dark global shipping-map backdrop. Gasoline at a local pump is supplied through an interconnected global market and maritime trade network.
+
+Keep the mood Connected, strategic, quietly consequential. A gasoline pump and nozzle dominate the foreground, with a luminous world map behind them. A single oil tanker and glowing sea route connect distant production and distribution points across the map.
+
+Include Gasoline pump nozzle and fuel-grade display, World map spanning the background, Oil tanker on a highlighted maritime route, Glowing route line linking major coastlines.
+
+Avoid A crowd of people or identifiable drivers, Charts, price numbers, or regional gasoline comparisons, Multiple gas stations or competing brands, Unrelated cargo ships, oil rigs, or refinery close-ups.
+
+Style: cinematic_realism.`;
+  const body = buildOpenAiImageGenerationRequestBody({ prompt, model: "gpt-image-2-2026-04-21", size: "1536x1024", quality: "high", imageCount: 2 });
+  const serialized = serializeOpenAiImageGenerationRequestBody(body);
+  assert.equal(new TextEncoder().encode(serialized).byteLength, 1212);
+  assert.equal(await hashOpenAiImageGenerationRequestBody(body), "fafcec85a1aa05835afd27debfce641941fd0acba438f192c88a21b7735740b8");
+  assert.deepEqual(Object.keys(body), ["model", "prompt", "size", "quality", "output_format", "n"]);
+  const calls=[];const originalFetch=globalThis.fetch;t.after(()=>{globalThis.fetch=originalFetch;});
+  globalThis.fetch=async(url,init)=>{calls.push({url,init});return new Response(JSON.stringify({id:"img-two",data:[{b64_json:"AQID"},{b64_json:"BAUG"}]}),{status:200,headers:{"x-request-id":"req-two"}});};
+  const outputs=await new OpenAiImageProvider("test-key").generateImages({prompt,model:"gpt-image-2-2026-04-21",size:"1536x1024",quality:"high",imageCount:2,deadlineMs:180000});
+  assert.equal(calls.length,1);assert.equal(JSON.parse(calls[0].init.body).n,2);assert.equal(outputs.length,2);
+  assert.deepEqual(outputs.map((output)=>output.bytesBase64),["AQID","BAUG"]);
+});
+
 test("OpenAiImageProvider submits one explicit pinned GPT Image 2 request and preserves usage evidence", async (t) => {
   const calls = [];
   const originalFetch = globalThis.fetch;

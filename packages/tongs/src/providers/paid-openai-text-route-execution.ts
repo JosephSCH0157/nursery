@@ -115,6 +115,7 @@ export type PaidOpenAiTextRouteOutcome<T> =
 type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string, unknown>> = {
   /** Server-only continuation: immutable binding and captured evidence, never submission. */
   recoveryOnly?: boolean;
+  attemptLeaseSeconds?: number;
   gate: OpenAiTextGateClient;
   routeCode: Exclude<CoordinatedOpenAiRouteCode, "hearth.chat_completion">;
   handle: OpenAiTextPaidExecutionHandle;
@@ -663,6 +664,7 @@ async function executePaidOpenAiTextRouteInternal<
     maximumOutputUnits: context.maximumOutputUnits,
     maximumAttempts: context.maximumAttempts,
     maximumFailureExposureMicros: context.maximumFailureExposureMicros,
+    attemptLeaseSeconds: args.attemptLeaseSeconds,
     supportingCostCeilingMicros: context.supportingCostCeilingMicros,
     aggregateCallerClass: args.callerClass ?? "interactive",
     aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",

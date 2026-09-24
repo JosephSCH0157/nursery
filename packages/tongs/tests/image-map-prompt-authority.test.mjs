@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildNarrativeInterpretationCanonicalInput, buildNarrativeInterpretationProviderRequestBody, NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS, NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS, NARRATIVE_INTERPRETATION_MODEL, OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt } from "../dist/providers/narrative-interpretation-provider.js";
+import { buildImagePromptSemanticAuthority, buildNarrativeInterpretationCanonicalInput, buildNarrativeInterpretationProviderRequestBody, NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS, NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS, NARRATIVE_INTERPRETATION_MODEL, OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt } from "../dist/providers/narrative-interpretation-provider.js";
 import { buildBoundedOpenAiProviderRequest } from "../dist/providers/bounded-provider-request.js";
 
 const migration=readFileSync(new URL("../../../supabase/migrations/20260802130000_tongs_image_map_prompt_authority.sql",import.meta.url),"utf8");
@@ -13,6 +13,15 @@ test("prompt revisions and terminal receipts are immutable and direct writes rev
 });
 test("candidate generation provenance is keyed to exact canonical prompt revision",()=>{
   const source=readFileSync(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");assert.match(source,/prompt_revision_id:\s*canonicalPromptId/);assert.match(source,/prompt_content_hash:\s*canonicalPromptHash/);assert.match(source,/const prompt = canonicalPrompt/);
+});
+test("prompt semantic authority ignores operational map fields but fails on meaning changes",()=>{
+  const base={imageMomentId:"moment",scriptApprovalId:"approval",scriptApprovalRevision:1,sourceContext:{before:"before",focus:"focus",after:"after"},creatorDirection:"direction",visualStyle:"cinematic_realism"};
+  const revisionOne=buildImagePromptSemanticAuthority(base);
+  const revisionTwo=buildImagePromptSemanticAuthority({...base,source_type:"ai",visual_type:"still_image",candidate_assets:["asset"]});
+  assert.deepEqual(revisionTwo,revisionOne,"map revision/source/visual/assets are outside semantic authority");
+  assert.notDeepEqual(buildImagePromptSemanticAuthority({...base,creatorDirection:"changed"}),revisionOne);
+  assert.notDeepEqual(buildImagePromptSemanticAuthority({...base,scriptApprovalId:"new-approval"}),revisionOne);
+  assert.notDeepEqual(buildImagePromptSemanticAuthority({...base,sourceContext:{...base.sourceContext,focus:"changed focus"}}),revisionOne);
 });
 test("generic interpretation is rejected and concrete synthesis has no empty section",()=>{
   const brief={narrative_purpose:"supporting the stated narrative idea",central_message:"Florida juice competes with California fruit",primary_subjects:["glass of juice","crates of oranges"],relationship_or_action:"competing for shoppers",emotional_tone:"energetic rivalry",visual_mode:"editorial",setting:"grocery citrus display backed by two different orchard climates",composition:"products face one another in balanced opposing halves",essential_visual_evidence:["juice glass","orange crates"],avoid:["maps","state outlines"],source_context:{before:null,focus:"Florida versus California",after:null}};

@@ -9,6 +9,7 @@ import {
   selectWorkpieceImageMapCandidate,
   uploadWorkpieceImageMapCandidateAsset,
 } from "../../lib/hearth-image-map-repo";
+import { requestCustomerSpendingAcceptance } from "../../../../../packages/tongs/src/customer-spending-confirmation";
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import { nextUnresolvedEpisodeImageId } from "../../lib/hearth-episode-images-view-model";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
@@ -120,7 +121,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       return;
     }
 
-    let expectedMetadataUpdatedAt = args.imageMapMetadataUpdatedAt;
+    const expectedMetadataUpdatedAt = args.imageMapMetadataUpdatedAt;
     let context: { before: string | null; after: string | null };
     const operation = args.operationAuthority.begin("ig");
     args.setIsImageMapCandidateGenerating(true);
@@ -163,30 +164,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
 
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
 
-    const requestedSourceType = mode === "stock" ? "stock" : "ai";
-    if (args.selectedImageMapEntry.source_type !== requestedSourceType) {
-      const updatedEntries = args.episodePackage.image_map.entries.map((entry) => (
-        entry.id === args.selectedImageMapEntry?.id
-          ? {
-              ...entry,
-              source_type: requestedSourceType,
-              origin: entry.origin === "creator_hearth" ? "creator_hearth" as const : "hearth" as const,
-            }
-          : entry
-      ));
-      const sourceSaved = await args.persistImageMapEntries({ entries: updatedEntries });
-      if (!args.operationAuthority.isCurrent(operation)) return;
-      if (!sourceSaved.ok) {
-        args.setImageMapCandidateError(sourceSaved.error);
-        args.setIsImageMapCandidateGenerating(false);
-        return;
-      }
-      expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
-      args.setImageMapSourceTypeDraft(requestedSourceType);
-    }
-
     try {
-      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined, confirmSpend: boolean) => (
+      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined, spendingAcceptance?: ReturnType<typeof requestCustomerSpendingAcceptance>) => (
         generateWorkpieceImageMapCandidates({
           workpieceId: episodeId,
           workspaceId: workspace,
@@ -198,28 +177,42 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           contextBefore: context.before,
           contextAfter: context.after,
           aspect: args.thumbnailAspect,
-          confirmSpend,
-          alwaysApproveAiSpend: confirmSpend && alwaysApproveSpend,
+          confirmSpend: Boolean(spendingAcceptance),
+          alwaysApproveAiSpend: Boolean(spendingAcceptance) && alwaysApproveSpend,
+          spendingAcceptance,
           generationReference: args.selectedImageMapEntry!.generation_reference ?? null,
         })
       );
 
       let confirmed = true;
       if (args.aiBillingMode === "forge") {
-        const quote = await requestCandidateGeneration(expectedMetadataUpdatedAt, false);
+        const quote = await requestCandidateGeneration(expectedMetadataUpdatedAt);
         if (!args.operationAuthority.isCurrent(operation)) return;
         if (quote.ok || !quote.requiresConfirmation) {
           args.setImageMapCandidateError(quote.ok ? "Paid image quote unexpectedly generated media before approval." : quote.error ?? "Unable to quote image generation.");
           return;
         }
-        confirmed = alwaysApproveSpend || window.confirm(quote.authorizationMessage
-          ?? `Generate two images? Up to ${(quote.authorizedCustomerCeiling ?? 0).toLocaleString()} AI credits will be held.`);
-        if (!confirmed) return;
+        if (!quote.billingQuote) {
+          args.setImageMapCandidateError("The spending quote could not be verified.");
+          return;
+        }
+        const acceptance = requestCustomerSpendingAcceptance(quote.billingQuote);
+        if (!acceptance) return;
+        const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt, acceptance);
+        if (!args.operationAuthority.isCurrent(operation)) return;
+        if (!generated.ok) {
+          args.setImageMapCandidateError(generated.error ?? "Timeline image generation failed.");
+          return;
+        }
+        args.setEpisodePackage((prev) => prev ? args.replaceEpisodePackageImageMap(prev, generated.imageMap.entries, generated.imageMap.spokenBeats) : prev);
+        args.setImageMapMetadataUpdatedAt(generated.imageMap.metadataUpdatedAt);
+        args.setImageMapExportMessage(`Generated ${generated.generatedAssets.length} timeline image candidates.`);
+        return;
       } else {
         confirmed = window.confirm(mode === "stock" ? "Find stock-style candidates with your configured provider?" : "Generate two images with your configured provider?");
         if (!confirmed) return;
       }
-      const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt, confirmed);
+      const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
       if (!args.operationAuthority.isCurrent(operation)) return;
 
       if (!generated.ok) {

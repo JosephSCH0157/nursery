@@ -122,6 +122,7 @@ export type PaidOpenAiTextExecutionInput<T> = {
   maximumOutputUnits: number;
   maximumAttempts: number;
   maximumFailureExposureMicros: number;
+  attemptLeaseSeconds?: number;
   supportingCostCeilingMicros?: number;
   aggregateCallerClass: AggregateAdmissionCallerClass;
   aggregateProviderMode: AggregateProviderMode;
@@ -227,7 +228,7 @@ export class PaidOpenAiTextExecutionCoordinator {
           p_attempt_number: attemptNumber,
           p_caller_class: attemptNumber === 1 ? input.aggregateCallerClass : "retry",
           p_failure_exposure_micros: input.credentialFunding === "forge" ? input.maximumFailureExposureMicros : 0,
-          p_lease_seconds: OPENAI_TEXT_ATTEMPT_LEASE_SECONDS,
+          p_lease_seconds: input.attemptLeaseSeconds ?? OPENAI_TEXT_ATTEMPT_LEASE_SECONDS,
           p_evidence_json: {
             provider: "openai",
             route_code: input.routeCode,

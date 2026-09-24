@@ -79,7 +79,7 @@ import {
   normalizeOpenAiTextPaidExecutionHandle,
   type OpenAiTextPaidExecutionHandle,
 } from "./providers/paid-openai-text-route-execution.js";
-import type { OpenAiTextGateClient } from "./providers/paid-openai-text-execution-coordinator.js";
+import { OpenAiTextProviderError, type OpenAiTextGateClient } from "./providers/paid-openai-text-execution-coordinator.js";
 import {
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
@@ -162,6 +162,7 @@ import {
   hashOpenAiImageGenerationRequestBody,
   serializeOpenAiImageGenerationRequestBody,
   THUMBNAIL_BASE_GENERATION_CONTRACT,
+  TIMELINE_IMAGE_GENERATION_CONTRACT,
   extractOpenAiImageUsage,
   OpenAiImageProvider,
   type GenerateImageInput,
@@ -169,6 +170,7 @@ import {
 } from "./providers/image-provider.js";
 import {
   buildNarrativeInterpretationCanonicalInput,
+  buildImagePromptSemanticAuthority,
   buildNarrativeInterpretationProviderRequestBody,
   NARRATIVE_INTERPRETATION_CONTRACT_VERSION,
   NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS,
@@ -1589,6 +1591,8 @@ export type GenerateImageMapCandidatesRequest = {
   prompt_revision: number;
   prompt_content_hash: string;
   generation_reference?: GenerationReferenceRequest | null;
+  spending_acceptance?: OpenAiTextSpendingAcceptance | null;
+  paid_execution?: OpenAiTextPaidExecutionHandle | null;
 };
 
 type GenerationReferenceRequest = {
@@ -4779,6 +4783,10 @@ function uuidFromSha256(hash: string): string {
   hex[16] = ((Number.parseInt(hex[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
   const value = hex.join("");
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function isForgeImageLane(value: "forge" | "byo"): boolean {
+  return value === "forge";
 }
 
 function buildStorageKey(workpieceId: string, path: string): string {
@@ -8153,6 +8161,7 @@ function normalizeGenerateImageMapCandidatesRequest(
     generation_reference: normalizeGenerationReference(
       body.generation_reference,
     ),
+    spending_acceptance: normalizeOpenAiTextSpendingAcceptance(body.spending_acceptance),
     user_access_token: userAccessToken,
   };
 }
@@ -33563,54 +33572,53 @@ export class TongsCommitService {
         },
       );
     const verifiedPromptRevision = promptRevision as Record<string, unknown>;
-    const promptMapRevisionId = readStringField(
-      verifiedPromptRevision,
-      "image_map_revision_id",
-    );
-    const promptMapRevision = Number(verifiedPromptRevision.image_map_revision);
-    const promptMatchesCurrentMap =
-      promptMapRevisionId === canonical.authority.revisionId &&
-      promptMapRevision === canonical.authority.revision;
     const promptIdentityMatches =
       readStringField(verifiedPromptRevision, "image_moment_id") === entry.id &&
       readStringField(verifiedPromptRevision, "script_approval_id") ===
         canonical.authority.scriptApprovalId &&
       Number(verifiedPromptRevision.script_approval_revision) ===
         canonical.authority.scriptApprovalRevision;
-    let promptBasisStillCurrent = promptMatchesCurrentMap;
-    if (
-      promptIdentityMatches &&
-      !promptMatchesCurrentMap &&
-      promptMapRevisionId &&
-      Number.isInteger(promptMapRevision) &&
-      promptMapRevision > 0 &&
-      promptMapRevision < canonical.authority.revision
-    ) {
-      const storedSourceContext = isRecord(
-        verifiedPromptRevision.source_context_json,
-      )
-        ? verifiedPromptRevision.source_context_json
-        : null;
-      const storedCreatorDirection = readStringField(
-        verifiedPromptRevision,
-        "creator_direction",
-      );
-      const currentIndex = canonical.entries.findIndex(
-        (candidate) => candidate.id === entry.id,
-      );
-      if (storedSourceContext && storedCreatorDirection && currentIndex >= 0) {
-        const currentSourceContext = buildImageMapPromptSourceContext(
-          canonical.entries,
-          currentIndex,
-          storedCreatorDirection,
-          storedSourceContext.editorial_purpose,
-        );
-        const [storedContextHash, currentContextHash] = await Promise.all([
-          sha256Hex(canonicalJsonBytes(storedSourceContext)),
-          sha256Hex(canonicalJsonBytes(currentSourceContext)),
-        ]);
-        promptBasisStillCurrent = storedContextHash === currentContextHash;
-      }
+    const interpretationRequest = isRecord(verifiedPromptRevision.interpretation_request_json)
+      ? verifiedPromptRevision.interpretation_request_json : null;
+    const storedSource = interpretationRequest && isRecord(interpretationRequest.source_context)
+      ? interpretationRequest.source_context : null;
+    const currentIndex = canonical.entries.findIndex((candidate) => candidate.id === entry.id);
+    const currentContext = currentIndex >= 0
+      ? buildImageMapPromptSourceContext(canonical.entries, currentIndex, entry.description, null)
+      : null;
+    let promptBasisStillCurrent = false;
+    const scriptApprovalId = canonical.authority.scriptApprovalId;
+    const scriptApprovalRevision = canonical.authority.scriptApprovalRevision;
+    if (!scriptApprovalId || scriptApprovalRevision == null) {
+      throw new HttpError(409, "prompt_authority_mismatch", "Canonical script authority is incomplete.");
+    }
+    if (promptIdentityMatches && interpretationRequest && storedSource && currentContext) {
+      const storedSemantic = buildImagePromptSemanticAuthority({
+        imageMomentId: readStringField(interpretationRequest, "image_moment_id") ?? entry.id,
+        scriptApprovalId: readStringField(interpretationRequest, "script_approval_id") ?? scriptApprovalId,
+        scriptApprovalRevision: Number(interpretationRequest.script_approval_revision),
+        sourceContext: {
+          before: readStringField(storedSource, "before"),
+          focus: readStringField(storedSource, "focus") ?? "",
+          after: readStringField(storedSource, "after"),
+        },
+        creatorDirection: readStringField(interpretationRequest, "creator_direction") ?? "",
+        visualStyle: readStringField(interpretationRequest, "visual_style"),
+      });
+      const currentSemantic = buildImagePromptSemanticAuthority({
+        imageMomentId: entry.id,
+        scriptApprovalId,
+        scriptApprovalRevision,
+        sourceContext: {
+          before: readStringField(currentContext, "before"),
+          focus: readStringField(currentContext, "focus") ?? "",
+          after: readStringField(currentContext, "after"),
+        },
+        creatorDirection: entry.description,
+        visualStyle: entry.style_preset ?? null,
+      });
+      promptBasisStillCurrent = await sha256Hex(canonicalJsonBytes(storedSemantic))
+        === await sha256Hex(canonicalJsonBytes(currentSemantic));
     }
     if (!promptIdentityMatches || !promptBasisStillCurrent)
       throw new HttpError(
@@ -33618,6 +33626,25 @@ export class TongsCommitService {
         "prompt_authority_mismatch",
         "The current prompt no longer matches this image moment's canonical direction or approved script.",
       );
+
+    const certifiedPromptId = canonicalPromptId;
+    const certifiedPromptRevision = canonicalPromptRevision;
+    const certifiedPromptHash = canonicalPromptHash;
+    const certifiedPrompt = canonicalPrompt;
+
+    if (lane === "forge") {
+      return this.generateTimelineImageCandidatesPaid({
+        workpieceId, input, userAccessToken, authUserId: auth.userId, current, canonical,
+        entry, canonicalPromptId: certifiedPromptId, canonicalPromptRevision: certifiedPromptRevision,
+        canonicalPromptHash: certifiedPromptHash, canonicalPrompt: certifiedPrompt,
+        semanticAuthorityHash: await sha256Hex(canonicalJsonBytes(buildImagePromptSemanticAuthority({
+          imageMomentId: entry.id, scriptApprovalId,
+          scriptApprovalRevision,
+          sourceContext: { before: readStringField(currentContext!, "before"), focus: readStringField(currentContext!, "focus") ?? "", after: readStringField(currentContext!, "after") },
+          creatorDirection: entry.description, visualStyle: entry.style_preset ?? null,
+        }))),
+      });
+    }
 
     const priorCandidateAssets = await this.listReadyImageMapCandidateAssets(
       input.workspace_id,
@@ -33690,7 +33717,7 @@ export class TongsCommitService {
       variantLabel: string;
     }> = [];
     if (
-      lane === "forge" &&
+      isForgeImageLane(lane) &&
       !input.confirm_spend &&
       !input.always_approve_ai_spend
     ) {
@@ -33703,7 +33730,7 @@ export class TongsCommitService {
             workpieceId,
             operationId,
             tool: "hearth_episode_images",
-            originatingEntityId: entry.id,
+            originatingEntityId: entry!.id,
             promptRevisionId: canonicalPromptId,
             promptContentHash: await sha256Hex(
               canonicalJsonBytes({
@@ -33714,7 +33741,7 @@ export class TongsCommitService {
                   : null,
               }),
             ),
-            prompt: canonicalPrompt,
+            prompt: certifiedPrompt,
             size,
             quality: "high",
           });
@@ -33880,14 +33907,14 @@ export class TongsCommitService {
       }
       const operationId = `${imageMapActionId}:${variant.label}`;
       const paidContext =
-        lane === "forge"
+        isForgeImageLane(lane)
           ? await this.executePaidImageGeneration({
               userId: auth.userId,
               workspaceId: input.workspace_id,
               workpieceId,
               operationId,
               tool: "hearth_episode_images",
-              originatingEntityId: entry.id,
+              originatingEntityId: entry!.id,
               promptRevisionId: canonicalPromptId,
               promptContentHash: await sha256Hex(
                 canonicalJsonBytes({
@@ -33931,14 +33958,14 @@ export class TongsCommitService {
       const retryPrompt = canonicalPrompt;
       const retryOperationId = `${imageMapActionId}:${AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY}`;
       const retryPaidContext =
-        lane === "forge"
+        isForgeImageLane(lane)
           ? await this.executePaidImageGeneration({
               userId: auth.userId,
               workspaceId: input.workspace_id,
               workpieceId,
               operationId: retryOperationId,
               tool: "hearth_episode_images",
-              originatingEntityId: entry.id,
+              originatingEntityId: entry!.id,
               promptRevisionId: canonicalPromptId,
               promptContentHash: await sha256Hex(
                 canonicalJsonBytes({
@@ -34196,6 +34223,236 @@ export class TongsCommitService {
       }
       throw error;
     }
+  }
+
+  private async generateTimelineImageCandidatesPaid(args: {
+    workpieceId: string;
+    input: GenerateImageMapCandidatesRequest;
+    userAccessToken: string | null;
+    authUserId: string;
+    current: Awaited<ReturnType<TongsCommitService["readWorkpieceImageMapState"]>>;
+    canonical: NonNullable<Awaited<ReturnType<TongsCommitService["readCanonicalImageMapProjection"]>>>;
+    entry: EpisodeImageMapEntryRecord;
+    canonicalPromptId: string;
+    canonicalPromptRevision: number;
+    canonicalPromptHash: string;
+    canonicalPrompt: string;
+    semanticAuthorityHash: string;
+  }): Promise<GenerateImageMapCandidatesResponse> {
+    const { input, workpieceId, entry } = args;
+    if (input.generation_reference) {
+      throw new HttpError(409, "timeline_image_reference_not_certified",
+        "The current Timeline Image Test product does not support reference images. Remove the reference before requesting a quote.");
+    }
+    const size = input.size?.trim() || TIMELINE_IMAGE_GENERATION_CONTRACT.size;
+    const aspect = input.aspect?.trim() || "16:9";
+    if (size !== TIMELINE_IMAGE_GENERATION_CONTRACT.size || aspect !== "16:9") {
+      throw new HttpError(409, "timeline_image_request_shape_not_certified",
+        "The current Timeline Image Test product requires exactly two 1536x1024 high PNG outputs.");
+    }
+    const provider = this.imageProvider;
+    if (!provider?.generateImages) {
+      throw new HttpError(503, "timeline_image_provider_contract_unavailable",
+        "The configured image provider does not support one-request two-output generation.");
+    }
+    const generateImages = provider.generateImages.bind(provider);
+    const providerBody = buildOpenAiImageGenerationRequestBody({
+      prompt: args.canonicalPrompt, model: TIMELINE_IMAGE_GENERATION_CONTRACT.model,
+      size, quality: TIMELINE_IMAGE_GENERATION_CONTRACT.quality,
+      imageCount: TIMELINE_IMAGE_GENERATION_CONTRACT.imageCount,
+    });
+    const providerBodySerialized = serializeOpenAiImageGenerationRequestBody(providerBody);
+    const providerBodySha256 = await hashOpenAiImageGenerationRequestBody(providerBody);
+    const operationIdentityHash = await sha256Hex(canonicalJsonBytes({
+      route_code: TIMELINE_IMAGE_GENERATION_CONTRACT.routeCode,
+      workspace_id: input.workspace_id, workpiece_id: workpieceId,
+      image_map_revision_id: args.canonical.authority.revisionId,
+      image_map_revision: args.canonical.authority.revision,
+      image_moment_id: entry.id, prompt_revision_id: args.canonicalPromptId,
+      prompt_content_hash: args.canonicalPromptHash,
+      semantic_authority_hash: args.semanticAuthorityHash,
+      provider_body_sha256: providerBodySha256,
+    }));
+    const operationId = `hearth:timeline-image:${uuidFromSha256(operationIdentityHash)}`;
+    const requestFingerprintPayload = {
+      route_code: TIMELINE_IMAGE_GENERATION_CONTRACT.routeCode,
+      operation_id: operationId, workspace_id: input.workspace_id, workpiece_id: workpieceId,
+      image_moment_id: entry.id, prompt_revision_id: args.canonicalPromptId,
+      prompt_content_hash: args.canonicalPromptHash, semantic_authority_hash: args.semanticAuthorityHash,
+      provider_body_sha256: providerBodySha256, endpoint: TIMELINE_IMAGE_GENERATION_CONTRACT.endpoint,
+      image_count: 2, reference_image_count: 0,
+    };
+    const requestFingerprint = await fingerprintOpenAiTextPaidRequest(requestFingerprintPayload);
+    const stagedImages = async (): Promise<Awaited<ReturnType<NonNullable<ImageProvider["generateImages"]>>> | null> => {
+      const staged = await this.openAiTextGate.rpc("read_staged_timeline_image_generation_result", {
+        p_operation_id: operationId, p_request_fingerprint: requestFingerprint,
+      });
+      if (staged.error) throw new Error(`Timeline image recovery read failed: ${staged.error.message}`);
+      if (!isRecord(staged.data) || !Array.isArray(staged.data.outputs)) return null;
+      const outputs = staged.data.outputs.filter(isRecord).map((row) => ({
+        bytesBase64: readStringField(row, "bytes_base64") ?? "", mimeType: readStringField(row, "mime_type") ?? "",
+        provider: "openai", providerRequestId: readStringField(staged.data as Record<string, unknown>, "provider_request_id"),
+        revisedPrompt: null, tokensUsed: null, usage: null,
+        providerResponseId: readStringField(staged.data as Record<string, unknown>, "provider_response_id"),
+        responseEvidence: { recovered: true, child_ordinal: Number(row.child_ordinal) },
+      }));
+      return outputs.length === 2 && outputs.every((row) => row.bytesBase64 && row.mimeType === "image/png") ? outputs : null;
+    };
+
+    let paidExecution = input.paid_execution ?? null;
+    if (!paidExecution) {
+      try {
+        paidExecution = await resolveOrdinaryOpenAiTextFunding({
+          routeCode: "hearth.timeline_image_generation", operationId,
+          userId: args.authUserId, workspaceId: input.workspace_id, workpieceId,
+          requestFingerprint, model: providerBody.model, credentialFunding: "forge",
+          acceptance: input.spending_acceptance ?? null, serviceGate: this.openAiTextGate,
+          userGate: this.imagePromptAuthorityClient(args.userAccessToken) as unknown as OpenAiTextGateClient,
+          prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) => buildBoundedOpenAiProviderRequest({
+            body: { ...providerBody, model }, model, maximumOutputTokens, maximumAttempts,
+            serviceTier: "standard", protocolOverheadTokens: 0, preserveBodyPropertyOrder: true,
+          }),
+        });
+      } catch (error) { throwOpenAiFundingHttpError(error); }
+    }
+    if (!paidExecution) throw new HttpError(423, "timeline_image_paid_execution_inactive", "Timeline Image paid execution is not active.");
+
+    const persistImages = async (images: Awaited<ReturnType<NonNullable<ImageProvider["generateImages"]>>>): Promise<Record<string, unknown>> => {
+      if (images.length !== 2) throw new Error("Timeline Image product requires exactly two provider outputs.");
+      const priorAssets = await this.listReadyImageMapCandidateAssets(input.workspace_id, workpieceId, entry.id);
+      const generatedAssets: ImageMapCandidateAssetSummary[] = [];
+      const writtenBy: WrittenBy = { tool: "hearth", tool_version: "0.0.0", lane: "forge-managed" };
+      const visualMode = inferImageMapVisualMode(entry, `${input.context_before ?? ""}\n${input.context_after ?? ""}`, args.current.episodePackage.spoken_beats);
+      for (const [index, image] of images.entries()) {
+        const ordinal = index + 1;
+        const assetId = uuidFromSha256(await sha256Text(`${operationId}:output:${ordinal}`));
+        const variantLabel = `Candidate ${ordinal}`;
+        const requestId = `${operationId}:output:${ordinal}`;
+        const assetPath = buildImageMapCandidateAssetPath({ workpieceId, entryId: entry.id, assetId, variantLabel, mimeType: image.mimeType });
+        const committed = await this.commitFile(workpieceId, {
+          path: assetPath, content_type: image.mimeType, file_type: IMAGE_MAP_CANDIDATE_ASSET_KIND,
+          bytes_base64: image.bytesBase64, written_by: writtenBy,
+          event_name: "hearth.timeline_image.output.staged.v1",
+          event_payload: { operation_id: operationId, child_ordinal: ordinal, provider_request_id: image.providerRequestId } as Json,
+          correlation_id: requestId,
+        });
+        const assetRow = await this.insertAssetRow({
+          id: assetId, workspace_id: input.workspace_id, workpiece_id: workpieceId, path: assetPath,
+          mime_type: image.mimeType, bytes: parseBase64ByteLength(image.bytesBase64),
+          storage_bucket: committed.file_row.storage_bucket, storage_key: committed.storage_key,
+          provider: image.provider, provider_request_id: image.providerRequestId, request_id: requestId,
+          prompt: args.canonicalPrompt, created_by: args.authUserId, asset_kind: IMAGE_MAP_CANDIDATE_ASSET_KIND,
+          status: "ready", metadata_json: buildImageMapCandidateAssetMetadata({ entry, visualMode, variantLabel,
+            prompt: args.canonicalPrompt, revisedPrompt: image.revisedPrompt, aspect, size,
+            promptRevisionId: args.canonicalPromptId, promptRevision: args.canonicalPromptRevision,
+            promptContentHash: args.canonicalPromptHash }),
+          operation_id: operationId, operation_fingerprint: await sha256Text(`${requestFingerprint}:${ordinal}`),
+          content_hash: committed.file_row.hash_value, ...resolveCanonicalGeneratedImageDimensions(size),
+          ready_at: committed.file_row.updated_at ?? new Date().toISOString(), supersedes_asset_id: null,
+        }, "Failed to register Timeline Image candidate asset");
+        const summary = normalizeImageMapCandidateAssetSummary(assetRow);
+        if (!summary) throw new Error("Timeline Image candidate asset readback was invalid.");
+        generatedAssets.push(summary);
+      }
+      const nextEntries = args.current.episodePackage.image_map.entries.map((candidate) => candidate.id !== entry.id ? candidate : ({
+        ...candidate, source_type: "ai" as const,
+        candidate_assets: generatedAssets.map((asset) => ({ asset_id: asset.id, path: asset.path,
+          variant_label: asset.variant_label, visual_mode: asset.visual_mode, mime_type: asset.mime_type })),
+        selected_asset_id: null, status: "candidates_generated" as const,
+      }));
+      const saved = await this.saveWorkpieceImageMap(workpieceId, { workspace_id: input.workspace_id,
+        entries: nextEntries, expected_metadata_updated_at: args.current.metadataUpdatedAt }, { userAccessToken: args.userAccessToken });
+      await this.commitCanonicalImageMap({ workspaceId: input.workspace_id, workpieceId, actorId: args.authUserId,
+        entries: nextEntries, mutationKind: "regenerate_from_approved_script",
+        operationId: `forge:image-map:generate:${uuidFromSha256(operationIdentityHash)}`,
+        targetApprovalId: args.canonical.authority.scriptApprovalId, expectedRevision: args.canonical.authority.revision,
+        expectedRevisionId: args.canonical.authority.revisionId, affectedEntryIds: [entry.id],
+        inputs: { generated_asset_ids: generatedAssets.map((asset) => asset.id), timeline_image_operation_id: operationId },
+      });
+      const readback = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+      const readbackEntry = readback?.entries.find((candidate) => candidate.id === entry.id);
+      const readbackIds = new Set((readbackEntry?.candidate_assets ?? []).map((asset) => asset.asset_id));
+      if (generatedAssets.length !== 2 || generatedAssets.some((asset) => !readbackIds.has(asset.id))) {
+        throw new Error("Canonical Timeline Image readback did not contain both child outputs.");
+      }
+      const finalized = await this.openAiTextGate.rpc("finalize_timeline_image_generation_result", {
+        p_operation_id: operationId, p_request_fingerprint: requestFingerprint,
+        p_image_map_revision_id: readback!.authority.revisionId,
+        p_asset_ids: generatedAssets.map((asset) => asset.id),
+      });
+      if (finalized.error) throw new Error(`Timeline Image result finalization failed: ${finalized.error.message}`);
+      await this.supersedeAssets(resolvePriorCandidateAssetIdsToSupersede(priorAssets.map((asset) => asset.id), generatedAssets.map((asset) => asset.id)),
+        "Failed to supersede prior Timeline Image candidate assets");
+      return { image_map: saved.image_map as unknown as Record<string, unknown>, asset: saved.asset as unknown as Record<string, unknown>,
+        generated_assets: generatedAssets as unknown as Record<string, unknown>[], provider_body_sha256: providerBodySha256,
+        operation_id: operationId };
+    };
+
+    const outcome = await executePaidOpenAiTextRoute({
+      gate: this.openAiTextGate, routeCode: "hearth.timeline_image_generation", handle: paidExecution,
+      userId: args.authUserId, workspaceId: input.workspace_id, workpieceId, credentialSource: "forge_managed",
+      requestFingerprintPayload, attemptLeaseSeconds: TIMELINE_IMAGE_GENERATION_CONTRACT.attemptLeaseSeconds,
+      prepareBoundedRequest: (context) => buildBoundedOpenAiProviderRequest({ body: { ...providerBody, model: context.model },
+        model: context.model, maximumOutputTokens: context.maximumOutputUnits, maximumAttempts: context.maximumAttempts,
+        serviceTier: "standard", protocolOverheadTokens: 0, preserveBodyPropertyOrder: true }),
+      recoverCanonical: async () => {
+        const recovered = await stagedImages();
+        if (!recovered) return null;
+        return { result: await persistImages(recovered), providerRequestId: recovered[0]?.providerRequestId ?? null,
+          inputUnits: 1, outputUnits: 2 };
+      },
+      executeProvider: async (context, _attemptNumber, boundedRequest) => {
+        if (!boundedRequest || boundedRequest.serializedBody !== providerBodySerialized
+          || boundedRequest.serializedBodySha256 !== providerBodySha256) throw new OpenAiTextBoundaryError("funding_context_required");
+        let images: Awaited<ReturnType<NonNullable<ImageProvider["generateImages"]>>>;
+        try {
+          images = await generateImages({ prompt: providerBody.prompt, model: context.model,
+            size: providerBody.size, quality: providerBody.quality, imageCount: 2,
+            deadlineMs: TIMELINE_IMAGE_GENERATION_CONTRACT.providerDeadlineMs });
+        } catch (error) {
+          if (error instanceof ImageProviderRequestError) throw new OpenAiTextProviderError(error.message,
+            error.delivery === "ambiguous_transport", null, error.evidence, false);
+          throw error;
+        }
+        if (images.length !== 2) throw new OpenAiTextProviderError("OpenAI returned a partial Timeline Image result.", false, 334900,
+          { output_count: images.length }, false);
+        const stagedOutputs = await Promise.all(images.map(async (image, index) => ({
+          child_ordinal: index + 1, bytes_base64: image.bytesBase64, mime_type: image.mimeType,
+          content_hash: null, staged_asset_id: uuidFromSha256(await sha256Text(`${operationId}:output:${index + 1}`)),
+        })));
+        const staged = await this.openAiTextGate.rpc("stage_timeline_image_generation_result", {
+          p_operation_id: operationId, p_request_fingerprint: requestFingerprint, p_provider_body_sha256: providerBodySha256,
+          p_provider_request_id: images[0]?.providerRequestId ?? null, p_provider_response_id: images[0]?.providerResponseId ?? null,
+          p_prompt_revision_id: args.canonicalPromptId, p_prompt_content_hash: args.canonicalPromptHash,
+          p_semantic_authority_hash: args.semanticAuthorityHash,
+          p_image_moment_id: entry.id,
+          p_outputs: stagedOutputs,
+        });
+        if (staged.error) throw new Error(`Timeline Image provider result retention failed: ${staged.error.message}`);
+        return { value: images, requestId: images[0]?.providerRequestId ?? null, inputUnits: 1, outputUnits: 2,
+          supplierCostMicros: 334900, supplierCostAuthoritative: true, supportingCostMicros: 0,
+          supportingCostAuthoritative: true, costCoverageComplete: true,
+          evidence: { route_code: TIMELINE_IMAGE_GENERATION_CONTRACT.routeCode, provider_body_sha256: providerBodySha256,
+            endpoint: TIMELINE_IMAGE_GENERATION_CONTRACT.endpoint, image_count: 2, supplier_cost_micros: 334900 },
+          privateCaptureEvidence: { outputs: images.map((image, index) => ({ child_ordinal: index + 1,
+            provider_response: image.responseEvidence, generated_bytes_base64: image.bytesBase64 })) },
+        };
+      },
+      validateResult: (images) => { if (images.length !== 2 || images.some((image) => image.mimeType !== "image/png" || !image.bytesBase64))
+        throw new Error("Timeline Image result must contain exactly two PNG outputs."); },
+      persistCanonical: persistImages,
+    });
+    if (outcome.state !== "settled" && outcome.state !== "settled_replay") {
+      throw new HttpError(outcome.state === "submission_unknown" ? 202 : 502, `timeline_image_${outcome.state}`,
+        outcome.state === "submission_unknown" ? "The image submission outcome is unknown and will not be submitted again."
+          : "Timeline Image generation failed; the customer was not charged.");
+    }
+    return {
+      image_map: outcome.result.image_map as unknown as GenerateImageMapCandidatesResponse["image_map"],
+      asset: outcome.result.asset as unknown as GenerateImageMapCandidatesResponse["asset"],
+      generated_assets: outcome.result.generated_assets as unknown as ImageMapCandidateAssetSummary[],
+      ai_credits_used: outcome.customerChargeMicros,
+    };
   }
 
   async saveWorkpieceImageMap(

@@ -26,6 +26,19 @@ export const NARRATIVE_INTERPRETATION_MAXIMUM_OUTPUT_TOKENS=1024;
 export const NARRATIVE_INTERPRETATION_MAXIMUM_RESPONSE_BYTES=16384;
 export const NARRATIVE_INTERPRETATION_MAXIMUM_ATTEMPTS=1;
 
+export function buildImagePromptSemanticAuthority(input:{
+  imageMomentId:string;scriptApprovalId:string;scriptApprovalRevision:number;
+  sourceContext:{before:string|null;focus:string;after:string|null};creatorDirection:string;visualStyle:string|null;
+}):Record<string,unknown>{
+  return{
+    image_moment_id:input.imageMomentId,script_approval_id:input.scriptApprovalId,
+    script_approval_revision:input.scriptApprovalRevision,
+    source_context:{before:input.sourceContext.before,focus:input.sourceContext.focus,after:input.sourceContext.after},
+    creator_direction:input.creatorDirection,visual_style:input.visualStyle,
+    contracts:{interpretation:NARRATIVE_INTERPRETATION_CONTRACT_VERSION,validator:NARRATIVE_INTERPRETATION_VALIDATOR_VERSION,synthesis:NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION},
+  };
+}
+
 const required=["narrative_purpose","central_message","primary_subjects","relationship_or_action","emotional_tone","visual_mode","setting","composition","essential_visual_evidence","avoid","source_context"];
 const briefSchema={type:"object",additionalProperties:false,required,properties:{
   narrative_purpose:{type:"string"},central_message:{type:"string"},primary_subjects:{type:"array",items:{type:"string"},minItems:1,maxItems:4},relationship_or_action:{type:"string"},emotional_tone:{type:"string"},visual_mode:{type:"string",enum:["literal","documentary","editorial","metaphorical","historical_reconstruction","diagrammatic"]},setting:{type:"string"},composition:{type:"string"},essential_visual_evidence:{type:"array",items:{type:"string"},minItems:1,maxItems:5},avoid:{type:"array",items:{type:"string"},minItems:1,maxItems:5},source_context:{type:"object",additionalProperties:false,required:["before","focus","after"],properties:{before:{type:["string","null"]},focus:{type:"string"},after:{type:["string","null"]}}}
