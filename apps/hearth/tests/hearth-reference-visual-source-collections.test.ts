@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
-import {projectReferenceVisualSourceChoice,validateReferenceVisualSourceSetReceipt} from "../src/lib/hearth-reference-visual-collections";
+import {projectReferenceVisualEvidencePresentation,projectReferenceVisualSourceChoice,validateReferenceVisualSourceSetReceipt,type CollectionEvidenceProposal} from "../src/lib/hearth-reference-visual-collections";
 
 const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
 const visualAuthority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
@@ -38,6 +38,14 @@ test("Source choices distinguish promotion from adding support without dropping 
  assert.deepEqual(projectReferenceVisualSourceChoice([primary,support],support,"support"),[primary,support]);
 });
 
+test("Evidence presentation prioritizes direct matches while preserving every other finding",()=>{
+ const proposal=(label:string,ordinal:number,supports:boolean,matchedTerms:string[]):CollectionEvidenceProposal=>({evidenceIntent:"numeric_stat",sourceSetMemberId:`member-${label}`,ordinal,sourceRevisionId:`source-${label}`,sourceLinkRevisionId:`link-${label}`,sourceTitle:`Source ${label}`,publisher:null,label,rawExcerpt:`Excerpt ${label}`,evidenceDate:null,numericValue:10,unit:"percent",documentLocator:{kind:"csv_cell"},citationAnchor:{exact:`${label}`},editorialRelevance:{supports,matchedTerms},provenance:{extraction_method:"publisher_csv"}});
+ const indirect=proposal("indirect",1,false,["gasoline"]),primary=proposal("primary",1,true,["crude"]),strong=proposal("strong",2,true,["crude","oil","component"]),second=proposal("second",2,true,["crude","component"]),presentation=projectReferenceVisualEvidencePresentation([indirect,primary,strong,second],2);
+ assert.equal(presentation.totalCount,4);assert.equal(presentation.directCount,3);
+ assert.deepEqual(presentation.featured.map(item=>item.label),["strong","second"]);
+ assert.deepEqual(presentation.additional.map(item=>item.label),["primary","indirect"]);
+});
+
 test("URL-first workflow exposes working, decision, and ready states without requiring fabricated dates",()=>{
  assert.match(panel,/Hearth is working/);assert.match(panel,/Ready/);assert.match(panel,/publicationDateStatus==="not_provided"\?"Not provided"/);for(const action of ["Replace","Skip"])assert.ok(panel.includes(`>${action}<`));assert.match(panel,/Save edits/);assert.match(panel,/readCanonicalReferenceVisualCollections/);assert.match(panel,/Current Source/);assert.match(panel,/Supporting Sources/);assert.doesNotMatch(panel,/Approved Sources/);
  assert.match(panel,/Source title/);assert.match(panel,/Publisher or organization/);assert.match(panel,/setSourceProposal\(\{\.\.\.sourceProposal,title:event\.target\.value\}\)/);
@@ -52,6 +60,14 @@ test("Source UX distinguishes current-source changes from support additions",()=
  assert.match(panel,/Current Source stays current/);
  assert.match(panel,/sources\.filter\(source=>!\(opportunity\.sources\?\?\[\]\)\.some\(member=>member\.sourceRevisionId===source\.sourceRevisionId&&member\.sourceLinkRevisionId===source\.sourceLinkRevisionId\)\)/);
  assert.ok(panel.indexOf("hs-reference-visual-current-source")<panel.indexOf("hs-reference-visual-supporting-sources"));
+});
+
+test("Evidence UX keeps the decision compact and technical depth disclosed",()=>{
+ for(const copy of ["Why you can’t prepare this design yet","Evidence that directly supports this visual","Show other evidence (","What Forge checked","Review Source inspection details","Evidence provenance","Confirmed evidence remains saved"] )assert.match(panel,new RegExp(copy.replace(/[()]/g,"\\$&")));
+ assert.match(panel,/projectReferenceVisualEvidencePresentation\(evidenceProposals\)/);
+ assert.match(panel,/evidencePresentation\.featured\.map/);assert.match(panel,/evidencePresentation\.additional\.map/);
+ assert.match(panel,/Make Current Source/);assert.match(panel,/existing Current Source stays attached as a Supporting Source/);
+ assert.match(panel,/evidenceIntentFor\(opportunity\.subtype\)==="dated_timeline"/);assert.match(panel,/Supported event date/);
 });
 
 test("post-action and authority-event refreshes keep the work area mounted",()=>{
@@ -109,9 +125,9 @@ test("numeric evidence extraction is explicit, fail closed, and has a complete n
  assert.match(collection,/evidence_intent:args\.intent/);
  assert.match(collection,/args\.intent==="numeric_stat"&&\(!Number\.isFinite\(numericValue\)\|\|!unit\|\|relevance\.supports!==true\)/);
  assert.match(panel,/evidenceIntentFor/);
- assert.match(panel,/No supported numeric statistic was found in the current Source collection for this stat card\./);
- for(const action of ["Enter supported numeric evidence manually","Add or choose another Source","Change visual type"])assert.match(panel,new RegExp(action));
- assert.match(panel,/!evidence\.raw_excerpt\.trim\(\)\|\|!evidence\.numeric_value\.trim\(\)\|\|!evidence\.unit\.trim\(\)\|\|!evidence\.label\.trim\(\)/);
+ assert.match(panel,/This stat card needs one supported numeric value\./);
+ for(const action of ["Enter supported evidence manually","Add or choose another Source","Change visual type"])assert.match(panel,new RegExp(action));
+ assert.match(panel,/evidenceIntentFor\(opportunity\.subtype\)==="numeric_stat"&&\(!evidence\.numeric_value\.trim\(\)\|\|!evidence\.unit\.trim\(\)\)/);
 });
 
 test("evidence confirmation accepts canonical replay without relaxing other mutations",()=>{

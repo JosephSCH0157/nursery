@@ -101,8 +101,8 @@ test("linked Reference Material Sources can be changed or removed canonically",(
  assert.match(authority,/removeReferenceVisualSource/);
  assert.match(referenceClipAuthority,/reassign_reference_clip_source/);
  assert.match(referenceClipAuthority,/removeReferenceClipSource/);
- assert.match(panel,/Change Source/);
- assert.match(panel,/Remove Source/);
+ assert.match(panel,/Change Current Source/);
+ assert.match(panel,/Remove Current Source/);
  assert.match(referenceClipPanel,/Change Source/);
  assert.match(referenceClipPanel,/Remove Source/);
 });
@@ -136,9 +136,9 @@ test("candidate selection reports failures and can continue its revision chain a
 });
 
 test("structured Source evidence explains inspected media and keeps stronger-Source choice creator controlled",()=>{
- for(const copy of ["What Forge checked","Page text","Structured chart data","Graphics","Current result:","What you can do next","Inspect chart","Another Source in this episode more directly supports this visual.","Use this Source"]){assert.ok(panel.includes(copy),`missing ${copy}`);}
+ for(const copy of ["What Forge checked","Page text","Structured chart data","Graphics","Current result:","Other available paths","Inspect chart again","Another Source in this episode more directly supports this visual.","Make Current Source"]){assert.ok(panel.includes(copy),`missing ${copy}`);}
  assert.match(panel,/extractReferenceVisualCollectionEvidence/);
- assert.match(panel,/commitReferenceVisualSourceCollection[\s\S]*members:\[\{sourceRevisionId:source\.sourceRevisionId/);
+ assert.match(panel,/projectReferenceVisualSourceChoice\(current,promoted,"promote"\)/);
  assert.doesNotMatch(panel,/OpenAI|OCR|vision provider|estimate.*geometry/i);
  assert.match(panel,/Linked Sources and confirmed work remain preserved/);
 });
