@@ -17,7 +17,6 @@ import { appendLaunchSnapshot, appendPublicationEvent, canReuseLaunchSnapshotFor
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { tongsFetch } from "./tongs-fetch";
 import {
-  deriveCustomerOperationId,
   readCustomerSpendingQuote,
   requestCustomerSpendingAcceptance,
 } from "../../../../packages/tongs/src/customer-spending-confirmation";
@@ -603,11 +602,11 @@ export async function generateForgeAiBaseArtwork(args: {
   const promptPack = deriveThumbnailPromptPack({ recipe, concept, strategy, brief });
   if (promptPack.review_state !== "reviewed") return { ok: false, saveState: "error", status: 409, error: "Prompt template changed and requires review." };
   if (recipe.generation_reference) return { ok: false, saveState: "error", status: 409, error: "Reference-image generation is not certified for the current Thumbnail Base Test product." };
-  const operationId = await deriveCustomerOperationId("hearth-thumbnail-base", {
+  const operationId = deterministicUuid("hearth-thumbnail-base-operation", canonicalSerialize({
     workspace_id: args.workspaceId, workpiece_id: args.workpieceId,
     render_recipe_id: recipe.id, render_recipe_revision: recipe.revision,
     concept_revision_id: concept.concept_revision_id, prompt_package_hash: promptPack.canonical_hash,
-  });
+  }));
   const requestBody = (spendingAcceptance?: ReturnType<typeof requestCustomerSpendingAcceptance>) => ({
       workspace_id: args.workspaceId, episode_id: args.workpieceId, operation_id: operationId,
       prompt: `${promptPack.positive_prompt}\n\nAvoid: ${promptPack.negative_prompt}`,

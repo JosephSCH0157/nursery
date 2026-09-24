@@ -60,7 +60,8 @@ test("result evidence is private, immutable, replay-safe, and actually written",
 });
 
 test("UI prepares a deterministic operation and stops at shared customer confirmation", () => {
-  assert.match(client, /deriveCustomerOperationId\("hearth-thumbnail-base"/);
+  assert.match(client, /deterministicUuid\("hearth-thumbnail-base-operation"/);
+  assert.match(client, /canonicalSerialize\(\{/);
   assert.match(client, /readCustomerSpendingQuote/);
   assert.match(client, /requestCustomerSpendingAcceptance/);
   assert.match(client, /spending_acceptance/);
