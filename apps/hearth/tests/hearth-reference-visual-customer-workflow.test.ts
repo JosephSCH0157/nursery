@@ -196,6 +196,39 @@ test("a two-Source comparison advances to evidence confirmation", () => {
   assert.equal(workflow.sourceSummary, "First report + 1 supporting");
 });
 
+test("a comparison with extra Sources tells the creator exactly what to remove", () => {
+  const base = opportunity({ subtype: "comparison", sourceStatus: "linked" });
+  const workflow = projectReferenceVisualCustomerWorkflow({
+    opportunity: {
+      ...base,
+      sources: ["First", "Second", "Third"].map((title, index) => ({
+        memberId: `member-${index + 1}`,
+        ordinal: index + 1,
+        sourceRevisionId: `source-${index + 1}`,
+        sourceLinkRevisionId: `link-${index + 1}`,
+        sourceRevision: 1,
+        sourceLinkRevision: 1,
+        source: { title },
+        link: {},
+      })),
+    },
+    evidenceReady: false,
+    recipeCurrent: false,
+    renderedType: true,
+  });
+
+  assert.equal(workflow.currentStageId, "source");
+  assert.equal(workflow.nextAction, "Remove extra comparison Sources");
+  assert.equal(
+    workflow.nextActionDetail,
+    "This comparison has 1 Current Source and 2 Supporting Sources (3 total). Remove 1 Supporting Source so exactly two Sources remain side by side.",
+  );
+  assert.equal(
+    workflow.sourceSummary,
+    "3 total · 1 Current + 2 Supporting · remove 1 Supporting",
+  );
+});
+
 test("quoted material stops at rights until the declaration is current", () => {
   const workflow = projectReferenceVisualCustomerWorkflow({
     opportunity: opportunity({

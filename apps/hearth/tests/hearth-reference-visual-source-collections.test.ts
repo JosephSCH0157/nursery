@@ -137,6 +137,17 @@ test("numeric evidence extraction is explicit, fail closed, and has a complete n
  assert.match(panel,/evidenceIntentFor\(opportunity\.subtype\)==="numeric_stat"&&\(!evidence\.numeric_value\.trim\(\)\|\|!evidence\.unit\.trim\(\)\)/);
 });
 
+test("visual treatment can be changed before any workflow stage is satisfied",()=>{
+ assert.match(panel,/hs-reference-visual-treatment-actions/);
+ assert.match(panel,/onClick=\{startTypeChange\}>Change visual type/);
+ assert.match(panel,/derivedFrom:opportunity\.revisionId/);
+});
+
+test("the source collection labels distinguish Current from Supporting counts",()=>{
+ assert.match(panel,/Supporting Sources \(\{\(opportunity\.sources\?\.length\?\?1\)-1\}\)/);
+ assert.match(panel,/1 Current \+ \{\(opportunity\.sources\?\.length\?\?1\)-1\} Supporting/);
+});
+
 test("evidence confirmation accepts canonical replay without relaxing other mutations",()=>{
  assert.match(visualAuthority,/requireEvidenceCommittedOrReplay/);
  assert.match(visualAuthority,/disposition==="committed"\|\|disposition==="replay"/);

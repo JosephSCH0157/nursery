@@ -96,9 +96,8 @@ export function projectReferenceVisualCustomerWorkflow({
       nextActionDetail =
         "Keep the confirmed evidence and add the second Source this comparison requires.";
     } else if (opportunity.subtype === "comparison" && sources.length > 2) {
-      nextAction = "Choose two comparison Sources";
-      nextActionDetail =
-        "Keep exactly the two Sources this comparison will place side by side.";
+      nextAction = "Remove extra comparison Sources";
+      nextActionDetail = `This comparison has 1 Current Source and ${sources.length - 1} Supporting Sources (${sources.length} total). Remove ${sources.length - 2} Supporting Source${sources.length - 2 === 1 ? "" : "s"} so exactly two Sources remain side by side.`;
     } else {
       nextAction = "Choose a Source";
       nextActionDetail = "Attach the Source that supports this visual.";
@@ -155,7 +154,7 @@ export function projectReferenceVisualCustomerWorkflow({
       : opportunity.subtype === "comparison" && sources.length === 1
         ? `${text(sources[0]?.source.title) ?? "Current Source"} · second Source needed`
         : opportunity.subtype === "comparison" && sources.length > 2
-          ? `${sources.length} Sources linked · choose two`
+          ? `${sources.length} total · 1 Current + ${sources.length - 1} Supporting · remove ${sources.length - 2} Supporting`
       : "Source needed",
     evidence: isEvidenceReady
       ? `${opportunity.evidence.length} confirmed item${
