@@ -9,7 +9,7 @@ comment on column tongs.reference_visual_acquisition_operations.source_set_revis
 
 drop function if exists tongs.begin_reference_visual_acquisition(uuid,uuid,uuid,uuid,text,text,text,uuid);
 
-create or replace function tongs.begin_reference_visual_acquisition(
+create function tongs.begin_reference_visual_acquisition(
   p_workspace_id uuid,
   p_workpiece_id uuid,
   p_opportunity_revision_id uuid,
@@ -75,12 +75,9 @@ begin
 
   if not exists(
     select 1 from tongs.reference_visual_rights_declaration_sequences rights
-    join tongs.reference_visual_rights_declaration_revisions declaration
-      on declaration.id=rights.current_declaration_revision_id
      where rights.workspace_id=p_workspace_id and rights.workpiece_id=p_workpiece_id
        and rights.opportunity_id=opportunity.opportunity_id
        and rights.current_declaration_revision_id=p_rights_declaration_revision_id
-       and declaration.source_set_revision_id=current_source_set.id
   ) then return jsonb_build_object('disposition','current_rights_declaration_required');end if;
 
   insert into tongs.reference_visual_acquisition_operations(
