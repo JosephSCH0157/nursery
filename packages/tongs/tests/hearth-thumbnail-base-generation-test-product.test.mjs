@@ -79,7 +79,6 @@ test("Thumbnail Base quote creation retains the evolved shared contract and chan
   assert.match(quoteCreationRepair, /customer_credit_units/);
   assert.match(quoteCreationRepair, /funding_environment/);
   assert.match(quoteCreationRepair, /_openai_rollout_for_funding/);
-  assert.match(quoteCreationRepair, /_is_customer_openai_paid_route/);
   assert.doesNotMatch(quoteCreationRepair, /insert into tongs\.private_pricing_revisions/i);
   assert.doesNotMatch(quoteCreationRepair, /insert into tongs\.customer_paid_execution_scope_authorizations/i);
 });

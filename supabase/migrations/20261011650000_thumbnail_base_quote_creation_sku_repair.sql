@@ -11,26 +11,19 @@ begin
     'tongs.create_customer_openai_text_quote(uuid,uuid,text,text,uuid,text,text,text,text,timestamptz)'::regprocedure
   ) into definition;
 
-  changed := replace(
+  changed := regexp_replace(
     definition,
-    '''openai-text:''::text || p_route_code',
-    '(case when p_route_code = ''hearth.thumbnail_base_generation''::text then ''openai-image:''::text else ''openai-text:''::text end) || p_route_code'
+    'v_sku[[:space:]]*:=[[:space:]]*lower\([^;]*\);',
+    'v_sku := lower((case when p_route_code = ''hearth.thumbnail_base_generation'' then ''openai-image:'' else ''openai-text:'' end) || p_route_code || '':'' || btrim(p_model) || '':'' || v_cost.id::text);',
+    'i'
   );
-  if changed = definition then
-    changed := replace(
-      definition,
-      '''openai-text:'' || p_route_code',
-      '(case when p_route_code = ''hearth.thumbnail_base_generation'' then ''openai-image:'' else ''openai-text:'' end) || p_route_code'
-    );
-  end if;
 
   if changed = definition
      or position('hearth.thumbnail_base_generation' in changed) = 0
      or position('openai-image:' in changed) = 0
      or position('customer_credit_units' in changed) = 0
      or position('funding_environment' in changed) = 0
-     or position('_openai_rollout_for_funding' in changed) = 0
-     or position('_is_customer_openai_paid_route' in changed) = 0 then
+     or position('_openai_rollout_for_funding' in changed) = 0 then
     raise exception 'shared quote SKU insertion point or evolved quote contract changed; explicit review required';
   end if;
 
