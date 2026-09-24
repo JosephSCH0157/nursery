@@ -17,6 +17,10 @@ const quoteRepair = readFileSync(new URL(
   "../../../supabase/migrations/20261011640000_thumbnail_base_quote_model_resolution_repair.sql",
   import.meta.url,
 ), "utf8");
+const quoteCreationRepair = readFileSync(new URL(
+  "../../../supabase/migrations/20261011650000_thumbnail_base_quote_creation_sku_repair.sql",
+  import.meta.url,
+), "utf8");
 
 test("Thumbnail Base is one exact no-reference image generation", () => {
   assert.match(boundary, /"hearth\.thumbnail_base_generation"/);
@@ -66,6 +70,18 @@ test("Thumbnail Base model resolution uses its existing image SKU without changi
   assert.match(quoteRepair, /Live Thumbnail Base scope must remain absent/);
   assert.doesNotMatch(quoteRepair, /insert into tongs\.customer_paid_execution_scope_authorizations/i);
   assert.doesNotMatch(quoteRepair, /insert into tongs\.private_pricing_revisions/i);
+});
+
+test("Thumbnail Base quote creation retains the evolved shared contract and changes only its SKU family", () => {
+  assert.match(quoteCreationRepair, /pg_get_functiondef/);
+  assert.match(quoteCreationRepair, /hearth\.thumbnail_base_generation/);
+  assert.match(quoteCreationRepair, /openai-image:/);
+  assert.match(quoteCreationRepair, /customer_credit_units/);
+  assert.match(quoteCreationRepair, /funding_environment/);
+  assert.match(quoteCreationRepair, /_openai_rollout_for_funding/);
+  assert.match(quoteCreationRepair, /_is_customer_openai_paid_route/);
+  assert.doesNotMatch(quoteCreationRepair, /insert into tongs\.private_pricing_revisions/i);
+  assert.doesNotMatch(quoteCreationRepair, /insert into tongs\.customer_paid_execution_scope_authorizations/i);
 });
 
 test("result evidence is private, immutable, replay-safe, and actually written", () => {
