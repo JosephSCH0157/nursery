@@ -2761,6 +2761,7 @@ export type ExtractedReferenceVisualEvidence = {
   sourceLinkRevisionId: string;
   sourceTitle: string;
   publisher: string | null;
+  sourceUrl: string | null;
   claims: ReferenceSourceEvidenceClaim[];
   inspection: ReferenceSourceEvidenceInspection | null;
   error: string | null;
@@ -29107,6 +29108,7 @@ export class TongsCommitService {
               "",
             sourceTitle: readStringField(source, "title") ?? "Untitled Source",
             publisher: readStringField(source, "publisher"),
+            sourceUrl: url,
           };
         if (!url)
           return {

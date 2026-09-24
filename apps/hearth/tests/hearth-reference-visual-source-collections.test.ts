@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
-import {projectReferenceVisualEvidencePresentation,projectReferenceVisualSourceChoice,validateReferenceVisualSourceSetReceipt,type CollectionEvidenceProposal} from "../src/lib/hearth-reference-visual-collections";
+import {explainReferenceVisualEvidenceFailure,projectReferenceVisualEvidencePresentation,projectReferenceVisualSourceChoice,validateReferenceVisualSourceSetReceipt,type CollectionEvidenceProposal} from "../src/lib/hearth-reference-visual-collections";
 
 const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
+const tongsApi=readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts",import.meta.url),"utf8");
 const visualAuthority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
 const visualStyles=readFileSync(new URL("../src/views/surfaces/VisualsSurface.css",import.meta.url),"utf8");
@@ -141,6 +142,15 @@ test("visual treatment can be changed before any workflow stage is satisfied",()
  assert.match(panel,/hs-reference-visual-treatment-actions/);
  assert.match(panel,/onClick=\{startTypeChange\}>Change visual type/);
  assert.match(panel,/derivedFrom:opportunity\.revisionId/);
+});
+
+test("blocked Source retrieval has an explicit manual recovery path",()=>{
+ assert.equal(explainReferenceVisualEvidenceFailure("reference_source_fetch_failed:405"),"Forge could not retrieve this Source because its website rejected automated access (HTTP 405). Open the Source to review it, then enter its evidence manually or choose a different Source.");
+ assert.match(collection,/failures\.push\(\{sourceSetMemberId:memberId,ordinal,sourceRevisionId,sourceTitle,sourceUrl,code:errorCode,message\}\)/);
+ assert.match(panel,/Source \{failure\.ordinal\} could not be retrieved automatically/);
+ assert.match(panel,/Open Source \{failure\.ordinal\}/);
+ assert.match(panel,/sourceCount=\{opportunity\.sources\?\.length\?\?0\}/);
+ assert.match(tongsApi,/sourceUrl: url/);
 });
 
 test("the source collection labels distinguish Current from Supporting counts",()=>{
