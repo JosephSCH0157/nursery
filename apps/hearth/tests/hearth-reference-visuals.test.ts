@@ -113,6 +113,14 @@ test("candidate selection reports failures and can continue its revision chain a
  assert.match(postResetSelection,/coalesce\(previous_selection\.revision,0\)\+1/);
 });
 
+test("structured Source evidence explains inspected media and keeps stronger-Source choice creator controlled",()=>{
+ for(const copy of ["What Forge checked","Page text","Structured chart data","Graphics","Current result:","What you can do next","Inspect chart","Another Source in this episode more directly supports this visual.","Use this Source"]){assert.ok(panel.includes(copy),`missing ${copy}`);}
+ assert.match(panel,/extractReferenceVisualCollectionEvidence/);
+ assert.match(panel,/commitReferenceVisualSourceCollection[\s\S]*members:\[\{sourceRevisionId:source\.sourceRevisionId/);
+ assert.doesNotMatch(panel,/OpenAI|OCR|vision provider|estimate.*geometry/i);
+ assert.match(panel,/Linked Sources and confirmed work remain preserved/);
+});
+
 test("Reference Clips can be canonically converted to Reference Visuals without losing anchors or Source provenance",()=>{
  assert.match(referenceClipPanel,/Better as a visual\?/);
  assert.match(referenceClipPanel,/Convert to Reference Visual/);

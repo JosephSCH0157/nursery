@@ -44,3 +44,28 @@ test("URL ingestion denies local and credential-bearing URLs",async()=>{
  await assert.rejects(()=>ingestReferenceSourceUrl("http://127.0.0.1/private"),/external_url_scheme_unsupported/);
  await assert.rejects(()=>ingestReferenceSourceUrl("https://user:pass@example.com/private"),/external_url_credentials_unsupported/);
 });
+
+test("Highcharts containers discover bounded first-party CSV candidates without executing scripts",async()=>{
+ const html=`<base href="/energyexplained/"><main>
+  <h3>Gasoline and crude-oil prices</h3><div class="article-chart" id="average-monthly-prices"></div>
+  <h3>Gasoline demand and retail price</h3><div class="article-chart" id="regular-grade-gasoline-demand-retail-price"></div>
+  <h3>Gasoline inventories</h3><div class="article-chart" id="us-gasoline-stocks"></div>
+  <script src="/global/analytics.js"></script><script src="includes/bundles/main.js"></script>
+ </main>`;
+ const script=["average-monthly-prices","regular-grade-gasoline-demand-retail-price","us-gasoline-stocks"].map(id=>`const elementId = '${id}'; Highcharts.chart(elementId,{data:{csvURL: appPath + '/gasoline/charts/' + elementId + '.csv'}});`).join("\n"),csv="Date,Price dollars\n2025,3.10";
+ const fetchImpl=async value=>{const url=String(value);return new Response(url.endsWith("main.js")?script:url.endsWith(".csv")?csv:html,{status:200,headers:{"content-type":url.endsWith(".js")?"application/javascript":url.endsWith(".csv")?"text/csv":"text/html"}})};
+ const first=await ingestReferenceSourceUrl("https://www.eia.gov/energyexplained/gasoline/price-fluctuations.php",fetchImpl),second=await ingestReferenceSourceUrl("https://www.eia.gov/energyexplained/gasoline/price-fluctuations.php",fetchImpl);
+ assert.deepEqual(first.structuredDataCandidates.map(item=>item.dataUrl),[
+  "https://www.eia.gov/energyexplained/gasoline/charts/average-monthly-prices.csv",
+  "https://www.eia.gov/energyexplained/gasoline/charts/regular-grade-gasoline-demand-retail-price.csv",
+  "https://www.eia.gov/energyexplained/gasoline/charts/us-gasoline-stocks.csv",
+ ]);
+ assert.deepEqual(first.structuredDataCandidates.map(item=>item.candidateId),second.structuredDataCandidates.map(item=>item.candidateId));
+ assert.equal(first.graphicCandidates.length,3);assert.ok(first.graphicCandidates.every(item=>item.extractionCapability==="structured_data"));
+});
+
+test("structured links are HTTPS first-party and duplicate URLs are deduplicated",async()=>{
+ const html=`<a href="https://example.com/data.csv">CSV</a><a href="https://example.com/data.csv">duplicate</a><a href="http://example.com/unsafe.csv">unsafe</a><a href="https://other.example/data.csv">third party</a>`;
+ const result=await ingestReferenceSourceUrl("https://example.com/report",async value=>new Response(String(value).endsWith(".csv")?"Label,Percent share\nCrude oil,52":html,{status:200,headers:{"content-type":String(value).endsWith(".csv")?"text/csv":"text/html"}}));
+ assert.equal(result.structuredDataCandidates.length,1);assert.equal(result.structuredDataCandidates[0].dataUrl,"https://example.com/data.csv");
+});

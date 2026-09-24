@@ -35,11 +35,13 @@ import type {
   ReferenceVisualRender,
 } from "./reference-visual-renderer.js";
 import {
-  extractReferenceSourceEvidence,
+  inspectReferenceSourceEvidence,
+  isMoreDirectReferenceSource,
   ingestReferenceSourceUrl,
   inspectReferenceResearchLead,
   type ReferenceSourceIngestion,
   type ReferenceSourceEvidenceClaim,
+  type ReferenceSourceEvidenceInspection,
   type ReferenceEvidenceIntent,
 } from "./reference-source-ingestion.js";
 import { inspectYouTubeReference } from "./youtube-reference.js";
@@ -2748,7 +2750,17 @@ export type ExtractedReferenceVisualEvidence = {
   sourceTitle: string;
   publisher: string | null;
   claims: ReferenceSourceEvidenceClaim[];
+  inspection: ReferenceSourceEvidenceInspection | null;
   error: string | null;
+};
+export type ReferenceVisualAlternativeSource = {
+  sourceRevisionId: string;
+  sourceLinkRevisionId: string;
+  sourceTitle: string;
+  publisher: string | null;
+  url: string;
+  reason: string;
+  inspection: ReferenceSourceEvidenceInspection;
 };
 export type AppendReferenceVisualOpportunityRequest = {
   workspace_id: string;
@@ -29067,14 +29079,21 @@ export class TongsCommitService {
           return {
             ...base,
             claims: [],
+            inspection: null,
             error: "This Source has no retrievable canonical URL.",
           };
         try {
-          const claims = (await extractReferenceSourceEvidence(url, fetch, {
+          const inspection = await inspectReferenceSourceEvidence(url, fetch, {
             intent: input.evidence_intent,
             editorialFocus,
             desiredMaterial,
-          })).filter((claim) => !alreadyConfirmed(base.sourceSetMemberId, claim));
+          });
+          const boundInspection = {
+              ...inspection,
+              structuredDataCandidates: inspection.structuredDataCandidates.map((candidate) => ({ ...candidate, sourceRevisionId: base.sourceRevisionId })),
+              graphicCandidates: inspection.graphicCandidates.map((candidate) => ({ ...candidate, sourceRevisionId: base.sourceRevisionId })),
+            },
+            claims = boundInspection.claims.filter((claim) => !alreadyConfirmed(base.sourceSetMemberId, claim));
           if (subtype === "stat_card" || subtype === "chart")
             claims.sort((left, right) =>
               Number(right.numericValue != null && Boolean(right.unit && right.label)) -
@@ -29089,12 +29108,14 @@ export class TongsCommitService {
           return {
             ...base,
             claims,
+            inspection: { ...boundInspection, claims },
             error: null,
           };
         } catch (error) {
           return {
             ...base,
             claims: [],
+            inspection: null,
             error:
               error instanceof Error
                 ? error.message
@@ -29104,7 +29125,55 @@ export class TongsCommitService {
       }),
     );
     sources.sort((a, b) => a.ordinal - b.ordinal);
-    return { opportunityId: input.opportunity_id, sources };
+    const selectedSourceRevisionIds = new Set(sources.map((source) => source.sourceRevisionId)),
+      sourceCatalog = await authority.rpc("read_workpiece_sources", {
+        p_workspace_id: input.workspace_id,
+        p_workpiece_id: workpieceId,
+      }),
+      catalogLinks = !sourceCatalog.error && isRecord(sourceCatalog.data) && Array.isArray(sourceCatalog.data.links)
+        ? sourceCatalog.data.links.filter(isRecord).slice(0, 12)
+        : [],
+      currentBestScore = Math.max(0, ...sources.map((source) => source.inspection?.relevanceScore ?? 0)),
+      alternativeSources = (
+        await Promise.all(
+          catalogLinks.flatMap((entry) => {
+            const source = isRecord(entry.source_revision) ? entry.source_revision : null,
+              link = isRecord(entry.link_revision) ? entry.link_revision : null,
+              sourceRevisionId = readStringField(source, "id"),
+              sourceLinkRevisionId = readStringField(link, "id"),
+              url = readStringField(source, "canonical_url");
+            if (!source || !link || !sourceRevisionId || !sourceLinkRevisionId || !url || selectedSourceRevisionIds.has(sourceRevisionId)) return [];
+            return [
+              (async (): Promise<ReferenceVisualAlternativeSource | null> => {
+                try {
+                  const rawInspection = await inspectReferenceSourceEvidence(url, fetch, {
+                    intent: input.evidence_intent,
+                    editorialFocus,
+                    desiredMaterial,
+                  }), inspection = {
+                    ...rawInspection,
+                    structuredDataCandidates: rawInspection.structuredDataCandidates.map((candidate) => ({ ...candidate, sourceRevisionId })),
+                    graphicCandidates: rawInspection.graphicCandidates.map((candidate) => ({ ...candidate, sourceRevisionId })),
+                  };
+                  if (!isMoreDirectReferenceSource(currentBestScore, inspection)) return null;
+                  return {
+                    sourceRevisionId,
+                    sourceLinkRevisionId,
+                    sourceTitle: readStringField(source, "title") ?? "Untitled Source",
+                    publisher: readStringField(source, "publisher"),
+                    url,
+                    reason: "Another Source in this episode more directly supports this visual.",
+                    inspection,
+                  };
+                } catch {
+                  return null;
+                }
+              })(),
+            ];
+          }),
+        )
+      ).filter((item): item is ReferenceVisualAlternativeSource => !!item).sort((left, right) => right.inspection.relevanceScore - left.inspection.relevanceScore);
+    return { opportunityId: input.opportunity_id, sources, alternativeSources };
   }
   async readVisualOpportunityDispositions(
     workpieceId: string,
