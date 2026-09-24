@@ -35,7 +35,13 @@ import {
   readReferenceReviewFailures,
   startReferenceReviewAttempt,
 } from "../../lib/hearth-reference-review-attempts";
+import {
+  buildReferenceVisualWorkflowFocus,
+  projectReferenceMaterialVisualAction,
+  type ReferenceVisualWorkflowFocus,
+} from "../../lib/hearth-reference-material-workflow";
 import { subscribeToForgeUserAccessToken } from "../../lib/tongs-fetch";
+import CanonicalReferenceVisualPanel from "./CanonicalReferenceVisualPanel";
 
 type DrawerMode = "edit" | "replace" | "prepare" | "skip";
 type EditDraft = {
@@ -89,6 +95,8 @@ export default function CanonicalReferenceMaterialPanel({
     [rightsSaved, setRightsSaved] = useState(false),
     [rightsMessage, setRightsMessage] = useState<string | null>(null),
     [acquisitionError, setAcquisitionError] = useState<string | null>(null),
+    [visualWorkflowFocus, setVisualWorkflowFocus] =
+      useState<ReferenceVisualWorkflowFocus | null>(null),
     [editDraft, setEditDraft] = useState<EditDraft>({
       title: "",
       subtitle: "",
@@ -253,6 +261,7 @@ export default function CanonicalReferenceMaterialPanel({
     if (rightsDraftMatches(opportunity)) {
       setRightsSaved(true);
       setRightsMessage("Rights saved");
+      setDrawer(null);
       return;
     }
     if (!opportunity || !(await begin(item, "replace"))) return;
@@ -294,6 +303,41 @@ export default function CanonicalReferenceMaterialPanel({
     setVisuals(withRights.data);
     setRightsSaved(true);
     setRightsMessage("Rights saved");
+    setDrawer(null);
+  }
+
+  function openReferenceVisualWorkflow(item: ReferenceReviewItem) {
+    if (item.family !== "reference_visual") return;
+    const opportunity = visuals?.opportunities.find(
+      (entry) => entry.id === item.opportunityId,
+    );
+    if (!opportunity) return;
+    setDrawer(null);
+    setVisualWorkflowFocus(
+      buildReferenceVisualWorkflowFocus({
+        workspaceId,
+        workpieceId,
+        opportunity,
+        returnCardKey: item.key,
+      }),
+    );
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>(".hs-reference-visuals")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  }
+
+  function closeReferenceVisualWorkflow() {
+    const returnCardKey = visualWorkflowFocus?.returnCardKey;
+    setVisualWorkflowFocus(null);
+    void refresh();
+    if (returnCardKey)
+      requestAnimationFrame(() =>
+        document
+          .getElementById(`${returnCardKey}-card`)
+          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+      );
   }
 
   async function acquireLinkedVisual(item: ReferenceReviewItem) {
@@ -789,8 +833,45 @@ export default function CanonicalReferenceMaterialPanel({
       else if (failure.intent === "skip") await skip(item);
       else if (failure.intent === "use_source") await useSource(item);
       else if (failure.intent === "save_edits") await saveEdits(item);
-      else if (item.family === "reference_visual" && item.sourceUrl && !item.candidate) openDrawer(item, "prepare");
+      else if (item.family === "reference_visual") activatePrimaryAction(item);
       else openDrawer(item, "replace");
+  }
+
+  function visualPrimaryAction(item: ReferenceReviewItem) {
+    if (item.family !== "reference_visual") return null;
+    const opportunity = visuals?.opportunities.find(
+      (entry) => entry.id === item.opportunityId,
+    );
+    if (!opportunity) return null;
+    return projectReferenceMaterialVisualAction({
+      sourceLinked:
+        opportunity.sourceStatus === "linked" &&
+        Boolean(opportunity.sources?.length),
+      rightsSaved: Boolean(opportunity.rights),
+      subtype: opportunity.subtype,
+      candidateReady: Boolean(item.candidate),
+      resolution: item.resolution,
+    });
+  }
+
+  function activatePrimaryAction(item: ReferenceReviewItem) {
+    if (item.family === "reference_clip") {
+      if (!item.sourceSummary.length) openDrawer(item, "replace");
+      else if (item.candidate) void approve(item);
+      else openDrawer(item, "replace");
+      return;
+    }
+    const action = visualPrimaryAction(item);
+    if (!action || action.target === "none") return;
+    if (action.target === "source_drawer") openDrawer(item, "replace");
+    else if (
+      action.target === "rights_drawer" ||
+      action.target === "acquisition_drawer"
+    )
+      openDrawer(item, "prepare");
+    else if (action.target === "reference_visual_workflow")
+      openReferenceVisualWorkflow(item);
+    else if (action.target === "approval") void approve(item);
   }
   return (
     <section
@@ -824,9 +905,17 @@ export default function CanonicalReferenceMaterialPanel({
       <div className="hs-reference-review-queue">
         {items.map((item) => {
           const failed = failures[item.key];
+          const visualAction = visualPrimaryAction(item);
+          const primaryLabel = visualAction?.label ??
+            (item.sourceSummary.length
+              ? item.candidate
+                ? "Approve"
+                : "Replace"
+              : "Add Source");
           return (
             <article
               key={item.key}
+              id={`${item.key}-card`}
               className={`hs-reference-review-card is-${item.state}`}
               aria-labelledby={`${item.key}-title`}
             >
@@ -898,11 +987,27 @@ export default function CanonicalReferenceMaterialPanel({
                   <button
                     type="button"
                     className="hs-primary-btn"
-                    disabled={item.state === "hearth_is_working" || (Boolean(item.candidate) && !!item.approveDisabledReason)}
-                    title={item.candidate ? item.approveDisabledReason ?? undefined : item.sourceSummary.length ? "Create a canonical image candidate from the linked Source." : "Attach a canonical Source to make this Reference Material."}
-                    onClick={() => item.sourceSummary.length ? item.candidate ? void approve(item) : item.family === "reference_visual" && item.sourceUrl ? openDrawer(item, "prepare") : openDrawer(item, "replace") : openDrawer(item, "replace")}
+                    disabled={
+                      item.state === "hearth_is_working" ||
+                      Boolean(visualAction?.disabled) ||
+                      (Boolean(item.candidate) && !!item.approveDisabledReason)
+                    }
+                    title={
+                      item.candidate
+                        ? item.approveDisabledReason ?? undefined
+                        : visualAction?.action === "review_rights"
+                          ? "Review and save the rights declaration for this Source."
+                          : visualAction?.action === "acquire_image"
+                            ? "Acquire archival material using the saved rights declaration."
+                            : visualAction?.action === "design_visual"
+                              ? "Continue the exact opportunity in the canonical Reference Visual workflow."
+                              : item.sourceSummary.length
+                                ? "Continue preparing this Reference Material."
+                                : "Attach a canonical Source to make this Reference Material."
+                    }
+                    onClick={() => activatePrimaryAction(item)}
                   >
-                    {item.sourceSummary.length ? item.candidate ? "Approve" : item.family === "reference_visual" && item.sourceUrl ? "Prepare image" : "Replace" : "Add Source"}
+                    {primaryLabel}
                   </button>
                   <button
                     type="button"
@@ -948,6 +1053,14 @@ export default function CanonicalReferenceMaterialPanel({
           );
         })}
       </div>
+      {visualWorkflowFocus ? (
+        <CanonicalReferenceVisualPanel
+          workspaceId={workspaceId}
+          workpieceId={workpieceId}
+          focus={visualWorkflowFocus}
+          onClose={closeReferenceVisualWorkflow}
+        />
+      ) : null}
       {activeDrawer ? (
         <div
           className="hs-reference-review-scrim"
@@ -971,7 +1084,9 @@ export default function CanonicalReferenceMaterialPanel({
                     : drawer?.mode === "replace"
                       ? "Replace the material"
                       : drawer?.mode === "prepare"
-                        ? "Prepare linked image"
+                        ? activeVisualOpportunity?.rights
+                          ? "Acquire archival image"
+                          : "Review rights"
                       : "Skip this proposal"}
                 </h4>
               </div>
@@ -1101,7 +1216,7 @@ export default function CanonicalReferenceMaterialPanel({
               </>
             ) : drawer?.mode === "prepare" ? (
               <>
-                <p>The Source is linked. Save the rights declaration first. Hearth will not copy or acquire an image until you choose a separate acquisition action.</p>
+                <p>{activeVisualOpportunity?.rights ? "The current rights declaration is saved. Review it below before choosing the separate archival acquisition action." : "The Source is linked. Save the rights declaration first. Hearth will not copy or acquire an image from this action."}</p>
                 <p><a href={sourceUrl} target="_blank" rel="noreferrer">Open linked image</a></p>
                 <label>
                   Rights status

@@ -7,6 +7,7 @@ const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVi
 const referenceClipAuthority=readFileSync(new URL("../src/lib/hearth-reference-clip-authority.ts",import.meta.url),"utf8");
 const referenceClipPanel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceClipPanel.tsx",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/components/visuals/CanonicalReferenceMaterialPanel.tsx",import.meta.url),"utf8");
+const materialWorkflow=readFileSync(new URL("../src/lib/hearth-reference-material-workflow.ts",import.meta.url),"utf8");
 const unified=readFileSync(new URL("../src/lib/hearth-unified-visual-plan-authority.ts",import.meta.url),"utf8");
 const postResetSelection=readFileSync(new URL("../../../supabase/migrations/20260812153000_tongs_reference_visual_post_reset_selection.sql",import.meta.url),"utf8");
 
@@ -15,7 +16,9 @@ test("Reference Material projects Clips and Visuals into one creator review queu
  assert.match(shell,/readCanonicalReferenceClips/);
  assert.match(shell,/readCanonicalReferenceVisualCollections/);
  for(const decision of ["Edit","Replace","Skip"])assert.match(shell,new RegExp(`>\\s*${decision}\\s*<`));
- assert.match(shell,/"Prepare image"/);
+ assert.doesNotMatch(shell,/"Prepare image"/);
+ assert.match(materialWorkflow,/"Review rights"/);
+ assert.match(materialWorkflow,/"Design visual"/);
  assert.match(shell,/"Add Source"/);
  assert.match(shell,/Save rights/);
  assert.match(shell,/Acquire image/);
@@ -24,6 +27,14 @@ test("Reference Material projects Clips and Visuals into one creator review queu
  assert.match(shell,/unsourced planning suggestion, not episode Reference Material/);
  assert.match(shell,/Add Source/);
  assert.doesNotMatch(shell,/role="tablist"/);
+});
+
+test("the canonical detailed Reference Visual workflow is production-reachable from Reference Material",()=>{
+ assert.match(shell,/import CanonicalReferenceVisualPanel/);
+ assert.match(shell,/<CanonicalReferenceVisualPanel/);
+ assert.match(shell,/focus=\{visualWorkflowFocus\}/);
+ assert.match(panel,/focus\?\.opportunityId/);
+ assert.match(panel,/Back to Reference Material/);
 });
 
 test("Hearth consumes the fourth canonical child and never falls back to cdc_plan",()=>{

@@ -39,6 +39,7 @@ test("unchanged saved rights are recovered and never duplicated", () => {
   assert.match(panel, /setRightsSaved\(Boolean\(rights\)\)/);
   assert.match(saveRights, /if \(rightsDraftMatches\(opportunity\)\)/);
   assert.match(saveRights, /rights_declaration_revision_id/);
+  assert.match(saveRights, /setDrawer\(null\)/);
 });
 
 test("acquisition rereads and binds current rights and Source collection authority", () => {
