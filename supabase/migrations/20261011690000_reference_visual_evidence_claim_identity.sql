@@ -101,7 +101,7 @@ create policy reference_visual_evidence_claims_viewer
 
 revoke all on tongs.reference_visual_evidence_claims,
   tongs.reference_visual_evidence_duplicate_reconciliations
-  from public,anon,authenticated;
+  from public,anon,authenticated,service_role;
 grant select on tongs.reference_visual_evidence_claims to authenticated;
 grant select,insert on tongs.reference_visual_evidence_claims,
   tongs.reference_visual_evidence_duplicate_reconciliations to service_role;
