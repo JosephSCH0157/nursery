@@ -12,7 +12,9 @@ const motionAuthority=readFileSync(new URL("../../../supabase/migrations/2026080
 
 test("motion-B-roll Test product has exact Luna economics and no Live scope",()=>{
   assert.match(migration,/gpt-5\.6-luna/);
-  assert.doesNotMatch(migration,/motion\.broll\.interpretation/);
+  for (const suffix of ["0002","0003","0004"]) {
+    assert.match(migration,new RegExp(`19720000-0000-4000-8000-00000000${suffix}',\\s*'motion\\.broll_interpretation'`));
+  }
   assert.match(migration,/4096,1024,1,2049,0,2049/);
   assert.match(migration,/response_byte_ceiling',16384/);
   assert.match(migration,/customer_credit_units[\s\S]*?1,'\[\]'/);
