@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const migration=readFileSync(new URL("../../../supabase/migrations/20261011730000_runway_gen45_customer_test_product.sql",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../../../apps/hearth/src/components/visuals/BrollPlanPanel.tsx",import.meta.url),"utf8");
+const panelProps=readFileSync(new URL("../../../apps/hearth/src/hooks/visuals/buildVisualsPanelProps.ts",import.meta.url),"utf8");
 const service=readFileSync(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
 const boundary=readFileSync(new URL("../src/providers/runway-paid-execution-boundary.ts",import.meta.url),"utf8");
 
@@ -54,6 +55,9 @@ test("confirmation is local UI, Forge-Credit first, and precedes reservation",()
   assert.match(panel,/Runway has not been called and no credits are reserved until you accept/);
   assert.match(panel,/Accept \{props\.spendingQuote\.customerCreditUnits\}/);
   assert.doesNotMatch(panel,/window\.confirm|globalThis\.confirm/);
+  assert.match(panelProps,/spendingQuote: args\.spendingQuote/);
+  assert.match(panelProps,/onAcceptSpendingQuote: args\.onAcceptSpendingQuote/);
+  assert.match(panelProps,/onDismissSpendingQuote: args\.onDismissSpendingQuote/);
   const quoteIndex=service.indexOf('"create_customer_runway_quote"');
   const acceptanceIndex=service.indexOf('"accept_quote"',quoteIndex);
   const reservationIndex=service.indexOf('"reserve_customer_runway_quote"',acceptanceIndex);
