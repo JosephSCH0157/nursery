@@ -7,6 +7,7 @@ const service=readFileSync(new URL("../src/workpiece-commit-api.ts",import.meta.
 const authority=readFileSync(new URL("../../../apps/hearth/src/lib/hearth-broll-v2-authority.ts",import.meta.url),"utf8");
 const hook=readFileSync(new URL("../../../apps/hearth/src/hooks/visuals/useCanonicalBrollV2.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../../../apps/hearth/src/components/visuals/BrollPlanPanel.tsx",import.meta.url),"utf8");
+const panelProps=readFileSync(new URL("../../../apps/hearth/src/hooks/visuals/buildVisualsPanelProps.ts",import.meta.url),"utf8");
 
 test("terminal customer pre-provider failure replays without mutation",()=>{
   assert.match(migration,/version='20261011760000'/);
@@ -70,5 +71,7 @@ test("Hearth requires explicit new-attempt action and preserves identity through
   assert.match(hook,/acceptedQuote: spendingQuote,[\s\S]*generationAttempt: pendingGeneration\.generationAttempt/);
   assert.match(panel,/Previous generation attempt ended before Runway was called\. No Forge Credits were charged\./);
   assert.match(panel,/Start a new generation attempt/);
+  assert.match(panelProps,/terminalGenerationAttempt: args\.terminalGenerationAttempt/);
+  assert.match(panelProps,/onStartNewGenerationAttempt: args\.onStartNewGenerationAttempt/);
   assert.doesNotMatch(panel,/window\.confirm/);
 });

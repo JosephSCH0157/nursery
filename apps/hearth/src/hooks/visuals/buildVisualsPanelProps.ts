@@ -80,6 +80,7 @@ type BuildBrollPanelArgs = {
   motionPromptQuote?: BrollPanelProps["motionPromptQuote"];
   spendingQuote?: BrollPanelProps["spendingQuote"];
   spendingReceipt?: BrollPanelProps["spendingReceipt"];
+  terminalGenerationAttempt?: BrollPanelProps["terminalGenerationAttempt"];
   message: string | null;
   activeOperation?: BrollPanelProps["activeOperation"];
   disabled: boolean;
@@ -101,6 +102,7 @@ type BuildBrollPanelArgs = {
   onSaveMotionPrompt: NonNullable<BrollPanelProps["onSaveMotionPrompt"]>;
   onCreateRunwayReadyPrompt: NonNullable<BrollPanelProps["onCreateRunwayReadyPrompt"]>;
   onGenerateVideo: NonNullable<BrollPanelProps["onGenerateVideo"]>;
+  onStartNewGenerationAttempt: NonNullable<BrollPanelProps["onStartNewGenerationAttempt"]>;
   onAcceptSpendingQuote: NonNullable<BrollPanelProps["onAcceptSpendingQuote"]>;
   onDismissSpendingQuote: NonNullable<BrollPanelProps["onDismissSpendingQuote"]>;
   onFindStock: () => void;
@@ -366,6 +368,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     motionPromptQuote: args.motionPromptQuote,
     spendingQuote: args.spendingQuote,
     spendingReceipt: args.spendingReceipt,
+    terminalGenerationAttempt: args.terminalGenerationAttempt,
     message: args.message,
     activeOperation: args.activeOperation,
     disabled: args.disabled,
@@ -387,6 +390,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onSaveMotionPrompt: args.onSaveMotionPrompt,
     onCreateRunwayReadyPrompt: args.onCreateRunwayReadyPrompt,
     onGenerateVideo: args.onGenerateVideo,
+    onStartNewGenerationAttempt: args.onStartNewGenerationAttempt,
     onAcceptSpendingQuote: args.onAcceptSpendingQuote,
     onDismissSpendingQuote: args.onDismissSpendingQuote,
     onFindStock: args.onFindStock,
