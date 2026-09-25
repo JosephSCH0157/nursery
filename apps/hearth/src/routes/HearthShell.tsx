@@ -6745,6 +6745,7 @@ export default function HearthShell({
       coverageStrength: brollPlan?.coverage_strength ?? null,
       saveState: canonicalBrollV2.error ? "error" as const : canonicalBrollV2.busy || canonicalBrollV2.loading ? "saving" as const : "saved" as const,
       saveError: canonicalBrollV2.error,
+      motionPromptError: canonicalBrollV2.motionPromptError,
       message: canonicalBrollV2.message,
       activeOperation: canonicalBrollV2.activeOperation,
       disabled: isApprovingScript || canonicalBrollV2.busy || canonicalBrollV2.loading || !episodePackage,

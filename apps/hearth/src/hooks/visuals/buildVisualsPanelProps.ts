@@ -75,6 +75,7 @@ type BuildBrollPanelArgs = {
   coverageStrength: EpisodeBrollPlan["coverage_strength"] | null;
   saveState: BrollPanelProps["saveState"];
   saveError: string | null;
+  motionPromptError?: string | null;
   message: string | null;
   activeOperation?: BrollPanelProps["activeOperation"];
   disabled: boolean;
@@ -352,6 +353,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     coverageStrength: args.coverageStrength ?? null,
     saveState: args.saveState,
     saveError: args.saveError,
+    motionPromptError: args.motionPromptError,
     message: args.message,
     activeOperation: args.activeOperation,
     disabled: args.disabled,

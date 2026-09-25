@@ -36,6 +36,7 @@ export function useCanonicalBrollV2(args: {
   const [busy, setBusy] = useState(false);
   const [activeOperation, setActiveOperation] = useState<"motion_prompt" | "video" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [motionPromptError, setMotionPromptError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [spendingQuote, setSpendingQuote] = useState<CustomerRunwaySpendingQuote | null>(null);
   const [spendingReceipt, setSpendingReceipt] = useState<CustomerRunwaySpendingReceipt | null>(null);
@@ -54,6 +55,12 @@ export function useCanonicalBrollV2(args: {
   }, [args.workspaceId, args.workpieceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (activeOperation === null && message?.startsWith("Creating the canonical motion brief")) {
+      setMessage(null);
+    }
+  }, [activeOperation, message]);
 
   const generatePlan = useCallback(async (readApprovedScript: () => Promise<{ ok: true; text: string } | { ok: false; message: string }>) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
@@ -188,10 +195,10 @@ export function useCanonicalBrollV2(args: {
 
   const generatePrompt = useCallback(async (beatId: string, creatorDirection: string) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setActiveOperation("motion_prompt"); setError(null); setMessage("Creating the canonical motion brief and prompt… Keep this page open.");
+    setBusy(true); setActiveOperation("motion_prompt"); setError(null); setMotionPromptError(null); setMessage("Creating the canonical motion brief and prompt… Keep this page open.");
     try {
       const generated = await generateCanonicalBrollPrompt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, creatorDirection, current: state.promptsByBeat[beatId] ?? { status: "missing", revisionId: null, revision: 0, contentHash: null, creatorDirection: "", finalPrompt: null, motionBrief: null, mismatchReasons: [] } });
-      if (!generated.ok) { setError(generated.error); return; }
+      if (!generated.ok) { setError(generated.error); setMotionPromptError(generated.error); setMessage(null); return; }
       setState(generated.data); setMessage("Canonical motion brief and prompt are ready.");
     } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
@@ -213,5 +220,5 @@ export function useCanonicalBrollV2(args: {
   },[args.workspaceId,args.workpieceId,busy,state.promptsByBeat]);
 
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, activeOperation, error, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
+  return { state, loading, busy, activeOperation, error, motionPromptError, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
 }

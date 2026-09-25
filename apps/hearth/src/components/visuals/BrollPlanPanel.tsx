@@ -12,6 +12,7 @@ type BrollPlanPanelProps = {
   coverageStrength: string | null;
   saveState: "saved" | "editing" | "saving" | "error" | "offline";
   saveError: string | null;
+  motionPromptError?: string | null;
   message: string | null;
   activeOperation?: "motion_prompt" | "video" | null;
   disabled?: boolean;
@@ -185,6 +186,9 @@ function creatorBrollProgress(message: string): string {
 }
 
 function creatorBrollError(message: string): string {
+  if (/unavailable for new Forge-funded execution|paid_execution_halted/i.test(message)) {
+    return "Motion prompt generation is temporarily paused for customer-funded AI operations. No credits were charged. You can still upload a video or attach an external clip.";
+  }
   if (/vite module runner has been closed/i.test(message)) {
     return "Video generation could not start because the server was unavailable. Restart Forge and try again.";
   }
@@ -497,6 +501,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
               </div>
               <section className="hs-imap-next-card hs-broll-section" aria-label="Canonical motion prompt" aria-busy={props.activeOperation === "motion_prompt"}>
                 <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Motion direction</div><h5>What should this clip show?</h5></div><span className="hs-broll-revision">{props.promptState?.revision ? `Revision ${props.promptState.revision}` : "Not created"}</span></div>
+                {props.motionPromptError ? <div className="hs-error-text" role="alert">{creatorBrollError(props.motionPromptError)}</div> : null}
                 {props.promptState?.mismatchReasons.length ? <div className="hs-error-text-small">{props.promptState.mismatchReasons.join(", ")}</div> : null}
                 <div className="hs-imap-field">
                   <label htmlFor={`${formFieldIdPrefix}-creator-direction`}>Creator direction</label>
