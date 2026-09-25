@@ -476,6 +476,29 @@ export async function startReplacementRunwayGenerationAttempt(args: { workspaceI
   return { ok: true, data: attempt };
 }
 
+export async function readCurrentRunwayGenerationAttempt(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280" }): Promise<Result<CustomerRunwayGenerationAttempt | null>> {
+  if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
+    return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before reading a generation attempt." };
+  }
+  const creative = await runwayCreativeIntent(args);
+  const read = await rpc("read_my_customer_runway_generation_attempt", {
+    p_workspace_id: args.workspaceId,
+    p_workpiece_id: args.workpieceId,
+    p_beat_id: args.beatId,
+    p_prompt_revision_id: args.prompt.revisionId,
+    p_prompt_revision: args.prompt.revision,
+    p_prompt_content_hash: args.prompt.contentHash,
+    p_creative_input_hash: creative.creativeInputHash,
+  });
+  if (!read.ok) return read;
+  if (record(read.data) && string(read.data.disposition) === "generation_attempt_not_found") return { ok: true, data: null };
+  const attempt = mapGenerationAttempt(read.data);
+  if (!attempt || attempt.creativeInputHash !== creative.creativeInputHash) {
+    return { ok: false, status: 502, code: "generation_attempt_readback_invalid", error: "Tongs returned an invalid durable generation identity." };
+  }
+  return { ok: true, data: attempt };
+}
+
 export async function generateCanonicalBrollVideo(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280"; acceptedQuote?: CustomerRunwaySpendingQuote | null; generationAttempt?: CustomerRunwayGenerationAttempt | null }): Promise<Result<CanonicalBrollV2State>> {
   if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
     return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before generating video." };

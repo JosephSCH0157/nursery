@@ -9,6 +9,7 @@ import {
   generateCanonicalBrollVideo,
   proposeRunwayReadyBrollPrompt,
   readCanonicalBrollV2,
+  readCurrentRunwayGenerationAttempt,
   selectCanonicalBrollCandidate,
   startReplacementRunwayGenerationAttempt,
   type CanonicalBrollV2State,
@@ -151,7 +152,10 @@ export function useCanonicalBrollV2(args: {
     if (!args.workspaceId || !args.workpieceId || busy) return;
     setBusy(true); setActiveOperation("video"); setError(null); setVideoError(null); setTerminalGenerationAttempt(null); setPendingReplacement(null); setMessage("Preparing the Runway cost confirmation. No video has been submitted yet.");
     try {
-      const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], referenceImages });
+      const prompt = state.promptsByBeat[beatId];
+      const recovered = await readCurrentRunwayGenerationAttempt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt, referenceImages });
+      if (!recovered.ok) { setVideoError(recovered.error); setMessage("The durable generation attempt could not be read. Runway was not called."); return; }
+      const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt, referenceImages, generationAttempt: recovered.data });
       if (quote.ok) { setState(quote.data); setMessage("An identical completed Runway result already exists. No new generation or credit charge was made."); return; }
       if (quote.code === "broll_terminal_generation_attempt" && quote.terminalAttempt) {
         setSpendingQuote(null);
@@ -163,7 +167,7 @@ export function useCanonicalBrollV2(args: {
       }
       if (!quote.requiresConfirmation || !quote.spendingQuote) { setVideoError(quote.error); setMessage("Runway generation did not start."); return; }
       setSpendingQuote(quote.spendingQuote);
-      setPendingGeneration({ beatId, referenceImages, generationAttempt: null });
+      setPendingGeneration({ beatId, referenceImages, generationAttempt: recovered.data });
       setMessage("Review the exact customer ceiling and failure terms below. Runway has not been called.");
     } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
