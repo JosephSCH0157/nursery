@@ -560,7 +560,9 @@ begin
   end if;
   if exists(select 1 from tongs.private_pricing_publications publication
     join tongs.private_pricing_revisions pricing on pricing.id=publication.pricing_revision_id
-    where pricing.revision=1 and publication.action='published') then
+    join tongs.private_pricing_policies policy on policy.id=pricing.policy_id
+    where lower(policy.provider)='runway' and lower(policy.sku)='gen4.5:5s:1280:720'
+      and pricing.revision=1 and publication.action='published') then
     raise exception 'historical owner-pilot pricing must remain unpublished';
   end if;
   if exists(select 1 from tongs.runway_customer_test_authorizations
