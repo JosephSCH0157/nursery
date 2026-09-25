@@ -31447,16 +31447,21 @@ export class TongsCommitService {
               transmitted: false,
             },
           );
-        const quoteId = uuidFromSha256(
+        const acceptedQuoteId = input.accepted_spending_quote_id ?? null;
+        const acceptedQuoteHash = input.accepted_spending_quote_hash ?? null;
+        // Quote IDs include the bounded quote window so an expired immutable
+        // quote can be replaced without mutating its history. Once the client
+        // accepts a database-returned quote, that exact ID is authoritative.
+        const quoteWindow = Math.floor(Date.now() / (10 * 60 * 1000));
+        const proposedQuoteId = uuidFromSha256(
           await sha256Text(
-            `runway-customer-quote:${auth.userId}:${input.operation_id}:${input.operation_fingerprint}`,
+            `runway-customer-quote:${auth.userId}:${input.operation_id}:${input.operation_fingerprint}:${quoteWindow}`,
           ),
         );
+        const quoteId = acceptedQuoteId ?? proposedQuoteId;
         const reservationId = uuidFromSha256(
           await sha256Text(`runway-customer-reservation:${quoteId}`),
         );
-        const acceptedQuoteId = input.accepted_spending_quote_id ?? null;
-        const acceptedQuoteHash = input.accepted_spending_quote_hash ?? null;
         if (!acceptedQuoteId || !acceptedQuoteHash) {
           const serviceAuthority = this.supabase.schema(
             "tongs",
@@ -31502,14 +31507,6 @@ export class TongsCommitService {
               requires_confirmation: true,
               transmitted: false,
             },
-          );
-        }
-        if (acceptedQuoteId !== quoteId) {
-          throw new HttpError(
-            409,
-            "runway_quote_identity_mismatch",
-            "The accepted quote does not belong to this Runway operation.",
-            { transmitted: false },
           );
         }
         const acceptanceId = uuidFromSha256(
