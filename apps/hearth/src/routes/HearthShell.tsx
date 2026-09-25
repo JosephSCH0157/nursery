@@ -6746,6 +6746,7 @@ export default function HearthShell({
       saveState: canonicalBrollV2.error ? "error" as const : canonicalBrollV2.busy || canonicalBrollV2.loading ? "saving" as const : "saved" as const,
       saveError: canonicalBrollV2.error,
       motionPromptError: canonicalBrollV2.motionPromptError,
+      videoError: canonicalBrollV2.videoError,
       motionPromptQuote: canonicalBrollV2.motionPromptQuote,
       message: canonicalBrollV2.message,
       activeOperation: canonicalBrollV2.activeOperation,

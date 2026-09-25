@@ -76,6 +76,7 @@ type BuildBrollPanelArgs = {
   saveState: BrollPanelProps["saveState"];
   saveError: string | null;
   motionPromptError?: string | null;
+  videoError?: string | null;
   motionPromptQuote?: BrollPanelProps["motionPromptQuote"];
   message: string | null;
   activeOperation?: BrollPanelProps["activeOperation"];
@@ -357,6 +358,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     saveState: args.saveState,
     saveError: args.saveError,
     motionPromptError: args.motionPromptError,
+    videoError: args.videoError,
     motionPromptQuote: args.motionPromptQuote,
     message: args.message,
     activeOperation: args.activeOperation,

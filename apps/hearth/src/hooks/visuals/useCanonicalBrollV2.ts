@@ -38,6 +38,7 @@ export function useCanonicalBrollV2(args: {
   const [activeOperation, setActiveOperation] = useState<"motion_prompt" | "video" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [motionPromptError, setMotionPromptError] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [motionPromptQuote, setMotionPromptQuote] = useState<CustomerMotionPromptSpendingQuote | null>(null);
   const [pendingMotionPrompt, setPendingMotionPrompt] = useState<{ beatId: string; creatorDirection: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -62,6 +63,9 @@ export function useCanonicalBrollV2(args: {
   useEffect(() => {
     setMotionPromptQuote(null);
     setPendingMotionPrompt(null);
+    setVideoError(null);
+    setSpendingQuote(null);
+    setPendingGeneration(null);
   }, [args.workspaceId, args.workpieceId]);
 
   useEffect(() => {
@@ -134,11 +138,11 @@ export function useCanonicalBrollV2(args: {
 
   const generateVideo = useCallback(async (beatId: string, referenceImages: Array<{ file: File; stageLabel?: string }> = []) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setActiveOperation("video"); setError(null); setMessage("Preparing the Runway cost confirmation. No video has been submitted yet.");
+    setBusy(true); setActiveOperation("video"); setError(null); setVideoError(null); setMessage("Preparing the Runway cost confirmation. No video has been submitted yet.");
     try {
       const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], referenceImages });
       if (quote.ok) { setState(quote.data); setMessage("An identical completed Runway result already exists. No new generation or credit charge was made."); return; }
-      if (!quote.requiresConfirmation || !quote.spendingQuote) { setError(quote.error); setMessage("Runway generation did not start."); return; }
+      if (!quote.requiresConfirmation || !quote.spendingQuote) { setVideoError(quote.error); setMessage("Runway generation did not start."); return; }
       setSpendingQuote(quote.spendingQuote);
       setPendingGeneration({ beatId, referenceImages });
       setMessage("Review the exact customer ceiling and failure terms below. Runway has not been called.");
@@ -148,18 +152,18 @@ export function useCanonicalBrollV2(args: {
   const acceptSpendingQuote = useCallback(async () => {
     if (!args.workspaceId || !args.workpieceId || !spendingQuote || !pendingGeneration || busy) return;
     if (new Date(spendingQuote.expiresAt).getTime() <= Date.now()) {
-      setError("This quote expired. Request a new Runway quote before generation.");
+      setVideoError("This quote expired. Request a new Runway quote before generation.");
       setSpendingQuote(null); setPendingGeneration(null); return;
     }
     if (!spendingQuote.customerSpendingEnabled) {
-      setError("Customer Runway spending is not active yet. No funds were reserved and Runway was not called.");
+      setVideoError("Customer Runway spending is not active yet. No funds were reserved and Runway was not called.");
       return;
     }
     if (!spendingQuote.fundingEligible) {
-      setError("This account has no verified eligible funding for the quoted maximum charge.");
+      setVideoError("This account has no verified eligible funding for the quoted maximum charge.");
       return;
     }
-    setBusy(true); setActiveOperation("video"); setError(null);
+    setBusy(true); setActiveOperation("video"); setError(null); setVideoError(null);
     setMessage("Funding the accepted ceiling and submitting one replay-safe Runway operation…");
     try {
       const acquired = await generateCanonicalBrollVideo({
@@ -171,7 +175,7 @@ export function useCanonicalBrollV2(args: {
         acceptedQuote: spendingQuote,
       });
       if (!acquired.ok) {
-        setError(acquired.error);
+        setVideoError(acquired.error);
         setMessage(acquired.code === "broll_runway_submission_unknown"
           ? "Submission status is uncertain. The reservation remains held and Forge will not submit again automatically."
           : "Runway generation did not complete. No duplicate submission will be made by retrying the same operation.");
@@ -187,7 +191,7 @@ export function useCanonicalBrollV2(args: {
 
   const dismissSpendingQuote = useCallback(() => {
     if (busy) return;
-    setSpendingQuote(null); setPendingGeneration(null); setError(null);
+    setSpendingQuote(null); setPendingGeneration(null); setError(null); setVideoError(null);
     setMessage("Generation cancelled. No reservation was created and Runway was not called.");
   }, [busy]);
 
@@ -258,5 +262,5 @@ export function useCanonicalBrollV2(args: {
   },[args.workspaceId,args.workpieceId,busy,state.promptsByBeat]);
 
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, activeOperation, error, motionPromptError, motionPromptQuote, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, acceptMotionPromptQuote, dismissMotionPromptQuote, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
+  return { state, loading, busy, activeOperation, error, motionPromptError, videoError, motionPromptQuote, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, acceptMotionPromptQuote, dismissMotionPromptQuote, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
 }

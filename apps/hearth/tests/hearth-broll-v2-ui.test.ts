@@ -13,6 +13,9 @@ const visualsStyles = fs.readFileSync(path.join(root, "src/views/surfaces/Visual
 assert.match(panel, /What should this clip show/);
 assert.match(panel, /View motion brief/);
 assert.match(panel, /B-roll acquisition method/);
+assert.match(panel, /data-testid="runway-generation-error"/);
+assert.match(panel, /props\.videoError/);
+assert.match(panel, /data-testid="runway-price-confirmation"/);
 assert.match(panel, /hs-broll-final-prompt/);
 assert.match(panel, /hs-broll-prompt-actions/);
 assert.match(panel, /hs-broll-candidate-chips/);
