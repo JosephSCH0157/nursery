@@ -667,7 +667,7 @@ export default function CanonicalReferenceMaterialPanel({
             item.family === "reference_visual" &&
             item.candidate?.currentForPlan === false &&
             visualAction?.action === "continue" &&
-            visualAction.label === "Generate visual";
+            visualAction.label === "Re-certify visual";
           return (
             <article
               key={item.key}

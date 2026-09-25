@@ -129,9 +129,37 @@ test("only a current release-ready candidate is directly approvable", () => {
   assert.equal(project(current).target, "approval");
 
   const historical = opportunity({
+    sourceStatus: "linked",
+    sourceSetRevisionId: "source-set-1",
+    sources: [linkedSource],
+    sourceRevisionId: linkedSource.sourceRevisionId,
+    sourceLinkRevisionId: linkedSource.sourceLinkRevisionId,
+    source: linkedSource.source,
+    sourceUse: {
+      id: "source-use-1",
+      use_classification: "facts_data_only",
+    },
+    focus: "Crude oil share of the retail gasoline price",
+    desiredMaterial: "A crude oil percentage stat card",
+    evidence: [
+      {
+        id: "evidence-current",
+        source_set_member_id: linkedSource.memberId,
+        confirmation_state: "creator_confirmed",
+        label: "Crude oil share of the retail gasoline price",
+        raw_excerpt: "Crude oil accounted for 57 percent of the price.",
+        numeric_value: 57,
+        unit: "percent",
+      },
+    ],
+    recipe: {
+      id: "recipe-current",
+      evidence_revision_ids: ["evidence-current"],
+    },
     candidates: [{ ...candidate, currentForPlan: false }],
   });
   assert.equal(project(historical).action, "continue");
+  assert.equal(project(historical).label, "Re-certify visual");
   assert.notEqual(project(historical).target, "approval");
 
   const blocked = project(current, { approvalBlocked: true });

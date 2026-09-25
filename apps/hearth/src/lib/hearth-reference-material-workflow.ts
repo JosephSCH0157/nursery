@@ -73,6 +73,9 @@ export function projectReferenceMaterialVisualAction(args: {
   const candidateReady = args.opportunity.candidates.some(
     (candidate) => candidate.currentForPlan !== false && candidate.releaseReady,
   );
+  const historicalCandidateExists = args.opportunity.candidates.some(
+    (candidate) => candidate.currentForPlan === false,
+  );
   if (args.resolution === null && candidateReady && !args.approvalBlocked)
     return {
       action: "approve",
@@ -86,6 +89,8 @@ export function projectReferenceMaterialVisualAction(args: {
     label:
       args.resolution === "approved" && !args.hammerVerified
         ? "Review visual"
+        : workflow.nextAction === "Generate visual" && historicalCandidateExists
+          ? "Re-certify visual"
         : workflow.nextAction,
     target: "reference_visual_workflow",
     disabled: false,

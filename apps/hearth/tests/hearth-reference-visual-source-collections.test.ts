@@ -92,6 +92,9 @@ test("Reference Material explains when a previously selected visual became histo
  assert.match(referenceMaterial,/item\.candidate\?\.currentForPlan === false/);
  assert.match(referenceMaterial,/Needs regeneration/);
  assert.match(referenceMaterial,/earlier selected visual is now historical because its\s+supporting authority changed/);
+ assert.match(panel,/Re-certification required/);
+ assert.match(panel,/certified against an older Source collection/);
+ assert.match(panel,/"Re-certify visual":"Generate visual"/);
 });
 
 test("Reference Material completion treats current selections and explicit skips as resolved and receives live progress",()=>{
