@@ -521,6 +521,7 @@ begin
        where operation_id='forge:broll:acquire:9b83645ed2fd1bb4d563f045d57c6a54c485aa300a57071856fdcb39db4bad32'
          and operation_fingerprint='9b83645ed2fd1bb4d563f045d57c6a54c485aa300a57071856fdcb39db4bad32') then
     select user_id into actor from tongs.platform_operators order by granted_at limit 1;
+    perform set_config('request.jwt.claim.role','service_role',true);
     perform tongs.activate_runway_gen45_customer_test(
       '19730000-0000-4000-8000-000000000007',actor,
       '71daf61b-57b3-4e5f-a8c8-64befecb5950','cc5478ff-37be-403e-824c-467fa7da061e',
@@ -528,6 +529,7 @@ begin
       '9b83645ed2fd1bb4d563f045d57c6a54c485aa300a57071856fdcb39db4bad32',
       clock_timestamp()+interval '24 hours',
       'One signed-in normal-customer Test canary. Explicit quote acceptance remains required; no reservation or provider call is created by activation.');
+    perform set_config('request.jwt.claim.role','',true);
   end if;
 end $$;
 

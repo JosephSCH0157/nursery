@@ -29,6 +29,7 @@ test("activation is one exact normal-customer Test operation and leaves Live ina
   assert.match(migration,/reference_image_count integer not null check\(reference_image_count=0\)/);
   assert.match(migration,/maximum_provider_attempts integer not null check\(maximum_provider_attempts=1\)/);
   assert.match(migration,/financial_environment text not null check\(financial_environment='test'\)/);
+  assert.match(migration,/set_config\('request\.jwt\.claim\.role','service_role',true\)[\s\S]*activate_runway_gen45_customer_test[\s\S]*set_config\('request\.jwt\.claim\.role','',true\)/);
   assert.match(migration,/Live must remain inactive-ready/);
   assert.match(migration,/No fallback, retry, Seedance, Owner, BYO, or Live scope/);
 });
