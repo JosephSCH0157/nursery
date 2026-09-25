@@ -31771,22 +31771,33 @@ export class TongsCommitService {
           ) {
             const halted = runwayBoundaryAuthorization.mode === "halt_new";
             const duplicate = runwayBoundaryAuthorization.replay;
+            const failureCode = halted
+              ? "runway_paid_submissions_halted"
+              : duplicate
+                ? "runway_duplicate_submission_blocked"
+                : "runway_funding_required";
+            const failureMessage = halted
+              ? "New Runway submissions are halted. Existing jobs can still be polled and reconciled."
+              : duplicate
+                ? "This Runway attempt has already crossed the paid boundary and cannot be submitted again automatically."
+                : "A matching full-cost reservation is required before Runway can be called.";
+            const failed = await authority.rpc("fail_broll_operation", {
+              p_operation_id: input.operation_id,
+              p_operation_fingerprint: input.operation_fingerprint,
+              p_failed_stage: "runway_financial_preflight",
+              p_failure_code: failureCode,
+              p_failure_message: failureMessage,
+            });
             throw new HttpError(
               halted ? 503 : duplicate ? 409 : 402,
-              halted
-                ? "runway_paid_submissions_halted"
-                : duplicate
-                  ? "runway_duplicate_submission_blocked"
-                  : "runway_funding_required",
-              halted
-                ? "New Runway submissions are halted. Existing jobs can still be polled and reconciled."
-                : duplicate
-                  ? "This Runway attempt has already crossed the paid boundary and cannot be submitted again automatically."
-                  : "A matching full-cost reservation is required before Runway can be called.",
+              failureCode,
+              failureMessage,
               {
                 mode: runwayBoundaryAuthorization.mode,
                 reason: runwayBoundaryAuthorization.reason,
                 reservation_id: runwayBoundaryAuthorization.reservationId,
+                receipt_terminalized: !failed.error,
+                receipt_terminalization_error: failed.error?.message ?? null,
                 transmitted: false,
               },
             );

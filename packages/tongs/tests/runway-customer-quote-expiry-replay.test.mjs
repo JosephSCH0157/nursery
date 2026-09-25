@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 const migration=readFileSync(new URL("../../../supabase/migrations/20261011740000_runway_customer_quote_expiry_replay.sql",import.meta.url),"utf8");
 const service=readFileSync(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
+const hook=readFileSync(new URL("../../../apps/hearth/src/hooks/visuals/useCanonicalBrollV2.ts",import.meta.url),"utf8");
 
 test("forward migration follows the exact customer Runway product",()=>{
   assert.match(migration,/version='20261011730000'/);
@@ -45,4 +46,14 @@ test("renewable quote authority remains service-only, RLS-forced, and Test-only"
   assert.match(migration,/relrowsecurity and relforcerowsecurity/);
   assert.match(migration,/environment='live'[\s\S]*?<>'inactive_ready'/);
   assert.doesNotMatch(migration,/insert into tongs\.runway_customer_test_authorizations|update tongs\.runway_customer_test_authorizations/);
+});
+
+test("a definitive pre-provider financial denial terminalizes the receipt and consumes the card",()=>{
+  const denial=service.indexOf("!runwayBoundaryAuthorization.providerExecutionAuthorized");
+  const terminalize=service.indexOf('authority.rpc("fail_broll_operation"',denial);
+  const provider=service.indexOf("this.brollVideoProvider.submit",denial);
+  assert.ok(denial>0 && terminalize>denial && provider>terminalize);
+  assert.match(service,/p_failed_stage: "runway_financial_preflight"/);
+  assert.match(service,/receipt_terminalized: !failed\.error/);
+  assert.match(hook,/acquired\.code !== "broll_runway_submission_unknown"[\s\S]*setSpendingQuote\(null\)[\s\S]*setPendingGeneration\(null\)/);
 });

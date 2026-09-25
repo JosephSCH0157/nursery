@@ -179,7 +179,10 @@ export function useCanonicalBrollV2(args: {
         setMessage(acquired.code === "broll_runway_submission_unknown"
           ? "Submission status is uncertain. The reservation remains held and Forge will not submit again automatically."
           : "Runway generation did not complete. No duplicate submission will be made by retrying the same operation.");
-        if (acquired.code === "runway_quote_expired") { setSpendingQuote(null); setPendingGeneration(null); }
+        if (acquired.code !== "broll_runway_submission_unknown") {
+          setSpendingQuote(null);
+          setPendingGeneration(null);
+        }
         return;
       }
       setState(acquired.data);
