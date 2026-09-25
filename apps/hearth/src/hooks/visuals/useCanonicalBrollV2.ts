@@ -11,6 +11,7 @@ import {
   readCanonicalBrollV2,
   selectCanonicalBrollCandidate,
   type CanonicalBrollV2State,
+  type CustomerMotionPromptSpendingQuote,
   type CustomerRunwaySpendingQuote,
   type CustomerRunwaySpendingReceipt,
 } from "../../lib/hearth-broll-v2-authority";
@@ -37,6 +38,8 @@ export function useCanonicalBrollV2(args: {
   const [activeOperation, setActiveOperation] = useState<"motion_prompt" | "video" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [motionPromptError, setMotionPromptError] = useState<string | null>(null);
+  const [motionPromptQuote, setMotionPromptQuote] = useState<CustomerMotionPromptSpendingQuote | null>(null);
+  const [pendingMotionPrompt, setPendingMotionPrompt] = useState<{ beatId: string; creatorDirection: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [spendingQuote, setSpendingQuote] = useState<CustomerRunwaySpendingQuote | null>(null);
   const [spendingReceipt, setSpendingReceipt] = useState<CustomerRunwaySpendingReceipt | null>(null);
@@ -55,6 +58,11 @@ export function useCanonicalBrollV2(args: {
   }, [args.workspaceId, args.workpieceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    setMotionPromptQuote(null);
+    setPendingMotionPrompt(null);
+  }, [args.workspaceId, args.workpieceId]);
 
   useEffect(() => {
     if (activeOperation === null && message?.startsWith("Creating the canonical motion brief")) {
@@ -195,13 +203,43 @@ export function useCanonicalBrollV2(args: {
 
   const generatePrompt = useCallback(async (beatId: string, creatorDirection: string) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setActiveOperation("motion_prompt"); setError(null); setMotionPromptError(null); setMessage("Creating the canonical motion brief and prompt… Keep this page open.");
+    setBusy(true); setActiveOperation("motion_prompt"); setError(null); setMotionPromptError(null); setMotionPromptQuote(null); setPendingMotionPrompt(null); setMessage("Creating the canonical motion brief and prompt… Keep this page open.");
     try {
       const generated = await generateCanonicalBrollPrompt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, creatorDirection, current: state.promptsByBeat[beatId] ?? { status: "missing", revisionId: null, revision: 0, contentHash: null, creatorDirection: "", finalPrompt: null, motionBrief: null, mismatchReasons: [] } });
-      if (!generated.ok) { setError(generated.error); setMotionPromptError(generated.error); setMessage(null); return; }
+      if (!generated.ok && generated.requiresConfirmation && generated.motionPromptSpendingQuote) {
+        setMotionPromptQuote(generated.motionPromptSpendingQuote); setPendingMotionPrompt({ beatId, creatorDirection });
+        setMessage("Review the exact motion-prompt price. OpenAI has not been called and no credits are reserved."); return;
+      }
+      if (!generated.ok) { setMotionPromptQuote(null); setPendingMotionPrompt(null); setError(generated.error); setMotionPromptError(generated.error); setMessage(null); return; }
       setState(generated.data); setMessage("Canonical motion brief and prompt are ready.");
     } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
+
+  const acceptMotionPromptQuote = useCallback(async () => {
+    if (!args.workspaceId || !args.workpieceId || !motionPromptQuote || !pendingMotionPrompt || busy) return;
+    if (new Date(motionPromptQuote.expires_at).getTime() <= Date.now()) {
+      setError("This motion-prompt quote expired. Request a new quote before generation.");
+      setMotionPromptQuote(null); setPendingMotionPrompt(null); return;
+    }
+    if (!motionPromptQuote.funding_eligible) {
+      setError(`No verified eligible funding is available. ${motionPromptQuote.funding_label}`); return;
+    }
+    setBusy(true); setActiveOperation("motion_prompt"); setError(null); setMotionPromptError(null);
+    setMessage("Reserving the accepted one-credit ceiling and creating the canonical motion prompt…");
+    try {
+      const current = state.promptsByBeat[pendingMotionPrompt.beatId] ?? { status: "missing" as const, revisionId: null, revision: 0, contentHash: null, creatorDirection: "", finalPrompt: null, motionBrief: null, mismatchReasons: [] };
+      const generated = await generateCanonicalBrollPrompt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId: pendingMotionPrompt.beatId, creatorDirection: pendingMotionPrompt.creatorDirection, current, acceptedQuote: motionPromptQuote });
+      if (!generated.ok) { setMotionPromptQuote(null); setPendingMotionPrompt(null); setError(generated.error); setMotionPromptError(generated.error); setMessage(null); return; }
+      setState(generated.data); setMotionPromptQuote(null); setPendingMotionPrompt(null);
+      setMessage("Canonical motion brief and prompt are ready. One accepted Test charge was settled.");
+    } finally { setBusy(false); setActiveOperation(null); }
+  }, [args.workspaceId, args.workpieceId, motionPromptQuote, pendingMotionPrompt, busy, state.promptsByBeat]);
+
+  const dismissMotionPromptQuote = useCallback(() => {
+    if (busy) return;
+    setMotionPromptQuote(null); setPendingMotionPrompt(null); setError(null);
+    setMessage("Motion-prompt generation cancelled. No reservation was created and OpenAI was not called.");
+  }, [busy]);
 
   const editPrompt = useCallback(async (beatId: string, finalPrompt: string) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
@@ -220,5 +258,5 @@ export function useCanonicalBrollV2(args: {
   },[args.workspaceId,args.workpieceId,busy,state.promptsByBeat]);
 
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, activeOperation, error, motionPromptError, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
+  return { state, loading, busy, activeOperation, error, motionPromptError, motionPromptQuote, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, acceptMotionPromptQuote, dismissMotionPromptQuote, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
 }

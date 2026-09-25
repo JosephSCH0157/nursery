@@ -76,6 +76,7 @@ type BuildBrollPanelArgs = {
   saveState: BrollPanelProps["saveState"];
   saveError: string | null;
   motionPromptError?: string | null;
+  motionPromptQuote?: BrollPanelProps["motionPromptQuote"];
   message: string | null;
   activeOperation?: BrollPanelProps["activeOperation"];
   disabled: boolean;
@@ -92,6 +93,8 @@ type BuildBrollPanelArgs = {
   onRegenerateBeat: () => void;
   onGeneratePlan: () => void;
   onGenerateMotionPrompt: NonNullable<BrollPanelProps["onGenerateMotionPrompt"]>;
+  onAcceptMotionPromptQuote: NonNullable<BrollPanelProps["onAcceptMotionPromptQuote"]>;
+  onDismissMotionPromptQuote: NonNullable<BrollPanelProps["onDismissMotionPromptQuote"]>;
   onSaveMotionPrompt: NonNullable<BrollPanelProps["onSaveMotionPrompt"]>;
   onCreateRunwayReadyPrompt: NonNullable<BrollPanelProps["onCreateRunwayReadyPrompt"]>;
   onGenerateVideo: NonNullable<BrollPanelProps["onGenerateVideo"]>;
@@ -354,6 +357,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     saveState: args.saveState,
     saveError: args.saveError,
     motionPromptError: args.motionPromptError,
+    motionPromptQuote: args.motionPromptQuote,
     message: args.message,
     activeOperation: args.activeOperation,
     disabled: args.disabled,
@@ -370,6 +374,8 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onRegenerateBeat: args.onRegenerateBeat,
     onGeneratePlan: args.onGeneratePlan,
     onGenerateMotionPrompt: args.onGenerateMotionPrompt,
+    onAcceptMotionPromptQuote: args.onAcceptMotionPromptQuote,
+    onDismissMotionPromptQuote: args.onDismissMotionPromptQuote,
     onSaveMotionPrompt: args.onSaveMotionPrompt,
     onCreateRunwayReadyPrompt: args.onCreateRunwayReadyPrompt,
     onGenerateVideo: args.onGenerateVideo,

@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
-import { refreshCanonicalBrollMediaUrl, type CanonicalBrollPromptState, type CustomerRunwaySpendingQuote, type CustomerRunwaySpendingReceipt } from "../../lib/hearth-broll-v2-authority";
+import { refreshCanonicalBrollMediaUrl, type CanonicalBrollPromptState, type CustomerMotionPromptSpendingQuote, type CustomerRunwaySpendingQuote, type CustomerRunwaySpendingReceipt } from "../../lib/hearth-broll-v2-authority";
 import { readVisualOpportunityDispositions, type VisualOpportunityDisposition } from "../../lib/hearth-visual-disposition-authority";
 import { VisualOpportunityDispositionControl } from "./VisualOpportunityDispositionControl";
 
@@ -13,6 +13,7 @@ type BrollPlanPanelProps = {
   saveState: "saved" | "editing" | "saving" | "error" | "offline";
   saveError: string | null;
   motionPromptError?: string | null;
+  motionPromptQuote?: CustomerMotionPromptSpendingQuote | null;
   message: string | null;
   activeOperation?: "motion_prompt" | "video" | null;
   disabled?: boolean;
@@ -69,6 +70,8 @@ type BrollPlanPanelProps = {
   onAttachResultFromUrl: () => void;
   promptState?: CanonicalBrollPromptState | null;
   onGenerateMotionPrompt?: (creatorDirection: string) => void;
+  onAcceptMotionPromptQuote?: () => void;
+  onDismissMotionPromptQuote?: () => void;
   onSaveMotionPrompt?: (finalPrompt: string) => void;
   onCreateRunwayReadyPrompt?: () => Promise<{ finalPrompt:string;lengthUtf16:number }|null>;
   onGenerateVideo?: (referenceImages: Array<{ file: File; stageLabel?: string }>) => void;
@@ -512,6 +515,15 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                   {props.activeOperation === "motion_prompt" ? "Generating motion prompt…" : props.promptState?.revisionId ? "Regenerate motion prompt" : "Generate motion prompt"}
                 </button>
                 {props.activeOperation === "motion_prompt" ? <div className="hs-broll-operation-progress" role="status" aria-live="polite"><span aria-hidden="true" className="hs-broll-operation-spinner" /> <span><strong>Creating motion prompt</strong><small>Hearth is building the motion brief and canonical prompt. Keep this page open.</small></span></div> : null}
+                {props.motionPromptQuote ? <section className="hs-broll-spending-card" aria-label="Motion prompt price confirmation" data-testid="motion-prompt-price-confirmation">
+                  <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Price confirmation</div><h5>{props.motionPromptQuote.credit_charge} {props.motionPromptQuote.credit_charge === 1 ? "Forge Credit" : "Forge Credits"}</h5></div><span className="hs-broll-revision">Expires {new Date(props.motionPromptQuote.expires_at).toLocaleTimeString()}</span></div>
+                  <p><strong>Generate one canonical motion brief and prompt with {props.motionPromptQuote.model_display_name ?? "the selected OpenAI model"}.</strong></p>
+                  {props.motionPromptQuote.model_tradeoff_summary ? <p>{props.motionPromptQuote.model_tradeoff_summary}</p> : null}
+                  <dl className="hs-broll-spending-terms"><div><dt>Exact price</dt><dd>{props.motionPromptQuote.credit_charge} {props.motionPromptQuote.credit_charge === 1 ? "Forge Credit" : "Forge Credits"}</dd></div><div><dt>Funding</dt><dd>{props.motionPromptQuote.funding_label}</dd></div><div><dt>Failures</dt><dd>{props.motionPromptQuote.failure_terms}</dd></div></dl>
+                  {!props.motionPromptQuote.funding_eligible ? <div className="hs-broll-spending-notice">No verified eligible Test funding is available for this one-credit request.</div> : null}
+                  <p>OpenAI has not been called and no credits are reserved until you accept.</p>
+                  <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions"><button type="button" className="hs-primary-btn" onClick={props.onAcceptMotionPromptQuote} disabled={props.disabled || !props.motionPromptQuote.funding_eligible}>Accept {props.motionPromptQuote.credit_charge} {props.motionPromptQuote.credit_charge === 1 ? "Forge Credit" : "Forge Credits"} and generate</button><button type="button" onClick={props.onDismissMotionPromptQuote} disabled={props.disabled}>Cancel</button></div>
+                </section> : null}
                 {props.promptState?.motionBrief ? <details className="hs-broll-advanced"><summary>View motion brief</summary><div className="hs-imap-field-grid" data-testid="broll-motion-brief">{Object.entries(props.promptState.motionBrief).map(([key, value]) => <div key={key}><strong>{key.replaceAll("_", " ")}</strong><p>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</p></div>)}</div></details> : <p>No canonical AI motion brief exists for this beat yet.</p>}
                 <div className="hs-imap-field">
                   <label htmlFor={`${formFieldIdPrefix}-final-motion-prompt`}>Canonical final motion prompt</label>

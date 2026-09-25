@@ -32603,7 +32603,7 @@ export class TongsCommitService {
     const interpretationContract = "forge.broll-motion-interpretation.v1";
     const validatorVersion = "forge.broll-motion-validator.v1";
     const synthesisContract = "forge.broll-motion-synthesis.v1";
-    const model = "gpt-5-mini";
+    const model = "gpt-5.6-luna";
     const provider = "openai";
     const current = await authority.rpc("broll_current_creative_input", {
       p_workspace_id: input.workspace_id,
@@ -32708,6 +32708,26 @@ export class TongsCommitService {
         throwOpenAiFundingHttpError(error);
       }
     }
+    const releaseAcceptedFundingBeforeProvider = async (reason: string) => {
+      if (!input.paid_execution) return;
+      const released = await this.openAiTextGate.rpc("release_operation", {
+        p_reservation_id: input.paid_execution.reservationId,
+        p_release_key: `${input.operation_id}:motion-prompt-preprovider-release`,
+        p_reason: reason,
+        p_evidence_json: {
+          provider: "openai",
+          route_code: "motion.broll_interpretation",
+          transmitted: false,
+        },
+      });
+      if (released.error) {
+        throw new HttpError(
+          502,
+          "broll_motion_prompt_release_reconciliation_failed",
+          `No provider request was sent, but Tongs could not reconcile the accepted reservation: ${released.error.message}`,
+        );
+      }
+    };
     const begun = await authority.rpc("begin_broll_prompt_interpretation", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
@@ -32726,20 +32746,24 @@ export class TongsCommitService {
       p_operation_fingerprint: input.operation_fingerprint,
       p_actor_id: auth.userId,
     });
-    if (begun.error || !isRecord(begun.data))
+    if (begun.error || !isRecord(begun.data)) {
+      await releaseAcceptedFundingBeforeProvider("Canonical motion-prompt reservation failed before provider transmission.");
       throw new HttpError(
         502,
         "broll_prompt_begin_failed",
         begun.error?.message ?? "Tongs could not reserve motion interpretation",
       );
+    }
     const disposition = readStringField(begun.data, "disposition");
-    if (disposition !== "reserved" && disposition !== "replay")
+    if (disposition !== "reserved" && disposition !== "replay") {
+      await releaseAcceptedFundingBeforeProvider(`Canonical motion-prompt reservation was rejected (${disposition ?? "unknown"}) before provider transmission.`);
       throw new HttpError(
         409,
         disposition ?? "broll_prompt_begin_rejected",
         "Tongs rejected motion interpretation reservation.",
         begun.data,
       );
+    }
     const operation = isRecord(begun.data.operation)
       ? begun.data.operation
       : null;
@@ -32759,6 +32783,7 @@ export class TongsCommitService {
         throw new HttpError(409, "paid_request_fingerprint_mismatch", "The accepted motion-interpretation quote does not match this request.");
       }
       if (!this.brollMotionInterpretationProvider) {
+        await releaseAcceptedFundingBeforeProvider("Motion-prompt provider configuration was unavailable before provider transmission.");
         throw new HttpError(503, "broll_motion_interpreter_unavailable", "B-roll motion interpretation provider is not configured");
       }
       const paidOutcome = await executePaidOpenAiTextRoute({

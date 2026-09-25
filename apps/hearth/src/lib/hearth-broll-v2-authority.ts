@@ -1,6 +1,6 @@
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlan, EpisodeBrollPlanBeat } from "./episode-package-v2";
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
-import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { customerSpendingAcceptance, readCustomerSpendingQuote, type CustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRecord = Record<string, unknown>;
 export type CustomerRunwaySpendingQuote = {
@@ -34,9 +34,12 @@ export type CustomerRunwaySpendingReceipt = {
   settledAt: string | null;
 };
 
+export type CustomerMotionPromptSpendingQuote = CustomerSpendingQuote;
+
 type Result<T> =
   | { ok: true; data: T; spendingReceipt?: CustomerRunwaySpendingReceipt }
-  | { ok: false; status: number; code: string; error: string; requiresConfirmation?: boolean; spendingQuote?: CustomerRunwaySpendingQuote };
+  | { ok: false; status: number; code: string; error: string; requiresConfirmation?: boolean; spendingQuote?: CustomerRunwaySpendingQuote; motionPromptSpendingQuote?: CustomerMotionPromptSpendingQuote };
+type FailedResult = Extract<Result<never>, { ok: false }>;
 
 export type CanonicalBrollV2State = {
   plan: EpisodeBrollPlan | null;
@@ -149,7 +152,7 @@ async function postgrest(path: string, init: RequestInit = {}): Promise<Response
 }
 
 async function json(response: Response): Promise<unknown> { try { return await response.json(); } catch { return null; } }
-function failure(response: Response, body: unknown, fallback: string): Result<never> {
+function failure(response: Response, body: unknown, fallback: string): FailedResult {
   const row = record(body) ? body : null;
   const nested = record(row?.error) ? row.error : null;
   const details = record(nested?.details) ? nested.details : null;
@@ -318,7 +321,7 @@ export async function readCanonicalBrollV2(args: { workspaceId: string; workpiec
   } };
 }
 
-export async function generateCanonicalBrollPrompt(args: { workspaceId: string; workpieceId: string; beatId: string; creatorDirection: string; current: CanonicalBrollPromptState }): Promise<Result<CanonicalBrollV2State>> {
+export async function generateCanonicalBrollPrompt(args: { workspaceId: string; workpieceId: string; beatId: string; creatorDirection: string; current: CanonicalBrollPromptState; acceptedQuote?: CustomerMotionPromptSpendingQuote | null }): Promise<Result<CanonicalBrollV2State>> {
   const interpretation = "forge.broll-motion-interpretation.v1";
   const synthesis = "forge.broll-motion-synthesis.v1";
   const validator = "forge.broll-motion-validator.v1";
@@ -326,21 +329,14 @@ export async function generateCanonicalBrollPrompt(args: { workspaceId: string; 
   if (!creative.ok) return creative;
   if (!record(creative.data) || string(creative.data.disposition) !== "current" || !string(creative.data.creative_input_hash)) return { ok: false, status: 409, code: string(record(creative.data) ? creative.data.disposition : null) ?? "creative_input_unavailable", error: "Tongs could not reconstruct current B-roll creative inputs." };
   const fingerprint = await canonicalHash({ workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, creative_input_hash: creative.data.creative_input_hash, contracts: { interpretation, validator, synthesis } });
-  const requestBody: JsonRecord = { workspace_id: args.workspaceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, operation_id: `forge:broll:prompt:${fingerprint}`, operation_fingerprint: fingerprint };
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-interpret`, { method: "POST", json: requestBody });
-    const body = await json(response);
-    if (response.ok) return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
-    const quote = readCustomerSpendingQuote(body);
-    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
-    if (acceptance) {
-      requestBody.spending_acceptance = acceptance;
-      continue;
-    }
-    const failed = failure(response, body, "Tongs could not generate the canonical motion prompt.");
-    return quote && !quote.funding_eligible && !failed.ok ? { ...failed, error: `${failed.error} ${quote.funding_label}.` } : failed;
-  }
-  return { ok: false, status: 409, code: "quote_retry_exhausted", error: "The accepted motion-prompt quote could not be used." };
+  const requestBody: JsonRecord = { workspace_id: args.workspaceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, operation_id: `forge:broll:prompt:${fingerprint}`, operation_fingerprint: fingerprint, ...(args.acceptedQuote ? { spending_acceptance: customerSpendingAcceptance(args.acceptedQuote) } : {}) };
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-interpret`, { method: "POST", json: requestBody });
+  const body = await json(response);
+  if (response.ok) return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
+  const quote = readCustomerSpendingQuote(body);
+  const failed = failure(response, body, "Tongs could not generate the canonical motion prompt.");
+  if (quote && !args.acceptedQuote) return { ...failed, requiresConfirmation: true, motionPromptSpendingQuote: quote };
+  return quote && !quote.funding_eligible ? { ...failed, error: `${failed.error} ${quote.funding_label}.` } : failed;
 }
 
 export async function editCanonicalBrollPrompt(args: { workspaceId: string; workpieceId: string; beatId: string; finalPrompt: string; current: CanonicalBrollPromptState }): Promise<Result<CanonicalBrollV2State>> {
