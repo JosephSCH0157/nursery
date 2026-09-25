@@ -222,7 +222,12 @@ export function evaluateReferenceVisualReadiness(args: {
       );
     return items.length > 0;
   };
-  if (args.editorialFocus) {
+  // A comparison's creator-confirmed evidence must represent both exact current
+  // Source members. That binding is stronger than lexical overlap: unlike
+  // Sources routinely describe comparable facts with different vocabulary.
+  // Keep the editorial-focus filter for single-Source and typed numeric/date
+  // treatments, but do not let it veto a fully confirmed comparison.
+  if (args.editorialFocus && args.subtype !== "comparison") {
     const readyBeforeEditorialFilter = evidenceReady;
     eligible = eligible.filter((item) =>
       referenceVisualEvidenceSupportsEditorialFocus(

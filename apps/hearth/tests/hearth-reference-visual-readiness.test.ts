@@ -173,6 +173,40 @@ test("timeline and comparison apply their subtype-specific current-Source rules"
   );
 });
 
+test("creator-confirmed comparison coverage cannot be vetoed by lexical phrasing", () => {
+  const result = evaluateReferenceVisualReadiness({
+    subtype: "comparison",
+    evidence: [
+      {
+        id: "seasonality",
+        source_set_member_id: "member-a",
+        confirmation_state: "creator_confirmed",
+        label: "Summer gasoline prices",
+        raw_excerpt: "Retail gasoline prices tend to rise in spring and peak in late summer.",
+      },
+      {
+        id: "monthly-series",
+        source_set_member_id: "member-b",
+        confirmation_state: "creator_confirmed",
+        label: "February — 2.7",
+        raw_excerpt: "Dollars per gallon: 2.7",
+      },
+    ],
+    currentSourceMemberIds: ["member-a", "member-b"],
+    editorialFocus:
+      "Together, those factors determine what appears on the sign outside the station.",
+    desiredMaterial:
+      "A side-by-side comparison of the two confirmed Source perspectives.",
+  });
+
+  assert.equal(result.evidenceReady, true);
+  assert.equal(result.code, "ready");
+  assert.deepEqual(result.eligibleEvidenceRevisionIds, [
+    "seasonality",
+    "monthly-series",
+  ]);
+});
+
 test("recipe binding is exact and becomes stale when qualifying evidence changes", () => {
   const current = evaluateReferenceVisualReadiness({
     subtype: "stat_card",
