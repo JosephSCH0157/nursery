@@ -53,7 +53,7 @@ declare
   cost_id constant uuid:='19720000-0000-4000-8000-000000000001';
   catalog_id constant uuid:='19720000-0000-4000-8000-000000000008';
   previous_catalog_id constant uuid:='19670000-0000-4000-8000-000000000008';
-  sku constant text:='openai-text:motion.broll.interpretation:gpt-5.6-luna:19720000-0000-4000-8000-000000000001';
+  sku constant text:='openai-text:motion.broll_interpretation:gpt-5.6-luna:19720000-0000-4000-8000-000000000001';
 begin
   select user_id into actor from tongs.platform_operators order by granted_at limit 1;
   if actor is null then raise exception 'platform operator required'; end if;
@@ -119,12 +119,12 @@ begin
   from tongs.openai_text_model_route_compatibility compat
   join tongs.openai_text_model_catalog_entries old on old.id=compat.catalog_entry_id
   where old.catalog_revision_id=previous_catalog_id
-    and not(old.provider_model_id='gpt-5.6-luna' and compat.route_code='motion.broll.interpretation');
+    and not(old.provider_model_id='gpt-5.6-luna' and compat.route_code='motion.broll_interpretation');
   insert into tongs.openai_text_model_route_compatibility(
     id,catalog_entry_id,route_code,compatibility_status,maximum_input_tokens,maximum_output_tokens,
     maximum_attempts,supporting_cost_coverage,cost_policy_revision_id,evidence_json
-  ) select extensions.uuid_generate_v5(entry.id,'motion.broll.interpretation'),entry.id,
-    'motion.broll.interpretation','generation_verified',4096,1024,1,'complete',cost_id,
+  ) select extensions.uuid_generate_v5(entry.id,'motion.broll_interpretation'),entry.id,
+    'motion.broll_interpretation','generation_verified',4096,1024,1,'complete',cost_id,
     jsonb_build_object('test_only',true,'api','responses','strict_json_schema',true,
       'response_byte_ceiling',16384,
       'browsing_requests',0,'retrieval_requests',0,'tools',0,'attachments',0,'fallback_models',0,
@@ -136,14 +136,14 @@ begin
 
   insert into tongs.openai_text_rollout_revisions(
     route_code,revision,mode,cost_policy_revision_id,reason,actor_id,funding_scope
-  ) values('motion.broll.interpretation',3,'enforce',cost_id,
+  ) values('motion.broll_interpretation',3,'enforce',cost_id,
     'Replace the historical halt only for bounded Forge-funded normal-customer Test motion-prompt interpretation; Live remains inactive.',actor,'forge');
 end $$;
 
 insert into tongs.openai_text_failure_loss_policy_revisions(
   id,route_code,environment,revision,per_operation_limit_micros,aggregate_limit_micros,
   rolling_window_seconds,maximum_concurrency,lifecycle_state,reason,actor_id
-) select row_value.id,'motion.broll.interpretation',row_value.environment,1,2049,2049,86400,1,'active',row_value.reason,operator.user_id
+) select row_value.id,'motion.broll_interpretation',row_value.environment,1,2049,2049,86400,1,'active',row_value.reason,operator.user_id
 from (values
   ('19720000-0000-4000-8000-000000000009'::uuid,'test','One full-ceiling Test motion-prompt interpretation canary; exactly one provider attempt.'),
   ('19720000-0000-4000-8000-000000000010'::uuid,'live','Defensive parity policy only; no Live customer scope or activation.')
@@ -151,7 +151,7 @@ from (values
 cross join lateral(select user_id from tongs.platform_operators order by granted_at limit 1) operator;
 insert into tongs.openai_text_failure_loss_rollout_revisions(
   route_code,financial_environment,revision,mode,loss_policy_revision_id,source_limit_event_id,reason,actor_id
-) select 'motion.broll.interpretation',row_value.environment,1,'enforce',row_value.policy_id,null,row_value.reason,operator.user_id
+) select 'motion.broll_interpretation',row_value.environment,1,'enforce',row_value.policy_id,null,row_value.reason,operator.user_id
 from (values
   ('test','19720000-0000-4000-8000-000000000009'::uuid,'Enforce one 2049-micro Test motion-prompt exposure.'),
   ('live','19720000-0000-4000-8000-000000000010'::uuid,'No Live motion-prompt execution scope exists.')
@@ -163,8 +163,8 @@ insert into tongs.customer_paid_execution_scope_authorizations(
   pricing_revision_id,cost_policy_revision_id,maximum_operation_count,maximum_customer_charge_micros,
   maximum_wholesale_exposure_micros,maximum_concurrency,rolling_window_seconds,valid_from,valid_until,
   status,reason,created_by,authorization_kind
-) select extensions.uuid_generate_v5(base.id,'motion.broll.interpretation'),base.user_id,base.workspace_id,
-  'test','motion.broll.interpretation','openai','gpt-5.6-luna',
+) select extensions.uuid_generate_v5(base.id,'motion.broll_interpretation'),base.user_id,base.workspace_id,
+  'test','motion.broll_interpretation','openai','gpt-5.6-luna',
   '19720000-0000-4000-8000-000000000006','19720000-0000-4000-8000-000000000001',
   null,5000,2049,1,null,now(),null,'active',
   'Approved one-credit bounded Test motion-prompt interpretation; one provider attempt while Live remains inactive.',
@@ -177,7 +177,7 @@ do $$
 begin
   if not exists(select 1 from tongs.openai_text_cost_policy_revisions
     where id='19720000-0000-4000-8000-000000000001'
-      and route_code='motion.broll.interpretation' and revision=3
+      and route_code='motion.broll_interpretation' and revision=3
       and maximum_input_units=4096 and maximum_output_units=1024 and maximum_attempts=1
       and direct_provider_ceiling_micros=2049 and supporting_cost_ceiling_micros=0
       and full_cost_ceiling_micros=2049 and cost_coverage='complete' and lifecycle_state='active')
@@ -196,7 +196,7 @@ begin
     where entry.catalog_revision_id='19720000-0000-4000-8000-000000000008'
       and entry.runtime_model_id='gpt-5.6-luna' and entry.provider_model_id='gpt-5.6-luna'
       and entry.rate_revision_id='56560000-0000-4000-8000-000000000001'
-      and compatibility.route_code='motion.broll.interpretation'
+      and compatibility.route_code='motion.broll_interpretation'
       and compatibility.compatibility_status='generation_verified'
       and compatibility.maximum_input_tokens=4096 and compatibility.maximum_output_tokens=1024
       and compatibility.maximum_attempts=1 and compatibility.supporting_cost_coverage='complete'
@@ -204,16 +204,16 @@ begin
       and compatibility.evidence_json @> '{"test_only":true,"api":"responses","strict_json_schema":true,"response_byte_ceiling":16384,"browsing_requests":0,"retrieval_requests":0,"tools":0,"attachments":0,"fallback_models":0}'::jsonb)
   then raise exception 'exact GPT-5.6 Luna motion-B-roll compatibility mismatch'; end if;
   if not exists(select 1 from tongs.openai_text_rollout_revisions
-    where route_code='motion.broll.interpretation' and revision=3 and mode='enforce'
+    where route_code='motion.broll_interpretation' and revision=3 and mode='enforce'
       and cost_policy_revision_id='19720000-0000-4000-8000-000000000001' and funding_scope='forge')
   then raise exception 'bounded Test motion-B-roll rollout was not established'; end if;
   if not exists(select 1 from tongs.customer_paid_execution_scope_authorizations
-    where route_code='motion.broll.interpretation' and financial_environment='test'
+    where route_code='motion.broll_interpretation' and financial_environment='test'
       and provider='openai' and model_or_sku='gpt-5.6-luna' and status='active'
       and authorization_kind='normal_customer')
   then raise exception 'normal-customer Test motion-B-roll scope was not established'; end if;
   if exists(select 1 from tongs.customer_paid_execution_scope_authorizations
-    where route_code='motion.broll.interpretation' and status='active'
+    where route_code='motion.broll_interpretation' and status='active'
       and (financial_environment<>'test' or authorization_kind<>'normal_customer'
         or provider<>'openai' or model_or_sku<>'gpt-5.6-luna'
         or pricing_revision_id<>'19720000-0000-4000-8000-000000000006'
@@ -222,12 +222,12 @@ begin
         or maximum_concurrency<>1))
   then raise exception 'motion-B-roll scope escaped the approved Test normal-customer bounds'; end if;
   if not exists(select 1 from tongs.openai_text_failure_loss_policy_revisions
-    where id='19720000-0000-4000-8000-000000000009' and route_code='motion.broll.interpretation'
+    where id='19720000-0000-4000-8000-000000000009' and route_code='motion.broll_interpretation'
       and environment='test' and per_operation_limit_micros=2049 and aggregate_limit_micros=2049
       and rolling_window_seconds=86400 and maximum_concurrency=1 and lifecycle_state='active')
   then raise exception 'motion-B-roll Test failure-loss policy mismatch'; end if;
   if exists(select 1 from tongs.customer_paid_execution_scope_authorizations
-    where route_code='motion.broll.interpretation' and financial_environment='live' and status='active')
+    where route_code='motion.broll_interpretation' and financial_environment='live' and status='active')
   then raise exception 'Live motion-B-roll scope must remain absent'; end if;
   if (select lifecycle_state from tongs.financial_environment_configuration_revisions
       where environment='live' order by revision desc limit 1)<>'inactive_ready'
