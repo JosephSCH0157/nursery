@@ -10,10 +10,13 @@ import {
   proposeRunwayReadyBrollPrompt,
   readCanonicalBrollV2,
   selectCanonicalBrollCandidate,
+  startReplacementRunwayGenerationAttempt,
   type CanonicalBrollV2State,
   type CustomerMotionPromptSpendingQuote,
+  type CustomerRunwayGenerationAttempt,
   type CustomerRunwaySpendingQuote,
   type CustomerRunwaySpendingReceipt,
+  type CustomerRunwayTerminalAttempt,
 } from "../../lib/hearth-broll-v2-authority";
 
 const EMPTY: CanonicalBrollV2State = { plan: null, planRevisionId: null, planRevision: 0, selectionRevision: 0, scriptApprovalId: null, promptsByBeat: {} };
@@ -44,9 +47,15 @@ export function useCanonicalBrollV2(args: {
   const [message, setMessage] = useState<string | null>(null);
   const [spendingQuote, setSpendingQuote] = useState<CustomerRunwaySpendingQuote | null>(null);
   const [spendingReceipt, setSpendingReceipt] = useState<CustomerRunwaySpendingReceipt | null>(null);
+  const [terminalGenerationAttempt, setTerminalGenerationAttempt] = useState<CustomerRunwayTerminalAttempt | null>(null);
+  const [pendingReplacement, setPendingReplacement] = useState<{
+    beatId: string;
+    referenceImages: Array<{ file: File; stageLabel?: string }>;
+  } | null>(null);
   const [pendingGeneration, setPendingGeneration] = useState<{
     beatId: string;
     referenceImages: Array<{ file: File; stageLabel?: string }>;
+    generationAttempt: CustomerRunwayGenerationAttempt | null;
   } | null>(null);
 
   const refresh = useCallback(async () => {
@@ -65,6 +74,8 @@ export function useCanonicalBrollV2(args: {
     setPendingMotionPrompt(null);
     setVideoError(null);
     setSpendingQuote(null);
+    setTerminalGenerationAttempt(null);
+    setPendingReplacement(null);
     setPendingGeneration(null);
   }, [args.workspaceId, args.workpieceId]);
 
@@ -138,16 +149,56 @@ export function useCanonicalBrollV2(args: {
 
   const generateVideo = useCallback(async (beatId: string, referenceImages: Array<{ file: File; stageLabel?: string }> = []) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setActiveOperation("video"); setError(null); setVideoError(null); setMessage("Preparing the Runway cost confirmation. No video has been submitted yet.");
+    setBusy(true); setActiveOperation("video"); setError(null); setVideoError(null); setTerminalGenerationAttempt(null); setPendingReplacement(null); setMessage("Preparing the Runway cost confirmation. No video has been submitted yet.");
     try {
       const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], referenceImages });
       if (quote.ok) { setState(quote.data); setMessage("An identical completed Runway result already exists. No new generation or credit charge was made."); return; }
+      if (quote.code === "broll_terminal_generation_attempt" && quote.terminalAttempt) {
+        setSpendingQuote(null);
+        setPendingGeneration(null);
+        setTerminalGenerationAttempt(quote.terminalAttempt);
+        setPendingReplacement({ beatId, referenceImages });
+        setMessage("Previous generation attempt ended before Runway was called. No Forge Credits were charged.");
+        return;
+      }
       if (!quote.requiresConfirmation || !quote.spendingQuote) { setVideoError(quote.error); setMessage("Runway generation did not start."); return; }
       setSpendingQuote(quote.spendingQuote);
-      setPendingGeneration({ beatId, referenceImages });
+      setPendingGeneration({ beatId, referenceImages, generationAttempt: null });
       setMessage("Review the exact customer ceiling and failure terms below. Runway has not been called.");
     } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
+
+  const startNewGenerationAttempt = useCallback(async () => {
+    if (!args.workspaceId || !args.workpieceId || !terminalGenerationAttempt?.replacementAllowed || !pendingReplacement || busy) return;
+    setBusy(true); setActiveOperation("video"); setError(null); setVideoError(null);
+    setMessage("Starting the authorized replacement attempt and preparing its price. Runway has not been called.");
+    try {
+      const prompt = state.promptsByBeat[pendingReplacement.beatId];
+      const started = await startReplacementRunwayGenerationAttempt({
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        beatId: pendingReplacement.beatId,
+        prompt,
+        referenceImages: pendingReplacement.referenceImages,
+      });
+      if (!started.ok) { setVideoError(started.error); setMessage("A new generation attempt was not started."); return; }
+      const quote = await generateCanonicalBrollVideo({
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        beatId: pendingReplacement.beatId,
+        prompt,
+        referenceImages: pendingReplacement.referenceImages,
+        generationAttempt: started.data,
+      });
+      if (quote.ok) { setState(quote.data); setMessage("The replacement operation already completed. No duplicate generation or charge was made."); return; }
+      if (!quote.requiresConfirmation || !quote.spendingQuote) { setVideoError(quote.error); setMessage("The replacement quote could not be prepared. Runway was not called."); return; }
+      setSpendingQuote(quote.spendingQuote);
+      setPendingGeneration({ ...pendingReplacement, generationAttempt: started.data });
+      setTerminalGenerationAttempt(null);
+      setPendingReplacement(null);
+      setMessage("Review the exact 160-Forge-Credit price below. Runway has not been called and no funds are reserved.");
+    } finally { setBusy(false); setActiveOperation(null); }
+  }, [args.workspaceId, args.workpieceId, terminalGenerationAttempt, pendingReplacement, busy, state.promptsByBeat]);
 
   const acceptSpendingQuote = useCallback(async () => {
     if (!args.workspaceId || !args.workpieceId || !spendingQuote || !pendingGeneration || busy) return;
@@ -173,6 +224,7 @@ export function useCanonicalBrollV2(args: {
         prompt: state.promptsByBeat[pendingGeneration.beatId],
         referenceImages: pendingGeneration.referenceImages,
         acceptedQuote: spendingQuote,
+        generationAttempt: pendingGeneration.generationAttempt,
       });
       if (!acquired.ok) {
         setVideoError(acquired.error);
@@ -265,5 +317,5 @@ export function useCanonicalBrollV2(args: {
   },[args.workspaceId,args.workpieceId,busy,state.promptsByBeat]);
 
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, activeOperation, error, motionPromptError, videoError, motionPromptQuote, message, spendingQuote, spendingReceipt, progress, refresh, generatePlan, generatePrompt, acceptMotionPromptQuote, dismissMotionPromptQuote, editPrompt, proposeRunwayPrompt, generateVideo, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
+  return { state, loading, busy, activeOperation, error, motionPromptError, videoError, motionPromptQuote, message, spendingQuote, spendingReceipt, terminalGenerationAttempt, progress, refresh, generatePlan, generatePrompt, acceptMotionPromptQuote, dismissMotionPromptQuote, editPrompt, proposeRunwayPrompt, generateVideo, startNewGenerationAttempt, acceptSpendingQuote, dismissSpendingQuote, upload, attachExternal, select };
 }

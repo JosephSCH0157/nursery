@@ -36,9 +36,28 @@ export type CustomerRunwaySpendingReceipt = {
 
 export type CustomerMotionPromptSpendingQuote = CustomerSpendingQuote;
 
+export type CustomerRunwayGenerationAttempt = {
+  generationRequestId: string;
+  attemptOrdinal: number;
+  previousOperationId: string;
+  operationId: string;
+  operationFingerprint: string;
+  creativeInputHash: string;
+  promptRevisionId: string;
+  promptRevision: number;
+  promptContentHash: string;
+  replay: boolean;
+};
+
+export type CustomerRunwayTerminalAttempt = {
+  operationId: string;
+  submissionAttemptId: string | null;
+  replacementAllowed: boolean;
+};
+
 type Result<T> =
   | { ok: true; data: T; spendingReceipt?: CustomerRunwaySpendingReceipt }
-  | { ok: false; status: number; code: string; error: string; requiresConfirmation?: boolean; spendingQuote?: CustomerRunwaySpendingQuote; motionPromptSpendingQuote?: CustomerMotionPromptSpendingQuote };
+  | { ok: false; status: number; code: string; error: string; requiresConfirmation?: boolean; spendingQuote?: CustomerRunwaySpendingQuote; motionPromptSpendingQuote?: CustomerMotionPromptSpendingQuote; terminalAttempt?: CustomerRunwayTerminalAttempt };
 type FailedResult = Extract<Result<never>, { ok: false }>;
 
 export type CanonicalBrollV2State = {
@@ -114,6 +133,42 @@ function mapSpendingReceipt(value: unknown): CustomerRunwaySpendingReceipt | nul
     settledAt: string(value.settled_at),
   };
 }
+
+function mapTerminalAttempt(value: unknown): CustomerRunwayTerminalAttempt | null {
+  if (!record(value) || string(value.disposition) !== "terminal_failure_replay") return null;
+  const operation = record(value.operation) ? value.operation : null;
+  const operationId = string(operation?.operation_id);
+  if (!operationId) return null;
+  return {
+    operationId,
+    submissionAttemptId: string(operation?.submission_attempt_id),
+    replacementAllowed: value.replacement_allowed === true,
+  };
+}
+
+function mapGenerationAttempt(value: unknown): CustomerRunwayGenerationAttempt | null {
+  if (!record(value)) return null;
+  const generationRequestId = string(value.generation_request_id);
+  const previousOperationId = string(value.previous_operation_id);
+  const operationId = string(value.operation_id);
+  const operationFingerprint = string(value.operation_fingerprint);
+  const creativeInputHash = string(value.creative_input_hash);
+  const promptRevisionId = string(value.prompt_revision_id);
+  const promptContentHash = string(value.prompt_content_hash);
+  if (!generationRequestId || !previousOperationId || !operationId || !operationFingerprint || !creativeInputHash || !promptRevisionId || !promptContentHash) return null;
+  return {
+    generationRequestId,
+    attemptOrdinal: integer(value.attempt_ordinal),
+    previousOperationId,
+    operationId,
+    operationFingerprint,
+    creativeInputHash,
+    promptRevisionId,
+    promptRevision: integer(value.prompt_revision),
+    promptContentHash,
+    replay: value.replay === true,
+  };
+}
 function assetCategory(value: unknown): EpisodeBrollPlanBeat["asset_category"] {
   const parsed = string(value);
   return parsed === "stock_video" || parsed === "ai_video" || parsed === "uploaded_video"
@@ -157,9 +212,11 @@ function failure(response: Response, body: unknown, fallback: string): FailedRes
   const nested = record(row?.error) ? row.error : null;
   const details = record(nested?.details) ? nested.details : null;
   const spendingQuote = mapSpendingQuote(details);
+  const terminalAttempt = mapTerminalAttempt(details);
   return { ok: false, status: response.status, code: string(nested?.code) ?? string(row?.code) ?? "broll_v2_request_failed", error: string(nested?.message) ?? string(row?.message) ?? (typeof row?.error === "string" ? string(row.error) : null) ?? fallback,
     ...(details?.requires_confirmation === true ? { requiresConfirmation: true } : {}),
-    ...(spendingQuote ? { spendingQuote } : {}) };
+    ...(spendingQuote ? { spendingQuote } : {}),
+    ...(terminalAttempt ? { terminalAttempt } : {}) };
 }
 
 async function rpc(name: string, args: JsonRecord): Promise<Result<unknown>> {
@@ -385,18 +442,53 @@ export async function acquireCanonicalBroll(args: { workspaceId: string; workpie
   return readCanonicalBrollV2(args);
 }
 
-export async function generateCanonicalBrollVideo(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280"; acceptedQuote?: CustomerRunwaySpendingQuote | null }): Promise<Result<CanonicalBrollV2State>> {
-  if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
-    return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before generating video." };
-  }
-  if(args.prompt.finalPrompt.length>1000)return{ok:false,status:409,code:"runway_prompt_too_long",error:`Runway Gen-4.5 accepts at most 1000 UTF-16 code units. Current canonical prompt: ${args.prompt.finalPrompt.length}. Create and confirm a Runway-ready prompt before generating video.`};
+async function runwayCreativeIntent(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280" }) {
   const durationSeconds = args.durationSeconds ?? 5;
   const ratio = args.ratio ?? "1280:720";
   const referenceImages = await Promise.all((args.referenceImages ?? []).map(async ({ file, stageLabel }) => ({ bytes_base64: await fileBase64(file), mime_type: file.type, file_name: file.name, stage_label: stageLabel?.trim() || null })));
   const runwayModel = referenceImages.length > 1 ? "seedance2" : "gen4.5";
   const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, source_kind: "generated", source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, final_prompt: args.prompt.finalPrompt, runway_model: runwayModel, duration_seconds: durationSeconds, ratio, poster_required: true, reference_images: referenceImages };
-  const fingerprint = await canonicalHash(intent);
-  const request = { workspace_id: args.workspaceId, beat_id: args.beatId, operation_id: `forge:broll:acquire:${fingerprint}`, operation_fingerprint: fingerprint, source_kind: "generated", bytes_base64: null, source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, provider: "runway", provider_request_id: null, final_prompt: args.prompt.finalPrompt, runway_model: runwayModel, duration_seconds: durationSeconds, ratio, poster_required: true, reference_images: referenceImages, accepted_spending_quote_id: args.acceptedQuote?.quoteId ?? null, accepted_spending_quote_hash: args.acceptedQuote?.quoteHash ?? null, license_json: {}, provenance_json: { initiated_by: "hearth_broll_v2", prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash } };
+  return { durationSeconds, ratio, referenceImages, runwayModel, intent, creativeInputHash: await canonicalHash(intent) };
+}
+
+export async function startReplacementRunwayGenerationAttempt(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280" }): Promise<Result<CustomerRunwayGenerationAttempt>> {
+  if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
+    return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before starting a new generation attempt." };
+  }
+  const creative = await runwayCreativeIntent(args);
+  if (creative.runwayModel !== "gen4.5" || creative.referenceImages.length !== 0 || creative.durationSeconds !== 5 || creative.ratio !== "1280:720") {
+    return { ok: false, status: 409, code: "replacement_generation_scope_mismatch", error: "This replacement is authorized only for one zero-reference Gen-4.5, 5-second, 1280×720 video." };
+  }
+  const started = await rpc("start_customer_runway_generation_attempt", {
+    p_workspace_id: args.workspaceId,
+    p_workpiece_id: args.workpieceId,
+    p_beat_id: args.beatId,
+    p_prompt_revision_id: args.prompt.revisionId,
+    p_prompt_revision: args.prompt.revision,
+    p_prompt_content_hash: args.prompt.contentHash,
+    p_creative_input_hash: creative.creativeInputHash,
+  });
+  if (!started.ok) return started;
+  const attempt = mapGenerationAttempt(started.data);
+  if (!attempt || attempt.creativeInputHash !== creative.creativeInputHash) {
+    return { ok: false, status: 502, code: "generation_attempt_receipt_invalid", error: "Tongs returned an invalid replacement generation identity." };
+  }
+  return { ok: true, data: attempt };
+}
+
+export async function generateCanonicalBrollVideo(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280"; acceptedQuote?: CustomerRunwaySpendingQuote | null; generationAttempt?: CustomerRunwayGenerationAttempt | null }): Promise<Result<CanonicalBrollV2State>> {
+  if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
+    return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before generating video." };
+  }
+  if(args.prompt.finalPrompt.length>1000)return{ok:false,status:409,code:"runway_prompt_too_long",error:`Runway Gen-4.5 accepts at most 1000 UTF-16 code units. Current canonical prompt: ${args.prompt.finalPrompt.length}. Create and confirm a Runway-ready prompt before generating video.`};
+  const creative = await runwayCreativeIntent(args);
+  const { durationSeconds, ratio, referenceImages, runwayModel, creativeInputHash } = creative;
+  if (args.generationAttempt && args.generationAttempt.creativeInputHash !== creativeInputHash) {
+    return { ok: false, status: 409, code: "generation_attempt_input_mismatch", error: "The replacement generation identity does not match the current creative inputs." };
+  }
+  const fingerprint = args.generationAttempt?.operationFingerprint ?? creativeInputHash;
+  const operationId = args.generationAttempt?.operationId ?? `forge:broll:acquire:${fingerprint}`;
+  const request = { workspace_id: args.workspaceId, beat_id: args.beatId, operation_id: operationId, operation_fingerprint: fingerprint, generation_request_id: args.generationAttempt?.generationRequestId ?? null, creative_input_hash: args.generationAttempt?.creativeInputHash ?? null, source_kind: "generated", bytes_base64: null, source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, provider: "runway", provider_request_id: null, final_prompt: args.prompt.finalPrompt, runway_model: runwayModel, duration_seconds: durationSeconds, ratio, poster_required: true, reference_images: referenceImages, accepted_spending_quote_id: args.acceptedQuote?.quoteId ?? null, accepted_spending_quote_hash: args.acceptedQuote?.quoteHash ?? null, license_json: {}, provenance_json: { initiated_by: "hearth_broll_v2", prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, generation_request_id: args.generationAttempt?.generationRequestId ?? null, creative_input_hash: creativeInputHash } };
   const deadline = Date.now() + 15 * 60_000;
   while (Date.now() < deadline) {
     const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/acquire`, { method: "POST", json: request });

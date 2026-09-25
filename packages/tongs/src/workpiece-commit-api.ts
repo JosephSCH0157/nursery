@@ -2528,6 +2528,8 @@ export type AcquireBrollCandidateRequest = {
   beat_id: string;
   operation_id: string;
   operation_fingerprint: string;
+  generation_request_id?: string | null;
+  creative_input_hash?: string | null;
   source_kind: "upload" | "external" | "generated";
   bytes_base64?: string | null;
   source_url?: string | null;
@@ -31281,6 +31283,8 @@ export class TongsCommitService {
         ratio: input.ratio ?? "1280:720",
         poster_required: posterRequired,
         reference_images: generationReferences.map((reference) => ({ ordinal: reference.ordinal, content_hash: reference.contentHash, mime_type: reference.mimeType, stage_label: reference.stageLabel })),
+        generation_request_id: input.generation_request_id ?? null,
+        creative_input_hash: input.creative_input_hash ?? null,
       },
       p_actor_id: auth.userId,
     });
@@ -31295,6 +31299,13 @@ export class TongsCommitService {
         409,
         "broll_operation_identity_conflict",
         "The B-roll operation ID was reused with different inputs.",
+      );
+    if (begun.data.disposition === "terminal_failure_replay")
+      throw new HttpError(
+        409,
+        "broll_terminal_generation_attempt",
+        "Previous generation attempt ended before Runway was called. No Forge Credits were charged.",
+        begun.data,
       );
     const operation = isRecord(begun.data.operation)
       ? begun.data.operation
@@ -38554,6 +38565,20 @@ export function createTongsCommitApiHandlerWithService(
               body.operation_fingerprint,
               "operation_fingerprint",
             ),
+            generation_request_id:
+              body.generation_request_id == null
+                ? null
+                : normalizeUuid(
+                    body.generation_request_id,
+                    "generation_request_id",
+                  ),
+            creative_input_hash:
+              body.creative_input_hash == null
+                ? null
+                : normalizeSha256(
+                    body.creative_input_hash,
+                    "creative_input_hash",
+                  ),
             source_kind: sourceKind,
             bytes_base64:
               body.bytes_base64 == null

@@ -143,6 +143,23 @@ test("over-limit canonical prompt is rejected before operation reservation and t
   assert.equal(begins,0);assert.equal(submits,0);
 });
 
+test("terminal pre-provider customer replay returns before funding, quote, or provider work",async()=>{
+  let fundingReads=0;let providerCalls=0;let serviceCalls=0;
+  const authority={schema(){return{async rpc(name){
+    if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A slow documentary road transition"}},error:null};
+    if(name==="begin_broll_operation")return{data:{disposition:"terminal_failure_replay",replacement_allowed:true,transmitted:false,customer_charge_micros:0,operation:{operation_id:"forge:broll:terminal-replay-0001",state:"failed",submission_attempt_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}},error:null};
+    throw new Error(`unexpected authority RPC ${name}`);
+  }}}};
+  const supabase={schema(){return{async rpc(name){serviceCalls+=1;throw new Error(`unexpected service RPC ${name}`);}}}};
+  const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,{async submit(){providerCalls+=1;throw new Error("must not submit");}});
+  service.runwayPaidExecutionBoundary={async resolveOperationFunding(){fundingReads+=1;throw new Error("must not resolve funding");}};
+  service.assertWorkpieceInWorkspace=async()=>undefined;
+  service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
+  const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:terminal-replay-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64),runway_model:"gen4.5",duration_seconds:5,ratio:"1280:720"};
+  await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"}),error=>error.code==="broll_terminal_generation_attempt"&&error.details?.replacement_allowed===true&&error.details?.transmitted===false);
+  assert.equal(fundingReads,0);assert.equal(serviceCalls,0);assert.equal(providerCalls,0);
+});
+
 test("generated Runway quote preflight uses the canonical video pricing contract",async()=>{
   let providerCalls=0;let quoteArgs=null;
   const authority={schema(){return{async rpc(name){
