@@ -43,7 +43,7 @@ insert into tongs.openai_text_supporting_cost_inventory(
 ) values
   ('19720000-0000-4000-8000-000000000002','motion.broll_interpretation','19720000-0000-4000-8000-000000000001','openai_motion_broll_interpretation','attributable_metered','verified','One bounded GPT-5.6 Luna Responses attempt is the only metered supplier cost.'),
   ('19720000-0000-4000-8000-000000000003','motion.broll_interpretation','19720000-0000-4000-8000-000000000001','validation_synthesis_and_persistence','platform_overhead','verified','Strict validation, deterministic synthesis, canonical persistence, and readback have no verified attributable variable allocation.'),
-  ('19720000-0000-4000-8000-000000000004','motion.broll.interpretation','19720000-0000-4000-8000-000000000001','fixed_netlify_supabase_plans','platform_overhead','verified','Fixed hosting and database plans are not operation wholesale.');
+  ('19720000-0000-4000-8000-000000000004','motion.broll_interpretation','19720000-0000-4000-8000-000000000001','fixed_netlify_supabase_plans','platform_overhead','verified','Fixed hosting and database plans are not operation wholesale.');
 
 do $$
 declare
