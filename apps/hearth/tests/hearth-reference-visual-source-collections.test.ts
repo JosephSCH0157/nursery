@@ -7,6 +7,7 @@ const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collec
 const tongsApi=readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts",import.meta.url),"utf8");
 const visualAuthority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
+const referenceMaterial=readFileSync(new URL("../src/components/visuals/CanonicalReferenceMaterialPanel.tsx",import.meta.url),"utf8");
 const visualStyles=readFileSync(new URL("../src/views/surfaces/VisualsSurface.css",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
 const dispositionControl=readFileSync(new URL("../src/components/visuals/VisualOpportunityDispositionControl.tsx",import.meta.url),"utf8");
@@ -79,6 +80,18 @@ test("post-action and authority-event refreshes keep the work area mounted",()=>
  assert.match(panel,/await refresh\(false\)/);
  assert.doesNotMatch(panel,/async function refresh\(\)\{setLoading\(true\)/);
  assert.match(panel,/setSelectedId\(current=>/);
+});
+
+test("Reference Material refreshes when the visual workflow publishes selection progress",()=>{
+ assert.match(referenceMaterial,/addEventListener\(\s*"forge:canonical-reference-visuals-progress",\s*listener/);
+ assert.match(referenceMaterial,/removeEventListener\(\s*"forge:canonical-reference-visuals-progress",\s*listener/);
+ assert.match(referenceMaterial,/verifyReferenceReviewHammerDecision/);
+});
+
+test("Reference Material explains when a previously selected visual became historical",()=>{
+ assert.match(referenceMaterial,/item\.candidate\?\.currentForPlan === false/);
+ assert.match(referenceMaterial,/Needs regeneration/);
+ assert.match(referenceMaterial,/earlier selected visual is now historical because its\s+supporting authority changed/);
 });
 
 test("Reference Material completion treats current selections and explicit skips as resolved and receives live progress",()=>{

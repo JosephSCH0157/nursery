@@ -187,6 +187,10 @@ export default function CanonicalReferenceMaterialPanel({
       "forge:canonical-reference-visuals-changed",
       listener,
     );
+    window.addEventListener(
+      "forge:canonical-reference-visuals-progress",
+      listener,
+    );
     const unsubscribeFromAuth = subscribeToForgeUserAccessToken(listener);
     return () => {
       alive.current = false;
@@ -197,6 +201,10 @@ export default function CanonicalReferenceMaterialPanel({
       );
       window.removeEventListener(
         "forge:canonical-reference-visuals-changed",
+        listener,
+      );
+      window.removeEventListener(
+        "forge:canonical-reference-visuals-progress",
         listener,
       );
     };
@@ -655,6 +663,11 @@ export default function CanonicalReferenceMaterialPanel({
                 ? "Approve"
                 : "Replace"
               : "Add Source");
+          const needsRegeneration =
+            item.family === "reference_visual" &&
+            item.candidate?.currentForPlan === false &&
+            visualAction?.action === "continue" &&
+            visualAction.label === "Generate visual";
           return (
             <article
               key={item.key}
@@ -691,7 +704,9 @@ export default function CanonicalReferenceMaterialPanel({
                     className={`hs-reference-review-status is-${item.state}`}
                     aria-live="polite"
                   >
-                    {statusLabel(item.state)}
+                    {needsRegeneration
+                      ? "Needs regeneration"
+                      : statusLabel(item.state)}
                   </span>
                   {item.resolution === "skipped" ? (
                     <span className="hs-pill">Skipped</span>
@@ -726,6 +741,13 @@ export default function CanonicalReferenceMaterialPanel({
                 ) : null}
                 {item.warning ? (
                   <p className="hs-reference-review-warning">{item.warning}</p>
+                ) : null}
+                {needsRegeneration ? (
+                  <p className="hs-reference-review-warning">
+                    The earlier selected visual is now historical because its
+                    supporting authority changed. Generate and select a current
+                    visual to continue.
+                  </p>
                 ) : null}
                 {failed ? (
                   <p role="alert" className="hs-error-text-small">
