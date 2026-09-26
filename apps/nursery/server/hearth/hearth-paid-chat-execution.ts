@@ -14,15 +14,15 @@ import {
   boundedProviderRequestEvidence,
   buildBoundedOpenAiProviderRequest,
 } from "../../../../packages/tongs/src/providers/bounded-provider-request";
+import {
+  normalizeOpenAiTextPaidExecutionHandle,
+  type OpenAiTextPaidExecutionHandle,
+} from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/i;
 
-export type HearthPaidExecutionHandle = {
-  operationId: string;
-  reservationId: string;
-  requestFingerprint: string;
-};
+export type HearthPaidExecutionHandle = OpenAiTextPaidExecutionHandle;
 
 export type HearthSpendingQuoteAcceptance = {
   operationId: string;
@@ -162,12 +162,7 @@ function parseContext(value: unknown): PaidContext {
 }
 
 export function normalizeHearthPaidExecutionHandle(value: unknown): HearthPaidExecutionHandle | null {
-  const row = asRecord(value);
-  const operationId = typeof row.operation_id === "string" ? row.operation_id.trim() : "";
-  const reservationId = typeof row.reservation_id === "string" ? row.reservation_id.trim() : "";
-  const requestFingerprint = typeof row.request_fingerprint === "string" ? row.request_fingerprint.trim().toLowerCase() : "";
-  if (operationId.length < 8 || !UUID_RE.test(reservationId) || !SHA256_RE.test(requestFingerprint)) return null;
-  return { operationId, reservationId, requestFingerprint };
+  return normalizeOpenAiTextPaidExecutionHandle(value);
 }
 
 export function normalizeHearthSpendingQuoteAcceptance(value: unknown): HearthSpendingQuoteAcceptance | null {

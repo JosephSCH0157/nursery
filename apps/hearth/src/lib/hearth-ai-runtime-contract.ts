@@ -86,6 +86,7 @@ export type HearthChatRequest = {
     operation_id: string;
     reservation_id: string;
     request_fingerprint: string;
+    funding_environment: "test" | "live" | "owner_internal";
   };
   /** Exact customer acceptance of the server-issued price and request fingerprint. */
   spending_acceptance?: {
@@ -509,13 +510,19 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
   const paidOperationId = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.operation_id) : null;
   const paidReservationId = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.reservation_id) : null;
   const paidRequestFingerprint = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.request_fingerprint) : null;
-  const paidExecution = paidOperationId && paidOperationId.length >= 8
+  const paidFundingEnvironment = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.funding_environment) : null;
+  const validatedFundingEnvironment = paidFundingEnvironment === "test" ? "test"
+    : paidFundingEnvironment === "live" ? "live"
+    : paidFundingEnvironment === "owner_internal" ? "owner_internal" : null;
+  const paidExecution: HearthChatRequest["paid_execution"] = paidOperationId && paidOperationId.length >= 8
     && paidReservationId && UUID_RE.test(paidReservationId)
     && paidRequestFingerprint && /^[0-9a-f]{64}$/i.test(paidRequestFingerprint)
+    && validatedFundingEnvironment
     ? {
         operation_id: paidOperationId,
         reservation_id: paidReservationId,
         request_fingerprint: paidRequestFingerprint.toLowerCase(),
+        funding_environment: validatedFundingEnvironment,
       }
     : undefined;
   if (value.paid_execution != null && !paidExecution) return null;

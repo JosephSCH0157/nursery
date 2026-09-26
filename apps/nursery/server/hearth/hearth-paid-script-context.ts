@@ -1,6 +1,7 @@
 import type { EpisodeContext } from "../../../hearth/src/lib/hearth-ai-ops";
+import type { HearthChatMessage } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 
-type ChatMessage = { role: string; content: string };
+type ChatMessage = HearthChatMessage;
 
 const MAX_TOTAL_CONTENT_BYTES = 24_000;
 const MAX_BODY_BYTES = 6_000;

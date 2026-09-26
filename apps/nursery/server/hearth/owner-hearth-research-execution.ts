@@ -376,7 +376,7 @@ export async function acceptOwnerHearthResearchOperation(args: {
   plan: OwnerResearchPlan;
   acceptance: HearthSpendingQuoteAcceptance;
 }): Promise<{
-  handle: HearthPaidExecutionHandle;
+  handle: Omit<HearthPaidExecutionHandle, "fundingEnvironment">;
   model: OwnerResearchModel;
   maximumOutputTokens: number;
   deadlineAt: number;

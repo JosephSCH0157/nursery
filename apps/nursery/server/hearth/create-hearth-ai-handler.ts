@@ -123,6 +123,7 @@ import {
   fingerprintPaidHearthChatRequest,
   normalizeHearthPaidExecutionHandle,
   normalizeHearthSpendingQuoteAcceptance,
+  type HearthPaidExecutionHandle,
 } from "./hearth-paid-chat-execution";
 import { buildPaidHearthConversationMessages } from "./hearth-paid-conversation-context";
 import { buildPaidHearthScriptGenerationMessages } from "./hearth-paid-script-context";
@@ -2542,6 +2543,40 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
     : null);
 
+  type FundingReservationQuery = {
+    eq(column: "id" | "operation_id" | "user_id", value: string): FundingReservationQuery;
+    single(): Promise<{ data: { funding_environment: string } | null; error: { message: string } | null }>;
+  };
+  const withBoundFundingEnvironment = async (
+    handle: Omit<HearthPaidExecutionHandle, "fundingEnvironment">,
+    userId: string,
+  ): Promise<HearthPaidExecutionHandle> => {
+    if (!supabaseService) throw new Error("funding_context_required");
+    const store = supabaseService.schema("tongs") as unknown as {
+      from(table: "funding_reservations"): { select(columns: "funding_environment"): FundingReservationQuery };
+    };
+    const { data, error } = await store.from("funding_reservations").select("funding_environment")
+      .eq("id", handle.reservationId).eq("operation_id", handle.operationId).eq("user_id", userId).single();
+    const environment = data?.funding_environment;
+    if (error || (environment !== "test" && environment !== "live" && environment !== "owner_internal")) {
+      throw new Error("funding_context_required");
+    }
+    return { ...handle, fundingEnvironment: environment };
+  };
+  const withOwnerFundingEnvironment = (gate: NonNullable<typeof openAiTextGate>) => !supabaseService ? gate : {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      const result = await gate.rpc(name, args);
+      if (name !== "resolve_openai_text_paid_execution_context" || result.error || !isRecord(result.data)) return result;
+      const context = result.data;
+      const bound = await withBoundFundingEnvironment({
+        operationId: String(context.operation_id ?? ""),
+        reservationId: String(context.reservation_id ?? ""),
+        requestFingerprint: String(context.request_fingerprint ?? ""),
+      }, String(args.p_user_id ?? ""));
+      return { data: { ...context, funding_environment: bound.fundingEnvironment }, error: null };
+    },
+  };
+
   const readCanonicalTitleApproval = async (
     workspaceId: string,
     workpieceId: string,
@@ -2590,6 +2625,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     } catch {
       throw new Error("thumbnail_direction_metadata_invalid");
     }
+    if (!isRecord(metadata)) throw new Error("thumbnail_direction_metadata_invalid");
     const episodePackage = hydrateEpisodePackageV3(metadata);
     const titleRows = episodePackage.seo.titles.slice(0, 3);
     if (titleRows.length !== 3 || titleRows.some((title) => !title.id || !title.text.trim()
@@ -4597,7 +4633,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         try {
           const recovered = await executePaidOpenAiTextRoute({
             recoveryOnly: true, gate: ownerResearchRequirement
-              ? ownerHearthResearchExecutionGate(openAiTextGate)
+              ? withOwnerFundingEnvironment(ownerHearthResearchExecutionGate(openAiTextGate))
               : openAiTextGate, routeCode: "hearth.research_synthesis",
             handle: paidExecutionHandle, userId, workspaceId: episodeContext.workspaceId,
             workpieceId: episodeContext.episodeId, credentialSource: resolvedCredentials.keySource,
@@ -4730,7 +4766,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 funding_eligible: quote.funding_eligible,
                 funding_label: quote.funding_label,
                 model_display_name: quote.model_display_name ?? null,
-                model_tradeoff_summary: quote.model_tradeoff_summary ?? null,
                 expires_at: quote.expires_at,
               },
               ...buildBillingSnapshot(lane),
@@ -4750,7 +4785,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             plan: ownerResearchPlan,
             acceptance: spendingAcceptance,
           });
-          paidExecutionHandle = accepted.handle;
+          paidExecutionHandle = await withBoundFundingEnvironment(accepted.handle, userId);
           model = accepted.model;
           ownerResearchMaximumOutputTokens = accepted.maximumOutputTokens;
           ownerResearchDeadlineAt = accepted.deadlineAt;
@@ -5847,7 +5882,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     }),
                 });
                 model = ownerPrepared.model;
-                paidExecutionHandle = ownerPrepared.handle;
+                paidExecutionHandle = await withBoundFundingEnvironment(ownerPrepared.handle, userId);
               } else {
               const ordinaryOperationId = paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE
                 || paidRouteCode === "hearth.chat_completion"
@@ -6054,11 +6089,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...buildBillingSnapshot(lane),
             });
           }
-          paidExecutionHandle = {
+          paidExecutionHandle = await withBoundFundingEnvironment({
             operationId: identifiers.operationId,
             reservationId: identifiers.reservationId,
             requestFingerprint: actualRequestFingerprint,
-          };
+          }, userId);
           }
         }
 
@@ -6224,7 +6259,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               try {
                 paidResearch = await executePaidJsonOpenAiRoute({
                 gate: ownerResearchRequirement
-                  ? ownerHearthResearchExecutionGate(openAiTextGate)
+                  ? withOwnerFundingEnvironment(ownerHearthResearchExecutionGate(openAiTextGate))
                   : openAiTextGate,
                 routeCode: "hearth.research_synthesis",
                 handle: paidExecutionHandle,
@@ -6883,7 +6918,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               });
             }
             const ownerCompatibility = ownerHearthRequirement?.authorization_kind === "compatibility_batch";
-            const paidGate = ownerHearthRequirement ? ownerHearthExecutionGate(openAiTextGate) : openAiTextGate;
+            const paidGate = ownerHearthRequirement ? withOwnerFundingEnvironment(ownerHearthExecutionGate(openAiTextGate)) : openAiTextGate;
             const paidOutcome = await executePaidHearthChatCompletion({
               gate: paidGate,
               handle: paidExecutionHandle,

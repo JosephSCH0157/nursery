@@ -43,6 +43,7 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
             route_code: "hearth.chat_completion",
             funding_source_type: "owner_budget",
             funding_source_id: BUDGET_ID,
+            funding_environment: "owner_internal",
             credential_funding: "forge",
             model: "gpt-5.3-chat-latest",
             maximum_input_units: 20000,
@@ -123,6 +124,7 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
         operation_id: OPERATION_ID,
         reservation_id: RESERVATION_ID,
         request_fingerprint: FINGERPRINT,
+        funding_environment: "owner_internal",
       },
     }),
   }));
@@ -1339,6 +1341,22 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
       return { data: {}, error: null };
     },
   };
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (input) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    assert.equal(url.origin, "https://example.supabase.co");
+    if (url.pathname === "/rest/v1/user_ai_keys") return Response.json([]);
+    if (url.pathname === "/rest/v1/rpc/resolve_ai_access_policy") return Response.json([{
+      decision_type: "ALLOW", reason_code: null, selected_funding_source: "forge_managed_credits",
+      fallback_available: false, fallback_used: false, effective_policy_snapshot: {},
+    }]);
+    assert.equal(url.pathname, "/rest/v1/funding_reservations");
+    assert.equal(url.searchParams.get("id"), `eq.${prepared.p_reservation_id}`);
+    assert.equal(url.searchParams.get("operation_id"), `eq.${prepared.p_operation_id}`);
+    assert.equal(url.searchParams.get("user_id"), `eq.${USER_ID}`);
+    return Response.json({ funding_environment: "owner_internal" });
+  };
   const handler = createHearthAiHandler({
     textApiKey: "legacy-key-must-not-be-used",
     ownerTextApiKey: "isolated-owner-key",
@@ -1349,8 +1367,8 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
     sttModel: "gpt-4o-mini-transcribe",
     configuredBillingMode: "forge",
     initialTokenBalance: 0,
-    supabaseUrl: null,
-    supabaseServiceRoleKey: null,
+    supabaseUrl: "https://example.supabase.co",
+    supabaseServiceRoleKey: "isolated-service-role-fixture",
     supabaseRpcKey: null,
     sttBucket: "forge-workpieces",
     disableForgeLaneAi: false,

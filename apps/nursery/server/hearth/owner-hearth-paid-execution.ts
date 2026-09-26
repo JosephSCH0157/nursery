@@ -43,7 +43,7 @@ export async function prepareOwnerHearthOperation(args: {
   requestedProviderModelId: string | null;
   requestFingerprint: string;
   buildRequest: (model: string, maximumOutputTokens: number, maximumAttempts: number) => Promise<BoundedProviderRequest>;
-}): Promise<{ handle: HearthPaidExecutionHandle; model: string; boundedRequest: BoundedProviderRequest; authorizationKind: string }> {
+}): Promise<{ handle: Omit<HearthPaidExecutionHandle, "fundingEnvironment">; model: string; boundedRequest: BoundedProviderRequest; authorizationKind: string }> {
   const exactModels = new Set([
     "gpt-6-astra",
     "gpt-5.6-sol",

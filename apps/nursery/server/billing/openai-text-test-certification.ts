@@ -16,6 +16,11 @@ type CertificationRoute = Exclude<OpenAiTextRouteCode, "hearth.chat_completion">
 type CertificationScenario = "success" | "provider_failure" | "validation_failure" | "persistence_failure";
 type RpcResult = { data: unknown; error: { message: string } | null };
 type SchemaRpc = { rpc(name: string, args?: JsonObject): Promise<RpcResult> };
+type DepositQuery = {
+  eq(column: "id" | "user_id", value: string): DepositQuery;
+  single(): Promise<{ data: { stripe_mode: string } | null; error: { message: string } | null }>;
+};
+type DepositSchema = { from(table: "customer_deposits"): { select(columns: "stripe_mode"): DepositQuery } };
 
 const CERTIFICATION_ROUTES = new Set<CertificationRoute>([
   "hearth.research_synthesis",
@@ -35,6 +40,14 @@ function object(value: unknown): JsonObject {
 
 function string(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+async function readCertificationFundingEnvironment(client: SupabaseClient<Database>, depositId: string, userId: string): Promise<"test"> {
+  const schema = client.schema("tongs") as unknown as DepositSchema;
+  const { data, error } = await schema.from("customer_deposits")
+    .select("stripe_mode").eq("id", depositId).eq("user_id", userId).single();
+  if (error || data?.stripe_mode !== "test") throw new Error("certification_funding_environment_mismatch");
+  return data.stripe_mode;
 }
 
 function certificationResult(route: CertificationRoute, valid: boolean): JsonObject {
@@ -77,6 +90,8 @@ function certificationResult(route: CertificationRoute, valid: boolean): JsonObj
         description: "Synthetic metadata produced without a paid provider.",
         tags: ["test", "podcast"],
       };
+    default:
+      throw new Error(`unsupported certification route: ${route}`);
   }
 }
 
@@ -115,7 +130,9 @@ function validateRouteResult(route: CertificationRoute, value: JsonObject): void
  */
 export class OpenAiTextTestCertificationGate implements OpenAiTextGateClient {
   readonly rpcClient: SchemaRpc;
+  private readonly client: SupabaseClient<Database>;
   constructor(client: SupabaseClient<Database>) {
+    this.client = client;
     this.rpcClient = client.schema("tongs") as unknown as SchemaRpc;
   }
 
@@ -139,7 +156,14 @@ export class OpenAiTextTestCertificationGate implements OpenAiTextGateClient {
       case "read_existing_openai_text_funding_handle":
         return this.call("read_existing_openai_text_test_certification_funding_handle", args);
       case "resolve_openai_text_paid_execution_context":
-        return this.call("resolve_openai_text_test_certification_context", args);
+        return this.call("resolve_openai_text_test_certification_context", args).then(async (result) => {
+          if (result.error) return result;
+          const context = object(result.data);
+          const fundingEnvironment = await readCertificationFundingEnvironment(
+            this.client, string(context.funding_source_id), string(args.p_user_id),
+          );
+          return { data: { ...context, funding_environment: fundingEnvironment }, error: null };
+        });
       case "authorize_openai_text_provider_attempt":
         return this.call("authorize_openai_text_test_certification_attempt", {
           p_reservation_id: args.p_reservation_id,
@@ -239,10 +263,14 @@ export function createOpenAiTextTestCertificationHandler(args: {
       return Response.json({ ok: false, error: "invalid_certification_context" }, { status: 403 });
     }
     const requestPayload = object(context.request_json);
+    const fundingEnvironment = await readCertificationFundingEnvironment(
+      client, string(context.deposit_id), string(context.user_id),
+    );
     const handle: OpenAiTextPaidExecutionHandle = {
       operationId,
       reservationId,
       requestFingerprint: string(context.request_fingerprint),
+      fundingEnvironment,
     };
     try {
       const outcome = await executePaidOpenAiTextRoute<JsonObject, JsonObject>({
