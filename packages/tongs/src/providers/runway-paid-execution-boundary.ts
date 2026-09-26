@@ -79,7 +79,35 @@ export type RunwayPaidExecutionBoundary = {
     providerTaskId: string,
     evidence: Record<string, unknown>,
   ): Promise<void>;
+  reconcileSuccessfulExecution(
+    input: RunwaySubmissionAuthorizationInput,
+    providerTaskId: string,
+    evidence: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null>;
 };
+
+export function runwaySuccessSettlementKey(operationId: string): string {
+  return `${operationId}:runway-success-settlement`;
+}
+
+export async function runwaySuccessSettlementId(
+  operationId: string,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`runway-success-settlement:${operationId}`),
+  );
+  const hex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  )
+    .join("")
+    .slice(0, 32)
+    .split("");
+  hex[12] = "4";
+  hex[16] = ((Number.parseInt(hex[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -328,6 +356,30 @@ export class SupabaseRunwayPaidExecutionBoundary
         provider_task_id: providerTaskId,
         canonical_persistence_confirmed: true,
         authoritative: false,
+      },
+    });
+  }
+
+  async reconcileSuccessfulExecution(
+    input: RunwaySubmissionAuthorizationInput,
+    providerTaskId: string,
+    evidence: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    const funding = await this.resolveOperationFunding(input);
+    // Owner-budget Runway reconciliation is outside this customer settlement slice.
+    if (!funding.reservationId || funding.fundingSourceType === "owner_budget")
+      return null;
+    // SQL derives the direct actual from persisted Runway cost evidence.
+    return this.rpc("reconcile_runway_execution", {
+      p_operation_id: input.operationId,
+      p_direct_provider_actual_micros: null,
+      p_supporting_actual_micros: 0,
+      p_settlement_id: await runwaySuccessSettlementId(input.operationId),
+      p_settlement_key: runwaySuccessSettlementKey(input.operationId),
+      p_evidence_json: {
+        ...evidence,
+        provider_task_id: providerTaskId,
+        canonical_persistence_confirmed: true,
       },
     });
   }

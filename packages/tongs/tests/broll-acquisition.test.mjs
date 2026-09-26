@@ -8,6 +8,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 import { assertSafeExternalMediaUrl, deriveBrollPoster, inspectBrollMedia } from "../dist/broll-acquisition.js";
 import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
+import { SupabaseRunwayPaidExecutionBoundary, runwaySuccessSettlementId, runwaySuccessSettlementKey } from "../dist/providers/runway-paid-execution-boundary.js";
 
 async function run(command,args){await new Promise((resolve,reject)=>{const child=spawn(command,args,{windowsHide:true});let error="";child.stderr.on("data",chunk=>error+=chunk);child.once("error",reject);child.once("close",code=>code===0?resolve():reject(new Error(error)));});}
 
@@ -24,6 +25,7 @@ function withObserveRunwayBoundary(service) {
     async recordProviderFailure() {},
     async recordCompletionForReconciliation() {},
     async recordCanonicalSuccessForReconciliation() {},
+    async reconcileSuccessfulExecution() { return null; },
   };
   return service;
 }
@@ -205,7 +207,7 @@ test("enforced Runway route rejects an unfunded operation before provider transm
   service.runwayPaidExecutionBoundary={
     async resolveOperationFunding(){return{mode:"enforce",rolloutRevision:2,sharedFundingReady:false,useLegacyAccounting:false,reason:"matching full-cost funding reservation required",reservationId:null,fundingSourceType:null};},
     async authorizeSubmission(){return{mode:"enforce",rolloutRevision:2,providerExecutionAuthorized:false,legacyExecutionAllowed:false,reason:"matching full-cost funding reservation required",replay:false,reservationId:null,fundingSourceType:null};},
-    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},async recordCanonicalSuccessForReconciliation(){},
+    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},async recordCanonicalSuccessForReconciliation(){},async reconcileSuccessfulExecution(){return null;},
   };
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:unfunded-enforcement-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
@@ -273,7 +275,7 @@ test("enforced owner-funded Runway route bypasses legacy customer-credit account
   service.runwayPaidExecutionBoundary={
     async resolveOperationFunding(){return{mode:"enforce",rolloutRevision:2,sharedFundingReady:true,useLegacyAccounting:false,reason:"matching shared funding reservation found",reservationId:"33333333-3333-4333-8333-333333333333",fundingSourceType:"owner_budget"};},
     async authorizeSubmission(){return{mode:"enforce",rolloutRevision:2,providerExecutionAuthorized:true,legacyExecutionAllowed:false,reason:"owner_budget_authorized",replay:false,reservationId:"33333333-3333-4333-8333-333333333333",fundingSourceType:"owner_budget"};},
-    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},async recordCanonicalSuccessForReconciliation(){},
+    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},async recordCanonicalSuccessForReconciliation(){},async reconcileSuccessfulExecution(){return null;},
   };
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:owner-funded-route-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
@@ -286,6 +288,7 @@ test("generated Runway acquisition routes through paid-media authorization and s
   let boundaryAuthorizations = 0;
   let boundaryCompletions = 0;
   let boundaryCanonicalOutcomes = 0;
+  let boundaryFinancialReconciliations = 0;
   let operationState = "pending";
   let operationReceipt = null;
   let paidRpcCalls = [];
@@ -377,6 +380,10 @@ test("generated Runway acquisition routes through paid-media authorization and s
       assert.equal(input.operationId, "forge:broll:paid-media-test-0003");
       assert.equal(providerTaskId, "runway-task-durable-2");
     },
+    async reconcileSuccessfulExecution() {
+      boundaryFinancialReconciliations += 1;
+      return null;
+    },
   };
   service.assertWorkpieceInWorkspace = async () => undefined;
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "11111111-1111-4111-8111-111111111111", role: "editor" });
@@ -415,7 +422,131 @@ test("generated Runway acquisition routes through paid-media authorization and s
   assert.equal(providerCalls, 1);
   assert.equal(boundaryAuthorizations, 1);
   assert.equal(boundaryCanonicalOutcomes, 2);
+  assert.equal(boundaryFinancialReconciliations, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation" && call.source === "supabase").length, 1);
+});
+
+function enforcedRunwaySuccessHarness() {
+  const operationId = "forge:broll:enforced-customer-success-0001";
+  const reservationId = "66666666-6666-4666-8666-666666666666";
+  const taskId = "runway-task-enforced-1";
+  const log = [];
+  const gateCalls = [];
+  const counts = { submits: 0, polls: 0, settlements: 0, supplierExpenses: 0, creditsConsumed: 0 };
+  let operationState = "pending";
+  let operationReceipt = null;
+  let finalized = null;
+  const authority = { schema() { return { async rpc(name) {
+    log.push(name);
+    if (name === "assert_current_broll_prompt") return { data: { disposition: "verified", prompt_revision: { id: "55555555-5555-4555-8555-555555555555", revision: 1, content_hash: "b".repeat(64), final_prompt: "A slow documentary road transition" } }, error: null };
+    if (name === "begin_broll_operation") return { data: { disposition: "replay", operation: { state: operationState, submission_attempt_id: operationState === "pending" ? null : "attempt-enforced-1", provider: "runway", provider_task_id: ["pending", "submitting"].includes(operationState) ? null : taskId, receipt_json: operationReceipt } }, error: null };
+    if (name === "begin_broll_runway_submission") { operationState = "submitting"; return { data: { disposition: "submitting", operation: { state: operationState } }, error: null }; }
+    if (name === "record_broll_runway_task") { operationState = "provider_submitted"; return { data: { disposition: "provider_submitted", operation: { state: operationState } }, error: null }; }
+    if (name === "claim_broll_runway_poll") return { data: { disposition: "poll_claimed", operation: { state: operationState } }, error: null };
+    if (name === "record_broll_runway_completion") { operationState = "provider_completed"; return { data: { disposition: "provider_completed", operation: { state: operationState } }, error: null }; }
+    if (name === "record_broll_provider_or_upload_result") return { data: { disposition: "result_recorded", operation: { state: "provider_or_upload_completed" } }, error: null };
+    if (name === "commit_broll_candidate") { operationState = "candidate_committed"; operationReceipt = { disposition: "committed", candidate_id: "candidate-enforced-1" }; return { data: operationReceipt, error: null }; }
+    if (name === "read_my_spending_operation") return { data: { receipt_status: finalized ? "settled" : "provider_attempt_shadowed", customer_charge_micros: finalized ? 800000 : 0 }, error: null };
+    throw new Error(`unexpected authority RPC ${name}`);
+  } }; } };
+  const supabase = {
+    storage: { from() { return { async download() { return { data: null, error: { message: "Object not found", statusCode: 404 } }; }, async upload() { return { data: { Key: "uploaded" }, error: null }; } }; } },
+    schema() { return { async rpc(name) {
+      log.push(name);
+      if (name === "commit_broll_operation_asset") return { data: { disposition: "video_asset_verified" }, error: null };
+      throw new Error(`unexpected service RPC ${name}`);
+    } }; },
+  };
+  const gate = { async rpc(name, args) {
+    log.push(name);
+    gateCalls.push({ name, args });
+    if (name === "resolve_runway_execution_funding") return { data: { mode: "enforce", rollout_revision: 2, shared_funding_ready: finalized === null, use_legacy_accounting: false, reason: "matching shared funding reservation found", reservation_id: reservationId, funding_source_type: "customer_deposit" }, error: null };
+    if (name === "authorize_runway_submission_with_aggregate") return { data: { mode: "enforce", rollout_revision: 2, provider_execution_authorized: true, legacy_execution_allowed: false, reason: "funded", replay: false, reservation_id: reservationId, funding_source_type: "customer_deposit" }, error: null };
+    if (name === "record_runway_completion_for_reconciliation") return { data: { recorded: true, supporting_cost_status: "pending" }, error: null };
+    if (name === "record_paid_operation_aggregate_outcome") return { data: { recorded: true }, error: null };
+    if (name === "reconcile_runway_execution") {
+      // Mirrors the SQL finalized-receipt idempotency proven in supabase/tests.
+      if (finalized) return { data: { ...finalized, replay: true }, error: null };
+      counts.settlements += 1;
+      counts.supplierExpenses += 1;
+      counts.creditsConsumed += 160;
+      finalized = { state: "settled", customer_charge_micros: 800000, credit_units: 160, direct_provider_actual_micros: 600000, supporting_actual_micros: 0 };
+      return { data: { ...finalized, replay: false }, error: null };
+    }
+    throw new Error(`unexpected financial RPC ${name}`);
+  } };
+  const provider = {
+    async submit() { counts.submits += 1; return { taskId, acceptedResponse: { id: taskId } }; },
+    async poll(id) { counts.polls += 1; return { state: "completed", taskId: id, outputUrl: "https://example.com/out.mp4", response: { id, status: "SUCCEEDED", cost: { credits: 60 } } }; },
+    async download() { return new Uint8Array([1, 2, 3, 4]); },
+  };
+  const runtime = {
+    inspectMedia: async (bytes, expected) => ({ bytes, mimeType: expected === "video" ? "video/mp4" : "image/jpeg", width: 1280, height: 720, durationMs: expected === "video" ? 5000 : null }),
+    derivePoster: async () => ({ bytes: new Uint8Array([4, 5, 6]), mimeType: "image/jpeg", width: 1280, height: 720, durationMs: null }),
+    fetchExternalMedia: async () => { throw new Error("must not fetch"); },
+    inspectReferenceImage: async () => { throw new Error("must not inspect references"); },
+    fetchExternalBytes: async () => { throw new Error("must not fetch"); },
+    renderReferenceVisual: async () => { throw new Error("must not render"); },
+  };
+  const service = new TongsCommitService(supabase, "forge-workpieces", null, () => authority, null, provider, null, runtime);
+  service.runwayPaidExecutionBoundary = new SupabaseRunwayPaidExecutionBoundary(gate);
+  service.assertWorkpieceInWorkspace = async () => undefined;
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "11111111-1111-4111-8111-111111111111", role: "editor" });
+  const request = { workspace_id: "33333333-3333-4333-8333-333333333333", beat_id: "44444444-4444-4444-8444-444444444444", operation_id: operationId, operation_fingerprint: "a".repeat(64), source_kind: "generated", provider: "runway", final_prompt: "A slow documentary road transition", poster_required: false, confirm_spend: false, prompt_revision_id: "55555555-5555-4555-8555-555555555555", prompt_revision: 1, prompt_content_hash: "b".repeat(64) };
+  const acquire = () => service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222", request, { userAccessToken: "token" });
+  return { operationId, taskId, log, gateCalls, counts, acquire, boundary: service.runwayPaidExecutionBoundary };
+}
+
+test("enforced customer Runway success reconciles finances once, only after the canonical candidate commit", async () => {
+  const h = enforcedRunwaySuccessHarness();
+  const result = await h.acquire();
+  assert.equal(result.disposition, "committed");
+  assert.equal(h.counts.submits, 1);
+  assert.equal(h.counts.polls, 1);
+  const completions = h.gateCalls.filter((call) => call.name === "record_runway_completion_for_reconciliation");
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0].args.p_provider_task_id, h.taskId);
+  assert.equal(completions[0].args.p_evidence_json.cost.credits, 60);
+  const reconciliations = h.gateCalls.filter((call) => call.name === "reconcile_runway_execution");
+  assert.equal(reconciliations.length, 1);
+  const args = reconciliations[0].args;
+  assert.equal(args.p_operation_id, h.operationId);
+  assert.equal(args.p_direct_provider_actual_micros, null, "SQL derives the direct actual from persisted provider evidence");
+  assert.equal(args.p_supporting_actual_micros, 0);
+  assert.equal(args.p_settlement_key, runwaySuccessSettlementKey(h.operationId));
+  assert.equal(args.p_settlement_id, await runwaySuccessSettlementId(h.operationId));
+  assert.equal(args.p_evidence_json.provider_task_id, h.taskId);
+  assert.equal(args.p_evidence_json.candidate_committed, true);
+  const aggregateSuccessIndex = h.gateCalls.findIndex((call) => call.name === "record_paid_operation_aggregate_outcome" && call.args.p_outcome === "settled_unconfirmed");
+  assert.ok(aggregateSuccessIndex >= 0, "aggregate success evidence recorded");
+  const order = (name) => h.log.indexOf(name);
+  assert.ok(order("record_runway_completion_for_reconciliation") < order("commit_broll_candidate"));
+  assert.ok(order("commit_broll_candidate") < h.log.lastIndexOf("record_paid_operation_aggregate_outcome"));
+  assert.ok(h.log.lastIndexOf("record_paid_operation_aggregate_outcome") < order("reconcile_runway_execution"));
+  assert.equal(h.counts.settlements, 1);
+  assert.equal(h.counts.supplierExpenses, 1);
+  assert.equal(h.counts.creditsConsumed, 160);
+  assert.ok(!h.log.some((name) => name.includes("paid_media")), "legacy paid-media accounting must not run");
+});
+
+test("replaying an already-finalized enforced Runway success never transmits, settles, or charges again", async () => {
+  const h = enforcedRunwaySuccessHarness();
+  await h.acquire();
+  const replay = await h.acquire();
+  assert.equal(replay.disposition, "committed");
+  assert.equal(h.counts.submits, 1);
+  assert.equal(h.counts.polls, 1);
+  assert.equal(h.gateCalls.filter((call) => call.name === "authorize_runway_submission_with_aggregate").length, 1);
+  assert.equal(h.gateCalls.filter((call) => call.name === "reconcile_runway_execution").length, 1, "candidate replay does not re-run financial reconciliation");
+  const repeated = await h.boundary.reconcileSuccessfulExecution(
+    { operationId: h.operationId, operationFingerprint: "a".repeat(64), submissionAttemptId: "attempt-enforced-1", userId: "11111111-1111-4111-8111-111111111111", workspaceId: "33333333-3333-4333-8333-333333333333", model: "gen4.5", durationSeconds: 5, ratio: "1280:720" },
+    h.taskId,
+    { explicit_repeat: true },
+  );
+  assert.equal(repeated.replay, true);
+  assert.equal(h.counts.settlements, 1);
+  assert.equal(h.counts.supplierExpenses, 1);
+  assert.equal(h.counts.creditsConsumed, 160);
 });
 
 test("selected Beat 1 route reaches the injected provider and durably records its task without a Vite import",async()=>{

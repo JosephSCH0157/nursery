@@ -32417,6 +32417,28 @@ export class TongsCommitService {
           canonical_video_path: videoPath,
         },
       );
+      try {
+        await this.runwayPaidExecutionBoundary!.reconcileSuccessfulExecution(
+          reconciliationInput,
+          input.provider_request_id,
+          {
+            candidate_committed: true,
+            candidate_id: candidate.data.candidate_id ?? null,
+            canonical_video_path: videoPath,
+          },
+        );
+      } catch (error) {
+        throw new HttpError(
+          502,
+          "runway_financial_reconciliation_failed",
+          "The B-roll candidate was saved, but Runway financial reconciliation did not complete. No additional provider request was made.",
+          {
+            candidate_committed: true,
+            provider_task_id: input.provider_request_id,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        );
+      }
     }
     if (paidContext) {
       await this.settlePaidImageDelivery(paidContext, {

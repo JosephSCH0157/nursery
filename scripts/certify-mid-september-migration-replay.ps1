@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [switch]$ResumeCertifiedBase,
+  [switch]$SkipLinkedFingerprint,
   [string]$SupabaseWorkdir,
   [string]$ProjectId = 'nursery'
 )
@@ -84,6 +85,19 @@ $newForwardMigrationNames = @(
   '20261011620000_hearth_thumbnail_direction_generation_test_product.sql'
 )
 $allHeldMigrationNames = @($heldMigrationNames) + @($newForwardMigrationNames)
+# Later forward migrations are held too so the reset stops at the certified base, then replay after the restored slice.
+$lastManifestMigrationName = $newForwardMigrationNames[-1]
+$trailingForwardMigrationNames = @(
+  Get-ChildItem -LiteralPath $sourceMigrationsDir -Filter '*.sql' -File |
+    Where-Object { [string]::CompareOrdinal($_.Name, $lastManifestMigrationName) -gt 0 } |
+    Sort-Object Name |
+    ForEach-Object Name
+)
+$stagedMigrationNames = @($allHeldMigrationNames) + @($trailingForwardMigrationNames)
+$postCheckpointBoundaryName = '20261011710000_reference_visual_source_transition_authority_reassert.sql'
+$trailingThroughCheckpointNames = @($trailingForwardMigrationNames | Where-Object { [string]::CompareOrdinal($_, $postCheckpointBoundaryName) -le 0 })
+$trailingAfterCheckpointNames = @($trailingForwardMigrationNames | Where-Object { [string]::CompareOrdinal($_, $postCheckpointBoundaryName) -gt 0 })
+$postCheckpointFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_checkpoint_paid_execution_prerequisites.sql'
 
 function Invoke-CheckedCommand {
   param(
@@ -179,6 +193,7 @@ try {
       -not (Test-Path -LiteralPath $realizedLossFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $realizedLossCleanupPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $customerCanaryFixturePath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $postCheckpointFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $certificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $framingCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $visualPlanCertificationPath -PathType Leaf) -or
@@ -208,7 +223,7 @@ try {
   }
 
   try {
-    foreach ($name in $allHeldMigrationNames) {
+    foreach ($name in $stagedMigrationNames) {
       $source = [System.IO.Path]::GetFullPath((Join-Path $sourceMigrationsDir $name))
       $working = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       $destination = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
@@ -433,9 +448,56 @@ select json_build_object(
         Remove-Item -LiteralPath $guardedCustomerCanaryPath
       }
     }
+
+    Write-Host 'Applying the restored backfilled slice and forward migrations through the post-checkpoint boundary...'
+    foreach ($name in @($allHeldMigrationNames) + @($trailingThroughCheckpointNames)) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (Test-Path -LiteralPath $heldPath -PathType Leaf) {
+        if (Test-Path -LiteralPath $restoredPath) {
+          throw "Cannot restore held migration because its destination exists: $name"
+        }
+        Move-Item -LiteralPath $heldPath -Destination $restoredPath
+      }
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+
+    $guardedPostCheckpointPath = Join-Path $holdDirectory 'guarded-post-checkpoint-paid-execution-prerequisites.sql'
+    [System.IO.File]::WriteAllText(
+      $guardedPostCheckpointPath,
+      "set forge.local_historical_replay = 'post-checkpoint-v1';`n" +
+        (Get-Content -LiteralPath $postCheckpointFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Injecting the guarded local post-checkpoint paid-execution prerequisites...'
+    try {
+      Invoke-LocalPsqlScript -Path $guardedPostCheckpointPath -DatabaseContainer $databaseContainer
+    }
+    finally {
+      if (Test-Path -LiteralPath $guardedPostCheckpointPath -PathType Leaf) {
+        Remove-Item -LiteralPath $guardedPostCheckpointPath
+      }
+    }
+
+    Write-Host 'Applying the remaining forward migrations through current head...'
+    foreach ($name in $trailingAfterCheckpointNames) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
+        throw "Post-checkpoint migration is not staged: $name"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
   }
   finally {
-    foreach ($name in $allHeldMigrationNames) {
+    foreach ($name in $stagedMigrationNames) {
       $held = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
       $restored = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       if (Test-Path -LiteralPath $held -PathType Leaf) {
@@ -452,12 +514,6 @@ select json_build_object(
     Remove-Item -LiteralPath $holdDirectory
   }
 
-  Write-Host 'Applying the restored backfilled slice, readiness migrations, and forward reassertions...'
-  Invoke-CheckedCommand -Program 'npx' -Arguments @(
-    'supabase','migration','up','--local','--include-all',
-    '--workdir',$projectWorkdir
-  )
-
   Write-Host 'Running local integrity assertions...'
   Invoke-LocalPsqlScript -Path $certificationPath -DatabaseContainer $databaseContainer
   Write-Host 'Running Framing Pack database assertions...'
@@ -467,6 +523,11 @@ select json_build_object(
   Invoke-LocalPsqlScript -Path $thumbnailDirectionCertificationPath -DatabaseContainer $databaseContainer
 
   $fingerprintSql = (Get-Content -LiteralPath $certificationPath -Raw) -replace '(?s)^do \$\$.*?end \$\$;\s*',''
+  if ($SkipLinkedFingerprint) {
+    Write-Warning 'Linked fingerprint comparison skipped by request; no linked query was made.'
+    Write-Host 'Local fixture-assisted migration replay passed.'
+    return
+  }
   $localFingerprint = Invoke-SupabaseJsonQuery -Target local -Sql $fingerprintSql
   $linkedFingerprint = Invoke-SupabaseJsonQuery -Target linked -Sql $fingerprintSql
   $localCanonical = $localFingerprint.rows[0].fingerprint | ConvertTo-Json -Depth 20 -Compress
