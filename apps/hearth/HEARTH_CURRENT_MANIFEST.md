@@ -2,7 +2,11 @@
 
 Release baseline: Forge v1.2.0 Fire Burning (`forge-v1.2.0`).
 
-Hearth shapes approved scripts into production-ready editorial assets. Tongs is the only canonical persistence authority; Hammer is the executable placement and timeline authority.
+Hearth owns editorial intent and pre-production creative decisions: **what should be made**, not how downstream tools execute it. It helps creators develop ideas through producer/editorial questions, research and framing, script drafting and revision, and titles, tags, descriptions, and other public metadata. Hearth curates Ready candidates; creator approval is explicit and distinct from Ready.
+
+Hearth also creates and curates workpiece-scoped thumbnail concepts and assets, still images, B-roll prompts and assets, Reference Clips, Reference Visuals, and unified Visual Plan intent. AI assistance is optional. Paid generation requires an explicit creator-controlled action and the applicable authorization and spending confirmation; opening Hearth never authorizes a charge. Tongs must acknowledge persisted results before Hearth presents them as saved.
+
+This manifest describes current product scope, not executable authority. The [Forge lifecycle canon](../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md) takes precedence, followed by [Hearth canonical authority](HEARTH_CANONICAL_AUTHORITY.md), [agent rules](AGENTS.md) and current tool contracts, then the scoped [V2](HEARTH_V2_CONTRACT.md), [navigation](HEARTH_NAVIGATION_CONTRACT.md), and [research](HEARTH_RESEARCH_CONTRACT.md) contracts. Those contracts own detailed state and payload shapes.
 
 ## Current visual workflow
 
@@ -23,9 +27,13 @@ Pasted URLs are drafts until `Use this source`. That explicit action may authori
 
 ## Authority boundaries
 
-- Hearth owns editorial proposals and creator interaction.
-- Tongs owns Sources, evidence, rights declarations, media identities, selections, dispositions, orchestration receipts, and durable readback.
-- Hammer owns executable media placement and timeline state.
+- Hearth owns editorial proposals, creator interaction, and pre-production asset creation and curation; people choose what to approve or generate.
+- Tongs owns canonical identity, persistence, durable readback, Sources, evidence, rights declarations, revisions, media identities, selections, dispositions, and receipts.
+- Calendar owns scheduling; Hearth Ready is not a scheduled recording or approval.
+- Anvil owns recording and capture.
+- Hammer owns editing, timing, executable placement, and final-media truth; Hearth's placement hints are advisory.
+- Quench owns publishing; Hearth does not declare publish readiness.
+- Ledger owns analytics.
 - Signed URLs and previews are ephemeral presentation fields, never identity or persistence.
 
-The historical `HEARTH_V1_MANIFEST.md` is retained as a superseded record rather than rewritten to imply later capabilities were part of V1.
+The [historical V1 manifest](HEARTH_V1_MANIFEST.md) records the original script-only scope; later visual capabilities are current product scope, not retroactive V1 features.

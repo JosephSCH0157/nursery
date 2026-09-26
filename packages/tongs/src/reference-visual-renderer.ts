@@ -117,10 +117,6 @@ function timelineDate(entry: ReferenceVisualEvidence): { display: string; sort: 
   return { display: inferred ?? "Date not provided", sort: year ? Date.parse(`${year}-01-01T00:00:00Z`) : Number.POSITIVE_INFINITY };
 }
 
-function hasTimelineDate(entry: ReferenceVisualEvidence): boolean {
-  return timelineDate(entry).display !== "Date not provided";
-}
-
 function timelineLabel(entry: ReferenceVisualEvidence, dateDisplay: string): string {
   const label = entry.label?.trim() || entry.raw_excerpt?.trim() || "Confirmed event";
   if (dateDisplay === "Date not provided") return label;

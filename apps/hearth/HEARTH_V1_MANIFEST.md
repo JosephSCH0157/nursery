@@ -1,14 +1,14 @@
 # Hearth V1 Manifest — Superseded Historical Record
 
-> Superseded by `HEARTH_CURRENT_MANIFEST.md`. This file records the historical V1 boundary and must not be treated as evidence that later visual-planning features shipped in V1. Executable authority and lifecycle semantics are governed by `HEARTH_CANONICAL_AUTHORITY.md` and `../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+> Superseded by [HEARTH_CURRENT_MANIFEST.md](HEARTH_CURRENT_MANIFEST.md). This is a historical, non-normative V1 scope record, not the current product contract. Executable authority and lifecycle semantics are governed by [HEARTH_CANONICAL_AUTHORITY.md](HEARTH_CANONICAL_AUTHORITY.md) and the [Forge lifecycle canon](../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md).
 
 ## Purpose
 
-Hearth is the pre-production forge in the Podcaster's Forge ecosystem. It helps creators transform raw ideas (Bar Stock sparks) into coherent, production-ready workpieces: scripts, public metadata, visual direction, and generated or curated visual assets.
+In V1, Hearth was the conversational script-forging tool. Its purpose was to turn raw ideas (Bar Stock sparks) into record-ready scripts that conformed to Anvil tag rules.
 
 Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
-Hearth owns editorial intent and pre-production asset creation. It may generate thumbnails, still images, B-roll assets, reference clips, and their prompts or briefs when the user explicitly requests them. Hearth is not a teleprompter, recorder, timeline editor, or publisher. Hammer owns executable edit decisions, timing, placement, and final-media truth.
+The V1 boundary did not include public metadata, visual planning, or asset generation. Those are later Hearth capabilities described in the current manifest.
 
 ---
 
@@ -36,28 +36,22 @@ Hearth owns editorial intent and pre-production asset creation. It may generate 
 * Multi-host / guest-aware scripting
 * Accessibility-conscious formatting
 * Cadence, pacing, and readability
-* Titles, descriptions, SEO, and other public-facing editorial metadata
-* Thumbnail concepts, generation, deterministic composition, revisions, and brand application
-* Still-image generation and curation
-* B-roll planning, prompts, generation, and asset curation
-* Reference-clip planning and generation
-* Workpiece-scoped visual briefs, media maps, placement hints, and downstream asset handoff
 * Strict Anvil-compatible tags only:
 
   * [s1], [s2], [g1], [g2]
   * [pause], [beat], [reflective pause]
   * [note] (hidden in Anvil)
 
-Generated and curated assets are canonical workpiece artifacts only after Tongs acknowledges their persisted identity, revision, and storage state. Hearth may suggest placement, but it does not create or control Hammer's executable timeline.
+If it did not help a human read the script aloud in Anvil, it was outside V1.
 
 ### Excluded
 
 * Audio or video capture
 * Recording-device control
 * Destructive or non-linear editing of recorded media
-* Executable timeline ownership or final asset placement
-* Final render authority
-* Platform upload, scheduling, or publishing
+* Public metadata and pre-production visual assets
+* Executable timeline ownership or final placement
+* Platform upload or publishing
 
 ---
 
@@ -110,6 +104,8 @@ Hard rules:
 
 ## Script Readiness and Ownership
 
+The chain and handoff steps below describe the historical V1 workflow; current scheduling belongs to Calendar, and current persistence follows the active authority contracts linked above.
+
 ### Authority Chain
 
 * Bar Stock - raw ideas
@@ -150,11 +146,10 @@ Anvil never guesses. Hearth never schedules.
 
 ## Recording Completion and Takes
 
-### Cloud-Backed Media Storage (Current)
+### Local-Only Media Storage (V1)
 
-* Recordings and exports are cloud-backed through Tongs by default
-* Local mirrors may exist for local access, inspection, and recovery
-* Media state must be described in terms of resolved storage target, not assumed local-only behavior
+* Recordings remained local in the original V1 scope
+* Media upload was not part of that scope
 
 ### Receipt Model
 
@@ -187,4 +182,4 @@ Anvil emits metadata-only receipts to Tongs:
 
 ## One-Line North Star
 
-Hearth shapes the story and forges its production-ready editorial assets; downstream tools execute the recording, edit, and release.
+Hearth shaped words for the voice - and nothing else in V1.

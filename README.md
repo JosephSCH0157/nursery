@@ -30,7 +30,7 @@ Ledger observes billable usage, credits, and operational cost activity.
 | --- | --- |
 | **Nursery / ForgeHub** | Authentication, workspace selection, navigation, account surfaces, and shared application shell |
 | **Bar Stock** | Fast idea capture, sparks, grouping, and creator-authorized topic discovery |
-| **Hearth** | Conversational script development, editorial shaping, research/reference workflows, and creator-directed AI assistance |
+| **Hearth** | Conversational idea development, research, scripts and metadata, creator-directed AI, and pre-production visual assets and plans |
 | **Tongs** | Canonical persistence, contracts, authority boundaries, RLS, workspaces, workpieces, state, receipts, and cross-tool handoff |
 | **Anvil** | Scripted recording and teleprompter-driven capture |
 | **Bellows** | Multi-location live studio and remote capture; intentionally runs as a top-level application surface |
@@ -77,8 +77,12 @@ Forge supports explicit payer lanes rather than silently mixing platform-funded 
 - ForgeHub / Nursery manifest: [`apps/nursery/FORGEHUB_V1_MANIFEST.md`](apps/nursery/FORGEHUB_V1_MANIFEST.md)
 - Bar Stock: [`apps/bar-stock/README.md`](apps/bar-stock/README.md)
 - Tongs manifest: [`packages/tongs/TONGS_V1_MANIFEST.md`](packages/tongs/TONGS_V1_MANIFEST.md)
-- Hearth V1 manifest: [`apps/hearth/HEARTH_V1_MANIFEST.md`](apps/hearth/HEARTH_V1_MANIFEST.md)
-- Hearth V2 contract/status: [`apps/hearth/HEARTH_V2_CONTRACT.md`](apps/hearth/HEARTH_V2_CONTRACT.md)
+- Hearth authority: [`apps/hearth/HEARTH_CANONICAL_AUTHORITY.md`](apps/hearth/HEARTH_CANONICAL_AUTHORITY.md)
+- Hearth current product scope: [`apps/hearth/HEARTH_CURRENT_MANIFEST.md`](apps/hearth/HEARTH_CURRENT_MANIFEST.md)
+- Hearth V2 contract: [`apps/hearth/HEARTH_V2_CONTRACT.md`](apps/hearth/HEARTH_V2_CONTRACT.md)
+- Hearth navigation contract: [`apps/hearth/HEARTH_NAVIGATION_CONTRACT.md`](apps/hearth/HEARTH_NAVIGATION_CONTRACT.md)
+- Hearth research contract: [`apps/hearth/HEARTH_RESEARCH_CONTRACT.md`](apps/hearth/HEARTH_RESEARCH_CONTRACT.md)
+- Hearth V1 manifest (historical/superseded): [`apps/hearth/HEARTH_V1_MANIFEST.md`](apps/hearth/HEARTH_V1_MANIFEST.md)
 - Anvil manifest: [`apps/anvil/MANIFEST.md`](apps/anvil/MANIFEST.md)
 - Bellows V1 manifest: [`apps/bellows/BELLOWS_V1_MANIFEST.md`](apps/bellows/BELLOWS_V1_MANIFEST.md)
 - Hammer manifest: [`docs/HAMMER_MANIFEST.md`](docs/HAMMER_MANIFEST.md)

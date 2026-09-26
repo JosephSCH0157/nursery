@@ -203,7 +203,6 @@ import {
 } from "./providers/broll-motion-interpretation-provider.js";
 import {
   arbitrateUnifiedVisualPlanCoverage,
-  buildUnifiedVisualPlanProviderRequestBody,
   canonicalizeUnifiedVisualSourceCatalog,
   normalizeUnifiedVisualPlanContextAnchors,
   OpenAiUnifiedVisualPlanProvider,
@@ -22633,16 +22632,7 @@ export class TongsCommitService {
     });
     const providerBodySerialized = serializeOpenAiImageGenerationRequestBody(providerBody);
     const providerBodySha256 = await hashOpenAiImageGenerationRequestBody(providerBody);
-    const finalPromptHash = await sha256Hex(
-      canonicalJsonBytes({
-        prompt: finalPrompt,
-        generation_reference: input.generation_reference ?? null,
-        reference_contract_version: input.generation_reference
-          ? IMAGE_REFERENCE_CONTRACT_VERSION
-          : null,
-      }),
-    );
-    let paidContext: PaidImageGenerationContext | null = null;
+    const paidContext: PaidImageGenerationContext | null = null;
     let imageResult: Awaited<
       ReturnType<ImageProvider["generateImage"]>
     > | null = null;
