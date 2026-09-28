@@ -245,6 +245,33 @@ begin
     where n.nspname = 'tongs' and p.proname like '%owner_cost%'
       and lower(pg_get_functiondef(p.oid)) ~ '(customer_credits|ai_credit_quotes|funding_reservations|customer_price|customer_balance|stripe|customer_charge|paid_allowance|settlement)'
   ) then raise exception 'owner-cost RPC depends on prohibited customer-finance semantics'; end if;
+
+  if exists (
+    with required_index(relation_name, column_name) as (
+      values
+        ('tongs.owner_cost_operations'::regclass, 'owner_operating_budget_id'::text),
+        ('tongs.owner_cost_valuations'::regclass, 'prior_valuation_id'::text),
+        ('tongs.owner_cost_operation_links'::regclass, 'workspace_id'::text),
+        ('tongs.owner_cost_operation_links'::regclass, 'workpiece_id'::text),
+        ('tongs.owner_cost_operation_links'::regclass, 'recording_session_id'::text),
+        ('tongs.owner_cost_operation_links'::regclass, 'recording_capture_authority_id'::text),
+        ('tongs.owner_cost_operation_links'::regclass, 'anvil_capture_execution_id'::text),
+        ('tongs.owner_cost_operation_links'::regclass, 'anvil_recording_completion_id'::text)
+    )
+    select 1
+    from required_index required
+    where not exists (
+      select 1
+      from pg_index index_metadata
+      join pg_class index_relation on index_relation.oid = index_metadata.indexrelid
+      join pg_am access_method on access_method.oid = index_relation.relam
+      where index_metadata.indrelid = required.relation_name
+        and index_metadata.indisvalid
+        and index_metadata.indisready
+        and access_method.amname = 'btree'
+        and pg_get_indexdef(index_metadata.indexrelid, 1, true) = required.column_name
+    )
+  ) then raise exception 'owner-cost foreign-key index advisory remains unresolved'; end if;
 end;
 $$;
 

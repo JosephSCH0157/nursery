@@ -69,13 +69,18 @@ try {
     ),
     "remove cloned Slice 1 objects",
   );
-  check(
-    docker(
-      ["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database],
-      readFileSync("supabase/migrations/20261011820000_tongs_owner_cost_accounting_authority.sql", "utf8"),
-    ),
-    "apply Slice 1 migration to isolated canonical schema",
-  );
+  for (const migration of [
+    "20261011820000_tongs_owner_cost_accounting_authority.sql",
+    "20261011830000_index_owner_cost_relations.sql",
+  ]) {
+    check(
+      docker(
+        ["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database],
+        readFileSync(`supabase/migrations/${migration}`, "utf8"),
+      ),
+      `apply ${migration} to isolated canonical schema`,
+    );
+  }
   check(
     docker(
       ["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database],
@@ -96,6 +101,7 @@ try {
     private_rls_and_grants: "passed",
     environment_isolation: "passed",
     customer_finance_dependency_isolation: "passed",
+    owner_cost_foreign_key_index_coverage: "passed",
   }, null, 2)}\n`);
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", "--force", database]);
