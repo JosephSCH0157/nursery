@@ -202,6 +202,152 @@ end;
 $$;
 
 do $$
+declare
+  v_result jsonb;
+  v_terminal_state text;
+begin
+  v_result := tongs.authorize_owner_cost_provider_attempt(
+    'ac000000-0000-4000-8000-000000000210', 'ac000000-0000-4000-8000-000000000100', 2,
+    'provider-attempt-0002', repeat('5',64), 'openai', 'audio-transcription', 'whisper-1', 'whisper-1',
+    repeat('6',64), '{"authorization":"private rejection test"}', '2026-09-28T12:12:00Z'
+  );
+  if not (v_result->>'authorized')::boolean then raise exception 'rejection-test attempt was not authorized'; end if;
+
+  begin
+    perform tongs.append_owner_cost_attempt_event(
+      'ac000000-0000-4000-8000-000000000211', 'ac000000-0000-4000-8000-000000000210', 2,
+      'definitively_rejected', null, '{}', '{"rejected_before_submission":true}', '2026-09-28T12:13:00Z'
+    );
+    raise exception 'authorized attempt became definitively rejected without submission';
+  exception when check_violation then null; end;
+
+  v_result := tongs.append_owner_cost_attempt_event(
+    'ac000000-0000-4000-8000-000000000212', 'ac000000-0000-4000-8000-000000000210', 2,
+    'submitted', null, '{}', '{"request":"private rejection test"}', '2026-09-28T12:13:00Z'
+  );
+  if not (v_result->>'provider_submission_created')::boolean then
+    raise exception 'rejection-test submission did not establish provider authority';
+  end if;
+
+  v_result := tongs.append_owner_cost_attempt_event(
+    'ac000000-0000-4000-8000-000000000213', 'ac000000-0000-4000-8000-000000000210', 3,
+    'definitively_rejected', 'provider-rejection-0002', '{}',
+    '{"http_status":400,"provider_code":"invalid_request"}', '2026-09-28T12:14:00Z'
+  );
+  if (v_result->>'replay')::boolean or (v_result->>'provider_submission_created')::boolean then
+    raise exception 'definitive rejection returned submission authority';
+  end if;
+
+  v_result := tongs.append_owner_cost_attempt_event(
+    'ac000000-0000-4000-8000-000000000213', 'ac000000-0000-4000-8000-000000000210', 3,
+    'definitively_rejected', 'provider-rejection-0002', '{}',
+    '{"http_status":400,"provider_code":"invalid_request"}', '2026-09-28T12:14:00Z'
+  );
+  if not (v_result->>'replay')::boolean or (v_result->>'provider_submission_created')::boolean then
+    raise exception 'definitive-rejection replay was not idempotent';
+  end if;
+
+  begin
+    perform tongs.append_owner_cost_attempt_event(
+      'ac000000-0000-4000-8000-000000000213', 'ac000000-0000-4000-8000-000000000210', 3,
+      'definitively_rejected', 'provider-rejection-0002', '{}',
+      '{"http_status":401,"provider_code":"changed"}', '2026-09-28T12:14:00Z'
+    );
+    raise exception 'conflicting definitive-rejection event replay succeeded';
+  exception when unique_violation then null; end;
+
+  begin
+    perform tongs.append_owner_cost_attempt_event(
+      'ac000000-0000-4000-8000-000000000214', 'ac000000-0000-4000-8000-000000000210', 4,
+      'authorized', 'provider-rejection-0002', '{}', '{}', '2026-09-28T12:15:00Z'
+    );
+    raise exception 'definitively rejected attempt returned to authorized';
+  exception when invalid_parameter_value then null; end;
+  begin
+    perform tongs.append_owner_cost_attempt_event(
+      'ac000000-0000-4000-8000-000000000215', 'ac000000-0000-4000-8000-000000000210', 4,
+      'submitted', 'provider-request-rearmed-0002', '{}', '{}', '2026-09-28T12:15:00Z'
+    );
+    raise exception 'definitively rejected attempt was rearmed';
+  exception when check_violation then null; end;
+  begin
+    perform tongs.append_owner_cost_attempt_event(
+      'ac000000-0000-4000-8000-000000000216', 'ac000000-0000-4000-8000-000000000210', 4,
+      'submission_unknown', 'provider-rejection-0002', '{}', '{}', '2026-09-28T12:15:00Z'
+    );
+    raise exception 'definitively rejected attempt became submission unknown';
+  exception when check_violation then null; end;
+  begin
+    perform tongs.append_owner_cost_attempt_event(
+      'ac000000-0000-4000-8000-000000000217', 'ac000000-0000-4000-8000-000000000210', 4,
+      'failed', 'provider-rejection-0002', '{}', '{}', '2026-09-28T12:15:00Z'
+    );
+    raise exception 'definitively rejected attempt became generic failed';
+  exception when check_violation then null; end;
+
+  v_result := tongs.authorize_owner_cost_provider_attempt(
+    'ac000000-0000-4000-8000-000000000210', 'ac000000-0000-4000-8000-000000000100', 2,
+    'provider-attempt-0002', repeat('5',64), 'openai', 'audio-transcription', 'whisper-1', 'whisper-1',
+    repeat('6',64), '{"authorization":"private rejection test"}', '2026-09-28T12:12:00Z'
+  );
+  if not (v_result->>'replay')::boolean or (v_result->>'authorized')::boolean then
+    raise exception 'definitively rejected attempt authorization replay rearmed execution';
+  end if;
+
+  if exists (select 1 from tongs.owner_cost_valuations where attempt_id = 'ac000000-0000-4000-8000-000000000210') then
+    raise exception 'definitive rejection automatically created a valuation';
+  end if;
+  if exists (
+    select 1 from tongs.accounting_journal_events j
+    join tongs.owner_cost_valuations v on v.journal_event_id = j.id
+    where v.attempt_id = 'ac000000-0000-4000-8000-000000000210'
+  ) then raise exception 'definitive rejection automatically created a journal expense'; end if;
+
+  v_result := tongs.record_owner_cost_valuation(
+    'ac000000-0000-4000-8000-000000000310', 'valuation-rejection-provider-evidence-0002',
+    'ac000000-0000-4000-8000-000000000210', 'transcription-rejection', null,
+    'provider_reported', 25, 'usd', 'journal_recognized', null,
+    '{"request_rejected":true}', '{"provider_charge_evidence":"private"}', '2026-09-28T12:16:00Z'
+  );
+  if (v_result->>'journal_adjustment_micros')::bigint <> 25 then
+    raise exception 'later provider cost evidence was not recognized through owner-cost authority';
+  end if;
+  select lifecycle_state into v_terminal_state
+  from tongs.owner_cost_attempt_events
+  where attempt_id = 'ac000000-0000-4000-8000-000000000210'
+  order by event_sequence desc limit 1;
+  if v_terminal_state <> 'definitively_rejected' then
+    raise exception 'later valuation changed definitive-rejection state';
+  end if;
+
+  v_result := tongs.authorize_owner_cost_provider_attempt(
+    'ac000000-0000-4000-8000-000000000220', 'ac000000-0000-4000-8000-000000000100', 3,
+    'provider-attempt-0003', repeat('7',64), 'openai', 'audio-transcription', 'whisper-1', 'whisper-1',
+    repeat('8',64), '{"authorization":"new numbered attempt"}', '2026-09-28T12:17:00Z'
+  );
+  if not (v_result->>'authorized')::boolean then raise exception 'new numbered attempt was not authorized'; end if;
+  v_result := tongs.append_owner_cost_attempt_event(
+    'ac000000-0000-4000-8000-000000000221', 'ac000000-0000-4000-8000-000000000220', 2,
+    'submitted', 'provider-request-0003', '{}', '{}', '2026-09-28T12:18:00Z'
+  );
+  if not (v_result->>'provider_submission_created')::boolean then
+    raise exception 'new numbered attempt did not receive provider-submission authority';
+  end if;
+  perform tongs.append_owner_cost_attempt_event(
+    'ac000000-0000-4000-8000-000000000222', 'ac000000-0000-4000-8000-000000000220', 3,
+    'failed', 'provider-request-0003', '{}', '{}', '2026-09-28T12:19:00Z'
+  );
+
+  if exists (select 1 from tongs.verify_owner_cost_reconstruction()) then
+    raise exception 'owner-cost reconstruction failed after definitive rejection';
+  end if;
+  if exists (select 1 from tongs.verify_accounting_reconstruction()) then
+    raise exception 'canonical accounting reconstruction failed after definitive rejection';
+  end if;
+end;
+$$;
+
+do $$
 declare v_fk_targets text[];
 begin
   select array_agg(distinct confrelid::regclass::text order by confrelid::regclass::text)
@@ -316,7 +462,7 @@ declare v_read jsonb;
 begin
   v_read := tongs.read_owner_cost_operation('ac000000-0000-4000-8000-000000000100');
   if v_read#>>'{operation,operation_id}' <> 'ac000000-0000-4000-8000-000000000100'
-     or jsonb_array_length(v_read->'attempts') <> 1
+     or jsonb_array_length(v_read->'attempts') <> 3
      or jsonb_array_length(v_read->'links') <> 1 then
     raise exception 'operator reconstruction read is incomplete: %', v_read;
   end if;

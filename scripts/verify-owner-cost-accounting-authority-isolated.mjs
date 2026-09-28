@@ -72,6 +72,7 @@ try {
   for (const migration of [
     "20261011820000_tongs_owner_cost_accounting_authority.sql",
     "20261011830000_index_owner_cost_relations.sql",
+    "20261011840000_allow_definitive_provider_rejection.sql",
   ]) {
     check(
       docker(
@@ -102,6 +103,12 @@ try {
     environment_isolation: "passed",
     customer_finance_dependency_isolation: "passed",
     owner_cost_foreign_key_index_coverage: "passed",
+    definitive_rejection_requires_submission: "passed",
+    definitive_rejection_replay_idempotency: "passed",
+    definitive_rejection_is_terminal: "passed",
+    later_numbered_attempt_supported: "passed",
+    rejection_has_no_automatic_financial_effect: "passed",
+    later_cost_evidence_uses_canonical_journal: "passed",
   }, null, 2)}\n`);
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", "--force", database]);
