@@ -42,6 +42,17 @@ try {
       readFileSync("supabase/migrations/20261011850000_hearth_owner_result_persistence_authority.sql", "utf8"),
     ), "apply Slice 4A migration");
   }
+  const corrected = docker([
+    "exec", container, "psql", "-X", "-A", "-t", "-U", "postgres", "-d", database,
+    "-c", "select position('v_attempt.request_fingerprint<>v_fingerprint' in pg_get_functiondef('tongs._assert_owner_hearth_result_authority(uuid,text,uuid,uuid,uuid,text,text,text,text,text)'::regprocedure))=0",
+  ]);
+  check(corrected, "inspect Slice 4B installation");
+  if (corrected.stdout.trim() !== "t") {
+    check(docker(
+      ["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database],
+      readFileSync("supabase/migrations/20261011860000_owner_hearth_result_fingerprint_authority_fix.sql", "utf8"),
+    ), "apply Slice 4B migration");
+  }
   check(docker(
     ["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database],
     readFileSync("supabase/tests/hearth_owner_result_persistence_authority.sql", "utf8"),
@@ -52,6 +63,7 @@ try {
     historical_customer_authority_preserved: "passed",
     xor_authority: "passed",
     owner_attempt_fk_and_restrict: "passed",
+    distinct_operation_and_attempt_fingerprints: "passed",
     owner_result_idempotency: "passed",
     attribution_and_environment_validation: "passed",
     research_synthesis_attempt_reconstruction: "passed",

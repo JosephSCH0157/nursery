@@ -89,7 +89,9 @@ begin
     insert into tongs.owner_cost_provider_attempts(
       attempt_id,operation_id,attempt_number,attempt_key,request_fingerprint,payload_hash,
       provider,service,model,sku,authorized_at
-    ) values(v_attempt,v_operation,1,'owner-result-attempt-'||v_ordinal,v_fingerprint,repeat('b',64),
+    ) values(v_attempt,v_operation,case when v_route='hearth.research_synthesis' then 3 else 1 end,
+      'owner-result-attempt-'||v_ordinal,
+      encode(extensions.digest(convert_to('provider-attempt:'||v_route,'utf8'),'sha256'),'hex'),repeat('b',64),
       'openai','responses','gpt-5.6-luna','gpt-5.6-luna',now());
     insert into tongs.owner_cost_attempt_events(
       attempt_event_id,attempt_id,event_sequence,lifecycle_state,provider_reference_id,
@@ -101,6 +103,73 @@ begin
   end loop;
 end $$;
 
+-- The research operation reconstructs two earlier Brave calls and the OpenAI
+-- synthesis attempt. Each provider execution has its own immutable fingerprint.
+insert into tongs.owner_cost_provider_attempts(
+  attempt_id,operation_id,attempt_number,attempt_key,request_fingerprint,payload_hash,
+  provider,service,model,sku,authorized_at
+) values
+  ('ad000000-0000-4000-8000-000000000250','ad000000-0000-4000-8000-000000000103',1,
+   'owner-result-research-brave-1',encode(extensions.digest(convert_to('provider-attempt:research:brave:1','utf8'),'sha256'),'hex'),
+   repeat('b',64),'brave','search',null,'web-search',now()),
+  ('ad000000-0000-4000-8000-000000000251','ad000000-0000-4000-8000-000000000103',2,
+   'owner-result-research-brave-2',encode(extensions.digest(convert_to('provider-attempt:research:brave:2','utf8'),'sha256'),'hex'),
+   repeat('b',64),'brave','search',null,'web-search',now());
+insert into tongs.owner_cost_attempt_events(
+  attempt_event_id,attempt_id,event_sequence,lifecycle_state,provider_reference_id,
+  normalized_usage_evidence,private_provider_evidence,occurred_at
+) values
+  ('ad000000-0000-4000-8000-000000000450','ad000000-0000-4000-8000-000000000250',1,'authorized',null,'{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000451','ad000000-0000-4000-8000-000000000250',2,'submitted','brave-1','{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000452','ad000000-0000-4000-8000-000000000250',3,'response_captured','brave-1','{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000453','ad000000-0000-4000-8000-000000000251',1,'authorized',null,'{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000454','ad000000-0000-4000-8000-000000000251',2,'submitted','brave-2','{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000455','ad000000-0000-4000-8000-000000000251',3,'response_captured','brave-2','{}','{}',now());
+
+-- A second research operation proves that an otherwise valid OpenAI attempt
+-- cannot authorize a result for a different logical operation.
+insert into tongs.owner_cost_operations(
+  operation_id,operation_key,request_fingerprint,payload_hash,financial_environment,
+  runtime_environment,payer,originating_tool,operation_type,workspace_id,workpiece_id,
+  establishment_status,creation_evidence,created_at
+) values(
+  'ad000000-0000-4000-8000-000000000109','hearth:owner-result:research-alternate:0001',repeat('9',64),
+  repeat('a',64),'test','production','forge','hearth','hearth.research_synthesis',
+  'ad000000-0000-4000-8000-000000000011','ad000000-0000-4000-8000-000000000021',
+  'established','{}',now()
+);
+insert into tongs.owner_cost_provider_attempts(
+  attempt_id,operation_id,attempt_number,attempt_key,request_fingerprint,payload_hash,
+  provider,service,model,sku,authorized_at
+) values(
+  'ad000000-0000-4000-8000-000000000209','ad000000-0000-4000-8000-000000000109',1,
+  'owner-result-research-alternate-openai',encode(extensions.digest(convert_to('provider-attempt:research:alternate','utf8'),'sha256'),'hex'),
+  repeat('b',64),'openai','responses','gpt-5.6-luna','gpt-5.6-luna',now()
+);
+insert into tongs.owner_cost_attempt_events(
+  attempt_event_id,attempt_id,event_sequence,lifecycle_state,provider_reference_id,
+  normalized_usage_evidence,private_provider_evidence,occurred_at
+) values
+  ('ad000000-0000-4000-8000-000000000456','ad000000-0000-4000-8000-000000000209',1,'authorized',null,'{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000457','ad000000-0000-4000-8000-000000000209',2,'submitted','alternate-openai','{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000458','ad000000-0000-4000-8000-000000000209',3,'response_captured','alternate-openai','{}','{}',now());
+
+-- An unresolved OpenAI attempt proves the lifecycle gate remains intact.
+insert into tongs.owner_cost_provider_attempts(
+  attempt_id,operation_id,attempt_number,attempt_key,request_fingerprint,payload_hash,
+  provider,service,model,sku,authorized_at
+) values(
+  'ad000000-0000-4000-8000-000000000252','ad000000-0000-4000-8000-000000000101',2,
+  'owner-result-chat-submitted-only',encode(extensions.digest(convert_to('provider-attempt:chat:submitted-only','utf8'),'sha256'),'hex'),
+  repeat('b',64),'openai','responses','gpt-5.6-luna','gpt-5.6-luna',now()
+);
+insert into tongs.owner_cost_attempt_events(
+  attempt_event_id,attempt_id,event_sequence,lifecycle_state,provider_reference_id,
+  normalized_usage_evidence,private_provider_evidence,occurred_at
+) values
+  ('ad000000-0000-4000-8000-000000000459','ad000000-0000-4000-8000-000000000252',1,'authorized',null,'{}','{}',now()),
+  ('ad000000-0000-4000-8000-000000000460','ad000000-0000-4000-8000-000000000252',2,'submitted','chat-unresolved','{}','{}',now());
+
 set local request.jwt.claim.role='service_role';
 set local request.jwt.claim.sub='';
 set local role service_role;
@@ -110,6 +179,9 @@ declare
   v jsonb;
   v_script_hash text:=encode(extensions.digest(convert_to('[s1]Owner result test script.[/s1]','utf8'),'sha256'),'hex');
 begin
+  if (select request_fingerprint from tongs.owner_cost_operations where operation_id='ad000000-0000-4000-8000-000000000101')
+     = (select request_fingerprint from tongs.owner_cost_provider_attempts where attempt_id='ad000000-0000-4000-8000-000000000201')
+  then raise exception 'owner operation and provider attempt fingerprints unexpectedly match'; end if;
   v:=tongs.persist_owner_hearth_text_result(
     'ad000000-0000-4000-8000-000000000201','hearth.chat_completion',
     'ad000000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000011',
@@ -124,6 +196,51 @@ begin
     'gpt-5.6-luna',10,5,repeat('c',64),'{"assistant_text":"hello"}',null,null,null
   );
   if not (v->>'replay')::boolean then raise exception 'owner chat replay was not idempotent'; end if;
+  begin
+    perform tongs.persist_owner_hearth_text_result(
+      'ad000000-0000-4000-8000-000000000203','hearth.research_synthesis',
+      'ad000000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000011',
+      'ad000000-0000-4000-8000-000000000021',repeat('f',64),'test','production','req-3',
+      'gpt-5.6-luna',10,5,null,'{}',null,null,null
+    );
+    raise exception 'wrong logical operation fingerprint succeeded';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.persist_owner_hearth_text_result(
+      'ad000000-0000-4000-8000-000000000209','hearth.research_synthesis',
+      'ad000000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000011',
+      'ad000000-0000-4000-8000-000000000021',repeat('3',64),'test','production','alternate-openai',
+      'gpt-5.6-luna',10,5,null,'{}',null,null,null
+    );
+    raise exception 'attempt from another owner operation succeeded';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.persist_owner_hearth_text_result(
+      'ad000000-0000-4000-8000-000000000250','hearth.research_synthesis',
+      'ad000000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000011',
+      'ad000000-0000-4000-8000-000000000021',repeat('3',64),'test','production','brave-1',
+      'gpt-5.6-luna',10,5,null,'{}',null,null,null
+    );
+    raise exception 'non-OpenAI provider attempt authorized an owner Hearth result';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.persist_owner_hearth_text_result(
+      'ad000000-0000-4000-8000-000000000203','hearth.research_synthesis',
+      'ad000000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000011',
+      'ad000000-0000-4000-8000-000000000021',repeat('3',64),'test','production','req-3',
+      'wrong-model',10,5,null,'{}',null,null,null
+    );
+    raise exception 'wrong provider model authorized an owner Hearth result';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.persist_owner_hearth_text_result(
+      'ad000000-0000-4000-8000-000000000252','hearth.chat_completion',
+      'ad000000-0000-4000-8000-000000000001','ad000000-0000-4000-8000-000000000011',
+      'ad000000-0000-4000-8000-000000000021',repeat('1',64),'test','production','chat-unresolved',
+      'gpt-5.6-luna',10,5,repeat('e',64),'{}',null,null,null
+    );
+    raise exception 'unresolved provider lifecycle authorized an owner Hearth result';
+  exception when insufficient_privilege then null; end;
   begin
     perform tongs.persist_owner_hearth_text_result(
       'ad000000-0000-4000-8000-000000000201','hearth.chat_completion',
@@ -272,6 +389,11 @@ begin
 
   if (select count(*) from tongs.hearth_research_synthesis_results where owner_cost_attempt_id='ad000000-0000-4000-8000-000000000203')<>1
   then raise exception 'research synthesis did not bind to the synthesis attempt'; end if;
+  if (select count(*) from tongs.owner_cost_provider_attempts where operation_id='ad000000-0000-4000-8000-000000000103')<>3
+  then raise exception 'research parent operation did not retain two Brave attempts and one OpenAI synthesis attempt'; end if;
+  if (select array_agg(provider order by attempt_number) from tongs.owner_cost_provider_attempts where operation_id='ad000000-0000-4000-8000-000000000103')
+     is distinct from array['brave','brave','openai']::text[]
+  then raise exception 'research provider-attempt topology is not reconstructible'; end if;
   if (select operation_id from tongs.owner_cost_provider_attempts where attempt_id='ad000000-0000-4000-8000-000000000203')
      is distinct from (select o.operation_id from tongs.hearth_research_synthesis_results r
        join tongs.owner_cost_provider_attempts a on a.attempt_id=r.owner_cost_attempt_id
@@ -306,7 +428,7 @@ end $$;
 
 reset role;
 do $$
-declare v_table text; v_definition text; v_function_definition text;
+declare v_table text; v_definition text; v_function_definition text; v_helper record;
 begin
   begin
     insert into tongs.hearth_research_synthesis_results(
@@ -359,6 +481,15 @@ begin
   then raise exception 'anonymous can read owner results'; end if;
   if has_table_privilege('authenticated','tongs.openai_text_persisted_results','select')
   then raise exception 'authenticated gained direct owner result table access'; end if;
+  select p.prosecdef,p.provolatile,p.proconfig into v_helper
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='tongs' and p.proname='_assert_owner_hearth_result_authority';
+  if v_helper.prosecdef is distinct from true or v_helper.provolatile is distinct from 's'
+     or not ('search_path=pg_catalog'=any(v_helper.proconfig))
+  then raise exception 'owner Hearth authority helper security contract changed'; end if;
+  if has_function_privilege('anon','tongs._assert_owner_hearth_result_authority(uuid,text,uuid,uuid,uuid,text,text,text,text,text)','execute')
+     or has_function_privilege('authenticated','tongs._assert_owner_hearth_result_authority(uuid,text,uuid,uuid,uuid,text,text,text,text,text)','execute')
+  then raise exception 'owner Hearth private authority helper grant widened'; end if;
   select string_agg(pg_get_functiondef(p.oid),E'\n') into v_function_definition
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='tongs' and p.proname in(
