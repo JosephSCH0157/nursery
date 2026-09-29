@@ -5,6 +5,12 @@ import {
   readHammerForgeFfmpegClientConfig,
   transcodeToWorkingWavWithForgeFfmpeg,
 } from "../scripts/hammer-forge-ffmpeg-client";
+import {
+  ForgeFfmpegMediaProbeError,
+  probeMediaWithForgeFfmpeg,
+} from "../server/forge-ffmpeg-client";
+
+const TEST_SERVICE_TOKEN = `test-token-${"x".repeat(32)}`;
 
 async function startServer(args: {
   statusCode?: number;
@@ -42,12 +48,12 @@ async function testReadConfig(): Promise<void> {
   const config = readHammerForgeFfmpegClientConfig({
     HAMMER_FORGE_FFMPEG_BASE_URL: "https://forge-ffmpeg.fly.dev/",
     HAMMER_FORGE_FFMPEG_TIMEOUT_MS: "45000",
-    HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT: "test-worker-service-token-0000000000000001",
+    HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT: TEST_SERVICE_TOKEN,
   } as NodeJS.ProcessEnv);
   assert.deepEqual(config, {
     baseUrl: "https://forge-ffmpeg.fly.dev",
     callerId: "worker",
-    serviceToken: "test-worker-service-token-0000000000000001",
+    serviceToken: TEST_SERVICE_TOKEN,
     timeoutMs: 45000,
     maxAttempts: 2,
     retryDelayMs: 400,
@@ -79,7 +85,7 @@ async function testTranscodeSuccess(): Promise<void> {
       client: {
         baseUrl: server.baseUrl,
         callerId: "worker",
-        serviceToken: "test-worker-service-token-0000000000000001",
+        serviceToken: TEST_SERVICE_TOKEN,
         timeoutMs: 5_000,
         maxAttempts: 1,
         retryDelayMs: 1,
@@ -90,7 +96,7 @@ async function testTranscodeSuccess(): Promise<void> {
     });
     assert.equal(seenContentType, "audio/mp4");
     assert.equal(seenFileName, "input.m4a");
-    assert.equal(seenAuthorization, "Bearer test-worker-service-token-0000000000000001");
+    assert.equal(seenAuthorization, `Bearer ${TEST_SERVICE_TOKEN}`);
     assert.equal(seenBodyBytes, 4);
     assert.equal(result.requestId, "req_123");
     assert.equal(result.outputFormat, "wav");
@@ -119,7 +125,7 @@ async function testTranscodeFailure(): Promise<void> {
         client: {
           baseUrl: server.baseUrl,
           callerId: "worker",
-          serviceToken: "test-worker-service-token-0000000000000001",
+          serviceToken: TEST_SERVICE_TOKEN,
           timeoutMs: 5_000,
           maxAttempts: 1,
           retryDelayMs: 1,
@@ -166,7 +172,7 @@ async function testTranscodeRetriesTransientFailure(): Promise<void> {
       client: {
       baseUrl: server.baseUrl,
       callerId: "worker",
-      serviceToken: "test-worker-service-token-0000000000000001",
+      serviceToken: TEST_SERVICE_TOKEN,
         timeoutMs: 5_000,
         maxAttempts: 2,
         retryDelayMs: 1,
@@ -183,8 +189,66 @@ async function testTranscodeRetriesTransientFailure(): Promise<void> {
   }
 }
 
+async function testMediaProbePreservesProviderEvidence(): Promise<void> {
+  const server = await startServer({
+    contentType: "application/json",
+    responseBody: JSON.stringify({ inspection: { width: 1280, height: 720, duration_ms: 4200, has_audio: true } }),
+    responseHeaders: { "x-forge-request-id": "probe_req_123" },
+  });
+  try {
+    const result = await probeMediaWithForgeFfmpeg({
+      client: { ...clientConfig(server.baseUrl), timeoutMs: 5_000 },
+      sourceBytes: new Uint8Array([1, 2, 3]),
+      sourceFilename: "intro.mp4",
+      contentType: "video/mp4",
+    });
+    assert.equal(result.requestId, "probe_req_123");
+    assert.equal(result.responseStatus, 200);
+    assert(result.responseBytes > 0);
+    assert(result.elapsedMs >= 0);
+  } finally {
+    await server.close();
+  }
+}
+
+async function testMediaProbeClassifiesHttpRejection(): Promise<void> {
+  const server = await startServer({
+    statusCode: 415,
+    contentType: "application/json",
+    responseBody: JSON.stringify({ error: { message: "unsupported media" } }),
+    responseHeaders: { "x-forge-request-id": "probe_req_rejected" },
+  });
+  try {
+    await assert.rejects(
+      () => probeMediaWithForgeFfmpeg({
+        client: clientConfig(server.baseUrl),
+        sourceBytes: new Uint8Array([1]),
+      }),
+      (error: unknown) => error instanceof ForgeFfmpegMediaProbeError
+        && error.outcome === "definitively_rejected"
+        && error.requestId === "probe_req_rejected"
+        && error.responseStatus === 415,
+    );
+  } finally {
+    await server.close();
+  }
+}
+
+function clientConfig(baseUrl: string) {
+  return {
+    baseUrl,
+    callerId: "worker" as const,
+    serviceToken: TEST_SERVICE_TOKEN,
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+    retryDelayMs: 1,
+  };
+}
+
 await testReadConfig();
 await testTranscodeSuccess();
 await testTranscodeFailure();
 await testTranscodeRetriesTransientFailure();
+await testMediaProbePreservesProviderEvidence();
+await testMediaProbeClassifiesHttpRejection();
 console.log("forge-ffmpeg client tests passed");

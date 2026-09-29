@@ -27,6 +27,7 @@ import {
   probeMediaWithForgeFfmpeg,
   readForgeFfmpegClientConfig,
 } from "../server/forge-ffmpeg-client";
+import { probeHammerSourceDeskMediaWithOwnerCost } from "../server/hammer/forge-owner-cost-media-probe";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import {
   startWorkpieceJobRunner,
@@ -75,6 +76,25 @@ export function resolveNurseryTongsProviderBoundary(
   const runwayApiKey = config.options.runwayApiKey?.trim();
   const provider = runwayApiKey ? createRunwayProvider(runwayApiKey) : undefined;
   const forgeFfmpeg = readForgeFfmpegClientConfig(process.env, { callerId: "netlify" });
+  let ownerCostGateClient: {
+    rpc(name: string, args?: Record<string, unknown>): Promise<{
+      data: unknown;
+      error: { message?: string; code?: string } | null;
+    }>;
+  } | null = null;
+  const ownerCostGate = {
+    rpc: async (name: string, args?: Record<string, unknown>) => {
+      if (!config.options.supabaseUrl || !config.options.supabaseServiceRoleKey) {
+        throw new Error("Hammer owner-cost accounting service is not configured.");
+      }
+      ownerCostGateClient ??= createClient<Database>(
+        config.options.supabaseUrl,
+        config.options.supabaseServiceRoleKey,
+        { auth: { persistSession: false, autoRefreshToken: false } },
+      ).schema("tongs") as unknown as typeof ownerCostGateClient;
+      return ownerCostGateClient!.rpc(name, args);
+    },
+  };
   const acquisitionRuntime: BrollAcquisitionRuntime = {
     inspectMedia: async (bytes, expected) => {
       if (!forgeFfmpeg || expected !== "video") return inspectBrollMedia(bytes, expected);
@@ -94,6 +114,27 @@ export function resolveNurseryTongsProviderBoundary(
         durationMs: inspected.durationMs,
         hasAudioStream: inspected.hasAudio,
         hasVideoStream: true,
+      };
+    },
+    inspectSourceDeskMedia: async (bytes, expected, context) => {
+      if (!forgeFfmpeg || expected !== "video") return inspectBrollMedia(bytes, expected);
+      const mimeType = detectTimedBrollMime(bytes);
+      if (!mimeType) throw new Error("broll_media_signature_invalid");
+      const inspected = await probeHammerSourceDeskMediaWithOwnerCost({
+        gate: ownerCostGate,
+        client: forgeFfmpeg,
+        sourceBytes: bytes,
+        context: { ...context, contentType: mimeType },
+      });
+      return {
+        bytes,
+        mimeType,
+        width: inspected.width,
+        height: inspected.height,
+        durationMs: inspected.durationMs,
+        hasAudioStream: inspected.hasAudio,
+        hasVideoStream: true,
+        ownerCostOperationId: inspected.ownerCostOperationId,
       };
     },
     derivePoster: async (video) => {

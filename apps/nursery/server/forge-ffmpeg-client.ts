@@ -123,6 +123,35 @@ export interface ForgeFfmpegMediaInspection {
   durationMs: number;
   hasAudio: boolean;
   requestId: string | null;
+  responseStatus: number;
+  elapsedMs: number;
+  responseBytes: number;
+}
+
+export class ForgeFfmpegMediaProbeError extends Error {
+  readonly outcome: "definitively_rejected" | "response_invalid" | "submission_unknown";
+  readonly requestId: string | null;
+  readonly responseStatus: number | null;
+  readonly elapsedMs: number;
+  readonly responseBytes: number | null;
+
+  constructor(args: {
+    message: string;
+    outcome: ForgeFfmpegMediaProbeError["outcome"];
+    requestId?: string | null;
+    responseStatus?: number | null;
+    elapsedMs: number;
+    responseBytes?: number | null;
+    cause?: unknown;
+  }) {
+    super(args.message, { cause: args.cause });
+    this.name = "ForgeFfmpegMediaProbeError";
+    this.outcome = args.outcome;
+    this.requestId = args.requestId ?? null;
+    this.responseStatus = args.responseStatus ?? null;
+    this.elapsedMs = args.elapsedMs;
+    this.responseBytes = args.responseBytes ?? null;
+  }
 }
 
 export interface ForgeFfmpegPosterResult {
@@ -219,6 +248,7 @@ export async function probeMediaWithForgeFfmpeg(args: {
   contentType?: string | null;
 }): Promise<ForgeFfmpegMediaInspection> {
   const timeout = createTimeoutAbortController(args.client.timeoutMs);
+  const startedAt = Date.now();
   try {
     const response = await fetch(`${args.client.baseUrl}/probe/media`, {
       method: "POST",
@@ -229,25 +259,76 @@ export async function probeMediaWithForgeFfmpeg(args: {
       body: new Uint8Array(args.sourceBytes),
       signal: timeout.controller.signal,
     });
-    if (!response.ok) throw new Error(`Forge FFmpeg media probe failed: ${await readForgeFfmpegErrorMessage(response)}`);
-    const payload = await response.json() as { inspection?: { width?: unknown; height?: unknown; duration_ms?: unknown; has_audio?: unknown } };
+    const requestId = readTrimmed(response.headers.get("x-forge-request-id"));
+    const responseText = await response.text();
+    const responseBytes = Buffer.byteLength(responseText, "utf8");
+    if (!response.ok) {
+      let detail = responseText.trim();
+      try {
+        const payload = JSON.parse(responseText) as { error?: { message?: unknown }; message?: unknown; detail?: unknown };
+        detail = readTrimmed(payload.error?.message) ?? readTrimmed(payload.message)
+          ?? readTrimmed(payload.detail) ?? detail;
+      } catch {
+        // Keep the bounded provider response text as the diagnostic.
+      }
+      throw new ForgeFfmpegMediaProbeError({
+        message: `Forge FFmpeg media probe failed: ${detail || "Forge FFmpeg request failed."}`,
+        outcome: "definitively_rejected",
+        requestId,
+        responseStatus: response.status,
+        elapsedMs: Date.now() - startedAt,
+        responseBytes,
+      });
+    }
+    let payload: { inspection?: { width?: unknown; height?: unknown; duration_ms?: unknown; has_audio?: unknown } };
+    try {
+      payload = JSON.parse(responseText) as typeof payload;
+    } catch (cause) {
+      throw new ForgeFfmpegMediaProbeError({
+        message: "Forge FFmpeg media probe returned invalid JSON.",
+        outcome: "response_invalid",
+        requestId,
+        responseStatus: response.status,
+        elapsedMs: Date.now() - startedAt,
+        responseBytes,
+        cause,
+      });
+    }
     const width = Number(payload.inspection?.width);
     const height = Number(payload.inspection?.height);
     const durationMs = Number(payload.inspection?.duration_ms);
     if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0
       || !Number.isFinite(durationMs) || durationMs <= 0) {
-      throw new Error("Forge FFmpeg media probe returned incomplete metadata.");
+      throw new ForgeFfmpegMediaProbeError({
+        message: "Forge FFmpeg media probe returned incomplete metadata.",
+        outcome: "response_invalid",
+        requestId,
+        responseStatus: response.status,
+        elapsedMs: Date.now() - startedAt,
+        responseBytes,
+      });
     }
     return {
       width,
       height,
       durationMs,
       hasAudio: payload.inspection?.has_audio === true,
-      requestId: readTrimmed(response.headers.get("x-forge-request-id")),
+      requestId,
+      responseStatus: response.status,
+      elapsedMs: Date.now() - startedAt,
+      responseBytes,
     };
   } catch (error) {
-    if (timeout.controller.signal.aborted) throw new Error(`Forge FFmpeg media probe timed out after ${args.client.timeoutMs}ms.`);
-    throw error;
+    if (error instanceof ForgeFfmpegMediaProbeError) throw error;
+    const timedOut = timeout.controller.signal.aborted;
+    throw new ForgeFfmpegMediaProbeError({
+      message: timedOut
+        ? `Forge FFmpeg media probe timed out after ${args.client.timeoutMs}ms.`
+        : error instanceof Error ? error.message : "Forge FFmpeg media probe failed.",
+      outcome: "submission_unknown",
+      elapsedMs: Date.now() - startedAt,
+      cause: error,
+    });
   } finally {
     timeout.dispose();
   }

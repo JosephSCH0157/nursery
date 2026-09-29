@@ -2875,6 +2875,17 @@ export type BrollAcquisitionRuntime = {
     bytes: Uint8Array,
     expectedKind: "video" | "poster" | "audio",
   ): Promise<VerifiedBrollMedia>;
+  inspectSourceDeskMedia?(
+    bytes: Uint8Array,
+    expectedKind: "video" | "audio",
+    context: {
+      workspaceId: string;
+      workpieceId: string;
+      path: string;
+      sourceAssetId: string | null;
+      contentType: string;
+    },
+  ): Promise<VerifiedBrollMedia & { ownerCostOperationId?: string }>;
   derivePoster(video: VerifiedBrollMedia): Promise<VerifiedBrollMedia>;
   fetchExternalMedia(url: string): Promise<VerifiedBrollMedia>;
   inspectReferenceImage(bytes: Uint8Array): Promise<VerifiedBrollMedia>;
@@ -35229,10 +35240,15 @@ export class TongsCommitService {
     const bytes = decodeBase64(input.bytes_base64);
     let inspected: VerifiedBrollMedia;
     try {
-      inspected = await this.brollAcquisitionRuntime.inspectMedia(
-        bytes,
-        timedKind,
-      );
+      inspected = this.brollAcquisitionRuntime.inspectSourceDeskMedia
+        ? await this.brollAcquisitionRuntime.inspectSourceDeskMedia(bytes, timedKind, {
+            workspaceId: cradle.workspace_id,
+            workpieceId,
+            path,
+            sourceAssetId: input.source_asset_id ?? null,
+            contentType,
+          })
+        : await this.brollAcquisitionRuntime.inspectMedia(bytes, timedKind);
     } catch (error) {
       throw new HttpError(
         422,
@@ -35258,7 +35274,11 @@ export class TongsCommitService {
       written_by: input.written_by,
       user_access_token: options?.userAccessToken,
     });
-    const operationId = `forge:source-desk:${workpieceId}:${committed.hash}`;
+    const operationId = "ownerCostOperationId" in inspected
+      && typeof inspected.ownerCostOperationId === "string"
+      && inspected.ownerCostOperationId
+        ? inspected.ownerCostOperationId
+        : `forge:source-desk:${workpieceId}:${committed.hash}`;
     const { data: asset, error } = await (
       this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient
     ).rpc("register_source_desk_timed_asset", {
