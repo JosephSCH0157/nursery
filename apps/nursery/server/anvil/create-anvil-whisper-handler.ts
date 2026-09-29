@@ -520,6 +520,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           error: "audio chunk exceeds 25MB limit",
         });
       }
+      const audioFile = fileValue;
 
       const language = readOptionalString(formData.get("language"));
       const prompt = readOptionalString(formData.get("prompt"));
@@ -713,7 +714,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
             code: "owner_cost_service_unavailable",
           });
         }
-        const sourceBytes = new Uint8Array(await fileValue.arrayBuffer());
+        const sourceBytes = new Uint8Array(await audioFile.arrayBuffer());
         const sourceSha256 = sha256Hex(sourceBytes);
         const sourceAssetRevision = readOptionalString(formData.get("source_asset_revision"))
           ?? `audio-sha256:${sourceSha256}`;
@@ -840,7 +841,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
             method: "POST",
             headers: upstreamHeaders,
-            body: buildUpstreamForm(requestSttModel, fileValue, uploadFileName, Boolean(language)),
+            body: buildUpstreamForm(requestSttModel, audioFile, uploadFileName, Boolean(language)),
             signal: request.signal,
           });
         } catch (error) {
@@ -1576,12 +1577,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                 asr_lane: asrLane ?? null,
                 upstream_status: upstream.status,
                 upstream_message: null,
-                upstream_url: requestProvider === "openai"
-                  ? "https://api.openai.com/v1/audio/transcriptions"
-                  : upstreamUrl,
-                model_url: (requestProvider === "huggingface" || requestProvider === "auto")
-                  ? huggingFaceModelUrl
-                  : null,
+                upstream_url: upstreamUrl,
+                model_url: huggingFaceModelUrl,
                 model: resolvedModel,
                 provider_request_id: providerRequestId,
                 billing_mode: lane,
@@ -1622,12 +1619,8 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           asr_lane: asrLane ?? null,
           upstream_status: upstream.status,
           upstream_message: null,
-          upstream_url: requestProvider === "openai"
-            ? "https://api.openai.com/v1/audio/transcriptions"
-            : upstreamUrl,
-          model_url: (requestProvider === "huggingface" || requestProvider === "auto")
-            ? huggingFaceModelUrl
-            : null,
+          upstream_url: upstreamUrl,
+          model_url: huggingFaceModelUrl,
           model: resolvedModel,
           provider_request_id: providerRequestId,
           billing_mode: lane,
