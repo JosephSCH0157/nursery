@@ -567,6 +567,11 @@ describe('whisper bridge recorder segmentation', () => {
     const form = fetchOptions?.body as FormData;
     expect(form).toBeTruthy();
     expect(form.has('prompt')).toBe(false);
+    expect(form.has('spending_acceptance')).toBe(false);
+    expect(form.has('paid_execution')).toBe(false);
+    expect(form.has('lane')).toBe(false);
+    expect(form.get('source_asset_revision')).toEqual(expect.any(String));
+    expect(Number.isFinite(Date.parse(String(form.get('operation_created_at'))))).toBe(true);
 
     recognizer.stop();
     await flushMicrotasks();

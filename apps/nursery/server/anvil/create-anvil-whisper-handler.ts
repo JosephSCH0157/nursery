@@ -32,16 +32,21 @@ import {
   type ForgeFfmpegClientConfig,
 } from "../forge-ffmpeg-client";
 import {
-  coordinateOpenAiTranscription,
-  OpenAiTextFundingPreparationError as OpenAiTranscriptionFundingPreparationError,
-  OpenAiTextQuoteRequiredError as OpenAiTranscriptionQuoteRequiredError,
-  sha256Bytes,
-} from "../billing/paid-openai-transcription-route";
-import { configuredOpenAiTranscriptionMode } from "../../../../packages/tongs/src/providers/openai-transcription-paid-boundary";
-import { normalizeOpenAiTextPaidExecutionHandle } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
-import { OpenAiTextProviderError } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
-import { normalizeOpenAiTextSpendingAcceptance } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
-import { readOpenAiTranscriptionUsage } from "../../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
+  appendOpenAiOwnerCostEvent,
+  authorizeOpenAiOwnerCostAttempt,
+  deriveOpenAiOwnerCostAttempt,
+  deriveOpenAiOwnerCostIdentity,
+  establishOpenAiOwnerCostOperation,
+  normalizeOpenAiOwnerCostUsage,
+  readOwnerCostFinancialEnvironment,
+  recordOpenAiOwnerCostValuation,
+  resolveOwnerCostRuntimeEnvironment,
+  sha256Hex,
+  type OpenAiOwnerCostAttribution,
+  type OwnerCostFinancialEnvironment,
+  type OwnerCostRpcGate,
+  type OwnerCostRuntimeEnvironment,
+} from "./forge-owner-cost-transcription";
 
 export const ANVIL_WHISPER_ROUTE = "/api/anvil/asr/whisper";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -62,6 +67,9 @@ export type AnvilWhisperRuntimeConfig = {
   supabaseServiceRoleKey?: string | null;
   disableUserKeys?: boolean;
   ffmpegClient?: ForgeFfmpegClientConfig | null;
+  ownerCostGate?: OwnerCostRpcGate | null;
+  financialEnvironment?: OwnerCostFinancialEnvironment;
+  runtimeEnvironment?: OwnerCostRuntimeEnvironment;
 };
 
 type AnvilWhisperResponse = {
@@ -92,15 +100,7 @@ type AnvilWhisperResponse = {
   hf_request_content_type?: string | null;
   billing_status?: "deduction_applied" | "deduction_deferred";
   billing_error_code?: string | null;
-  billing_quote?: unknown;
-  billing_receipt?: unknown;
-  customer_charge_micros?: number;
 };
-
-function parseJsonField(value: FormDataEntryValue | null): unknown {
-  if (typeof value !== "string" || !value.trim()) return null;
-  try { return JSON.parse(value); } catch { return null; }
-}
 
 function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
   return new Response(JSON.stringify(obj), {
@@ -191,6 +191,15 @@ function isModelUnavailableUpstreamError(detail: string): boolean {
     || (text.includes("model") && text.includes("do not have access"))
     || (text.includes("model") && text.includes("not available"))
   );
+}
+
+function isDefinitiveOpenAiRejection(status: number): boolean {
+  return status >= 400
+    && status < 500
+    && status !== 408
+    && status !== 409
+    && status !== 425
+    && status !== 429;
 }
 
 function extractTranscriptionText(payload: unknown): string {
@@ -328,14 +337,6 @@ function inferExtension(fileName: string | null, mimeType: string | null): strin
   return "webm";
 }
 
-function replaceFileExtension(fileName: string, nextExtension: string): string {
-  const normalizedExt = nextExtension.startsWith(".") ? nextExtension : `.${nextExtension}`;
-  const trimmed = readOptionalString(fileName) ?? "";
-  if (!trimmed) return `chunk${normalizedExt}`;
-  const next = trimmed.replace(/\.[^./\\]+$/u, "");
-  return `${next || "chunk"}${normalizedExt}`;
-}
-
 export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
   const runtime = resolveHearthRuntimeConfig();
   const modelOverride = readOptionalString(process.env.ANVIL_STT_MODEL);
@@ -391,6 +392,7 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
       ],
       callerId: "netlify",
     }),
+    runtimeEnvironment: resolveOwnerCostRuntimeEnvironment(process.env.CONTEXT ?? process.env.NODE_ENV),
   };
 }
 
@@ -420,6 +422,11 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         },
       })
     : null;
+  const ownerCostGate: OwnerCostRpcGate | null = config.ownerCostGate ?? (supabaseService
+    ? (supabaseService.schema("tongs") as unknown as OwnerCostRpcGate)
+    : null);
+  const runtimeEnvironment = config.runtimeEnvironment
+    ?? resolveOwnerCostRuntimeEnvironment(process.env.CONTEXT ?? process.env.NODE_ENV);
 
   function readUserAccessToken(headers: Headers, bodyToken?: string | null): string | null {
     if (bodyToken) return bodyToken;
@@ -514,6 +521,19 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         });
       }
 
+      const language = readOptionalString(formData.get("language"));
+      const prompt = readOptionalString(formData.get("prompt"));
+      const asrLane = readOptionalString(formData.get("asr_lane"));
+      const requestSttModel =
+        (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL"
+          ? asr2SttModel
+          : sttModel;
+      const asr2ExperimentalSelected = (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
+      const requestProvider = asr2ExperimentalSelected ? asr2Provider : "openai";
+      const normalizedRequestSttModel = (requestProvider === "huggingface" || requestProvider === "auto")
+        ? normalizeHuggingFaceModelId(requestSttModel)
+        : requestSttModel;
+
       const laneFromBody = readOptionalString(formData.get("lane"));
       const laneFromQuery = readOptionalString(url.searchParams.get("lane"));
       const laneHint = normalizeBillingMode(laneFromBody ?? laneFromQuery, configuredBillingMode);
@@ -531,7 +551,33 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
       let lane: BillingMode = AI_USAGE_LANE.FORGE;
       let effectiveApiKey: string;
       let resolverSource: string | null = null;
-      if (byoRequested) {
+      if (requestProvider === "openai") {
+        lane = AI_USAGE_LANE.FORGE;
+        if (!apiKey) {
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: MISSING_OPENAI_API_KEY_ERROR,
+          });
+        }
+        if (!supabaseService || !ownerCostGate) {
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: "Supabase owner-cost accounting service is not configured.",
+            code: "owner_cost_service_unavailable",
+          });
+        }
+        if (!userAccessToken || !userId) {
+          return jsonResponse(401, {
+            ok: false,
+            text: "",
+            error: "Authentication required.",
+          });
+        }
+        effectiveApiKey = apiKey;
+        resolverSource = "forge_managed";
+      } else if (byoRequested) {
         if (!supabaseService) {
           return jsonResponse(500, {
             ok: false,
@@ -632,24 +678,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         effectiveApiKey = apiKey;
         resolverSource = "forge_managed";
       }
-      const providedActionId = readOptionalString(formData.get("action_id"));
-      const actionId = providedActionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(providedActionId)
-        ? providedActionId
-        : crypto.randomUUID();
-
-      const language = readOptionalString(formData.get("language"));
-      const prompt = readOptionalString(formData.get("prompt"));
-      const asrLane = readOptionalString(formData.get("asr_lane"));
       const resolvedRequestSeq = readOptionalString(formData.get("request_seq")) ?? requestSeq;
-      const requestSttModel =
-        (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL"
-          ? asr2SttModel
-          : sttModel;
-      const asr2ExperimentalSelected = (asrLane || "").toUpperCase() === "ASR2_WHISPER_LARGE_V3_EXPERIMENTAL";
-      const requestProvider = asr2ExperimentalSelected ? asr2Provider : "openai";
-      const normalizedRequestSttModel = (requestProvider === "huggingface" || requestProvider === "auto")
-        ? normalizeHuggingFaceModelId(requestSttModel)
-        : requestSttModel;
       const huggingFaceModelUrl = (requestProvider === "huggingface" || requestProvider === "auto")
         ? `https://huggingface.co/${normalizedRequestSttModel}`
         : null;
@@ -675,20 +704,124 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         return upstreamForm;
       }
 
-      async function sendToOpenAi(
-        nextModel: string,
-        nextFileValue: Blob,
-        nextFileName: string,
-      ): Promise<{
-        upstream: Response;
-        detail: string;
-        message: string | null;
-        upstreamUrl: string | null;
-      }> {
-        let upstream: Response;
-        let usedLanguageHint = Boolean(language);
-        let detail = "";
-        let message: string | null = null;
+      async function executeForgeFundedOpenAi(): Promise<Response> {
+        if (!ownerCostGate) {
+          return jsonResponse(500, {
+            ok: false,
+            text: "",
+            error: "Supabase owner-cost accounting service is not configured.",
+            code: "owner_cost_service_unavailable",
+          });
+        }
+        const sourceBytes = new Uint8Array(await fileValue.arrayBuffer());
+        const sourceSha256 = sha256Hex(sourceBytes);
+        const sourceAssetRevision = readOptionalString(formData.get("source_asset_revision"))
+          ?? `audio-sha256:${sourceSha256}`;
+        const operationCreatedAtRaw = readOptionalString(formData.get("operation_created_at"));
+        if (!operationCreatedAtRaw) {
+          return jsonResponse(400, {
+            ok: false,
+            text: "",
+            error: "Stable owner-cost operation creation time is required.",
+            code: "missing_operation_created_at",
+          });
+        }
+        const operationCreatedAt = new Date(operationCreatedAtRaw);
+        if (!Number.isFinite(operationCreatedAt.getTime())) {
+          return jsonResponse(400, {
+            ok: false,
+            text: "",
+            error: "Invalid owner-cost operation creation time.",
+            code: "invalid_operation_created_at",
+          });
+        }
+        const uuidOrNull = (value: FormDataEntryValue | null): string | null => {
+          const normalized = readOptionalString(value);
+          return normalized && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)
+            ? normalized
+            : null;
+        };
+        const attribution: OpenAiOwnerCostAttribution = {
+          workspaceId: uuidOrNull(formData.get("workspace_id")),
+          workpieceId: uuidOrNull(formData.get("workpiece_id")),
+          recordingSessionId: uuidOrNull(formData.get("recording_session_id")),
+          recordingCaptureAuthorityId: uuidOrNull(formData.get("recording_capture_authority_id")),
+          anvilCaptureExecutionId: uuidOrNull(formData.get("anvil_capture_execution_id")),
+        };
+        let financialEnvironment: OwnerCostFinancialEnvironment;
+        try {
+          financialEnvironment = config.financialEnvironment
+            ?? await readOwnerCostFinancialEnvironment(ownerCostGate);
+        } catch (error) {
+          console.error("[anvil-whisper] owner-cost environment unavailable", error);
+          return jsonResponse(503, {
+            ok: false,
+            text: "",
+            error: "Forge transcription accounting environment is unavailable.",
+            code: "owner_cost_environment_unavailable",
+          });
+        }
+        const identity = deriveOpenAiOwnerCostIdentity({
+          financialEnvironment,
+          model: requestSttModel,
+          sourceBytes,
+          sourceAssetRevision,
+          language,
+          prompt,
+          asrLane,
+          attribution,
+          operationCreatedAt: operationCreatedAt.toISOString(),
+        });
+        const attempt = deriveOpenAiOwnerCostAttempt(identity, 1);
+        const attemptFingerprint = sha256Hex(JSON.stringify({
+          operation_request_fingerprint: identity.requestFingerprint,
+          attempt_number: attempt.attemptNumber,
+          provider: "openai",
+          service: "audio_transcriptions",
+          model: requestSttModel,
+          source_sha256: sourceSha256,
+          language: language ?? null,
+        }));
+        try {
+          await establishOpenAiOwnerCostOperation({
+            gate: ownerCostGate,
+            identity,
+            financialEnvironment,
+            runtimeEnvironment,
+            model: requestSttModel,
+            sourceAssetRevision,
+            attribution,
+          });
+          const ownsSubmission = await authorizeOpenAiOwnerCostAttempt({
+            gate: ownerCostGate,
+            identity,
+            attempt,
+            model: requestSttModel,
+            credentialIdentityHash: sha256Hex(`forge-managed-openai:${effectiveApiKey}`),
+            requestFingerprint: attemptFingerprint,
+          });
+          if (!ownsSubmission) {
+            return jsonResponse(409, {
+              ok: false,
+              text: "",
+              error: "This transcription submission already exists and will not be submitted again.",
+              code: "owner_cost_submission_replay",
+            });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Owner-cost establishment failed.";
+          const conflict = /conflict|duplicate|23505/i.test(message);
+          console.error("[anvil-whisper] owner-cost establishment failed", error);
+          return jsonResponse(conflict ? 409 : 503, {
+            ok: false,
+            text: "",
+            error: conflict
+              ? "The transcription request conflicts with an existing operation identity."
+              : "Forge could not establish transcription cost authority.",
+            code: conflict ? "owner_cost_identity_conflict" : "owner_cost_establishment_failed",
+          });
+        }
+
         const upstreamHeaders = new Headers({
           authorization: `Bearer ${effectiveApiKey}`,
         });
@@ -701,48 +834,306 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           resolverSource,
           requestSeq: resolvedRequestSeq,
         });
+        const providerStartedAt = Date.now();
+        let upstream: Response;
         try {
           upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
             method: "POST",
             headers: upstreamHeaders,
-            body: buildUpstreamForm(nextModel, nextFileValue, nextFileName, usedLanguageHint),
-            signal: upstreamAbort.signal,
+            body: buildUpstreamForm(requestSttModel, fileValue, uploadFileName, Boolean(language)),
+            signal: request.signal,
           });
-
-          if (!upstream.ok) {
-            detail = await upstream.text();
-            message = readUpstreamErrorMessage(detail) ?? "OpenAI error";
-            const shouldRetryWithoutLanguage =
-              usedLanguageHint
-              && (upstream.status === 400 || upstream.status === 422)
-              && isInvalidLanguageUpstreamError(detail);
-
-            if (shouldRetryWithoutLanguage) {
-              usedLanguageHint = false;
-              upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-                method: "POST",
-                headers: upstreamHeaders,
-                body: buildUpstreamForm(nextModel, nextFileValue, nextFileName, false),
-                signal: upstreamAbort.signal,
-              });
-
-              if (!upstream.ok) {
-                detail = await upstream.text();
-                message = readUpstreamErrorMessage(detail) ?? "OpenAI error";
-              } else {
-                detail = "";
-                message = null;
-              }
-            }
-          }
         } catch (error) {
-          if (clientAborted || upstreamAbort.signal.aborted) {
-            throw new Response(null, { status: 499 });
+          try {
+            await appendOpenAiOwnerCostEvent({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              sequence: 3,
+              state: "submission_unknown",
+              providerRequestId: null,
+              privateEvidence: {
+                schema: "forge.anvil.openai-submission-unknown.v1",
+                elapsed_ms: Math.max(0, Date.now() - providerStartedAt),
+                error_class: error instanceof Error ? error.name : "unknown",
+                error_message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+              },
+            });
+          } catch (accountingError) {
+            console.error("[anvil-whisper] failed to persist submission ambiguity", accountingError);
           }
-          throw error;
+          return jsonResponse(202, {
+            ok: false,
+            text: "",
+            error: "Provider submission outcome is unknown; this attempt will not be submitted again.",
+            code: "submission_unknown",
+            provider: "openai",
+            model: requestSttModel,
+          });
+        }
+        const providerRequestId = upstream.headers.get("x-request-id");
+        let detail = "";
+        let bodyReadError: string | null = null;
+        try {
+          detail = await upstream.text();
+        } catch (error) {
+          bodyReadError = error instanceof Error ? error.message : String(error);
+        }
+        const responseEvidence = {
+          schema: "forge.anvil.openai-response.v1",
+          http_status: upstream.status,
+          elapsed_ms: Math.max(0, Date.now() - providerStartedAt),
+          response_body_sha256: sha256Hex(detail),
+          response_body_bytes: Buffer.byteLength(detail, "utf8"),
+          body_read_error: bodyReadError,
+        };
+        if (!upstream.ok && isDefinitiveOpenAiRejection(upstream.status)) {
+          try {
+            await appendOpenAiOwnerCostEvent({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              sequence: 3,
+              state: "definitively_rejected",
+              providerRequestId,
+              normalizedUsage: { http_status: upstream.status },
+              privateEvidence: {
+                ...responseEvidence,
+                provider_error_detail: detail.slice(0, 2_000),
+              },
+            });
+          } catch (error) {
+            console.error("[anvil-whisper] failed to preserve provider rejection evidence", error);
+            return jsonResponse(502, {
+              ok: false,
+              text: "",
+              error: "Forge could not preserve provider rejection evidence.",
+              code: "owner_cost_rejection_persistence_failed",
+            });
+          }
+          const invalidLanguage = Boolean(language)
+            && (upstream.status === 400 || upstream.status === 422)
+            && isInvalidLanguageUpstreamError(detail);
+          const modelUnavailable = Boolean(asrLane) && isModelUnavailableUpstreamError(detail);
+          const responseCode = upstream.status === 431
+            ? "whisper_upstream_header_overflow"
+            : invalidLanguage
+              ? "invalid_language_hint"
+              : modelUnavailable
+                ? "asr2_model_unavailable"
+                : "openai_provider_rejected";
+          const responseError = upstream.status === 431
+            ? "OpenAI rejected oversized request headers."
+            : modelUnavailable
+              ? "ASR2 model unavailable for selected provider"
+              : readUpstreamErrorMessage(detail) ?? "OpenAI rejected the transcription request.";
+          return jsonResponse(upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502, {
+            ok: false,
+            text: "",
+            error: responseError,
+            code: responseCode,
+            detail: truncateForDetail(detail) ?? undefined,
+            provider: "openai",
+            model_id: requestSttModel,
+            asr_lane: asrLane ?? null,
+            upstream_status: upstream.status,
+            upstream_message: readUpstreamErrorMessage(detail),
+            upstream_url: "https://api.openai.com/v1/audio/transcriptions",
+            model: requestSttModel,
+            provider_request_id: providerRequestId,
+          });
         }
 
-        return { upstream, detail, message, upstreamUrl: null };
+        let payload: unknown = null;
+        let parseError: string | null = bodyReadError;
+        if (!parseError) {
+          try {
+            payload = JSON.parse(detail);
+          } catch (error) {
+            parseError = error instanceof Error ? error.message : "Malformed OpenAI response";
+          }
+        }
+        const normalizedUsage = normalizeOpenAiOwnerCostUsage(payload);
+        if (!upstream.ok) {
+          try {
+            await appendOpenAiOwnerCostEvent({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              sequence: 3,
+              state: "response_captured",
+              providerRequestId,
+              normalizedUsage,
+              privateEvidence: {
+                ...responseEvidence,
+                provider_error_detail: detail.slice(0, 2_000),
+              },
+            });
+            await recordOpenAiOwnerCostValuation({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              model: requestSttModel,
+              payload,
+            });
+            await appendOpenAiOwnerCostEvent({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              sequence: 4,
+              state: "failed",
+              providerRequestId,
+              normalizedUsage,
+              privateEvidence: {
+                schema: "forge.anvil.openai-provider-failure.v1",
+                http_status: upstream.status,
+              },
+            });
+          } catch (error) {
+            console.error("[anvil-whisper] failed to preserve provider failure evidence", error);
+            return jsonResponse(502, {
+              ok: false,
+              text: "",
+              error: "Forge could not preserve provider failure evidence.",
+              code: "owner_cost_provider_failure_persistence_failed",
+            });
+          }
+          return jsonResponse(upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502, {
+            ok: false,
+            text: "",
+            error: readUpstreamErrorMessage(detail) ?? "OpenAI transcription failed after submission.",
+            code: "openai_provider_failed",
+            detail: truncateForDetail(detail) ?? undefined,
+            provider: "openai",
+            model_id: requestSttModel,
+            asr_lane: asrLane ?? null,
+            upstream_status: upstream.status,
+            upstream_message: readUpstreamErrorMessage(detail),
+            upstream_url: "https://api.openai.com/v1/audio/transcriptions",
+            model: requestSttModel,
+            provider_request_id: providerRequestId,
+          });
+        }
+        try {
+          await appendOpenAiOwnerCostEvent({
+            gate: ownerCostGate,
+            identity,
+            attempt,
+            sequence: 3,
+            state: "response_captured",
+            providerRequestId,
+            normalizedUsage,
+            privateEvidence: responseEvidence,
+          });
+          await recordOpenAiOwnerCostValuation({
+            gate: ownerCostGate,
+            identity,
+            attempt,
+            model: requestSttModel,
+            payload,
+          });
+        } catch (error) {
+          try {
+            await appendOpenAiOwnerCostEvent({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              sequence: 4,
+              state: "failed",
+              providerRequestId,
+              normalizedUsage,
+              privateEvidence: {
+                schema: "forge.anvil.owner-cost-post-response-failure.v1",
+                stage: "valuation",
+                error_message: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
+              },
+            });
+          } catch {
+            // Response evidence already survives even when terminalization also fails.
+          }
+          return jsonResponse(502, {
+            ok: false,
+            text: "",
+            error: "OpenAI responded, but Forge could not finalize owner-cost valuation.",
+            code: "owner_cost_valuation_failed",
+            provider: "openai",
+            model: requestSttModel,
+            provider_request_id: providerRequestId,
+          });
+        }
+        if (parseError || !payload || typeof payload !== "object") {
+          try {
+            await appendOpenAiOwnerCostEvent({
+              gate: ownerCostGate,
+              identity,
+              attempt,
+              sequence: 4,
+              state: "failed",
+              providerRequestId,
+              normalizedUsage,
+              privateEvidence: {
+                schema: "forge.anvil.owner-cost-post-response-failure.v1",
+                stage: "response_parse",
+                error_message: (parseError ?? "Malformed OpenAI response").slice(0, 500),
+              },
+            });
+          } catch {
+            return jsonResponse(502, {
+              ok: false,
+              text: "",
+              error: "OpenAI responded, but Forge could not preserve the terminal failure state.",
+              code: "owner_cost_terminalization_failed",
+              provider: "openai",
+              model: requestSttModel,
+              provider_request_id: providerRequestId,
+            });
+          }
+          return jsonResponse(502, {
+            ok: false,
+            text: "",
+            error: "Malformed response from OpenAI ASR upstream",
+            code: "openai_malformed_upstream_response",
+            provider: "openai",
+            model: requestSttModel,
+            provider_request_id: providerRequestId,
+          });
+        }
+        const text = extractTranscriptionText(payload);
+        try {
+          await appendOpenAiOwnerCostEvent({
+            gate: ownerCostGate,
+            identity,
+            attempt,
+            sequence: 4,
+            state: "succeeded",
+            providerRequestId,
+            normalizedUsage,
+            privateEvidence: { schema: "forge.anvil.openai-transcription-succeeded.v1" },
+          });
+        } catch {
+          return jsonResponse(502, {
+            ok: false,
+            text: "",
+            error: "OpenAI responded, but Forge could not preserve the terminal success state.",
+            code: "owner_cost_terminalization_failed",
+            provider: "openai",
+            model: requestSttModel,
+            provider_request_id: providerRequestId,
+          });
+        }
+        return jsonResponse(200, {
+          ok: true,
+          text,
+          empty: text.length === 0,
+          provider: "openai",
+          model_id: requestSttModel,
+          asr_lane: asrLane ?? null,
+          upstream_status: upstream.status,
+          upstream_message: null,
+          upstream_url: "https://api.openai.com/v1/audio/transcriptions",
+          model: requestSttModel,
+          provider_request_id: providerRequestId,
+        });
       }
 
       async function sendToHuggingFace(
@@ -859,150 +1250,12 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         return { upstream, detail, message, upstreamUrl };
       }
 
-      const transcriptionMode = configuredOpenAiTranscriptionMode();
-      if (transcriptionMode === "halt_new" && requestProvider === "openai" && !formData.get("paid_execution")) {
-        return jsonResponse(423, { ok: false, text: "", error: "New transcription submissions are halted.", code: "paid_submissions_halted" });
-      }
-      if ((transcriptionMode === "enforce" || transcriptionMode === "halt_new") && requestProvider === "openai") {
-        if (requestProvider !== "openai") {
-          return jsonResponse(503, { ok: false, text: "", error: "This ASR provider has no active coordinated cost policy.", code: "pricing_not_configured", provider: requestProvider });
-        }
-        const workspaceId = readOptionalString(formData.get("workspace_id"));
-        const workpieceId = readOptionalString(formData.get("workpiece_id"));
-        const sourceAssetRevision = readOptionalString(formData.get("source_asset_revision"));
-        const durationMs = Number(formData.get("duration_ms"));
-        if (!workspaceId || !workpieceId || !sourceAssetRevision || !userId || !userAccessToken || !supabaseService || !config.supabaseUrl || !config.supabaseServiceRoleKey) {
-          return jsonResponse(401, { ok: false, text: "", error: "Authenticated workspace and source authority are required.", code: "transcription_funding_context_required" });
-        }
-        if (Number.isFinite(durationMs) && durationMs > 2_000) {
-          return jsonResponse(413, { ok: false, text: "", error: "Audio chunk exceeds the accepted two-second operation bound.", code: "transcription_duration_bound_exceeded" });
-        }
-        const paidExecutionRaw = parseJsonField(formData.get("paid_execution"));
-        const acceptanceRaw = parseJsonField(formData.get("spending_acceptance"));
-        const paidExecution = normalizeOpenAiTextPaidExecutionHandle(paidExecutionRaw);
-        const acceptance = normalizeOpenAiTextSpendingAcceptance(acceptanceRaw);
-        if ((paidExecutionRaw != null && !paidExecution) || (acceptanceRaw != null && !acceptance)) {
-          return jsonResponse(400, { ok: false, text: "", error: "Invalid transcription funding context.", code: "invalid_paid_execution_context" });
-        }
-        const sourceBytes = new Uint8Array(await fileValue.arrayBuffer());
-        const sourceSha256 = sha256Bytes(sourceBytes);
-        const tongsServiceRpc = supabaseService.schema("tongs") as unknown as {
-          rpc(name: string, args: Record<string, unknown>): Promise<{
-            data: unknown;
-            error: { message: string } | null;
-          }>;
-        };
-        const serviceGate = {
-          rpc: async (name: string, args: Record<string, unknown>) => {
-            const result = await tongsServiceRpc.rpc(name, args);
-            return { data: result.data, error: result.error ? { message: result.error.message } : null };
-          },
-        };
-        const userGate = {
-          rpc: async (name: string, args: Record<string, unknown>) => {
-            const response = await fetch(`${config.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
-              method: "POST",
-              headers: {
-                apikey: config.supabaseServiceRoleKey!,
-                authorization: `Bearer ${userAccessToken}`,
-                "content-type": "application/json",
-              },
-              body: JSON.stringify(args),
-            });
-            const data = await response.json().catch(() => null);
-            return response.ok ? { data, error: null } : { data: null, error: { message: typeof data?.message === "string" ? data.message : `RPC ${name} failed` } };
-          },
-        };
-        let capturedProviderRequestId: string | null = null;
-        try {
-          const coordinated = await coordinateOpenAiTranscription({
-            routeCode: "anvil.realtime_transcription",
-            userId,
-            workspaceId,
-            workpieceId,
-            model: requestSttModel,
-            credentialSource: resolverSource === "user_byo" ? "user_byo" : "forge_managed",
-            serviceGate,
-            userGate,
-            paidExecution,
-            acceptance,
-            source: {
-              assetRevision: sourceAssetRevision,
-              sha256: sourceSha256,
-              bytes: sourceBytes.byteLength,
-              maximumDurationSeconds: Number.isFinite(durationMs) ? durationMs / 1000 : null,
-              maximumChunks: 1,
-              outputContract: "forge.anvil.asr-chunk.v1",
-              providerInputUnitUpperBound: 16_000,
-            },
-            requestTerms: { request_seq: resolvedRequestSeq, language: language ?? null, prompt: prompt ?? null, asr_lane: asrLane ?? null },
-            callerClass: "interactive",
-            executeProvider: async (context) => {
-              const providerForm = buildUpstreamForm(context.model, new Blob([sourceBytes], { type: mimeType ?? "audio/webm" }), uploadFileName, Boolean(language));
-              let response: Response;
-              try {
-                response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-                  method: "POST",
-                  headers: { authorization: `Bearer ${effectiveApiKey}` },
-                  body: providerForm,
-                  signal: request.signal,
-                });
-              } catch (error) {
-                throw new OpenAiTextProviderError("OpenAI transcription submission outcome is uncertain", true, null, { error: error instanceof Error ? error.message : String(error) });
-              }
-              const providerRequestId = response.headers.get("x-request-id");
-              capturedProviderRequestId = providerRequestId;
-              const raw = await response.text();
-              let payload: unknown = {};
-              try { payload = JSON.parse(raw); } catch { payload = {}; }
-              if (!response.ok) throw new OpenAiTextProviderError("OpenAI rejected the bounded transcription request", false, null, { provider_reference: providerRequestId, status: response.status, detail: raw.slice(0, 2_000) });
-              return { value: payload, requestId: providerRequestId, usage: readOpenAiTranscriptionUsage(payload), evidence: { provider_reference: providerRequestId, response_captured: true } };
-            },
-            validateResult: (payload) => { if (!extractTranscriptionText(payload)) throw new Error("OpenAI returned empty transcription"); },
-            persistCanonical: async (payload, operationId, reservationId) => {
-              const text = extractTranscriptionText(payload);
-              const saved = await serviceGate.rpc("persist_openai_transcription_result", {
-                p_operation_id: operationId, p_reservation_id: reservationId, p_route_code: "anvil.realtime_transcription",
-                p_user_id: userId, p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_source_sha256: sourceSha256,
-                p_provider_request_id: capturedProviderRequestId, p_transcript_json: { text, request_seq: resolvedRequestSeq, schema: "forge.anvil.asr-chunk.v1" },
-              });
-              if (saved.error) throw new Error(saved.error.message);
-              return { text, request_seq: resolvedRequestSeq, schema: "forge.anvil.asr-chunk.v1" };
-            },
-          });
-          if (coordinated.state !== "settled" && coordinated.state !== "settled_replay") {
-            return jsonResponse(coordinated.state === "submission_unknown" ? 202 : 502, {
-              ok: false, text: "", error: coordinated.state === "submission_unknown" ? "Provider submission unresolved; no automatic resubmission will occur." : "Transcription failed. Customer charge is $0.", code: coordinated.state,
-            });
-          }
-          return jsonResponse(200, {
-            ok: true, text: typeof coordinated.result.text === "string" ? coordinated.result.text : "",
-            provider: "openai", model: requestSttModel, provider_request_id: coordinated.requestId, billing_mode: lane,
-            customer_charge_micros: coordinated.customerChargeMicros,
-            billing_receipt: { operation_id: coordinated.operationId, reservation_id: coordinated.reservationId, customer_charge_micros: coordinated.customerChargeMicros },
-          });
-        } catch (error) {
-          if (error instanceof OpenAiTranscriptionQuoteRequiredError) {
-            return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
-              ok: false, text: "", error: error.message, code: "transcription_spending_confirmation_required",
-              billing_quote: {
-                quote_id: error.quote.quoteId, operation_id: error.quote.operationId, quote_hash: error.quote.quoteHash,
-                request_fingerprint: error.quote.requestFingerprint, currency: error.quote.currency,
-                maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros, failure_customer_charge_micros: 0,
-                failure_terms: error.quote.failureTerms, funding_eligible: error.quote.fundingEligible,
-                funding_source: error.quote.fundingSource, funding_label: error.quote.fundingLabel,
-                model_display_name: error.quote.modelDisplayName, provider_model_id: error.quote.providerModelId,
-                model_tradeoff_summary: error.quote.modelTradeoffSummary, catalog_revision: error.quote.catalogRevision,
-                estimated_customer_charge_micros: error.quote.estimatedCustomerChargeMicros, expires_at: error.quote.expiresAt,
-              },
-            });
-          }
-          if (error instanceof OpenAiTranscriptionFundingPreparationError) {
-            return jsonResponse(error.status, { ok: false, text: "", error: error.message, code: error.code });
-          }
-          throw error;
-        }
-      }
+      if (requestProvider === "openai") return await executeForgeFundedOpenAi();
+
+      const providedActionId = readOptionalString(formData.get("action_id"));
+      const actionId = providedActionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(providedActionId)
+        ? providedActionId
+        : crypto.randomUUID();
 
       const upstreamAbort = new AbortController();
       let clientAborted = request.signal.aborted;
@@ -1038,15 +1291,12 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
               billing_mode: lane,
             });
           }
-          const directAttempt = requestProvider === "huggingface"
-            || requestProvider === "auto"
-            ? await sendToHuggingFace(
-              requestProvider === "auto" ? "auto" : "huggingface",
-              normalizedRequestSttModel,
-              fileValue,
-              inputAudioContentType ?? "audio/webm",
-            )
-            : await sendToOpenAi(requestSttModel, fileValue, uploadFileName);
+          const directAttempt = await sendToHuggingFace(
+            requestProvider === "auto" ? "auto" : "huggingface",
+            normalizedRequestSttModel,
+            fileValue,
+            inputAudioContentType ?? "audio/webm",
+          );
           upstream = directAttempt.upstream;
           upstreamDetail = directAttempt.detail;
           upstreamMessage = directAttempt.message;
@@ -1075,14 +1325,12 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
                 contentType: mimeType ?? undefined,
               });
               const transcodedBlob = new Blob([new Uint8Array(transcoded.audioBytes)], { type: "audio/wav" });
-              const transcodedAttempt = requestProvider === "huggingface"
-                || requestProvider === "auto"
-                ? await sendToHuggingFace(requestProvider === "auto" ? "auto" : "huggingface", resolvedModel, transcodedBlob, "audio/wav")
-                : await sendToOpenAi(
-                  resolvedModel,
-                  transcodedBlob,
-                  replaceFileExtension(uploadFileName, "wav"),
-                );
+              const transcodedAttempt = await sendToHuggingFace(
+                requestProvider === "auto" ? "auto" : "huggingface",
+                resolvedModel,
+                transcodedBlob,
+                "audio/wav",
+              );
               upstream = transcodedAttempt.upstream;
               upstreamDetail = transcodedAttempt.detail;
               upstreamMessage = transcodedAttempt.message;

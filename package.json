@@ -28,7 +28,7 @@
     "test:db:hearth-access-funding": "node scripts/verify-hearth-access-funding-isolated.mjs",
     "test:db:owner-hearth-research": "node scripts/verify-hearth-access-funding-isolated.mjs",
     "test:release:owner-hearth-research": "node scripts/test-owner-hearth-research-release-candidate.mjs",
-    "test:openai-cutover-handlers": "pnpm --filter nursery exec tsx --test tests/openai-cutover-handlers.test.mts tests/hearth-paid-chat-handler.test.mts tests/anvil-whisper-runtime.test.mts",
+    "test:openai-cutover-handlers": "pnpm --filter nursery exec tsx --test tests/openai-cutover-handlers.test.mts tests/hearth-paid-chat-handler.test.mts tests/anvil-whisper-runtime.test.mts tests/anvil-owner-cost-asr.test.mts",
     "test:openai-reconciliation": "node --test scripts/test-openai-organization-reconciliation.mjs scripts/test-openai-model-visibility.mjs",
     "verify:openai-model-availability": "node scripts/verify-openai-model-availability.mjs",
     "typecheck:workspace": "pnpm -r --sort --workspace-concurrency=2 typecheck",

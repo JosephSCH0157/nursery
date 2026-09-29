@@ -10,13 +10,34 @@ import {
   createAnvilWhisperHandler,
   type AnvilWhisperRuntimeConfig,
 } from "../server/anvil/create-anvil-whisper-handler";
+import type { OwnerCostRpcGate } from "../server/anvil/forge-owner-cost-transcription";
 import { mwAnvilWhisperApi, nodeHeadersToFetch } from "../scripts/mw-anvil-whisper-api";
 import { AI_USAGE_LANE } from "../../../packages/tongs/src/ai-usage-taxonomy";
+
+function createOwnerCostGate(): OwnerCostRpcGate {
+  return {
+    async rpc(name) {
+      if (name === "read_financial_runtime_environment") {
+        return { data: { financial_environment: "test" }, error: null };
+      }
+      if (name === "append_owner_cost_attempt_event") {
+        return { data: { provider_submission_created: true, replay: false }, error: null };
+      }
+      if (name === "record_owner_cost_valuation") {
+        return { data: { journal_event_id: null, replay: false }, error: null };
+      }
+      return { data: { replay: false }, error: null };
+    },
+  };
+}
 
 function buildConfig(overrides: Partial<AnvilWhisperRuntimeConfig> = {}): AnvilWhisperRuntimeConfig {
   return {
     apiKey: null,
     sttModel: "gpt-4o-mini-transcribe",
+    financialEnvironment: "test",
+    runtimeEnvironment: "development",
+    ownerCostGate: createOwnerCostGate(),
     ...overrides,
   };
 }
@@ -25,6 +46,7 @@ function buildChunkFormData(): FormData {
   const form = new FormData();
   form.set("file", new Blob(["test audio"], { type: "audio/webm" }), "chunk.webm");
   form.set("language", "en-US");
+  form.set("operation_created_at", "2026-09-28T12:00:00.000Z");
   return form;
 }
 
@@ -217,7 +239,7 @@ test("Netlify whisper function matches direct handler output", async () => {
   assert.deepEqual(deployedJson, directJson);
 });
 
-test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg fallback", async () => {
+test("createAnvilWhisperHandler does not hide a second paid OpenAI submission behind FFmpeg fallback", async () => {
   const ffmpegServer = await startForgeFfmpegStub({
     responseBody: Buffer.from("RIFFfakewave", "utf8"),
   });
@@ -299,18 +321,16 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
       headers: { authorization: "Bearer test-access-token" },
       body: buildChunkFormData(),
     }));
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 400);
     const payload = await response.json();
 
-    assert.equal(payload.ok, true);
-    assert.equal(payload.text, "Recovered via wav fallback");
-    assert.equal(payload.provider_request_id, "req_after_ffmpeg");
-    assert.equal(payload.ffmpeg_fallback_attempted, true);
-    assert.equal(payload.ffmpeg_fallback_used, true);
-    assert.equal(openAiCalls, 2);
-    assert.equal(ffmpegCalls, 1);
-    assert.equal(applyDeltaCalls, 1);
-    assert.deepEqual(seenOpenAiFileTypes, ["audio/webm", "audio/wav"]);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "openai_provider_rejected");
+    assert.equal(payload.ffmpeg_fallback_attempted, undefined);
+    assert.equal(openAiCalls, 1);
+    assert.equal(ffmpegCalls, 0);
+    assert.equal(applyDeltaCalls, 0);
+    assert.deepEqual(seenOpenAiFileTypes, ["audio/webm"]);
   } finally {
     globalThis.fetch = originalFetch;
     await ffmpegServer.close();
@@ -365,9 +385,10 @@ test("createAnvilWhisperHandler classifies OpenAI 431 as whisper_upstream_header
   }
 });
 
-test("createAnvilWhisperHandler treats client lane as advisory and still enforces BYO resolution", async () => {
+test("createAnvilWhisperHandler forces Forge credentials and ignores BYO configuration for OpenAI ASR", async () => {
   const originalFetch = globalThis.fetch;
   let openAiCalls = 0;
+  let userKeyCalls = 0;
 
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -378,6 +399,7 @@ test("createAnvilWhisperHandler treats client lane as advisory and still enforce
       });
     }
     if (url.includes("/rest/v1/rpc/get_user_ai_key_for_resolution")) {
+      userKeyCalls += 1;
       return new Response(JSON.stringify([]), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -385,7 +407,8 @@ test("createAnvilWhisperHandler treats client lane as advisory and still enforce
     }
     if (url === "https://api.openai.com/v1/audio/transcriptions") {
       openAiCalls += 1;
-      return new Response(JSON.stringify({ text: "should-not-run" }), {
+      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer forge-key");
+      return new Response(JSON.stringify({ text: "forge funded" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -408,18 +431,19 @@ test("createAnvilWhisperHandler treats client lane as advisory and still enforce
       body: form,
     }));
 
-    assert.equal(response.status, 422);
+    assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.ok, false);
-    assert.equal(payload.code, "missing_user_byo_key");
-    assert.equal(payload.billing_mode, AI_USAGE_LANE.BYO);
-    assert.equal(openAiCalls, 0);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.text, "forge funded");
+    assert.equal(payload.billing_mode, undefined);
+    assert.equal(userKeyCalls, 0);
+    assert.equal(openAiCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("createAnvilWhisperHandler blocks forge requests with exhausted credits before upstream OpenAI call", async () => {
+test("createAnvilWhisperHandler does not read or enforce customer credits for OpenAI ASR", async () => {
   const originalFetch = globalThis.fetch;
   let openAiCalls = 0;
 
@@ -433,7 +457,7 @@ test("createAnvilWhisperHandler blocks forge requests with exhausted credits bef
     }
     if (url === "https://api.openai.com/v1/audio/transcriptions") {
       openAiCalls += 1;
-      return new Response(JSON.stringify({ text: "should-not-run" }), {
+      return new Response(JSON.stringify({ text: "forge funded despite zero customer credits" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -457,12 +481,12 @@ test("createAnvilWhisperHandler blocks forge requests with exhausted credits bef
       body: form,
     }));
 
-    assert.equal(response.status, 402);
+    assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.ok, false);
-    assert.equal(payload.error, "No AI credits remaining.");
-    assert.equal(payload.billing_mode, AI_USAGE_LANE.FORGE);
-    assert.equal(openAiCalls, 0);
+    assert.equal(payload.ok, true);
+    assert.equal(payload.text, "forge funded despite zero customer credits");
+    assert.equal(payload.billing_mode, undefined);
+    assert.equal(openAiCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1142,8 +1166,9 @@ test("createAnvilWhisperHandler ASR2 deduction failure is deferred without block
   }
 });
 
-test("createAnvilWhisperHandler ASR1 deduction failure still blocks with forge_deduction_failed", async () => {
+test("createAnvilWhisperHandler ASR1 does not call customer credit deduction", async () => {
   const originalFetch = globalThis.fetch;
+  let applyDeltaCalls = 0;
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url.includes("/auth/v1/user")) {
@@ -1159,6 +1184,7 @@ test("createAnvilWhisperHandler ASR1 deduction failure still blocks with forge_d
       });
     }
     if (url.includes("/rest/v1/rpc/apply_ai_token_delta")) {
+      applyDeltaCalls += 1;
       return new Response(JSON.stringify({ error: "db write failed" }), {
         status: 500,
         headers: { "content-type": "application/json" },
@@ -1182,11 +1208,12 @@ test("createAnvilWhisperHandler ASR1 deduction failure still blocks with forge_d
       headers: { authorization: "Bearer test-access-token" },
       body: form,
     }));
-    assert.equal(response.status, 502);
+    assert.equal(response.status, 200);
     const payload = await response.json();
-    assert.equal(payload.ok, false);
-    assert.equal(payload.code, "forge_deduction_failed");
-    assert.equal(payload.billing_mode, "forge");
+    assert.equal(payload.ok, true);
+    assert.equal(payload.text, "asr1 ok");
+    assert.equal(payload.billing_mode, undefined);
+    assert.equal(applyDeltaCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

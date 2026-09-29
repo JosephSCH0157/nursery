@@ -443,6 +443,18 @@ function resolvePlannerRecordingSessionId(): string | null {
   return normalizeUuid(readLocalStorage(PLANNER_RECORDING_SESSION_KEY));
 }
 
+export function resolveActiveRecordingCostAttribution(): {
+  recordingSessionId: string | null;
+  recordingCaptureAuthorityId: string | null;
+  anvilCaptureExecutionId: string | null;
+} {
+  return {
+    recordingSessionId: activeCaptureAuthority?.recordingSessionId ?? resolvePlannerRecordingSessionId(),
+    recordingCaptureAuthorityId: activeCaptureAuthority?.id ?? null,
+    anvilCaptureExecutionId: activeCaptureAuthority?.captureSessionId ?? null,
+  };
+}
+
 function resolveWorkspaceId(): string | null {
   const fromQuery = normalizeUuid(getQueryParam("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;

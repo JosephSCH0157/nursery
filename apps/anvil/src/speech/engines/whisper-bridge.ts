@@ -5,10 +5,7 @@ import { shouldLogLevel } from "../../env/dev-log";
 import { getActiveAsrProfile } from "../../asr/active-profile";
 import { isSessionRecording } from "../../recording/recorderRegistry";
 import { resolveActiveWorkpieceId, resolveActiveWorkspaceId } from "../../forge/workpiece-context";
-import {
-  readCustomerSpendingQuote,
-  requestCustomerSpendingAcceptance,
-} from "../../../../../packages/tongs/src/customer-spending-confirmation";
+import { resolveActiveRecordingCostAttribution } from "../../forge/workpiece-commit";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
 type WhisperBridgeListener = (payload?: unknown) => void;
@@ -86,7 +83,6 @@ type WhisperBridgeResponse = {
   ffmpeg_fallback_attempted?: boolean;
   ffmpeg_fallback_used?: boolean;
   ffmpeg_fallback_error?: string | null;
-  billing_quote?: unknown;
 };
 
 class WhisperBridgeHttpError extends Error {
@@ -2104,7 +2100,18 @@ class WhisperBridgeRecognizer {
     const workpieceId = resolveActiveWorkpieceId();
     if (workspaceId) form.set("workspace_id", workspaceId);
     if (workpieceId) form.set("workpiece_id", workpieceId);
+    const recordingAttribution = resolveActiveRecordingCostAttribution();
+    if (recordingAttribution.recordingSessionId) {
+      form.set("recording_session_id", recordingAttribution.recordingSessionId);
+    }
+    if (recordingAttribution.recordingCaptureAuthorityId) {
+      form.set("recording_capture_authority_id", recordingAttribution.recordingCaptureAuthorityId);
+    }
+    if (recordingAttribution.anvilCaptureExecutionId) {
+      form.set("anvil_capture_execution_id", recordingAttribution.anvilCaptureExecutionId);
+    }
     form.set("source_asset_revision", `${this.readRunMeta().runKey ?? "anvil-session"}:generation:${requestGeneration}:chunk:${seq}`);
+    form.set("operation_created_at", new Date(chunk.captureStartedAtMs ?? chunk.enqueueTs).toISOString());
     if (typeof durationMs === "number" && Number.isFinite(durationMs)) {
       form.set("duration_ms", String(Math.max(0, Math.round(durationMs))));
     }
@@ -2187,15 +2194,6 @@ class WhisperBridgeRecognizer {
         });
       } catch {}
       response = await submit(form);
-      if (response.status === 409 || response.status === 402) {
-        const quoted = await response.clone().json().catch(() => null);
-        const quote = readCustomerSpendingQuote(quoted);
-        const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
-        if (acceptance) {
-          form.set("spending_acceptance", JSON.stringify(acceptance));
-          response = await submit(form);
-        }
-      }
     } finally {
       this.inFlightTranscriptionControllers.delete(abortController);
     }
