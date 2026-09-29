@@ -19,6 +19,7 @@ const KEYS = [
   "BRAVE_SEARCH_API_KEY",
   "BRAVE_API_KEY",
   "BAR_STOCK_OWNER_BRAVE_API_KEY",
+  "HEARTH_AI_BILLING_MODE",
 ] as const;
 
 function withCleanEnvironment(run: () => void): void {
@@ -42,6 +43,8 @@ test("Hearth owner text and research credentials use only their isolated variabl
     assert.equal(config.ownerTextApiKey, null);
     assert.equal(tongsConfig.ownerHearthOpenAiApiKey, undefined);
     assert.equal(config.ownerResearchTextApiKey, null);
+    assert.equal(config.ownerImageApiKey, null);
+    assert.equal(tongsConfig.ownerHearthOpenAiImageApiKey, undefined);
     assert.equal(config.ownerResearchApiKey, null);
     assert.equal(tongsConfig.ownerHearthRunwayApiKey, undefined);
 
@@ -56,6 +59,8 @@ test("Hearth owner text and research credentials use only their isolated variabl
     assert.equal(config.ownerTextApiKey, null);
     assert.equal(tongsConfig.ownerHearthOpenAiApiKey, undefined);
     assert.equal(config.ownerResearchTextApiKey, null);
+    assert.equal(config.ownerImageApiKey, null);
+    assert.equal(tongsConfig.ownerHearthOpenAiImageApiKey, undefined);
     assert.equal(config.ownerResearchApiKey, null);
     assert.equal(tongsConfig.ownerHearthRunwayApiKey, undefined);
 
@@ -74,11 +79,47 @@ test("Hearth owner text and research credentials use only their isolated variabl
   });
 });
 
+test("Hearth owner image credential is dedicated, server-only configuration with no fallback", () => {
+  withCleanEnvironment(() => {
+    let config = resolveHearthRuntimeConfig();
+    let tongsConfig = resolveTongsRuntimeConfig();
+    assert.equal(config.ownerImageApiKey, null);
+    assert.equal(tongsConfig.ownerHearthOpenAiImageApiKey, undefined);
+
+    process.env.OPENAI_IMAGE_API_KEY = "customer-image-only";
+    process.env.OPENAI_API_KEY = "generic-openai-only";
+    process.env.OPENAI_HEARTH_OWNER_API_KEY = "owner-text-only";
+    process.env.HEARTH_AI_BILLING_MODE = "byo";
+    config = resolveHearthRuntimeConfig();
+    tongsConfig = resolveTongsRuntimeConfig();
+    assert.equal(config.imageApiKey, "customer-image-only");
+    assert.equal(config.ownerTextApiKey, "owner-text-only");
+    assert.equal(config.configuredBillingMode, "byo");
+    assert.equal(config.ownerImageApiKey, null);
+    assert.equal(tongsConfig.ownerHearthOpenAiImageApiKey, undefined);
+
+    process.env.OPENAI_HEARTH_OWNER_IMAGE_API_KEY = "owner-image-dedicated";
+    config = resolveHearthRuntimeConfig();
+    tongsConfig = resolveTongsRuntimeConfig();
+    assert.equal(config.ownerImageApiKey, "owner-image-dedicated");
+    assert.equal(tongsConfig.ownerHearthOpenAiImageApiKey, "owner-image-dedicated");
+    assert.equal(config.imageApiKey, "customer-image-only");
+    assert.equal(config.ownerTextApiKey, "owner-text-only");
+    assert.equal(config.ownerResearchTextApiKey, null);
+    assert.equal(config.ownerResearchApiKey, null);
+    assert.equal(config.sttModel, "gpt-4o-mini-transcribe");
+    assert.equal(tongsConfig.ownerHearthRunwayApiKey, undefined);
+    assert.equal("ownerHearthOpenAiImageApiKey" in tongsConfig.options, false);
+    assert.equal(JSON.stringify(tongsConfig.options).includes("owner-image-dedicated"), false);
+  });
+});
+
 test("Hearth owner credential resolution emits no secret values", () => {
   withCleanEnvironment(() => {
     const secret = "hearth-owner-secret-must-not-escape";
     process.env.OPENAI_HEARTH_OWNER_API_KEY = secret;
     process.env.OPENAI_HEARTH_RESEARCH_OWNER_API_KEY = `${secret}-research`;
+    process.env.OPENAI_HEARTH_OWNER_IMAGE_API_KEY = `${secret}-image`;
     process.env.HEARTH_OWNER_RESEARCH_BRAVE_API_KEY = `${secret}-brave`;
     process.env.HEARTH_OWNER_RUNWAY_API_KEY = `${secret}-runway`;
     const observed: unknown[][] = [];
@@ -91,8 +132,10 @@ test("Hearth owner credential resolution emits no secret values", () => {
       const config = resolveHearthRuntimeConfig();
       assert.equal(config.ownerTextApiKey, secret);
       assert.equal(config.ownerResearchTextApiKey, `${secret}-research`);
+      assert.equal(config.ownerImageApiKey, `${secret}-image`);
       assert.equal(config.ownerResearchApiKey, `${secret}-brave`);
       assert.equal(resolveTongsRuntimeConfig().ownerHearthRunwayApiKey, `${secret}-runway`);
+      assert.equal(resolveTongsRuntimeConfig().ownerHearthOpenAiImageApiKey, `${secret}-image`);
       assert.deepEqual(observed, []);
     } finally {
       console.log = original.log;

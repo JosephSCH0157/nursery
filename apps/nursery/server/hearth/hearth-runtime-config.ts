@@ -69,6 +69,8 @@ export type HearthRuntimeConfig = {
   /** Restricted server-only OpenAI credential for owner-funded research only. */
   ownerResearchTextApiKey?: string | null;
   imageApiKey?: string | null;
+  /** Restricted server-only OpenAI credential for owner-funded Hearth image generation only. */
+  ownerImageApiKey?: string | null;
   researchApiKey?: string | null;
   /** Restricted server-only Brave credential for owner-funded research only. */
   ownerResearchApiKey?: string | null;
@@ -145,6 +147,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   const ownerTextApiKey = readEnv("OPENAI_HEARTH_OWNER_API_KEY") || null;
   const ownerResearchTextApiKey = readEnv("OPENAI_HEARTH_RESEARCH_OWNER_API_KEY") || null;
   const imageApiKey = resolveOpenAiImageApiKey();
+  const ownerImageApiKey = readEnv("OPENAI_HEARTH_OWNER_IMAGE_API_KEY") || null;
   const researchApiKey = (
     readEnv("HEARTH_RESEARCH_API_KEY")
     || readEnv("HEARTH_RESEARCH_BRAVE_API_KEY")
@@ -166,6 +169,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
     ownerTextApiKey,
     ownerResearchTextApiKey,
     imageApiKey,
+    ownerImageApiKey,
     researchApiKey,
     ownerResearchApiKey,
     apiKey: textApiKey,
