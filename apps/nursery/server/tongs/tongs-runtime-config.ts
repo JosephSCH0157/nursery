@@ -53,6 +53,8 @@ export type ResolvedTongsRuntimeConfig = {
   missing: string[];
   allowUnsafeNoToken: boolean;
   ownerHearthOpenAiApiKey?: string;
+  /** Restricted server-only credential for owner-funded Hearth Runway B-roll. */
+  ownerHearthRunwayApiKey?: string;
 };
 
 export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
@@ -77,6 +79,7 @@ export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
       missing,
       allowUnsafeNoToken,
       ownerHearthOpenAiApiKey: readEnv("OPENAI_HEARTH_OWNER_API_KEY"),
+      ownerHearthRunwayApiKey: readEnv("HEARTH_OWNER_RUNWAY_API_KEY"),
     };
   }
 
@@ -93,5 +96,6 @@ export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
     missing,
     allowUnsafeNoToken,
     ownerHearthOpenAiApiKey: readEnv("OPENAI_HEARTH_OWNER_API_KEY"),
+    ownerHearthRunwayApiKey: readEnv("HEARTH_OWNER_RUNWAY_API_KEY"),
   };
 }

@@ -42,6 +42,36 @@ const boundary = resolveNurseryTongsProviderBoundary({
   assert.equal(service.brollAcquisitionRuntime, boundary.acquisitionRuntime);
 });
 
+test("Nursery keeps customer and Hearth owner Runway credentials in separate providers", () => {
+  const constructedKeys: string[] = [];
+  const providers: BrollVideoProvider[] = [];
+  const boundary = resolveNurseryTongsProviderBoundary({
+    options: {
+      supabaseUrl: "https://example.supabase.co",
+      supabaseServiceRoleKey: "test-service-key",
+      runwayApiKey: "customer-runway-key",
+    },
+    ownerHearthRunwayApiKey: "owner-runway-key",
+    missing: [],
+    allowUnsafeNoToken: true,
+  }, (apiKey) => {
+    constructedKeys.push(apiKey);
+    const provider: BrollVideoProvider = {
+      async submit() { return { taskId: apiKey, acceptedResponse: { id: apiKey } }; },
+      async poll(taskId) { return { state: "pending", taskId, response: { id: taskId } }; },
+      async download() { return new Uint8Array(); },
+    };
+    providers.push(provider);
+    return provider;
+  });
+
+  assert.deepEqual(constructedKeys, ["customer-runway-key", "owner-runway-key"]);
+  assert.equal(boundary.options.brollVideoProvider, providers[0]);
+  assert.equal(boundary.options.ownerBrollVideoProvider, providers[1]);
+  assert.notEqual(boundary.options.brollVideoProvider, boundary.options.ownerBrollVideoProvider);
+  assert.equal(boundary.options.runwayApiKey, undefined);
+});
+
 test("B-roll acquisition dependencies are loaded statically before request handling", async () => {
   const source = await readFile(
     new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url),

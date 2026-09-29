@@ -33,6 +33,7 @@ import {
   ForgeOwnerExecutionCoordinator,
 } from "../server/accounting/forge-owner-execution-coordinator";
 import { createOwnerNarrativeInterpretationExecutor } from "../server/hearth/owner-narrative-interpretation-execution";
+import { createOwnerHearthRunwayExecutionBoundary } from "../server/hearth/owner-hearth-runway-execution";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import {
   startWorkpieceJobRunner,
@@ -80,6 +81,8 @@ export function resolveNurseryTongsProviderBoundary(
 ): NurseryTongsProviderBoundary {
   const runwayApiKey = config.options.runwayApiKey?.trim();
   const provider = runwayApiKey ? createRunwayProvider(runwayApiKey) : undefined;
+  const ownerRunwayApiKey = config.ownerHearthRunwayApiKey?.trim();
+  const ownerRunwayProvider = ownerRunwayApiKey ? createRunwayProvider(ownerRunwayApiKey) : undefined;
   const forgeFfmpeg = readForgeFfmpegClientConfig(process.env, { callerId: "netlify" });
   let ownerServiceClient: ReturnType<typeof createClient<Database>> | null = null;
   let ownerCostGateClient: {
@@ -103,6 +106,7 @@ export function resolveNurseryTongsProviderBoundary(
     },
   };
   let ownerNarrativeInterpretationExecutor: TongsCommitApiOptions["ownerNarrativeInterpretationExecutor"];
+  let ownerRunwayExecutionBoundary: TongsCommitApiOptions["ownerRunwayExecutionBoundary"];
   if (config.options.supabaseUrl && config.options.supabaseServiceRoleKey) {
     ownerServiceClient = createClient<Database>(
       config.options.supabaseUrl,
@@ -118,6 +122,11 @@ export function resolveNurseryTongsProviderBoundary(
         authorityReader: ownerAuthorityReader,
       }),
       credential: config.ownerHearthOpenAiApiKey,
+    });
+    ownerRunwayExecutionBoundary = createOwnerHearthRunwayExecutionBoundary({
+      gate: ownerCostGate,
+      authorityReader: ownerAuthorityReader,
+      credential: config.ownerHearthRunwayApiKey,
     });
   }
   const acquisitionRuntime: BrollAcquisitionRuntime = {
@@ -184,8 +193,10 @@ export function resolveNurseryTongsProviderBoundary(
     // options makes the Vite-sensitive lazy fallback impossible in this process.
     runwayApiKey: undefined,
     brollVideoProvider: provider,
+    ownerBrollVideoProvider: ownerRunwayProvider,
     brollAcquisitionRuntime: acquisitionRuntime,
     ownerNarrativeInterpretationExecutor,
+    ownerRunwayExecutionBoundary,
   };
   return {
     options,

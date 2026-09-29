@@ -2507,11 +2507,13 @@ export type TongsCommitApiOptions = {
   openAiTextModel?: string;
   runwayApiKey?: string;
   brollVideoProvider?: BrollVideoProvider;
+  ownerBrollVideoProvider?: BrollVideoProvider;
   runwayPaidExecutionBoundary?: RunwayPaidExecutionBoundary;
   brollAcquisitionRuntime?: BrollAcquisitionRuntime;
   unifiedVisualPlanProvider?: UnifiedVisualPlanProvider;
   narrativeInterpretationProvider?: NarrativeInterpretationProvider;
   ownerNarrativeInterpretationExecutor?: OwnerNarrativeInterpretationExecutor;
+  ownerRunwayExecutionBoundary?: OwnerRunwayExecutionBoundary;
   brollMotionInterpretationProvider?: BrollMotionInterpretationProvider;
   /** Server-only injection for isolated billing-boundary certification. */
   openAiTextGate?: OpenAiTextGateClient;
@@ -2553,6 +2555,46 @@ export type OwnerNarrativeInterpretationExecutor = (input: {
     value: OwnerNarrativeInterpretationValue,
   ): Promise<Record<string, Json>>;
 }) => Promise<Record<string, Json> | null>;
+
+export type OwnerRunwayExecutionInput = {
+  authenticatedUserId: string;
+  workspaceId: string;
+  workpieceId: string;
+  beatId: string;
+  productOperationId: string;
+  promptRevisionId: string;
+  promptRevision: number;
+  promptContentHash: string;
+  model: "gen4.5" | "seedance2";
+  durationSeconds: number;
+  ratio: "1280:720" | "720:1280";
+  referenceImageCount: number;
+  exactProviderRequest: Record<string, unknown>;
+};
+
+export type OwnerRunwayExecutionContext = {
+  ownerOperationId: string;
+  ownerRequestFingerprint: string;
+  attemptId: string;
+  responseEventId: string;
+  terminalEventId: string;
+  createdAt: string;
+};
+
+export type OwnerRunwayPreparation = {
+  context: OwnerRunwayExecutionContext;
+  disposition: "submit" | "recover_task" | "submission_unknown" | "definitively_rejected" | "submission_in_progress";
+  providerTaskId: string | null;
+};
+
+export type OwnerRunwayExecutionBoundary = {
+  prepare(input: OwnerRunwayExecutionInput): Promise<OwnerRunwayPreparation | null>;
+  recordAccepted(context: OwnerRunwayExecutionContext, taskId: string, acceptedResponse: Record<string, unknown>): Promise<void>;
+  recordSubmissionUnknown(context: OwnerRunwayExecutionContext, evidence: Record<string, unknown>): Promise<void>;
+  recordDefinitiveRejection(context: OwnerRunwayExecutionContext, evidence: Record<string, unknown>): Promise<void>;
+  recordProviderFailure(context: OwnerRunwayExecutionContext, taskId: string, evidence: Record<string, unknown>): Promise<void>;
+  recordCanonicalSuccess(context: OwnerRunwayExecutionContext, taskId: string, evidence: Record<string, unknown>): Promise<void>;
+};
 
 export type AcquireBrollCandidateRequest = {
   workspace_id: string;
@@ -9479,7 +9521,9 @@ export class TongsCommitService {
   readonly imageProvider: ImageProvider | null;
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
   readonly ownerNarrativeInterpretationExecutor: OwnerNarrativeInterpretationExecutor | null;
+  readonly ownerRunwayExecutionBoundary: OwnerRunwayExecutionBoundary | null;
   readonly brollVideoProvider: BrollVideoProvider | null;
+  readonly ownerBrollVideoProvider: BrollVideoProvider | null;
   readonly runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null;
   readonly brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null;
   readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
@@ -9510,6 +9554,8 @@ export class TongsCommitService {
     referenceVisualReadinessEvaluator: ReferenceVisualReadinessEvaluator =
       defaultReferenceVisualReadinessEvaluator,
     ownerNarrativeInterpretationExecutor: OwnerNarrativeInterpretationExecutor | null = null,
+    ownerRunwayExecutionBoundary: OwnerRunwayExecutionBoundary | null = null,
+    ownerBrollVideoProvider: BrollVideoProvider | null = null,
   ) {
     this.supabase = supabase;
     this.cleanupReviewGenerator = cleanupReviewGenerator;
@@ -9519,7 +9565,9 @@ export class TongsCommitService {
     this.userClientFactory = userClientFactory;
     this.narrativeInterpretationProvider = narrativeInterpretationProvider;
     this.ownerNarrativeInterpretationExecutor = ownerNarrativeInterpretationExecutor;
+    this.ownerRunwayExecutionBoundary = ownerRunwayExecutionBoundary;
     this.brollVideoProvider = brollVideoProvider;
+    this.ownerBrollVideoProvider = ownerBrollVideoProvider;
     this.brollMotionInterpretationProvider = brollMotionInterpretationProvider;
     this.brollAcquisitionRuntime = brollAcquisitionRuntime;
     this.unifiedVisualPlanProvider = unifiedVisualPlanProvider;
@@ -31299,6 +31347,8 @@ export class TongsCommitService {
     const posterPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/poster.jpg`;
     const posterKey = buildStorageKey(workpieceId, posterPath);
     const posterRequired = input.poster_required !== false;
+    let ownerRunwayPreparation: OwnerRunwayPreparation | null = null;
+    let activeBrollVideoProvider = this.brollVideoProvider;
     const begun = await authority.rpc("begin_broll_operation", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
@@ -31347,13 +31397,58 @@ export class TongsCommitService {
       ? begun.data.operation
       : null;
     let state = operation ? readStringField(operation, "state") : null;
+    if (input.source_kind === "generated" && this.ownerRunwayExecutionBoundary
+      && input.final_prompt && input.prompt_revision_id && input.prompt_revision
+      && input.prompt_content_hash) {
+      const model = input.runway_model ?? "gen4.5";
+      const durationSeconds = input.duration_seconds ?? 5;
+      const ratio = input.ratio ?? "1280:720";
+      try {
+        ownerRunwayPreparation = await this.ownerRunwayExecutionBoundary.prepare({
+          authenticatedUserId: auth.userId,
+          workspaceId: input.workspace_id,
+          workpieceId,
+          beatId: input.beat_id,
+          productOperationId: input.operation_id,
+          promptRevisionId: input.prompt_revision_id,
+          promptRevision: input.prompt_revision,
+          promptContentHash: input.prompt_content_hash,
+          model,
+          durationSeconds,
+          ratio,
+          referenceImageCount: generationReferences.length,
+          exactProviderRequest: {
+            prompt: input.final_prompt,
+            model,
+            duration_seconds: durationSeconds,
+            ratio,
+            reference_image_hashes: generationReferences.map((reference) => reference.contentHash),
+          },
+        });
+      } catch (error) {
+        throw new HttpError(503, "owner_runway_unavailable",
+          error instanceof Error ? error.message : "Owner Runway execution is unavailable.",
+          { transmitted: false });
+      }
+      if (ownerRunwayPreparation) activeBrollVideoProvider = this.ownerBrollVideoProvider;
+    }
     if (state === "candidate_committed" && isRecord(operation?.receipt_json)) {
       const replayProvider = readStringField(operation, "provider");
       const replayProviderTaskId = readStringField(
         operation,
         "provider_task_id",
       );
-      if (
+      if (ownerRunwayPreparation && replayProviderTaskId) {
+        await this.ownerRunwayExecutionBoundary!.recordCanonicalSuccess(
+          ownerRunwayPreparation.context,
+          replayProviderTaskId,
+          {
+            candidate_committed: true,
+            candidate_id: operation.receipt_json.candidate_id ?? null,
+            canonical_video_path: videoPath,
+          },
+        );
+      } else if (
         input.source_kind === "generated" &&
         replayProvider === "runway" &&
         replayProviderTaskId &&
@@ -31427,13 +31522,18 @@ export class TongsCommitService {
         this.brollAcquisitionRuntime,
       );
     if (input.source_kind === "generated") {
-      if (!this.brollVideoProvider || !input.final_prompt)
+      const model = input.runway_model ?? "gen4.5";
+      const durationSeconds = input.duration_seconds ?? 5;
+      const ratio = input.ratio ?? "1280:720";
+      if (!activeBrollVideoProvider || !input.final_prompt)
         throw new HttpError(
           503,
-          "broll_video_provider_unavailable",
-          "No replay-safe B-roll video provider is configured.",
+          ownerRunwayPreparation ? "owner_runway_provider_unavailable" : "broll_video_provider_unavailable",
+          ownerRunwayPreparation
+            ? "The isolated Hearth owner Runway provider is not configured."
+            : "No replay-safe B-roll video provider is configured.",
         );
-      if (!this.runwayPaidExecutionBoundary)
+      if (!ownerRunwayPreparation && !this.runwayPaidExecutionBoundary)
         throw new HttpError(
           503,
           "runway_funding_boundary_unavailable",
@@ -31442,9 +31542,6 @@ export class TongsCommitService {
       const creatorApproved = Boolean(
         input.confirm_spend || input.always_approve_ai_spend,
       );
-      const model = input.runway_model ?? "gen4.5";
-      const durationSeconds = input.duration_seconds ?? 5;
-      const ratio = input.ratio ?? "1280:720";
       if (model !== "gen4.5")
         throw new HttpError(
           503,
@@ -31452,9 +31549,17 @@ export class TongsCommitService {
           "Runway paid execution is currently configured only for Gen-4.5.",
         );
       let operationFunding;
-      try {
+      if (ownerRunwayPreparation) {
+        operationFunding = {
+          mode: "enforce",
+          reason: "owner_cost_authority",
+          reservationId: null,
+          sharedFundingReady: true,
+          useLegacyAccounting: false,
+        };
+      } else try {
         operationFunding =
-          await this.runwayPaidExecutionBoundary.resolveOperationFunding({
+          await this.runwayPaidExecutionBoundary!.resolveOperationFunding({
             operationId: input.operation_id,
             operationFingerprint: input.operation_fingerprint,
             userId: auth.userId,
@@ -31614,7 +31719,7 @@ export class TongsCommitService {
         }
         try {
           operationFunding =
-            await this.runwayPaidExecutionBoundary.resolveOperationFunding({
+            await this.runwayPaidExecutionBoundary!.resolveOperationFunding({
               operationId: input.operation_id,
               operationFingerprint: input.operation_fingerprint,
               userId: auth.userId,
@@ -31738,6 +31843,18 @@ export class TongsCommitService {
           );
         state = "provider_or_upload_completed";
       }
+      if (ownerRunwayPreparation?.disposition === "submission_unknown")
+        throw new HttpError(409, "owner_runway_submission_unknown",
+          "Runway may have accepted this owner-funded generation. It was not submitted again.",
+          { owner_cost_operation_id: ownerRunwayPreparation.context.ownerOperationId, transmitted: false });
+      if (ownerRunwayPreparation?.disposition === "definitively_rejected")
+        throw new HttpError(409, "owner_runway_definitively_rejected",
+          "Runway definitively rejected this owner-funded generation. It was not submitted again.",
+          { owner_cost_operation_id: ownerRunwayPreparation.context.ownerOperationId, transmitted: false });
+      if (ownerRunwayPreparation?.disposition === "submission_in_progress")
+        throw new HttpError(409, "owner_runway_submission_in_progress",
+          "This owner-funded Runway submission already crossed the durable submission boundary and cannot be repeated.",
+          { owner_cost_operation_id: ownerRunwayPreparation.context.ownerOperationId, transmitted: false });
       if (state === "submission_unknown")
         throw new HttpError(
           409,
@@ -31796,9 +31913,20 @@ export class TongsCommitService {
             durationSeconds,
             ratio,
           };
-          try {
+          if (ownerRunwayPreparation) {
+            runwayBoundaryAuthorization = {
+              mode: "enforce",
+              rolloutRevision: 0,
+              providerExecutionAuthorized: true,
+              legacyExecutionAllowed: false,
+              reason: "owner_cost_authority",
+              replay: ownerRunwayPreparation.disposition !== "submit",
+              reservationId: null,
+              fundingSourceType: null,
+            };
+          } else try {
             runwayBoundaryAuthorization =
-              await this.runwayPaidExecutionBoundary.authorizeSubmission(
+              await this.runwayPaidExecutionBoundary!.authorizeSubmission(
                 runwayBoundaryInput,
               );
           } catch (error) {
@@ -31850,14 +31978,34 @@ export class TongsCommitService {
             );
           }
           try {
-            const submitted = await this.brollVideoProvider.submit({
+            const providerRequest = {
               prompt: input.final_prompt,
               model,
               durationSeconds,
               ratio,
               attemptId,
               referenceImages: generationReferences.map((reference) => ({ mimeType: reference.mimeType, bytesBase64: reference.bytesBase64 })),
-            });
+            };
+            let submitted: Awaited<ReturnType<BrollVideoProvider["submit"]>>;
+            if (ownerRunwayPreparation?.disposition === "recover_task") {
+              submitted = {
+                taskId: ownerRunwayPreparation.providerTaskId!,
+                acceptedResponse: { recovered_from_owner_cost_evidence: true },
+              };
+            } else if (ownerRunwayPreparation) {
+              submitted = await this.ownerBrollVideoProvider!.submit(providerRequest);
+            } else {
+              if (!this.brollVideoProvider)
+                throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
+              submitted = await this.brollVideoProvider.submit(providerRequest);
+            }
+            if (ownerRunwayPreparation?.disposition === "submit") {
+              await this.ownerRunwayExecutionBoundary!.recordAccepted(
+                ownerRunwayPreparation.context,
+                submitted.taskId,
+                submitted.acceptedResponse,
+              );
+            }
             const recorded = await authority.rpc("record_broll_runway_task", {
               p_operation_id: input.operation_id,
               p_operation_fingerprint: input.operation_fingerprint,
@@ -31896,8 +32044,13 @@ export class TongsCommitService {
               evidence: { stage: "submit", transmitted: "unknown" },
             };
             if (transport.ambiguous) {
-              if (runwayBoundaryInput && runwayBoundaryAuthorization)
-                await this.runwayPaidExecutionBoundary.markSubmissionUnknown(
+              if (ownerRunwayPreparation?.disposition === "submit")
+                await this.ownerRunwayExecutionBoundary!.recordSubmissionUnknown(
+                  ownerRunwayPreparation.context,
+                  transport.evidence,
+                );
+              else if (runwayBoundaryInput && runwayBoundaryAuthorization)
+                await this.runwayPaidExecutionBoundary!.markSubmissionUnknown(
                   runwayBoundaryAuthorization,
                   runwayBoundaryInput,
                   transport.evidence,
@@ -31937,8 +32090,13 @@ export class TongsCommitService {
                 p_rejection_evidence: transport.evidence,
               },
             );
-            if (runwayBoundaryInput && runwayBoundaryAuthorization)
-              await this.runwayPaidExecutionBoundary.recordDefinitiveRejection(
+            if (ownerRunwayPreparation?.disposition === "submit")
+              await this.ownerRunwayExecutionBoundary!.recordDefinitiveRejection(
+                ownerRunwayPreparation.context,
+                transport.evidence,
+              );
+            else if (runwayBoundaryInput && runwayBoundaryAuthorization)
+              await this.runwayPaidExecutionBoundary!.recordDefinitiveRejection(
                 runwayBoundaryAuthorization,
                 runwayBoundaryInput,
                 transport.evidence,
@@ -32017,7 +32175,7 @@ export class TongsCommitService {
             provider_task_id: taskId,
             retry_at: (claimed.data.retry_at ?? null) as Json,
           };
-        const task = await this.brollVideoProvider.poll(taskId);
+        const task = await activeBrollVideoProvider!.poll(taskId);
         if (task.state === "pending") {
           await authority.rpc("record_broll_runway_pending", {
             p_operation_id: input.operation_id,
@@ -32048,11 +32206,18 @@ export class TongsCommitService {
               durationSeconds,
               ratio,
             };
-          await this.runwayPaidExecutionBoundary.recordProviderFailure(
-            reconciliationInput,
-            taskId,
-            task.response,
-          );
+          if (ownerRunwayPreparation)
+            await this.ownerRunwayExecutionBoundary!.recordProviderFailure(
+              ownerRunwayPreparation.context,
+              taskId,
+              task.response,
+            );
+          else
+            await this.runwayPaidExecutionBoundary!.recordProviderFailure(
+              reconciliationInput,
+              taskId,
+              task.response,
+            );
           await authority.rpc("record_broll_runway_pending", {
             p_operation_id: input.operation_id,
             p_operation_fingerprint: input.operation_fingerprint,
@@ -32097,16 +32262,17 @@ export class TongsCommitService {
             durationSeconds,
             ratio,
           };
-        await this.runwayPaidExecutionBoundary.recordCompletionForReconciliation(
-          reconciliationInput,
-          taskId,
-          task.response,
-        );
+        if (!ownerRunwayPreparation)
+          await this.runwayPaidExecutionBoundary!.recordCompletionForReconciliation(
+            reconciliationInput,
+            taskId,
+            task.response,
+          );
         state = "provider_completed";
         input.provider = "runway";
         input.provider_request_id = taskId;
         video = await inspectBrollMedia(
-          await this.brollVideoProvider.download(task.outputUrl),
+          await activeBrollVideoProvider!.download(task.outputUrl),
           "video",
         );
       }
@@ -32127,7 +32293,7 @@ export class TongsCommitService {
             "The completed Runway output receipt is missing.",
           );
         video = await inspectBrollMedia(
-          await this.brollVideoProvider.download(outputUrl),
+          await activeBrollVideoProvider!.download(outputUrl),
           "video",
         );
         input.provider = "runway";
@@ -32430,8 +32596,19 @@ export class TongsCommitService {
           "runway_pricing_not_configured",
           "The persisted Runway result does not match the enforced Gen-4.5 pricing binding.",
         );
-      const reconciliationInput: RunwaySubmissionAuthorizationInput =
-        runwayBoundaryInput ?? {
+      if (ownerRunwayPreparation) {
+        await this.ownerRunwayExecutionBoundary!.recordCanonicalSuccess(
+          ownerRunwayPreparation.context,
+          input.provider_request_id,
+          {
+            candidate_committed: true,
+            candidate_id: candidate.data.candidate_id ?? null,
+            canonical_video_path: videoPath,
+          },
+        );
+      } else {
+        const reconciliationInput: RunwaySubmissionAuthorizationInput =
+          runwayBoundaryInput ?? {
           operationId: input.operation_id,
           operationFingerprint: input.operation_fingerprint,
           submissionAttemptId:
@@ -32444,7 +32621,7 @@ export class TongsCommitService {
           durationSeconds: runwayDurationSeconds,
           ratio: runwayRatio,
         };
-      await this.runwayPaidExecutionBoundary!.recordCanonicalSuccessForReconciliation(
+        await this.runwayPaidExecutionBoundary!.recordCanonicalSuccessForReconciliation(
         reconciliationInput,
         input.provider_request_id,
         {
@@ -32453,8 +32630,8 @@ export class TongsCommitService {
           canonical_video_path: videoPath,
         },
       );
-      try {
-        await this.runwayPaidExecutionBoundary!.reconcileSuccessfulExecution(
+        try {
+          await this.runwayPaidExecutionBoundary!.reconcileSuccessfulExecution(
           reconciliationInput,
           input.provider_request_id,
           {
@@ -32463,8 +32640,8 @@ export class TongsCommitService {
             canonical_video_path: videoPath,
           },
         );
-      } catch (error) {
-        throw new HttpError(
+        } catch (error) {
+          throw new HttpError(
           502,
           "runway_financial_reconciliation_failed",
           "The B-roll candidate was saved, but Runway financial reconciliation did not complete. No additional provider request was made.",
@@ -32473,7 +32650,8 @@ export class TongsCommitService {
             provider_task_id: input.provider_request_id,
             reason: error instanceof Error ? error.message : String(error),
           },
-        );
+          );
+        }
       }
     }
     if (paidContext) {
@@ -32486,7 +32664,7 @@ export class TongsCommitService {
         candidate_committed: true,
       });
     }
-    if (input.source_kind === "generated") {
+    if (input.source_kind === "generated" && !ownerRunwayPreparation) {
       try {
         const spending = await authority.rpc("read_my_spending_operation", {
           p_operation_id: input.operation_id,
@@ -36025,6 +36203,8 @@ export function createTongsCommitService(
     options.cleanupReviewGenerator,
     options.referenceVisualReadinessEvaluator,
     options.ownerNarrativeInterpretationExecutor ?? null,
+    options.ownerRunwayExecutionBoundary ?? null,
+    options.ownerBrollVideoProvider ?? null,
   );
 }
 

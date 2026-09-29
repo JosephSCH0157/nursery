@@ -136,6 +136,45 @@ test("ambiguous Runway submission fails closed and replay never submits again",a
   assert.equal(providerCalls,1);assert.equal(unknownWrites,1);
 });
 
+test("owner-cost Runway submits once, persists the task ID, and reuses it without customer finance",async()=>{
+  let state="pending";let taskId=null;let ownerSubmits=0;let customerSubmits=0;let accepted=0;let customerFinanceCalls=0;
+  const operation=()=>({state,submission_attempt_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",provider:"runway",provider_task_id:taskId});
+  const authority={schema(){return{async rpc(name,args){
+    if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A slow documentary road transition"}},error:null};
+    if(name==="begin_broll_operation")return{data:{disposition:"replay",operation:operation()},error:null};
+    if(name==="begin_broll_runway_submission"){state="submitting";return{data:{disposition:"submitting",operation:operation()},error:null};}
+    if(name==="record_broll_runway_task"){taskId=args.p_provider_task_id;state="provider_submitted";return{data:{disposition:"provider_submitted",operation:operation()},error:null};}
+    if(name==="claim_broll_runway_poll")return{data:{disposition:"poll_not_due",retry_at:"2026-09-29T12:00:00Z",operation:operation()},error:null};
+    if(/quote|reservation|credit|spending|settlement|charge|stripe/i.test(name))customerFinanceCalls+=1;
+    throw new Error(`unexpected owner authority RPC ${name}`);
+  }}}};
+  const supabase={storage:{from(){return{async download(){return{data:null,error:{message:"Object not found",statusCode:404}};}}}},schema(){return{async rpc(name){
+    if(/quote|reservation|credit|spending|settlement|charge|stripe/i.test(name))customerFinanceCalls+=1;
+    throw new Error(`unexpected owner service RPC ${name}`);
+  }}}};
+  const customerProvider={async submit(){customerSubmits+=1;throw new Error("customer provider must not run");}};
+  const ownerProvider={async submit(){ownerSubmits+=1;return{taskId:"owner-runway-task-1",acceptedResponse:{id:"owner-runway-task-1"}};},async poll(){throw new Error("poll was not due");}};
+  let preparations=0;
+  const ownerBoundary={
+    async prepare(){preparations+=1;return{context:{ownerOperationId:"owner-operation-1",ownerRequestFingerprint:"c".repeat(64),attemptId:"owner-attempt-1",responseEventId:"owner-response-1",terminalEventId:"owner-terminal-1",createdAt:"2026-09-29T00:00:00Z"},disposition:preparations===1?"submit":"recover_task",providerTaskId:preparations===1?null:"owner-runway-task-1"};},
+    async recordAccepted(_context,recordedTaskId){accepted+=1;assert.equal(recordedTaskId,"owner-runway-task-1");},
+    async recordSubmissionUnknown(){throw new Error("unexpected submission ambiguity");},
+    async recordDefinitiveRejection(){throw new Error("unexpected rejection");},
+    async recordProviderFailure(){throw new Error("unexpected provider failure");},
+    async recordCanonicalSuccess(){throw new Error("unexpected early success");},
+  };
+  const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,customerProvider);
+  service.ownerRunwayExecutionBoundary=ownerBoundary;
+  service.ownerBrollVideoProvider=ownerProvider;
+  service.runwayPaidExecutionBoundary={async resolveOperationFunding(){customerFinanceCalls+=1;throw new Error("customer funding must not run");}};
+  service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
+  const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:owner-cost-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",poster_required:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64),runway_model:"gen4.5",duration_seconds:5,ratio:"1280:720"};
+  const first=await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{...request},{userAccessToken:"token"});
+  const replay=await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{...request},{userAccessToken:"token"});
+  assert.equal(first.provider_task_id,"owner-runway-task-1");assert.equal(replay.provider_task_id,"owner-runway-task-1");
+  assert.equal(ownerSubmits,1);assert.equal(customerSubmits,0);assert.equal(accepted,1);assert.equal(customerFinanceCalls,0);
+});
+
 test("over-limit canonical prompt is rejected before operation reservation and transmission",async()=>{
   let begins=0;let submits=0;const longPrompt="visible motion ".repeat(260);
   const authority={schema(){return{async rpc(name){if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{final_prompt:longPrompt}},error:null};if(name==="begin_broll_operation")begins+=1;throw new Error(`unexpected RPC ${name}`);}}}};
