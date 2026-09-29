@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { HEARTH_AI_ROUTES } from "../../hearth/src/lib/hearth-ai-runtime-contract";
+import { resolveBarStockOwnerRuntimeConfig } from "../server/bar-stock/bar-stock-owner-runtime-config";
 import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
 import { resolveHearthRuntimeConfig, type HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { createHearthTopicDiscoveryHandler } from "../server/hearth/hearth-topic-discovery";
@@ -62,7 +63,10 @@ export function mwHearthChatApi(testOnlyRuntimeOverride?: Partial<HearthRuntimeC
   }
   const runtimeConfig = { ...resolvedRuntimeConfig, ...testOnlyRuntimeOverride };
   const handler = createHearthAiHandler(runtimeConfig);
-  const topicDiscoveryHandler = createHearthTopicDiscoveryHandler(runtimeConfig);
+  const topicDiscoveryHandler = createHearthTopicDiscoveryHandler({
+    ...runtimeConfig,
+    ...resolveBarStockOwnerRuntimeConfig(),
+  });
 
   return async function hearthChatMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {

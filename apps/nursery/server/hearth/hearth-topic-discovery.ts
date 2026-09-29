@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { BarStockOwnerRuntimeConfig } from "../bar-stock/bar-stock-owner-runtime-config";
 import { extractUrlToResearchSource, classifyResearchSourceAuthority } from "./hearth-research-runtime";
 import type { HearthRuntimeConfig } from "./hearth-runtime-config";
 
 type Json = Record<string, unknown>;
+type TopicDiscoveryRuntimeConfig = HearthRuntimeConfig & Partial<BarStockOwnerRuntimeConfig>;
 const BRAVE_URL = "https://api.search.brave.com/res/v1/web/search";
 const LEASE_HEADER = "x-forge-discovery-lease";
 
@@ -18,13 +20,13 @@ function canonicalUrl(value: string): string {
   for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid|gclid|ref$)/i.test(key)) url.searchParams.delete(key);
   return url.toString();
 }
-function userClient(config: HearthRuntimeConfig, token: string): SupabaseClient {
+function userClient(config: TopicDiscoveryRuntimeConfig, token: string): SupabaseClient {
   return createClient(config.supabaseUrl!, config.supabaseRpcKey!, { auth: { persistSession: false }, global: { headers: { authorization: `Bearer ${token}` } } });
 }
-function serviceClient(config: HearthRuntimeConfig): SupabaseClient {
+function serviceClient(config: TopicDiscoveryRuntimeConfig): SupabaseClient {
   return createClient(config.supabaseUrl!, config.supabaseServiceRoleKey!, { auth: { persistSession: false } });
 }
-async function actor(config: HearthRuntimeConfig, token: string): Promise<string | null> {
+async function actor(config: TopicDiscoveryRuntimeConfig, token: string): Promise<string | null> {
   const { data, error } = await serviceClient(config).auth.getUser(token); return error ? null : data.user?.id ?? null;
 }
 async function stillAuthorized(client: SupabaseClient, workspaceId: string, userId: string, revision: number): Promise<boolean> {
@@ -47,7 +49,7 @@ export function buildDiscoveryQueries(preference: Json): string[] {
   ].map((query) => query.replace(/\s+/g, " ").trim()).filter((value, index, all) => value.length > 3 && all.indexOf(value) === index).slice(0, 3);
 }
 
-async function runDiscovery(args: { config: HearthRuntimeConfig; token: string; workspaceId: string; revision: number; runId: string; lease: string; preference: Json }): Promise<Json[]> {
+async function runDiscovery(args: { config: TopicDiscoveryRuntimeConfig; token: string; workspaceId: string; revision: number; runId: string; lease: string; preference: Json }): Promise<Json[]> {
   const service = serviceClient(args.config).schema("tongs");
   const user = userClient(args.config, args.token);
   const discoveryQueries = buildDiscoveryQueries(args.preference);
@@ -108,7 +110,7 @@ async function runDiscovery(args: { config: HearthRuntimeConfig; token: string; 
   return stories;
 }
 
-export function createHearthTopicDiscoveryHandler(config: HearthRuntimeConfig) {
+export function createHearthTopicDiscoveryHandler(config: TopicDiscoveryRuntimeConfig) {
   return async (request: Request): Promise<Response> => {
     if (!config.supabaseUrl || !config.supabaseRpcKey || !config.supabaseServiceRoleKey) return json(503, { ok: false, error: "Discovery persistence is not configured." });
     const token = bearer(request); if (!token) return json(401, { ok: false, error: "Sign in required." });
