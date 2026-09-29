@@ -1,4 +1,5 @@
 import type { HearthOp } from "./hearth-ai-ops";
+import type { HearthDeterministicAction } from "./hearth-deterministic-cleanup";
 import type { HearthResearchResult } from "./hearth-research-contract";
 
 export type HearthProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
@@ -11,6 +12,7 @@ export type HearthTurnMode =
   | "outline_generate"
   | "script_generate"
   | "script_mutate"
+  | "deterministic_cleanup"
   | "readiness_review"
   | "production_action";
 
@@ -21,6 +23,7 @@ export type HearthExplicitUiAction =
   | { kind: "generate_outline" }
   | { kind: "generate_script" }
   | { kind: "mutate_script" }
+  | { kind: "deterministic"; action: HearthDeterministicAction }
   | { kind: "readiness_review" }
   | { kind: "production"; action: HearthProductionAction };
 

@@ -8,6 +8,10 @@ import {
   type HearthChatHydrationStatus,
 } from "../../lib/hearth-chat-readiness";
 import type { HearthOwnerChatCapability } from "../../lib/hearth-chat-api";
+import {
+  getHearthDeterministicActionLabel,
+  parseHearthDeterministicCommand,
+} from "../../lib/hearth-deterministic-cleanup";
 
 type ChatAttachmentView = {
   id: string;
@@ -117,6 +121,7 @@ export type ChatSurfaceProps = {
 
 export default function ChatSurface(props: ChatSurfaceProps) {
   const ownerChatBlocked = isOwnerChatCapabilityBlocked(props.ownerChatCapability);
+  const deterministicCommand = parseHearthDeterministicCommand(props.chatDraft);
   const chatSurfaceRef = useRef<HTMLElement | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const chatTopRef = useRef<HTMLDivElement | null>(null);
@@ -283,6 +288,8 @@ export default function ChatSurface(props: ChatSurfaceProps) {
               <div className="hs-ai-proposal-title">
                 {props.pendingAiProposal.proposalOrigin === "format_only"
                   ? "Format-only preview"
+                  : props.pendingAiProposal.proposalOrigin === "deterministic"
+                    ? `${getHearthDeterministicActionLabel(props.pendingAiProposal.deterministicAction)} preview`
                   : props.pendingAiProposal.proposalOrigin === "user_editorial"
                     ? "User editorial edit"
                     : "First pass to review"}
@@ -298,6 +305,10 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             {props.pendingAiProposal.proposalOrigin === "format_only" ? (
               <div className="hs-field-label-muted">
                 Deterministic formatting only. Wording, punctuation, speaker identity, notes, and pacing cues are unchanged.
+              </div>
+            ) : props.pendingAiProposal.proposalOrigin === "deterministic" ? (
+              <div className="hs-field-label-muted">
+                Explicit mechanical cleanup. No AI, provider, credits, quote, or accounting path was used.
               </div>
             ) : props.pendingAiProposal.proposalOrigin === "user_editorial" ? (
               <div className="hs-error-text-small">
@@ -356,8 +367,10 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                           {proposalBodyDirty ? (
                             <div className="hs-ai-op-dirty-actions">
                               <div className="hs-field-label-muted">
-                                {props.pendingAiProposal.formatOriginalBody !== null
-                                  ? "This proposal now differs from the original deterministic format preview."
+                                {props.pendingAiProposal.proposalOrigin === "deterministic"
+                                  ? "This proposal now differs from the original deterministic cleanup preview."
+                                  : props.pendingAiProposal.formatOriginalBody !== null
+                                    ? "This proposal now differs from the original deterministic format preview."
                                   : "This proposal now differs from the original AI suggestion."}
                               </div>
                               <button
@@ -365,7 +378,11 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                                 onClick={() => props.onResetAiProposalBody(index)}
                                 disabled={props.isApplyingAiOps}
                               >
-                                {props.pendingAiProposal.formatOriginalBody !== null ? "Reset to format-only version" : "Reset to AI version"}
+                                {props.pendingAiProposal.proposalOrigin === "deterministic"
+                                  ? "Reset to deterministic version"
+                                  : props.pendingAiProposal.formatOriginalBody !== null
+                                    ? "Reset to format-only version"
+                                    : "Reset to AI version"}
                               </button>
                             </div>
                           ) : null}
@@ -597,11 +614,11 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                 rows={2}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" || event.shiftKey) return;
-                  if (ownerChatBlocked) return;
+                  if (ownerChatBlocked && !deterministicCommand) return;
                   event.preventDefault();
                   props.onSendChat();
                 }}
-                disabled={props.isAiProcessing || props.aiCreditsDepleted || props.aiAdmissionBlocked || !props.aiEpisodeReady}
+                disabled={props.isAiProcessing || (!deterministicCommand && (props.aiCreditsDepleted || props.aiAdmissionBlocked || ownerChatBlocked)) || !props.aiEpisodeReady}
               />
             )}
           </div>
@@ -613,7 +630,7 @@ export default function ChatSurface(props: ChatSurfaceProps) {
           <button
             type="button"
             onClick={props.onSendChat}
-            disabled={props.isAiProcessing || props.aiCreditsDepleted || props.aiAdmissionBlocked || ownerChatBlocked || !props.aiEpisodeReady || !props.chatDraft.trim()}
+            disabled={props.isAiProcessing || (!deterministicCommand && (props.aiCreditsDepleted || props.aiAdmissionBlocked || ownerChatBlocked)) || !props.aiEpisodeReady || !props.chatDraft.trim()}
           >
             {props.isAiProcessing ? "Sending..." : "Send"}
           </button>

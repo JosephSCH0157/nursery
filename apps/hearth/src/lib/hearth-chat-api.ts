@@ -35,6 +35,10 @@ import {
   normalizeVisualProviderId,
   type VisualProviderId,
 } from "./hearth-visual-provider-profiles";
+import {
+  applyHearthDeterministicCleanup,
+  buildHearthDeterministicAssistantMessage,
+} from "./hearth-deterministic-cleanup";
 
 export type {
   HearthAiBehavior,
@@ -1313,6 +1317,44 @@ export async function requestHearthChatReply(
   const normalized = normalizeMessages(messages);
   const settings = resolveAiSettingsFromStorage();
   const lane = settings.lane;
+  if (options?.explicitAction?.kind === "deterministic") {
+    if (!episodeContext.episodeId.trim()) {
+      return {
+        ok: false,
+        status: 400,
+        error: "Episode context is required.",
+        runtime: { tokenBalance: null, billingMode: lane },
+      };
+    }
+    const cleanup = applyHearthDeterministicCleanup(options.explicitAction.action, episodeContext.body);
+    const assistantText = buildHearthDeterministicAssistantMessage(cleanup);
+    const ops: HearthOp[] = cleanup.changed ? [{ op: "set_body", value: cleanup.result }] : [];
+    const turnResult: HearthTurnResult = {
+      decision: {
+        mode: "deterministic_cleanup",
+        requiresArtifact: true,
+        allowsMutation: true,
+        retrievalScope: "active_episode_only",
+        requestedArtifact: "script",
+        reasons: ["explicit_deterministic_action"],
+      },
+      assistantMessage: assistantText,
+      artifact: { kind: "script", text: cleanup.result },
+      operations: ops,
+      validation: { ok: true, failureKind: "none", message: null },
+      persistence: "pending",
+    };
+    return {
+      ok: true,
+      status: 200,
+      assistantText,
+      ops,
+      scriptText: cleanup.result,
+      runtime: { tokenBalance: null, billingMode: lane },
+      totalTokens: null,
+      turnResult,
+    };
+  }
   if (!normalized.length) {
     return {
       ok: false,

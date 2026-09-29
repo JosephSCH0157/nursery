@@ -146,6 +146,7 @@ export function reclassifyHearthFormatProposal(
   return {
     ...proposal,
     proposalOrigin: preservation.preserved ? "format_only" : "user_editorial",
+    deterministicAction: preservation.preserved ? proposal.deterministicAction : null,
     autosaveReasonCode: preservation.preserved ? "format_only" : "user_editorial",
     formatChanges: preservation.changes,
     persistedProposal: null,

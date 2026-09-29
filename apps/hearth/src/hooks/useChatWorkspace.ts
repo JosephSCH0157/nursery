@@ -22,6 +22,12 @@ import {
   type BrowserSpeechRecognitionResultEvent,
 } from "../lib/browser-speech-contract";
 import type { HearthResearchResult } from "../lib/hearth-research-contract";
+import {
+  applyHearthDeterministicCleanup,
+  buildHearthDeterministicAssistantMessage,
+  parseHearthDeterministicCommand,
+  type HearthDeterministicAction,
+} from "../lib/hearth-deterministic-cleanup";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import type { HearthChatHydrationStatus } from "../lib/hearth-chat-readiness";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
@@ -530,6 +536,7 @@ type SendChatMessageArgs = {
   productionAction?: string;
   productionScriptVersion?: number;
   source?: "typed" | "voice" | "shortcut";
+  deterministicAction?: HearthDeterministicAction;
 };
 
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
@@ -583,6 +590,14 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
   };
   rememberWritingFormat: (format: string) => void;
   buildActiveEpisodeContext: () => TEpisodeContext | null;
+  readDeterministicSourceBody: (episodeContext: TEpisodeContext) => string;
+  createDeterministicProposal: (args: {
+    action: HearthDeterministicAction;
+    assistantText: string;
+    sourceBody: string;
+    resultBody: string;
+    episodeContext: TEpisodeContext;
+  }) => TPendingAiProposal;
   detectAiAutosaveReasonCode: (text: string) => AiAutosaveReasonCode | null;
   countProducerQuestions: (text: string) => number;
   cloneHearthProposalOps: (ops: THearthOp[]) => THearthOp[];
@@ -709,11 +724,6 @@ export function useChatWorkspaceRuntime<
 
   const sendChatMessage = useCallback(async (params: SendChatMessageArgs) => {
     if (args.isAiProcessing) return;
-    const capabilityMessage = resolveOwnerChatCapabilityMessage(args.ownerChatCapability);
-    if (capabilityMessage) {
-      args.setChatError(capabilityMessage);
-      return;
-    }
     if (!args.isChatContextReady) {
       args.setChatError("Hearth is still loading this Episode's canonical conversation. Try again in a moment.");
       return;
@@ -725,6 +735,63 @@ export function useChatWorkspaceRuntime<
     const episodeContext = args.buildActiveEpisodeContext();
     if (!episodeContext) {
       args.setChatError("Pick an Episode or Spark and I’ll work from there.");
+      return;
+    }
+    const deterministicAction = params.deterministicAction
+      ?? parseHearthDeterministicCommand(rawRequestContent);
+    if (deterministicAction) {
+      const operation = args.operationAuthority.begin("script.cleanup.deterministic");
+      const sourceBody = args.readDeterministicSourceBody(episodeContext);
+      const cleanup = applyHearthDeterministicCleanup(deterministicAction, sourceBody);
+      const assistantText = buildHearthDeterministicAssistantMessage(cleanup);
+      const deterministicOps = cleanup.changed
+        ? [{ op: "set_body" as const, value: cleanup.result }]
+        : [];
+      const baseMessages = args.chatMessagesRef.current;
+      const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || rawRequestContent };
+      const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantText };
+      args.setChatMessages([...baseMessages, displayUserMessage, assistantMessage]);
+      args.setChatDraft("");
+      args.setChatError(null);
+      args.setAiRuntimeWarning(null);
+      args.setPendingAiProposal(cleanup.changed
+        ? args.createDeterministicProposal({
+            action: deterministicAction,
+            assistantText,
+            sourceBody,
+            resultBody: cleanup.result,
+            episodeContext,
+          })
+        : null);
+      args.setLastTurnResult({
+        decision: {
+          mode: "deterministic_cleanup",
+          requiresArtifact: true,
+          allowsMutation: true,
+          retrievalScope: "active_episode_only",
+          requestedArtifact: "script",
+          reasons: ["explicit_deterministic_command"],
+        },
+        assistantMessage: assistantText,
+        artifact: { kind: "script", text: cleanup.result },
+        operations: deterministicOps,
+        validation: { ok: true, failureKind: "none", message: null },
+        persistence: "pending",
+      });
+      if (args.operationAuthority.isCurrent(operation) && cleanup.changed) {
+        args.publishForgeNotice({
+          job: "script-completed",
+          title: "Deterministic cleanup ready to review",
+          message: "No AI or provider was used.",
+          severity: "success",
+        });
+      }
+      return;
+    }
+
+    const capabilityMessage = resolveOwnerChatCapabilityMessage(args.ownerChatCapability);
+    if (capabilityMessage) {
+      args.setChatError(capabilityMessage);
       return;
     }
     const operation = args.operationAuthority.begin("chat.reply");

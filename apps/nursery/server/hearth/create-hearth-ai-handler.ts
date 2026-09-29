@@ -92,6 +92,10 @@ import {
 } from "../../../hearth/src/lib/hearth-research-contract";
 import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
 import {
+  applyHearthDeterministicCleanup,
+  buildHearthDeterministicAssistantMessage,
+} from "../../../hearth/src/lib/hearth-deterministic-cleanup";
+import {
   canonicalizeHearthProductionArtifactOutput,
   validateHearthProductionArtifactOutput,
 } from "../../../hearth/src/lib/hearth-production-feedback";
@@ -4089,6 +4093,70 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
 
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
+      const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
+      const parsedRequestExplicitAction = normalizeHearthExplicitUiAction(bodyRaw.explicit_action);
+      if (bodyRaw.explicit_action != null && !parsedRequestExplicitAction) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "explicit_action is invalid",
+          billing_mode: lane,
+          token_balance: null,
+        });
+      }
+      if (parsedRequestExplicitAction?.kind === "deterministic") {
+        const deterministicEpisodeContext = normalizeEpisodeContext(bodyRaw.episode_context);
+        if (!deterministicEpisodeContext) {
+          return jsonResponse(400, {
+            ok: false,
+            error: "episode_context with episodeId is required",
+            code: "deterministic_episode_context_required",
+            billing_mode: lane,
+            token_balance: null,
+          });
+        }
+        const rawDeterministicEpisodeContext = isRecord(bodyRaw.episode_context)
+          ? bodyRaw.episode_context
+          : null;
+        const deterministicSourceBody = typeof rawDeterministicEpisodeContext?.body === "string"
+          ? rawDeterministicEpisodeContext.body
+          : deterministicEpisodeContext.body;
+        const cleanup = applyHearthDeterministicCleanup(
+          parsedRequestExplicitAction.action,
+          deterministicSourceBody,
+        );
+        const assistantMessage = buildHearthDeterministicAssistantMessage(cleanup);
+        const operations: HearthOp[] = cleanup.changed
+          ? [{ op: "set_body", value: cleanup.result }]
+          : [];
+        const decision = resolveHearthTurnDecision({
+          creatorText: readOptionalString(bodyRaw.user_authored_text) ?? "",
+          explicitAction: parsedRequestExplicitAction,
+          lifecycle: {
+            hasDraft: deterministicSourceBody.trim().length > 0,
+            hasApprovedScript: false,
+            isReady: false,
+          },
+        });
+        return jsonResponse(200, {
+          ok: true,
+          turn_result: buildHearthTurnResult({
+            decision,
+            assistantMessage,
+            artifact: { kind: "script", text: cleanup.result },
+            operations,
+            persistence: "pending",
+          }),
+          assistant_text: assistantMessage,
+          reply: assistantMessage,
+          ops: operations,
+          script_text: cleanup.result,
+          tag_audit: null,
+          total_tokens: null,
+          billing_mode: lane,
+          token_balance: null,
+          deterministic_action: parsedRequestExplicitAction.action,
+        });
+      }
       let paidExecutionHandle = normalizeHearthPaidExecutionHandle(bodyRaw.paid_execution);
       if (bodyRaw.paid_execution != null && !paidExecutionHandle) {
         return jsonResponse(400, {
@@ -4119,7 +4187,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         || bodyRaw.production_action === "image_beat_sheet"
         || bodyRaw.production_action === "release_prep_pack"
       ) ? bodyRaw.production_action : null;
-      const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
       const providedChatActionId = readOptionalString(bodyRaw.action_id);
       const chatActionId = isUuid(providedChatActionId) ? providedChatActionId : crypto.randomUUID();
@@ -4197,14 +4264,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // writing-format or tone instructions appended to the provider message.
       const requestText = readOptionalString(bodyRaw.user_authored_text)
         ?? stripHearthInternalRequestInstructions(latestUserMessage?.content ?? "");
-      const parsedExplicitAction = normalizeHearthExplicitUiAction(bodyRaw.explicit_action);
-      if (bodyRaw.explicit_action != null && !parsedExplicitAction) {
-        return jsonResponse(400, {
-          ok: false,
-          error: "explicit_action is invalid",
-          ...buildBillingSnapshot(lane),
-        });
-      }
+      const parsedExplicitAction = parsedRequestExplicitAction;
       const outputPreference = normalizeHearthOutputPreference(bodyRaw.output_preference);
       if (bodyRaw.output_preference != null && !outputPreference) {
         return jsonResponse(400, {

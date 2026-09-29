@@ -43,6 +43,7 @@ function actionMode(action: HearthExplicitUiAction | null): HearthTurnMode | nul
   if (action.kind === "mutate_script") return "script_mutate";
   if (action.kind === "readiness_review") return "readiness_review";
   if (action.kind === "production") return "production_action";
+  if (action.kind === "deterministic") return "deterministic_cleanup";
   return action.kind;
 }
 
@@ -58,12 +59,14 @@ function decisionForMode(args: {
       ? "outline"
       : args.mode === "script_generate" || args.mode === "script_mutate"
         ? "script"
+        : args.mode === "deterministic_cleanup"
+          ? "script"
         : args.mode === "production_action"
           ? "production"
           : null;
   const requiresArtifact = requestedArtifact !== null;
   const hasMutationTarget = args.mode !== "script_mutate" || args.lifecycle.hasDraft;
-  const allowsMutation = args.mode === "script_mutate" && hasMutationTarget;
+  const allowsMutation = (args.mode === "script_mutate" || args.mode === "deterministic_cleanup") && hasMutationTarget;
   const reasons = [...args.reasons];
   if (args.mode === "script_mutate" && !args.lifecycle.hasDraft) reasons.push("canonical_draft_missing");
   if (args.mode === "production_action" && !args.lifecycle.hasApprovedScript) reasons.push("approved_script_missing");
@@ -88,12 +91,15 @@ export function resolveHearthTurnDecision(args: {
     : "active_episode_only" as const;
   const reasons: string[] = [];
   let mode: HearthTurnMode = "conversation";
+  const explicitMode = actionMode(args.explicitAction);
 
-  if (LISTENING_RE.test(creatorText)) {
+  if (explicitMode === "deterministic_cleanup") {
+    mode = explicitMode;
+    reasons.push("explicit_deterministic_action");
+  } else if (LISTENING_RE.test(creatorText)) {
     mode = "listening";
     reasons.push("creator_requested_acknowledgement");
   } else {
-    const explicitMode = actionMode(args.explicitAction);
     const explicitNoEdit = NO_EDIT_RE.test(creatorText) || NO_ARTIFACT_RE.test(creatorText);
     const discussion = DISCUSSION_RE.test(creatorText);
     if ((explicitMode === "script_mutate" || explicitMode === "script_generate" || explicitMode === "outline_generate") && explicitNoEdit) {

@@ -12,6 +12,7 @@ import type {
   HearthTurnResult,
   HearthValidatedArtifact,
 } from "./hearth-turn-contract";
+import { isHearthDeterministicAction } from "./hearth-deterministic-cleanup";
 
 export const HEARTH_AI_ROUTES = {
   chat: "/api/hearth/chat",
@@ -254,6 +255,9 @@ export function normalizeHearthExplicitUiAction(value: unknown): HearthExplicitU
   if (!isRecord(value)) return null;
   const kind = readTrimmedString(value.kind);
   if (kind === "production" && isHearthProductionAction(value.action)) {
+    return { kind, action: value.action };
+  }
+  if (kind === "deterministic" && isHearthDeterministicAction(value.action)) {
     return { kind, action: value.action };
   }
   if (kind === "conversation"

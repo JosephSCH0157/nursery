@@ -9,7 +9,7 @@ export type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 export type UiDensity = "comfortable" | "compact";
 export type FocusTab = "draft" | "planning" | "sources" | "revisions";
 export type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
-export type ProposalSaveReasonCode = AiAutosaveReasonCode | "format_only" | "user_editorial";
+export type ProposalSaveReasonCode = AiAutosaveReasonCode | "format_only" | "deterministic_cleanup" | "user_editorial";
 export type ProposalAutosaveReason = `autosave:${ProposalSaveReasonCode}`;
 export type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
 export type ForgeNoticeJob =
@@ -82,7 +82,8 @@ export type PendingAiProposal = {
   context: EpisodeContext;
   fromGate: boolean;
   autosaveReasonCode: ProposalSaveReasonCode;
-  proposalOrigin: "ai" | "format_only" | "user_editorial";
+  proposalOrigin: "ai" | "format_only" | "deterministic" | "user_editorial";
+  deterministicAction: import("../../lib/hearth-deterministic-cleanup").HearthDeterministicAction | null;
   formatSourceBody: string | null;
   formatOriginalBody: string | null;
   formatChanges: HearthFormatOnlyChangeCategory[];

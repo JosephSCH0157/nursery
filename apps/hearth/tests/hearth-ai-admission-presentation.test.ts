@@ -48,12 +48,13 @@ test("provider and model-output failures do not masquerade as account admission 
 test("ChatSurface does not leave generation controls or submission enabled after admission failure", () => {
   assert.match(chatSurfaceSource, /!props\.aiAdmissionBlocked \? <div className="hs-ai-format-row"/);
   assert.match(chatSurfaceSource, /!props\.aiAdmissionBlocked \? <div className="hs-ai-shortcut-row"/);
-  assert.match(chatSurfaceSource, /props\.aiAdmissionBlocked \|\| !props\.aiEpisodeReady/);
+  assert.match(chatSurfaceSource, /!deterministicCommand && \(props\.aiCreditsDepleted \|\| props\.aiAdmissionBlocked \|\| ownerChatBlocked\)/);
+  assert.match(chatSurfaceSource, /parseHearthDeterministicCommand\(props\.chatDraft\)/);
 });
 
-test("ChatSurface blocks owner chat without disabling editable non-AI inputs", () => {
-  assert.match(chatSurfaceSource, /if \(ownerChatBlocked\) return;/);
-  assert.match(chatSurfaceSource, /props\.aiAdmissionBlocked \|\| ownerChatBlocked \|\| !props\.aiEpisodeReady/);
+test("ChatSurface blocks owner AI while exact deterministic commands remain available", () => {
+  assert.match(chatSurfaceSource, /if \(ownerChatBlocked && !deterministicCommand\) return;/);
+  assert.match(chatSurfaceSource, /!deterministicCommand && \(props\.aiCreditsDepleted \|\| props\.aiAdmissionBlocked \|\| ownerChatBlocked\)/);
   assert.doesNotMatch(chatSurfaceSource, /disabled=\{[^}]*ownerChatBlocked[^}]*\}\s*\/?>\s*\{props\.sttTarget/);
   assert.match(chatSurfaceSource, /Hearth couldn’t verify private owner AI availability[\s\S]*onRetryOwnerChatCapability/);
 });
