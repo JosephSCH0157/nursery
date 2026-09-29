@@ -18,6 +18,7 @@
     "test:db:owner-budget-concurrency": "node scripts/verify-owner-budget-reservation-concurrency.mjs",
     "test:db:owner-cost-accounting": "node scripts/verify-owner-cost-accounting-authority-isolated.mjs",
     "test:db:hearth-owner-results": "node scripts/verify-hearth-owner-result-authority-isolated.mjs",
+    "test:db:hearth-owner-image-results": "node scripts/verify-hearth-owner-image-result-authority-isolated.mjs",
     "test:db:live-subscription-compatibility": "node scripts/verify-live-subscription-accounting-compatibility.mjs",
     "test:db:openai-text-enforcement": "node scripts/verify-openai-text-enforcement-isolated.mjs",
     "test:db:openai-seven-test-certification": "pnpm --filter nursery exec tsx ../../scripts/certify-openai-seven-test-adapters.mts",
