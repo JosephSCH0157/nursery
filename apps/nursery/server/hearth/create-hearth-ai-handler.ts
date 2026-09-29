@@ -185,6 +185,24 @@ import {
 } from "./hearth-thumbnail-direction-canonical";
 import { ServerTongsRequestError } from "../tongs/server-tongs-request";
 import {
+  ForgeOwnerAuthorizationError,
+  ForgeOwnerExecutionCoordinator,
+  createSupabaseOwnerAuthorityReader,
+  requireForgeOwnerExecutionAuthority,
+  type OwnerCostRpcGate,
+  type OwnerFinancialEnvironment,
+  type OwnerRuntimeEnvironment,
+} from "../accounting/forge-owner-execution-coordinator";
+import {
+  HEARTH_OWNER_TEXT_MODEL,
+  executeOwnerHearthText,
+  type OwnerHearthTextRoute,
+} from "./owner-hearth-text-execution";
+import {
+  createOwnerHearthResearchCostSession,
+  type OwnerHearthResearchCostSession,
+} from "./owner-hearth-research-cost-execution";
+import {
   ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
   readOwnerHearthExecutionRequirement,
@@ -195,19 +213,13 @@ import {
   CUSTOMER_RESEARCH_CREDITS,
   CUSTOMER_RESEARCH_MODEL,
   OWNER_RESEARCH_DEADLINE_MS,
-  acceptOwnerHearthResearchOperation,
-  acquireOwnerHearthResearchAdmission,
   bindCustomerHearthResearchSynthesis,
   buildCustomerResearchPlan,
   buildOwnerResearchPlan,
   createCustomerHearthResearchFetch,
-  createOwnerHearthResearchFetch,
   fingerprintCustomerResearchPlan,
-  fingerprintOwnerResearchPlan,
   freezeOwnerHearthResearchSynthesis,
   ownerHearthResearchExecutionGate,
-  quoteOwnerHearthResearchOperation,
-  readOwnerHearthResearchExecutionRequirement,
   settleCustomerHearthResearchBeforeSynthesis,
   settleOwnerHearthResearchBeforeSynthesis,
   sha256Canonical,
@@ -428,6 +440,22 @@ async function readJsonBody(request: Request): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function ownerRuntimeEnvironment(): OwnerRuntimeEnvironment {
+  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
+  if (value === "production") return "production";
+  if (value === "deploy-preview" || value === "preview") return "preview";
+  return "development";
+}
+
+async function ownerFinancialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinancialEnvironment> {
+  const result = await gate.rpc("read_financial_runtime_environment");
+  const value = isRecord(result.data) ? result.data.financial_environment : null;
+  if (result.error || (value !== "test" && value !== "live")) {
+    throw new Error("Owner-cost financial environment is unavailable");
+  }
+  return value;
 }
 
 function readOptionalString(value: unknown): string | null {
@@ -2546,6 +2574,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         },
       }
     : null);
+  const ownerCostGate = config.ownerCostGate ?? openAiTextGate as OwnerCostRpcGate | null;
+  const ownerAuthorityReader = config.ownerAuthorityReader ?? (supabaseService
+    ? createSupabaseOwnerAuthorityReader(supabaseService)
+    : null);
+  const ownerExecutionCoordinator = config.ownerExecutionCoordinator ?? (
+    ownerCostGate && ownerAuthorityReader
+      ? new ForgeOwnerExecutionCoordinator({ gate: ownerCostGate, authorityReader: ownerAuthorityReader })
+      : null
+  );
 
   type FundingReservationQuery = {
     eq(column: "id" | "operation_id" | "user_id", value: string): FundingReservationQuery;
@@ -4361,56 +4398,53 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       let ownerHearthRequirement: Record<string, unknown> | null = null;
       let ownerResearchRequirement: Record<string, unknown> | null = null;
-      if (lane === AI_USAGE_LANE.FORGE && turnDecision.mode !== "research"
-        && openAiTextGate && userId && isUuid(episodeContext.workspaceId)) {
+      if (lane === AI_USAGE_LANE.FORGE && ownerAuthorityReader && userId && isUuid(episodeContext.workspaceId)) {
         try {
-          const requirement = await readOwnerHearthExecutionRequirement({
-            gate: openAiTextGate,
-            userId,
+          const authority = await requireForgeOwnerExecutionAuthority({
+            reader: ownerAuthorityReader,
+            authenticatedUserId: userId,
             workspaceId: episodeContext.workspaceId,
+            routeCode: turnDecision.mode === "research" ? "hearth.research_synthesis" : "hearth.chat_completion",
           });
-          if (requirement.owner_testing_effective === true) ownerHearthRequirement = requirement;
-        } catch {
+          const requirement = {
+            owner_testing_effective: true,
+            authority_kind: "shared_owner_cost",
+            principal_revision: authority.principalRevision,
+            membership_role: authority.membershipRole,
+          };
+          if (turnDecision.mode === "research") ownerResearchRequirement = requirement;
+          else ownerHearthRequirement = requirement;
+        } catch (error) {
+          if (error instanceof ForgeOwnerAuthorizationError) {
+            // Not an enabled owner principal. Continue through the unchanged customer path.
+          } else {
           return jsonResponse(503, {
             ok: false,
             error: "Private owner execution controls are unavailable.",
             code: "owner_hearth_control_unavailable",
             ...buildBillingSnapshot(lane),
           });
-        }
-      }
-      if (lane === AI_USAGE_LANE.FORGE && turnDecision.mode === "research"
-        && openAiTextGate && userId && isUuid(episodeContext.workspaceId)) {
-        try {
-          const requirement = await readOwnerHearthResearchExecutionRequirement({
-            gate: openAiTextGate,
-            userId,
-            workspaceId: episodeContext.workspaceId,
-          });
-          if (requirement.owner_testing_effective === true) ownerResearchRequirement = requirement;
-        } catch {
-          return jsonResponse(503, {
-            ok: false,
-            error: "Private owner research controls are unavailable.",
-            code: "owner_hearth_research_control_unavailable",
-            ...buildBillingSnapshot(lane),
-          });
+          }
         }
       }
       let policyDecision: AiPolicyResolveResult | null = null;
       try {
-        policyDecision = await resolveRuntimeAiPolicy({
-          supabaseService,
-          userId,
-          workspaceId: episodeContext.workspaceId,
-          lane,
-          feature: chatFeature.feature,
-          action: "chat",
-          provider: "openai",
-          model: requestedModel ?? configuredModel,
-          estimatedCostUsd: null,
-          requestId: chatActionId,
-        });
+        // Shared owner authority selects an isolated Forge credential directly.
+        // Customer/BYO policy remains exclusively on the unchanged customer path.
+        if (!ownerHearthRequirement && !ownerResearchRequirement) {
+          policyDecision = await resolveRuntimeAiPolicy({
+            supabaseService,
+            userId,
+            workspaceId: episodeContext.workspaceId,
+            lane,
+            feature: chatFeature.feature,
+            action: "chat",
+            provider: "openai",
+            model: requestedModel ?? configuredModel,
+            estimatedCostUsd: null,
+            requestId: chatActionId,
+          });
+        }
       } catch {
         return jsonResponse(500, {
           ok: false,
@@ -4771,6 +4805,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       let customerResearchDeadlineAt: number | null = null;
       let ownerResearchMaximumOutputTokens: number | null = null;
       let ownerResearchFetch: typeof fetch | undefined;
+      let ownerResearchCostSession: OwnerHearthResearchCostSession | null = null;
+      let currentOwnerFinancialEnvironment: OwnerFinancialEnvironment | null = null;
       if (researchModeRequested && ownerResearchRequirement) {
         if (!ownerResearchApiKey) {
           return jsonResponse(503, {
@@ -4780,7 +4816,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ...buildBillingSnapshot(lane),
           });
         }
-        if (!researchBrief || !researchRequest || !userId || !openAiTextGate || !isUuid(episodeContext.workspaceId)) {
+        if (!researchBrief || !researchRequest || !userId || !ownerCostGate
+          || !ownerExecutionCoordinator || !isUuid(episodeContext.workspaceId)) {
           return jsonResponse(422, {
             ok: false,
             error: "Owner-funded research requires a complete workspace-bound research plan.",
@@ -4795,80 +4832,25 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           query: researchRequest.query,
           briefFingerprint: researchBrief.briefFingerprint,
           requestedModel,
-          limitProfile: ownerResearchRequirement.authorization_kind === "canary"
-            ? "canary"
-            : "creator_session",
+          limitProfile: "creator_session",
         });
-        const planFingerprint = fingerprintOwnerResearchPlan(ownerResearchPlan);
-        if (!paidExecutionHandle) {
-          if (!spendingAcceptance) {
-            const quote = await quoteOwnerHearthResearchOperation({
-              gate: openAiTextGate,
-              userId,
-              plan: ownerResearchPlan,
-              requestFingerprint: planFingerprint,
-            });
-            return jsonResponse(quote.funding_eligible ? 409 : 402, {
-              ok: false,
-              error: quote.funding_eligible
-                ? "Review and accept this bounded owner research commitment before search begins."
-                : "The owner research budget cannot admit this quote.",
-              code: quote.funding_eligible
-                ? "hearth_spending_confirmation_required"
-                : "hearth_owner_research_budget_required",
-              billing_quote: {
-                quote_id: quote.quote_id,
-                operation_id: quote.operation_id,
-                quote_hash: quote.quote_hash,
-                request_fingerprint: quote.request_fingerprint,
-                credit_charge: 0,
-                failure_terms: "Failed operations do not consume Forge Credits.",
-                funding_eligible: quote.funding_eligible,
-                funding_label: quote.funding_label,
-                model_display_name: quote.model_display_name ?? null,
-                expires_at: quote.expires_at,
-              },
-              ...buildBillingSnapshot(lane),
-            });
-          }
-          if (spendingAcceptance.requestFingerprint !== planFingerprint) {
-            return jsonResponse(409, {
-              ok: false,
-              error: "The research plan no longer matches the accepted quote.",
-              code: "paid_request_fingerprint_mismatch",
-              ...buildBillingSnapshot(lane),
-            });
-          }
-          const accepted = await acceptOwnerHearthResearchOperation({
-            gate: openAiTextGate,
-            userId,
-            plan: ownerResearchPlan,
-            acceptance: spendingAcceptance,
-          });
-          paidExecutionHandle = await withBoundFundingEnvironment(accepted.handle, userId);
-          model = accepted.model;
-          ownerResearchMaximumOutputTokens = accepted.maximumOutputTokens;
-          ownerResearchDeadlineAt = accepted.deadlineAt;
-          await acquireOwnerHearthResearchAdmission({ gate: openAiTextGate, reservationId: accepted.handle.reservationId });
-        } else {
-          if (paidExecutionHandle.requestFingerprint !== planFingerprint) {
-            return jsonResponse(409, {
-              ok: false,
-              error: "The research plan no longer matches the accepted operation.",
-              code: "paid_request_fingerprint_mismatch",
-              ...buildBillingSnapshot(lane),
-            });
-          }
-          model = String(ownerResearchRequirement.provider_model_id ?? model);
-          ownerResearchMaximumOutputTokens = ownerResearchPlan.maximum_output_tokens;
-          ownerResearchDeadlineAt = Date.now() + OWNER_RESEARCH_DEADLINE_MS;
-        }
-        ownerResearchFetch = createOwnerHearthResearchFetch({
-          gate: openAiTextGate,
-          handle: paidExecutionHandle,
-          deadlineAt: ownerResearchDeadlineAt,
+        currentOwnerFinancialEnvironment = await ownerFinancialEnvironment(ownerCostGate);
+        model = HEARTH_OWNER_TEXT_MODEL;
+        ownerResearchMaximumOutputTokens = ownerResearchPlan.maximum_output_tokens;
+        ownerResearchDeadlineAt = Date.now() + OWNER_RESEARCH_DEADLINE_MS;
+        ownerResearchCostSession = createOwnerHearthResearchCostSession({
+          coordinator: ownerExecutionCoordinator,
+          authenticatedUserId: userId,
+          workspaceId: episodeContext.workspaceId,
+          workpieceId: episodeContext.episodeId,
+          operationIntentId: chatActionId,
+          financialEnvironment: currentOwnerFinancialEnvironment,
+          runtimeEnvironment: ownerRuntimeEnvironment(),
+          braveCredential: ownerResearchApiKey,
           plan: ownerResearchPlan,
+          providerFetch: config.openAiProviderFetch,
         });
+        ownerResearchFetch = ownerResearchCostSession.fetch;
       }
       if (productionAction === "seo") model = HEARTH_TITLE_MODEL;
       if (productionAction === "tags") model = HEARTH_TAG_MODEL;
@@ -5089,6 +5071,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             artifact: null,
           };
         }
+      }
+      if (ownerResearchRequirement && !hasSufficientCustomerResearchEvidence(researchResult)) {
+        return jsonResponse(503, {
+          ok: false,
+          error: "Hearth could not retain sufficient current research evidence. Completed provider attempts remain recorded; synthesis was not submitted.",
+          code: "owner_research_evidence_insufficient",
+          ...buildBillingSnapshot(lane),
+        });
       }
       if (customerResearchPlan && paidExecutionHandle && openAiTextGate
         && !hasSufficientCustomerResearchEvidence(researchResult)) {
@@ -5408,7 +5398,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         let approvedTitleScript: ApprovedTitleScript | null = null;
         if (titleGenerationRequested || tagGenerationRequested || framingPackGenerationRequested || thumbnailDirectionGenerationRequested) {
           if (!userId || !isUuid(episodeContext.workspaceId)
-            || resolvedCredentials.keySource !== "forge_managed" || ownerHearthRequirement) {
+            || (!ownerHearthRequirement && resolvedCredentials.keySource !== "forge_managed")) {
             return admissionFailureResponse({ status: 422, error: `Generate ${approvedScriptProductName} requires an authorized Forge-funded customer scope.`, code: `${approvedScriptProductCode}_customer_scope_required` });
           }
           try {
@@ -5686,6 +5676,146 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : customerResearchPlan
             ? fingerprintCustomerResearchPlan(customerResearchPlan)
             : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
+        if (ownerHearthRequirement || ownerResearchRequirement) {
+          if (!ownerExecutionCoordinator || !ownerCostGate || !userId
+            || !isUuid(episodeContext.workspaceId)) {
+            return admissionFailureResponse({ status: 503, error: "Owner execution authority is unavailable.", code: "owner_hearth_control_unavailable" });
+          }
+          if (!paidScopeEligible) {
+            return admissionFailureResponse({ status: 422, error: "This Hearth action is outside the owner text execution scope.", code: "owner_hearth_scope_mismatch" });
+          }
+          if (paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE) {
+            return admissionFailureResponse({
+              status: 503,
+              error: "Owner Thumbnail Directions remain disabled because canonical finalization still requires customer reservation authority.",
+              code: "owner_thumbnail_direction_authority_unavailable",
+            });
+          }
+          const ownerCredential = ownerResearchRequirement ? ownerResearchTextApiKey : ownerTextApiKey;
+          if (!ownerCredential) {
+            return admissionFailureResponse({ status: 503, error: "The isolated Hearth owner OpenAI credential is unavailable.", code: "owner_hearth_runtime_unavailable" });
+          }
+          currentOwnerFinancialEnvironment ??= await ownerFinancialEnvironment(ownerCostGate);
+          const ownerRoute = paidRouteCode as OwnerHearthTextRoute;
+          const approval = approvedTitleScript && [HEARTH_TITLE_ROUTE, HEARTH_TAG_ROUTE, HEARTH_FRAMING_PACK_ROUTE].includes(ownerRoute)
+            ? { id: approvedTitleScript.approvalId, revision: approvedTitleScript.approvalRevision, scriptContentHash: approvedTitleScript.scriptHash }
+            : null;
+          const providerMessages = ownerRoute === "hearth.research_synthesis" ? completionMessages : paidCompletionMessages;
+          const providerBody: Record<string, unknown> = {
+            model: HEARTH_OWNER_TEXT_MODEL,
+            messages: providerMessages,
+            ...([HEARTH_TITLE_ROUTE, HEARTH_TAG_ROUTE, HEARTH_FRAMING_PACK_ROUTE].includes(ownerRoute)
+              ? { reasoning_effort: "none" }
+              : {}),
+            ...(ownerRoute === "hearth.research_synthesis" && ownerResearchMaximumOutputTokens
+              ? { max_completion_tokens: ownerResearchMaximumOutputTokens }
+              : {}),
+          };
+          const parseOwnerResult = (providerPayload: Record<string, unknown>): Record<string, unknown> => {
+            if (ownerRoute === HEARTH_TITLE_ROUTE && approvedTitleScript) {
+              const output = validatePaidTitleOutput(extractAssistantReply(providerPayload), titleContractVersion);
+              if (!output.ok) throw new Error(output.error);
+              return { assistant_text: output.text, titles: output.titles,
+                contract: titleContractVersion === 1 ? HEARTH_TITLE_CONTRACT_V1 : HEARTH_TITLE_CONTRACT,
+                script_approval_id: approvedTitleScript.approvalId, script_approval_revision: approvedTitleScript.approvalRevision,
+                script_content_hash: approvedTitleScript.scriptHash };
+            }
+            if (ownerRoute === HEARTH_TAG_ROUTE && approvedTitleScript) {
+              const output = validatePaidTagOutput(extractAssistantReply(providerPayload));
+              if (!output.ok) throw new Error(output.error);
+              return { assistant_text: output.text, tags: output.tags, contract: HEARTH_TAG_CONTRACT,
+                script_approval_id: approvedTitleScript.approvalId, script_approval_revision: approvedTitleScript.approvalRevision,
+                script_content_hash: approvedTitleScript.scriptHash };
+            }
+            if (ownerRoute === HEARTH_FRAMING_PACK_ROUTE && approvedTitleScript) {
+              const output = validatePaidFramingPackOutput(extractAssistantReply(providerPayload));
+              if (!output.ok) throw new Error(output.error);
+              return { assistant_text: output.text, sections: output.sections, contract: HEARTH_FRAMING_PACK_CONTRACT,
+                output_contract: HEARTH_FRAMING_PACK_OUTPUT_CONTRACT,
+                script_approval_id: approvedTitleScript.approvalId, script_approval_revision: approvedTitleScript.approvalRevision,
+                script_content_hash: approvedTitleScript.scriptHash };
+            }
+            if (ownerRoute === "hearth.script_generation") {
+              const rawReply = extractAssistantReply(providerPayload);
+              const structured = rawReply ? normalizeStructuredReply(rawReply) : null;
+              if (!structured) throw new Error("Script generation returned no valid Hearth artifact.");
+              structured.ops = filterHearthOperationsForDecision(turnDecision, structured.ops);
+              const validation = validateHearthCompositionArtifact({ requestKind: "script", assistantText: structured.assistantText, ops: structured.ops });
+              const bodyOps = structured.ops.filter((op) => op.op === "set_body");
+              const body = bodyOps[0]?.op === "set_body" ? bodyOps[0].value : null;
+              if (!validation.ok || !structured.scriptText || bodyOps.length !== 1 || body !== structured.scriptText || !structured.tagAudit) {
+                throw new Error(validation.error ?? "Script generation failed the strict immutable-proposal contract.");
+              }
+              return { assistant_text: sanitizeHearthUserFacingOutput(structured.assistantText), ops: bodyOps,
+                script_text: structured.scriptText, tag_audit: structured.tagAudit, research_artifact: null };
+            }
+            const rawReply = extractAssistantReply(providerPayload);
+            if (!rawReply) throw new Error("OpenAI returned no usable Hearth result.");
+            const structured = normalizeStructuredReply(rawReply) ?? { assistantText: rawReply, ops: [], scriptText: null, tagAudit: null, researchArtifact: null };
+            structured.assistantText = sanitizeHearthUserFacingOutput(enforceHearthEditorialHonesty({ assistantText: structured.assistantText, requestText }));
+            if (ownerRoute === "hearth.research_synthesis") {
+              if (!structured.assistantText.trim()) throw new Error("Research synthesis was empty.");
+              return { assistant_text: structured.assistantText, ops: structured.ops, script_text: structured.scriptText,
+                tag_audit: structured.tagAudit, research_result: researchResult as unknown as Record<string, unknown> };
+            }
+            const compositionValidation = validateHearthCompositionArtifact({ requestText, assistantText: structured.assistantText, ops: structured.ops });
+            if (!compositionValidation.ok || (!structured.assistantText && structured.ops.length === 0)) {
+              throw new Error(compositionValidation.error ?? "Hearth composition validation failed");
+            }
+            return { assistantText: structured.assistantText, ops: structured.ops, scriptText: structured.scriptText, tagAudit: structured.tagAudit };
+          };
+          const ownerExecution = await executeOwnerHearthText({
+            coordinator: ownerExecutionCoordinator,
+            gate: ownerCostGate,
+            authenticatedUserId: userId,
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            routeCode: ownerRoute,
+            operationIntentId: chatActionId,
+            financialEnvironment: currentOwnerFinancialEnvironment,
+            runtimeEnvironment: ownerRuntimeEnvironment(),
+            credential: ownerCredential,
+            providerBody,
+            logicalRequest: ownerRoute === "hearth.research_synthesis" ? ownerResearchPlan : paidFingerprintPayload,
+            attemptNumber: ownerRoute === "hearth.research_synthesis" ? ownerResearchCostSession?.nextAttemptNumber() ?? 1 : 1,
+            operationIdentity: ownerRoute === "hearth.research_synthesis" ? ownerResearchCostSession?.operationIdentity : undefined,
+            approval,
+            signal: upstreamAbort.signal,
+            providerFetch: config.openAiProviderFetch,
+            parseAndValidate: parseOwnerResult,
+          });
+          if (ownerExecution.state !== "succeeded") {
+            return admissionFailureResponse({
+              status: ownerExecution.state === "submission_unknown" ? 409 : 502,
+              error: ownerExecution.state === "submission_unknown"
+                ? "The owner provider submission is unresolved and was not retried."
+                : "The owner provider definitively rejected the request.",
+              code: ownerExecution.state === "submission_unknown" ? "operation_reconciliation_required" : "owner_provider_rejected",
+            });
+          }
+          const result = ownerExecution.value.result;
+          const assistantText = readOptionalString(result.assistant_text) ?? readOptionalString(result.assistantText) ?? "";
+          const ownerReceipt = { authority: "owner_cost_provider_attempt", operation_id: ownerExecution.operationId,
+            owner_cost_attempt_id: ownerExecution.attemptId, replay: ownerExecution.replay, customer_charge_micros: 0 };
+          if (ownerRoute === "hearth.script_generation") {
+            const scriptText = readOptionalString(result.script_text);
+            const operations = normalizeOps(result.ops);
+            return jsonResponse(200, { ok: true, ...result, reply: assistantText, proposal_state: "proposed", canonical_draft_applied: false,
+              owner_execution_receipt: ownerReceipt,
+              turn_result: buildTurnResult({ assistantMessage: assistantText, artifact: scriptText ? { kind: "script", text: scriptText } : null, operations }),
+              ...buildBillingSnapshot(lane) });
+          }
+          if (ownerRoute === "hearth.research_synthesis") {
+            return jsonResponse(200, { ok: true, ...result, reply: assistantText, owner_execution_receipt: ownerReceipt,
+              turn_result: buildTurnResult({ assistantMessage: assistantText,
+                artifact: researchResult?.artifact ? { kind: "research", value: researchResult } : null,
+                operations: normalizeOps(result.ops) }), ...buildBillingSnapshot(lane) });
+          }
+          return jsonResponse(200, { ok: true, ...result, assistant_text: assistantText, reply: assistantText,
+            owner_execution_receipt: ownerReceipt,
+            turn_result: buildTurnResult({ assistantMessage: assistantText, operations: normalizeOps(result.ops) }),
+            ...buildBillingSnapshot(lane) });
+        }
         if ((paidRouteCode === HEARTH_TITLE_ROUTE || paidRouteCode === HEARTH_TAG_ROUTE || paidRouteCode === HEARTH_FRAMING_PACK_ROUTE || paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE) && spendingAcceptance
           && spendingAcceptance.requestFingerprint !== actualRequestFingerprint) {
           return admissionFailureResponse({

@@ -6,6 +6,7 @@ import {
 } from "../server/hearth/create-hearth-ai-handler";
 import { fingerprintPaidHearthChatRequest } from "../server/hearth/hearth-paid-chat-execution";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import type { OwnerCostRpcGate } from "../server/accounting/forge-owner-execution-coordinator";
 
 const USER_ID = "44444444-4444-4444-8444-444444444444";
 const RESERVATION_ID = "11111111-1111-4111-8111-111111111111";
@@ -23,6 +24,89 @@ const FINGERPRINT = fingerprintPaidHearthChatRequest({
   user_authored_text: USER_MESSAGE,
   behavior: null,
 });
+
+function ownerAuthorityReader() {
+  return {
+    async readEnabledPrincipal() { return { revision: 1 }; },
+    async readWorkspaceMembership() { return { role: "owner" }; },
+  };
+}
+
+function createOwnerTextGate() {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  let operation: Record<string, unknown> | null = null;
+  let attempt: Record<string, any> | null = null;
+  let persisted: Record<string, unknown> | null = null;
+  const gate: OwnerCostRpcGate = {
+    async rpc(name: string, args: Record<string, unknown> = {}) {
+      calls.push({ name, args: structuredClone(args) });
+      if (name === "read_financial_runtime_environment") {
+        return { data: { financial_environment: "test" }, error: null };
+      }
+      if (name === "read_owner_cost_operation") {
+        return { data: operation ? { operation, attempts: attempt ? [attempt] : [], links: [] } : null, error: null };
+      }
+      if (name === "establish_owner_cost_operation") {
+        operation ??= {
+          operation_id: args.p_operation_id,
+          operation_key: args.p_operation_key,
+          request_fingerprint: args.p_request_fingerprint,
+          created_at: args.p_created_at,
+        };
+        return { data: { operation_id: args.p_operation_id, replay: false }, error: null };
+      }
+      if (name === "authorize_owner_cost_provider_attempt") {
+        if (!attempt) {
+          attempt = {
+            attempt_id: args.p_attempt_id,
+            attempt_number: args.p_attempt_number,
+            events: [{ event_sequence: 1, lifecycle_state: "authorized", occurred_at: args.p_authorized_at }],
+            valuations: [],
+          };
+        }
+        return { data: { attempt_id: args.p_attempt_id, authorized: true, replay: attempt.events.length > 1 }, error: null };
+      }
+      if (name === "append_owner_cost_attempt_event") {
+        assert.ok(attempt);
+        const sequence = Number(args.p_event_sequence);
+        const existing = attempt.events.find((event: Record<string, unknown>) => event.event_sequence === sequence);
+        if (!existing) {
+          attempt.events.push({
+            attempt_event_id: args.p_attempt_event_id,
+            event_sequence: sequence,
+            lifecycle_state: args.p_lifecycle_state,
+            provider_reference_id: args.p_provider_reference_id,
+            normalized_usage_evidence: args.p_normalized_usage_evidence,
+            private_provider_evidence: args.p_private_provider_evidence,
+            occurred_at: args.p_occurred_at,
+          });
+        }
+        return { data: { replay: Boolean(existing), provider_submission_created: !existing && args.p_lifecycle_state === "submitted" }, error: null };
+      }
+      if (name === "record_owner_cost_valuation") {
+        assert.ok(attempt);
+        const existing = attempt.valuations.find((value: Record<string, unknown>) => value.valuation_id === args.p_valuation_id);
+        if (!existing) attempt.valuations.push({ valuation_id: args.p_valuation_id, ...args });
+        return { data: { valuation_id: args.p_valuation_id, journal_event_id: args.p_valuation_id, replay: Boolean(existing) }, error: null };
+      }
+      if (name === "read_owner_hearth_text_result") return { data: persisted, error: null };
+      if (name === "persist_owner_hearth_text_result") {
+        persisted = {
+          ...args.p_result_json as Record<string, unknown>,
+          result_json: args.p_result_json,
+          owner_cost_attempt_id: args.p_owner_cost_attempt_id,
+          route_code: args.p_route_code,
+          provider_request_id: args.p_provider_request_id,
+          input_units: args.p_input_units,
+          output_units: args.p_output_units,
+        };
+        return { data: persisted, error: null };
+      }
+      return { data: {}, error: null };
+    },
+  };
+  return { gate, calls };
+}
 
 test("the real Hearth chat handler requires funding before its one fake OpenAI call and settles after persistence", async () => {
   const gateCalls: string[] = [];
@@ -1059,16 +1143,8 @@ test("explicit owner Hearth authority fails closed without exposing or falling b
     disableUserKeys: false,
     disableExpensiveAiActions: false,
     disableCdcGeneration: false,
-    openAiTextGate: {
-      async rpc(name: string) {
-        if (name === "read_owner_hearth_execution_requirement") return { data: {
-          mode: "enforce",
-          funding_context_required: true,
-          owner_testing_effective: true,
-        }, error: null };
-        return { data: {}, error: null };
-      },
-    },
+    openAiTextGate: { async rpc() { return { data: {}, error: null }; } },
+    ownerAuthorityReader: ownerAuthorityReader(),
     resolveUserIdForAccessToken: async () => USER_ID,
     openAiProviderFetch: async () => {
       providerCalls += 1;
@@ -1295,68 +1371,8 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
   process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE = "enforce";
   t.after(() => { if (prior === undefined) delete process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE; else process.env.FORGE_OPENAI_TEXT_EXECUTION_MODE = prior; });
   const workspaceId = "55555555-5555-4555-8555-555555555555";
-  let prepared: Record<string, unknown> = {};
   let providerCalls = 0;
-  const calls: string[] = [];
-  const gate = {
-    async rpc(name: string, args: Record<string, unknown>) {
-      calls.push(name);
-      if (name === "read_owner_hearth_execution_requirement") return { data: {
-        mode: "enforce", funding_context_required: true, owner_testing_effective: true,
-        authorization_kind: "creator_session", authorization_state: "dormant",
-      }, error: null };
-      if (name === "resolve_owner_hearth_model_for_operation") return { data: {
-        provider_model_id: "gpt-5.6-luna", authorization_kind: "creator_session",
-      }, error: null };
-      if (name === "prepare_owner_hearth_operation") {
-        prepared = args;
-        return { data: {
-          operation_id: args.p_operation_id,
-          reservation_id: args.p_reservation_id,
-          request_fingerprint: args.p_request_fingerprint,
-        }, error: null };
-      }
-      if (name === "resolve_owner_hearth_paid_execution_context") return { data: {
-        operation_id: prepared.p_operation_id,
-        reservation_id: prepared.p_reservation_id,
-        quote_id: prepared.p_quote_id,
-        funding_source_type: "owner_budget",
-        funding_source_id: BUDGET_ID,
-        credential_funding: "forge",
-        model: "gpt-5.6-luna",
-        maximum_input_units: 32000,
-        maximum_output_units: 8000,
-        maximum_attempts: 1,
-        maximum_failure_exposure_micros: 17459,
-        direct_provider_ceiling_micros: 16000,
-        supporting_cost_ceiling_micros: 1456,
-        input_micros_per_million_tokens: 200000,
-        cached_input_micros_per_million_tokens: 20000,
-        output_micros_per_million_tokens: 1200000,
-        reservation_state: "reserved",
-      }, error: null };
-      if (name === "acquire_owner_hearth_aggregate_admission") return { data: { enforcement_enabled: true, authorized: true, hold_id: "isolated-owner-hold" }, error: null };
-      if (name === "authorize_owner_hearth_provider_attempt_with_aggregate") return { data: { provider_execution_authorized: true }, error: null };
-      if (name === "settle_owner_hearth_operation") return { data: { customer_charge_micros: 0, customer_revenue_micros: 0 }, error: null };
-      return { data: {}, error: null };
-    },
-  };
-  const originalFetch = globalThis.fetch;
-  t.after(() => { globalThis.fetch = originalFetch; });
-  globalThis.fetch = async (input) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    assert.equal(url.origin, "https://example.supabase.co");
-    if (url.pathname === "/rest/v1/user_ai_keys") return Response.json([]);
-    if (url.pathname === "/rest/v1/rpc/resolve_ai_access_policy") return Response.json([{
-      decision_type: "ALLOW", reason_code: null, selected_funding_source: "forge_managed_credits",
-      fallback_available: false, fallback_used: false, effective_policy_snapshot: {},
-    }]);
-    assert.equal(url.pathname, "/rest/v1/funding_reservations");
-    assert.equal(url.searchParams.get("id"), `eq.${prepared.p_reservation_id}`);
-    assert.equal(url.searchParams.get("operation_id"), `eq.${prepared.p_operation_id}`);
-    assert.equal(url.searchParams.get("user_id"), `eq.${USER_ID}`);
-    return Response.json({ funding_environment: "owner_internal" });
-  };
+  const { gate, calls } = createOwnerTextGate();
   const handler = createHearthAiHandler({
     textApiKey: "legacy-key-must-not-be-used",
     ownerTextApiKey: "isolated-owner-key",
@@ -1367,8 +1383,8 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
     sttModel: "gpt-4o-mini-transcribe",
     configuredBillingMode: "forge",
     initialTokenBalance: 0,
-    supabaseUrl: "https://example.supabase.co",
-    supabaseServiceRoleKey: "isolated-service-role-fixture",
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
     supabaseRpcKey: null,
     sttBucket: "forge-workpieces",
     disableForgeLaneAi: false,
@@ -1376,6 +1392,8 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
     disableExpensiveAiActions: false,
     disableCdcGeneration: false,
     openAiTextGate: gate,
+    ownerCostGate: gate,
+    ownerAuthorityReader: ownerAuthorityReader(),
     resolveUserIdForAccessToken: async () => USER_ID,
     openAiProviderFetch: async (_url, init) => {
       providerCalls += 1;
@@ -1401,8 +1419,25 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
   const payload = await response.json() as Record<string, any>;
   assert.equal(response.status, 200, JSON.stringify(payload));
   assert.equal(providerCalls, 1);
-  assert.equal(payload.billing_receipt.customer_charge_micros, 0);
-  assert.ok(calls.indexOf("prepare_owner_hearth_operation") < calls.indexOf("authorize_owner_hearth_provider_attempt_with_aggregate"));
-  assert.ok(calls.indexOf("persist_hearth_chat_paid_result") < calls.indexOf("settle_owner_hearth_operation"));
-  assert.equal(calls.includes("resolve_openai_text_paid_execution_context"), false);
+  assert.equal(payload.owner_execution_receipt.customer_charge_micros, 0);
+  assert.equal(payload.billing_receipt, undefined);
+  const callNames = calls.map((entry) => entry.name);
+  assert.ok(callNames.indexOf("establish_owner_cost_operation") < callNames.indexOf("authorize_owner_cost_provider_attempt"));
+  assert.ok(callNames.indexOf("authorize_owner_cost_provider_attempt") < callNames.indexOf("persist_owner_hearth_text_result"));
+  assert.equal(callNames.includes("resolve_openai_text_paid_execution_context"), false);
+  assert.equal(callNames.some((name) => /quote|reservation|settle|customer/i.test(name)), false);
+
+  const replay = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer owner-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge",
+      messages: [{ role: "user", content: USER_MESSAGE }],
+      user_authored_text: USER_MESSAGE,
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: { episodeId: "owner-workpiece", workspaceId, title: "", titleVariants: { A: "", B: "", C: "" }, outline: "", body: "", sources: [], sparks: [] },
+    }),
+  }));
+  assert.equal(replay.status, 200, await replay.text());
+  assert.equal(providerCalls, 1);
 });

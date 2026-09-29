@@ -7,6 +7,11 @@ import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/provid
 import type { HearthResearchRuntime } from "./hearth-research-runtime";
 import type { ApprovedTitleScript } from "./hearth-paid-title-generation";
 import type { PaidThumbnailDirectionInput } from "./hearth-paid-thumbnail-direction-generation";
+import type {
+  ForgeOwnerExecutionCoordinator,
+  OwnerAuthorityReader,
+  OwnerCostRpcGate,
+} from "../accounting/forge-owner-execution-coordinator";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -84,6 +89,10 @@ export type HearthRuntimeConfig = {
   disableCdcGeneration: boolean;
   /** Server-only dependency injection used by isolated execution-boundary tests. */
   openAiTextGate?: OpenAiTextGateClient | null;
+  /** Isolated-test seams for Forge-funded owner execution. Production derives these from the service client. */
+  ownerCostGate?: OwnerCostRpcGate | null;
+  ownerAuthorityReader?: OwnerAuthorityReader | null;
+  ownerExecutionCoordinator?: ForgeOwnerExecutionCoordinator | null;
   openAiProviderFetch?: typeof fetch;
   /** Isolated-test seam for the server-to-Tongs HTTP boundary. */
   tongsFetch?: typeof fetch;
