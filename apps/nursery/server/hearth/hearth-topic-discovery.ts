@@ -1,12 +1,24 @@
 import crypto from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { BarStockOwnerRuntimeConfig } from "../bar-stock/bar-stock-owner-runtime-config";
+import {
+  BarStockOwnerBraveAttemptError,
+  executeBarStockOwnerBraveQueries,
+} from "../bar-stock/bar-stock-owner-brave-execution";
+import {
+  ForgeOwnerAuthorizationError,
+  ForgeOwnerExecutionCoordinator,
+  createSupabaseOwnerAuthorityReader,
+  requireForgeOwnerExecutionAuthority,
+  type OwnerCostRpcGate,
+  type OwnerFinancialEnvironment,
+  type OwnerRuntimeEnvironment,
+} from "../accounting/forge-owner-execution-coordinator";
 import { extractUrlToResearchSource, classifyResearchSourceAuthority } from "./hearth-research-runtime";
 import type { HearthRuntimeConfig } from "./hearth-runtime-config";
 
 type Json = Record<string, unknown>;
 type TopicDiscoveryRuntimeConfig = HearthRuntimeConfig & Partial<BarStockOwnerRuntimeConfig>;
-const BRAVE_URL = "https://api.search.brave.com/res/v1/web/search";
 const LEASE_HEADER = "x-forge-discovery-lease";
 
 function json(status: number, body: Json): Response {
@@ -35,6 +47,19 @@ async function stillAuthorized(client: SupabaseClient, workspaceId: string, user
   const [{ data: context },{ data: role }]=await Promise.all([scope.rpc("get_my_barstock_discovery_context",{p_workspace_id:workspaceId}),scope.rpc("get_my_workspace_role", { _workspace_id: workspaceId })]);
   return Boolean(context?.preference?.enabled && Number(context.preference.revision) === revision && ["editor", "admin", "owner"].includes(String(role)));
 }
+async function readFinancialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinancialEnvironment> {
+  const result = await gate.rpc("read_financial_runtime_environment");
+  if (result.error) throw new Error(`Owner-cost environment unavailable: ${result.error.message ?? "unknown error"}`);
+  const value = (result.data as Json | null)?.financial_environment;
+  if (value !== "test" && value !== "live") throw new Error("Owner-cost financial environment is invalid");
+  return value;
+}
+function runtimeEnvironment(): OwnerRuntimeEnvironment {
+  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
+  if (value === "production") return "production";
+  if (value === "deploy-preview" || value === "preview") return "preview";
+  return "development";
+}
 
 export function buildDiscoveryQueries(preference: Json): string[] {
   const genre = text(preference.genre) ?? "";
@@ -49,7 +74,18 @@ export function buildDiscoveryQueries(preference: Json): string[] {
   ].map((query) => query.replace(/\s+/g, " ").trim()).filter((value, index, all) => value.length > 3 && all.indexOf(value) === index).slice(0, 3);
 }
 
-async function runDiscovery(args: { config: TopicDiscoveryRuntimeConfig; token: string; workspaceId: string; revision: number; runId: string; lease: string; preference: Json }): Promise<Json[]> {
+async function runDiscovery(args: {
+  config: TopicDiscoveryRuntimeConfig;
+  token: string;
+  userId: string;
+  workspaceId: string;
+  revision: number;
+  runId: string;
+  lease: string;
+  preference: Json;
+  coordinator: ForgeOwnerExecutionCoordinator;
+  financialEnvironment: OwnerFinancialEnvironment;
+}): Promise<Json[]> {
   const service = serviceClient(args.config).schema("tongs");
   const user = userClient(args.config, args.token);
   const discoveryQueries = buildDiscoveryQueries(args.preference);
@@ -65,15 +101,51 @@ async function runDiscovery(args: { config: TopicDiscoveryRuntimeConfig; token: 
     sourcePriorities: ["Primary records", "Independent reporting", "Scholarly or technical sources"],
   };
   const candidates = new Map<string, { title: string; url: string; description: string; publishedAt: string | null }>();
-  for (const [index, query] of discoveryQueries.entries()) {
-    if (!(await stillAuthorized(user, args.workspaceId, String(args.preference.user_id), args.revision))) throw new Error("authorization_revoked");
-    const requestKey = `search:${index}:${hash(query)}`;
-    const recorded = await service.rpc("record_barstock_discovery_provider_call", { p_run_id: args.runId, p_lease_token_hash: hash(args.lease), p_provider: "brave", p_request_key: requestKey });
-    if (recorded.data?.outcome !== "recorded") throw new Error(String(recorded.data?.outcome ?? "lease_lost"));
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 8_000);
-    const response = await fetch(`${BRAVE_URL}?q=${encodeURIComponent(query)}&count=10&result_filter=web&freshness=pw`, { headers: { accept: "application/json", "x-subscription-token": args.config.researchApiKey! }, signal: controller.signal }).finally(() => clearTimeout(timer));
-    if (!response.ok) throw new Error(response.status === 429 ? "provider_rate_limited" : "provider_failed");
-    const payload = await response.json() as Json;
+  const queryResults = await executeBarStockOwnerBraveQueries({
+    coordinator: args.coordinator,
+    authenticatedUserId: args.userId,
+    workspaceId: args.workspaceId,
+    discoveryRunId: args.runId,
+    preferenceRevision: args.revision,
+    queries: discoveryQueries,
+    financialEnvironment: args.financialEnvironment,
+    runtimeEnvironment: runtimeEnvironment(),
+    credential: args.config.barStockOwnerBraveApiKey!,
+    routeAuthorization: {
+      required: true,
+      authorize: async (context) => ({
+        authorized: context.authenticatedUserId === args.userId
+          && await stillAuthorized(user, args.workspaceId, args.userId, args.revision),
+        evidence: {
+          schema: "forge.bar-stock.owner-route-authorization.v1",
+          discovery_run_id: args.runId,
+          preference_revision: args.revision,
+        },
+      }),
+    },
+    providerFetch: args.config.barStockOwnerBraveFetch,
+    providerCallAlreadyRecorded: async (requestKey) => {
+      const existing = await service.from("barstock_discovery_provider_calls")
+        .select("id")
+        .eq("run_id", args.runId)
+        .eq("request_key", requestKey)
+        .maybeSingle();
+      if (existing.error) throw new Error(`Provider-call replay lookup failed: ${existing.error.message}`);
+      return Boolean(existing.data);
+    },
+    recordProviderCall: async (requestKey) => {
+      const recorded = await service.rpc("record_barstock_discovery_provider_call", {
+        p_run_id: args.runId,
+        p_lease_token_hash: hash(args.lease),
+        p_provider: "brave",
+        p_request_key: requestKey,
+      });
+      if (recorded.data?.outcome !== "recorded") {
+        throw new Error(String(recorded.data?.outcome ?? "lease_lost"));
+      }
+    },
+  });
+  for (const { payload } of queryResults) {
     const results = (payload.web as Json | undefined)?.results;
     if (!Array.isArray(results)) continue;
     for (const raw of results) {
@@ -124,19 +196,47 @@ export function createHearthTopicDiscoveryHandler(config: TopicDiscoveryRuntimeC
     if (action === "dismiss") { const result = await client.rpc("dismiss_barstock_discovery_story", { p_workspace_id: workspaceId, p_story_id: text(body.story_id) }); if(result.error||result.data?.outcome!=="dismissed")return json(400,{ok:false,data:result.data,error:result.error?.message??result.data?.outcome});const latest=await client.rpc("get_my_barstock_discovery_context",{p_workspace_id:workspaceId});return json(200,{ok:true,data:latest.data}); }
     if (action === "accept") { const result = await client.rpc("accept_barstock_discovery_story", { p_workspace_id: workspaceId, p_story_revision_id: text(body.story_revision_id), p_operation_key: text(body.operation_key) }); return json(result.error ? 400 : 200, { ok: !result.error, data: result.data, error: result.error?.message }); }
     if (action !== "refresh") return json(400, { ok: false, error: "Unsupported action." });
-    if (!config.researchApiKey) return json(503, { ok: false, error: "Live research is unavailable." });
+    const rootService = serviceClient(config);
+    const ownerCostGate = rootService.schema("tongs") as unknown as OwnerCostRpcGate;
+    const authorityReader = createSupabaseOwnerAuthorityReader(rootService as never);
+    try {
+      await requireForgeOwnerExecutionAuthority({
+        reader: authorityReader,
+        authenticatedUserId: userId,
+        workspaceId,
+        routeCode: "bar-stock.topic-discovery.refresh",
+      });
+    } catch (error) {
+      if (error instanceof ForgeOwnerAuthorizationError) {
+        return json(403, { ok: false, error: "Owner topic discovery is not authorized." });
+      }
+      throw error;
+    }
+    if (!config.barStockOwnerBraveApiKey) {
+      return json(503, { ok: false, error: "Owner topic discovery is unavailable." });
+    }
+    const financialEnvironment = await readFinancialEnvironment(ownerCostGate);
+    const coordinator = new ForgeOwnerExecutionCoordinator({ gate: ownerCostGate, authorityReader });
     const revision = Number(body.preference_revision); const lease = crypto.randomUUID();
     const claim = await client.rpc("claim_barstock_discovery_refresh", { p_workspace_id: workspaceId, p_preference_revision: revision, p_trigger: body.trigger === "manual" ? "manual" : "automatic", p_operation_key: text(body.operation_key) ?? crypto.randomUUID(), p_lease_token_hash: hash(lease) });
-    if (claim.error || claim.data?.outcome !== "claimed") return json(409, { ok: false, data: claim.data, error: claim.error?.message ?? claim.data?.outcome });
+    if (claim.error) return json(409, { ok: false, data: claim.data, error: claim.error.message });
+    if (claim.data?.outcome === "existing") {
+      const latest = await client.rpc("get_my_barstock_discovery_context", { p_workspace_id: workspaceId });
+      return json(latest.error ? 500 : 200, { ok: !latest.error, data: latest.data, error: latest.error?.message });
+    }
+    if (claim.data?.outcome !== "claimed") return json(409, { ok: false, data: claim.data, error: claim.data?.outcome });
     const context = await client.rpc("get_my_barstock_discovery_context", { p_workspace_id: workspaceId }); const preference = context.data?.preference as Json | undefined;
     try {
-      const stories = await runDiscovery({ config, token, workspaceId, revision, runId: claim.data.run_id, lease, preference: { ...preference, user_id: userId } });
+      const stories = await runDiscovery({ config, token, userId, workspaceId, revision, runId: claim.data.run_id, lease, preference: { ...preference, user_id: userId }, coordinator, financialEnvironment });
       const complete = await serviceClient(config).schema("tongs").rpc("complete_barstock_discovery_refresh", { p_run_id: claim.data.run_id, p_lease_token_hash: hash(lease), p_stories: stories, p_usage: { provider: "brave", customer_credit_debit: false } });
       if (complete.data?.outcome !== "completed") throw new Error(String(complete.data?.outcome ?? "completion_failed"));
       const latest = await client.rpc("get_my_barstock_discovery_context", { p_workspace_id: workspaceId }); return json(200, { ok: true, data: latest.data });
     } catch (error) {
       await serviceClient(config).schema("tongs").rpc("fail_barstock_discovery_refresh", { p_run_id: claim.data.run_id, p_lease_token_hash: hash(lease), p_reason: error instanceof Error ? error.message : "discovery_failed" });
-      return json(503, { ok: false, error: error instanceof Error ? error.message : "Discovery failed." });
+      const message = error instanceof BarStockOwnerBraveAttemptError
+        ? error.outcome === "definitively_rejected" ? "provider_failed" : "provider_submission_unknown"
+        : error instanceof Error ? error.message : "Discovery failed.";
+      return json(503, { ok: false, error: message });
     }
   };
 }

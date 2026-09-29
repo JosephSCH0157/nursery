@@ -3,6 +3,8 @@ import { bootstrapHearthRuntimeEnv } from "../hearth/hearth-runtime-config";
 export type BarStockOwnerRuntimeConfig = {
   /** Restricted server-only Brave credential for owner-funded Bar Stock topic discovery. */
   barStockOwnerBraveApiKey: string | null;
+  /** Isolated-test seam; production uses the platform fetch implementation. */
+  barStockOwnerBraveFetch?: typeof fetch;
 };
 
 export function resolveBarStockOwnerRuntimeConfig(): BarStockOwnerRuntimeConfig {
