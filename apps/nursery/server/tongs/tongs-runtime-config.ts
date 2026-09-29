@@ -52,6 +52,7 @@ export type ResolvedTongsRuntimeConfig = {
   options: TongsCommitApiOptions;
   missing: string[];
   allowUnsafeNoToken: boolean;
+  ownerHearthOpenAiApiKey?: string;
 };
 
 export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
@@ -75,6 +76,7 @@ export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
       },
       missing,
       allowUnsafeNoToken,
+      ownerHearthOpenAiApiKey: readEnv("OPENAI_HEARTH_OWNER_API_KEY"),
     };
   }
 
@@ -90,5 +92,6 @@ export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
     },
     missing,
     allowUnsafeNoToken,
+    ownerHearthOpenAiApiKey: readEnv("OPENAI_HEARTH_OWNER_API_KEY"),
   };
 }

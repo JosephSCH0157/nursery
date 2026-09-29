@@ -30,7 +30,8 @@ export type OwnerHearthTextRoute =
   | "hearth.title_generation"
   | "hearth.tag_generation"
   | "hearth.framing_pack_generation"
-  | "hearth.thumbnail_direction_generation";
+  | "hearth.thumbnail_direction_generation"
+  | "visual.narrative_interpretation";
 
 type OpenAiCapture = {
   status: number;
@@ -58,6 +59,8 @@ export type OwnerHearthTextExecutionInput = {
   runtimeEnvironment: OwnerRuntimeEnvironment;
   credential: string;
   providerBody: Json;
+  providerEndpoint?: "/v1/chat/completions" | "/v1/responses";
+  providerService?: "chat_completions" | "responses";
   logicalRequest: unknown;
   attemptNumber?: number;
   operationIdentity?: ForgeOwnerOperationIdentity;
@@ -66,6 +69,18 @@ export type OwnerHearthTextExecutionInput = {
   providerFetch?: typeof fetch;
   now?: () => number;
   parseAndValidate(payload: Json): Json;
+  readPersistedResult?: (context: {
+    attemptId: string;
+    operationId: string;
+    operationKey: string;
+    requestFingerprint: string;
+  }) => Promise<OwnerHearthTextResult | null>;
+  persistResult?: (value: OwnerHearthTextResult, context: {
+    attemptId: string;
+    operationId: string;
+    operationKey: string;
+    requestFingerprint: string;
+  }) => Promise<void>;
 };
 
 function object(value: unknown): Json | null {
@@ -168,12 +183,14 @@ export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInpu
   const credentialIdentityHash = forgeOwnerCredentialIdentityHash(input.credential);
   const providerFetch = input.providerFetch ?? fetch;
   const now = input.now ?? Date.now;
-  const exactProviderRequest = { method: "POST", path: "/v1/chat/completions", body: input.providerBody };
+  const providerEndpoint = input.providerEndpoint ?? "/v1/chat/completions";
+  const providerService = input.providerService ?? "chat_completions";
+  const exactProviderRequest = { method: "POST", path: providerEndpoint, body: input.providerBody };
   const attemptIdentity = deriveForgeOwnerAttemptIdentity({
     operation: operationIdentity,
     attemptNumber,
     provider: "openai",
-    service: "chat_completions",
+    service: providerService,
     model,
     sku: model,
     credentialIdentityHash,
@@ -193,14 +210,14 @@ export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInpu
         schema: "forge.hearth.owner-text-operation.v1",
         operation_intent_id: input.operationIntentId,
         provider: "openai",
-        service: "chat_completions",
+        service: providerService,
         model,
       },
     },
     attempt: {
       attemptNumber,
       provider: "openai",
-      service: "chat_completions",
+      service: providerService,
       model,
       sku: model,
       credentialIdentityHash,
@@ -213,18 +230,24 @@ export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInpu
       },
     },
     readPersistedResult: async () => {
-      const data = await rpc(input.gate, "read_owner_hearth_text_result", {
-        p_owner_cost_attempt_id: attemptIdentity.attemptId,
-        p_route_code: input.routeCode,
-      });
-      const value = valueFromPersisted(data);
+      const value = input.readPersistedResult
+        ? await input.readPersistedResult({
+          attemptId: attemptIdentity.attemptId,
+          operationId: operationIdentity.operationId,
+          operationKey: operationIdentity.operationKey,
+          requestFingerprint: operationIdentity.requestFingerprint,
+        })
+        : valueFromPersisted(await rpc(input.gate, "read_owner_hearth_text_result", {
+          p_owner_cost_attempt_id: attemptIdentity.attemptId,
+          p_route_code: input.routeCode,
+        }));
       return value ? { found: true, value } : { found: false };
     },
     submitProvider: async () => {
       const startedAt = now();
       let response: Response;
       try {
-        response = await providerFetch("https://api.openai.com/v1/chat/completions", {
+        response = await providerFetch(`https://api.openai.com${providerEndpoint}`, {
           method: "POST",
           headers: { authorization: `Bearer ${input.credential}`, "content-type": "application/json" },
           body: JSON.stringify(input.providerBody),
@@ -343,6 +366,13 @@ export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInpu
     },
     validateResult: () => undefined,
     persistResult: async (value, context) => {
+      if (input.persistResult) {
+        await input.persistResult(value, {
+          ...context,
+          operationKey: operationIdentity.operationKey,
+        });
+        return;
+      }
       const resultJson = value.result;
       const resultHash = forgeOwnerSha256(JSON.stringify(resultJson));
       await rpc(input.gate, "persist_owner_hearth_text_result", {

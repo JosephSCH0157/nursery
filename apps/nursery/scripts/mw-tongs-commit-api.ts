@@ -28,6 +28,11 @@ import {
   readForgeFfmpegClientConfig,
 } from "../server/forge-ffmpeg-client";
 import { probeHammerSourceDeskMediaWithOwnerCost } from "../server/hammer/forge-owner-cost-media-probe";
+import {
+  createSupabaseOwnerAuthorityReader,
+  ForgeOwnerExecutionCoordinator,
+} from "../server/accounting/forge-owner-execution-coordinator";
+import { createOwnerNarrativeInterpretationExecutor } from "../server/hearth/owner-narrative-interpretation-execution";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import {
   startWorkpieceJobRunner,
@@ -76,6 +81,7 @@ export function resolveNurseryTongsProviderBoundary(
   const runwayApiKey = config.options.runwayApiKey?.trim();
   const provider = runwayApiKey ? createRunwayProvider(runwayApiKey) : undefined;
   const forgeFfmpeg = readForgeFfmpegClientConfig(process.env, { callerId: "netlify" });
+  let ownerServiceClient: ReturnType<typeof createClient<Database>> | null = null;
   let ownerCostGateClient: {
     rpc(name: string, args?: Record<string, unknown>): Promise<{
       data: unknown;
@@ -87,14 +93,33 @@ export function resolveNurseryTongsProviderBoundary(
       if (!config.options.supabaseUrl || !config.options.supabaseServiceRoleKey) {
         throw new Error("Hammer owner-cost accounting service is not configured.");
       }
-      ownerCostGateClient ??= createClient<Database>(
+      ownerServiceClient ??= createClient<Database>(
         config.options.supabaseUrl,
         config.options.supabaseServiceRoleKey,
         { auth: { persistSession: false, autoRefreshToken: false } },
-      ).schema("tongs") as unknown as typeof ownerCostGateClient;
+      );
+      ownerCostGateClient ??= ownerServiceClient.schema("tongs") as unknown as typeof ownerCostGateClient;
       return ownerCostGateClient!.rpc(name, args);
     },
   };
+  let ownerNarrativeInterpretationExecutor: TongsCommitApiOptions["ownerNarrativeInterpretationExecutor"];
+  if (config.options.supabaseUrl && config.options.supabaseServiceRoleKey) {
+    ownerServiceClient = createClient<Database>(
+      config.options.supabaseUrl,
+      config.options.supabaseServiceRoleKey,
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    const ownerAuthorityReader = createSupabaseOwnerAuthorityReader(ownerServiceClient);
+    ownerNarrativeInterpretationExecutor = createOwnerNarrativeInterpretationExecutor({
+      gate: ownerCostGate,
+      authorityReader: ownerAuthorityReader,
+      coordinator: new ForgeOwnerExecutionCoordinator({
+        gate: ownerCostGate,
+        authorityReader: ownerAuthorityReader,
+      }),
+      credential: config.ownerHearthOpenAiApiKey,
+    });
+  }
   const acquisitionRuntime: BrollAcquisitionRuntime = {
     inspectMedia: async (bytes, expected) => {
       if (!forgeFfmpeg || expected !== "video") return inspectBrollMedia(bytes, expected);
@@ -160,6 +185,7 @@ export function resolveNurseryTongsProviderBoundary(
     runwayApiKey: undefined,
     brollVideoProvider: provider,
     brollAcquisitionRuntime: acquisitionRuntime,
+    ownerNarrativeInterpretationExecutor,
   };
   return {
     options,

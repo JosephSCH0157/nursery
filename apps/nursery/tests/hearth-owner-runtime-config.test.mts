@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { resolveTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 
 const KEYS = [
   "OPENAI_HEARTH_OWNER_API_KEY",
@@ -32,7 +33,9 @@ function withCleanEnvironment(run: () => void): void {
 test("Hearth owner text and research credentials use only their isolated variables", () => {
   withCleanEnvironment(() => {
     let config = resolveHearthRuntimeConfig();
+    let tongsConfig = resolveTongsRuntimeConfig();
     assert.equal(config.ownerTextApiKey, null);
+    assert.equal(tongsConfig.ownerHearthOpenAiApiKey, undefined);
     assert.equal(config.ownerResearchTextApiKey, null);
     assert.equal(config.ownerResearchApiKey, null);
 
@@ -40,7 +43,9 @@ test("Hearth owner text and research credentials use only their isolated variabl
     process.env.HEARTH_RESEARCH_API_KEY = "customer-brave";
     process.env.BAR_STOCK_OWNER_BRAVE_API_KEY = "bar-stock-brave";
     config = resolveHearthRuntimeConfig();
+    tongsConfig = resolveTongsRuntimeConfig();
     assert.equal(config.ownerTextApiKey, null);
+    assert.equal(tongsConfig.ownerHearthOpenAiApiKey, undefined);
     assert.equal(config.ownerResearchTextApiKey, null);
     assert.equal(config.ownerResearchApiKey, null);
 
@@ -48,7 +53,9 @@ test("Hearth owner text and research credentials use only their isolated variabl
     process.env.OPENAI_HEARTH_RESEARCH_OWNER_API_KEY = "hearth-research-openai";
     process.env.HEARTH_OWNER_RESEARCH_BRAVE_API_KEY = "hearth-research-brave";
     config = resolveHearthRuntimeConfig();
+    tongsConfig = resolveTongsRuntimeConfig();
     assert.equal(config.ownerTextApiKey, "hearth-owner-openai");
+    assert.equal(tongsConfig.ownerHearthOpenAiApiKey, "hearth-owner-openai");
     assert.equal(config.ownerResearchTextApiKey, "hearth-research-openai");
     assert.equal(config.ownerResearchApiKey, "hearth-research-brave");
     assert.equal(process.env.BAR_STOCK_OWNER_BRAVE_API_KEY, "bar-stock-brave");

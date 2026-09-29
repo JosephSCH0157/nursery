@@ -2511,6 +2511,7 @@ export type TongsCommitApiOptions = {
   brollAcquisitionRuntime?: BrollAcquisitionRuntime;
   unifiedVisualPlanProvider?: UnifiedVisualPlanProvider;
   narrativeInterpretationProvider?: NarrativeInterpretationProvider;
+  ownerNarrativeInterpretationExecutor?: OwnerNarrativeInterpretationExecutor;
   brollMotionInterpretationProvider?: BrollMotionInterpretationProvider;
   /** Server-only injection for isolated billing-boundary certification. */
   openAiTextGate?: OpenAiTextGateClient;
@@ -2521,6 +2522,37 @@ export type TongsCommitApiOptions = {
    */
   referenceVisualReadinessEvaluator?: ReferenceVisualReadinessEvaluator;
 };
+
+export type OwnerNarrativeInterpretationValue = {
+  brief: ImagePromptVisualBrief;
+  model: string;
+  providerRequestId: string | null;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+export type OwnerNarrativeInterpretationExecutor = (input: {
+  authenticatedUserId: string;
+  workspaceId: string;
+  workpieceId: string;
+  operationIntentId: string;
+  logicalRequest: Record<string, unknown>;
+  providerBody: Record<string, unknown>;
+  providerBodySha256: string;
+  imageMapRevisionId: string;
+  imageMapRevision: number;
+  scriptApprovalId: string;
+  scriptApprovalRevision: number;
+  creatorDirection: string;
+  visualStyle: string | null;
+  contracts: Record<string, unknown>;
+  prepareCanonical(operationKey: string, requestFingerprint: string): Promise<void>;
+  persistCanonical(
+    operationKey: string,
+    requestFingerprint: string,
+    value: OwnerNarrativeInterpretationValue,
+  ): Promise<Record<string, Json>>;
+}) => Promise<Record<string, Json> | null>;
 
 export type AcquireBrollCandidateRequest = {
   workspace_id: string;
@@ -9446,6 +9478,7 @@ export class TongsCommitService {
   readonly bucket: string;
   readonly imageProvider: ImageProvider | null;
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
+  readonly ownerNarrativeInterpretationExecutor: OwnerNarrativeInterpretationExecutor | null;
   readonly brollVideoProvider: BrollVideoProvider | null;
   readonly runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null;
   readonly brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null;
@@ -9476,6 +9509,7 @@ export class TongsCommitService {
     cleanupReviewGenerator?: CleanupGenerator,
     referenceVisualReadinessEvaluator: ReferenceVisualReadinessEvaluator =
       defaultReferenceVisualReadinessEvaluator,
+    ownerNarrativeInterpretationExecutor: OwnerNarrativeInterpretationExecutor | null = null,
   ) {
     this.supabase = supabase;
     this.cleanupReviewGenerator = cleanupReviewGenerator;
@@ -9484,6 +9518,7 @@ export class TongsCommitService {
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
     this.narrativeInterpretationProvider = narrativeInterpretationProvider;
+    this.ownerNarrativeInterpretationExecutor = ownerNarrativeInterpretationExecutor;
     this.brollVideoProvider = brollVideoProvider;
     this.brollMotionInterpretationProvider = brollMotionInterpretationProvider;
     this.brollAcquisitionRuntime = brollAcquisitionRuntime;
@@ -33298,6 +33333,35 @@ export class TongsCommitService {
       synthesis_contract_version: NARRATIVE_INTERPRETATION_SYNTHESIS_VERSION,
     };
 
+    const beginCanonicalOperation = async (
+      operationId: string,
+      operationFingerprint: string,
+    ): Promise<Record<string, Json>> => {
+      const begun = await authority.rpc("begin_image_prompt_interpretation", {
+        p_workspace_id: input.workspace_id,
+        p_workpiece_id: workpieceId,
+        p_image_moment_id: input.image_moment_id,
+        p_image_map_revision_id: input.image_map_revision_id,
+        p_script_approval_id: input.script_approval_id,
+        p_expected_prompt_revision_id: input.expected_prompt_revision_id,
+        p_expected_prompt_revision: input.expected_prompt_revision,
+        p_operation_id: operationId,
+        p_operation_fingerprint: operationFingerprint,
+        p_normalized_inputs_json: normalizedInputs,
+        p_actor_id: auth.userId,
+      });
+      if (begun.error || !isRecord(begun.data)) {
+        throw new HttpError(502, "image_prompt_begin_failed",
+          begun.error?.message ?? "Tongs could not reserve interpretation");
+      }
+      const disposition = readStringField(begun.data, "disposition");
+      if (disposition !== "reserved" && disposition !== "replay") {
+        throw new HttpError(409, disposition ?? "image_prompt_begin_rejected",
+          "Tongs rejected the interpretation operation.", begun.data);
+      }
+      return begun.data as Record<string, Json>;
+    };
+
     const commitValidatedResult = async (result: {
       brief: ImagePromptVisualBrief;
       model: string;
@@ -33305,11 +33369,19 @@ export class TongsCommitService {
       inputTokens: number;
       outputTokens: number;
       rawResponse?: Record<string, unknown>;
+    }, identity: {
+      operationId: string;
+      operationFingerprint: string;
+      resultRequestFingerprint: string;
+    } = {
+      operationId: input.operation_id,
+      operationFingerprint: input.operation_fingerprint,
+      resultRequestFingerprint: paidRequestFingerprint,
     }): Promise<Record<string, Json>> => {
       const finalPrompt = synthesizeConcreteVendorPrompt(result.brief, input.style);
       const recorded = await authority.rpc("record_image_prompt_provider_response", {
-        p_operation_id: input.operation_id,
-        p_operation_fingerprint: input.operation_fingerprint,
+        p_operation_id: identity.operationId,
+        p_operation_fingerprint: identity.operationFingerprint,
         p_provider_response_json: {
           canonical_brief: result.brief as unknown as Json,
           model: result.model,
@@ -33321,8 +33393,8 @@ export class TongsCommitService {
       });
       if (recorded.error) throw new Error(recorded.error.message);
       const committed = await authority.rpc("commit_image_prompt_interpretation", {
-        p_operation_id: input.operation_id,
-        p_operation_fingerprint: input.operation_fingerprint,
+        p_operation_id: identity.operationId,
+        p_operation_fingerprint: identity.operationFingerprint,
         p_visual_brief_json: result.brief,
         p_ai_synthesized_prompt: finalPrompt,
         p_final_prompt: finalPrompt,
@@ -33353,8 +33425,8 @@ export class TongsCommitService {
         throw new Error(readback.error?.message ?? "Canonical image-prompt readback did not match the committed revision.");
       }
       const finalized = await this.openAiTextGate.rpc("finalize_visual_narrative_interpretation_result", {
-        p_operation_id: input.operation_id,
-        p_request_fingerprint: paidRequestFingerprint,
+        p_operation_id: identity.operationId,
+        p_request_fingerprint: identity.resultRequestFingerprint,
         p_canonical_prompt_revision_id: revisionId,
         p_canonical_content_hash: contentHash,
       });
@@ -33390,6 +33462,41 @@ export class TongsCommitService {
         inputUnits: Number(staged.data.input_units ?? 0), outputUnits: Number(staged.data.output_units ?? 0) };
     };
 
+    if (this.ownerNarrativeInterpretationExecutor) {
+      const providerBody = JSON.parse(certifiedRequest.serializedBody) as Record<string, unknown>;
+      const contracts = isRecord(requestJson.output_contract)
+        ? requestJson.output_contract as Record<string, unknown>
+        : {};
+      const ownerResult = await this.ownerNarrativeInterpretationExecutor({
+        authenticatedUserId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        operationIntentId: input.operation_id,
+        logicalRequest: {
+          canonical_request: requestJson,
+          canonical_request_fingerprint: expectedFingerprint,
+        },
+        providerBody,
+        providerBodySha256: certifiedRequest.serializedBodySha256,
+        imageMapRevisionId: input.image_map_revision_id,
+        imageMapRevision,
+        scriptApprovalId: input.script_approval_id,
+        scriptApprovalRevision,
+        creatorDirection: input.creator_direction,
+        visualStyle: input.style,
+        contracts,
+        prepareCanonical: async (operationKey, requestFingerprint) => {
+          await beginCanonicalOperation(operationKey, requestFingerprint);
+        },
+        persistCanonical: (operationKey, requestFingerprint, value) => commitValidatedResult(value, {
+          operationId: operationKey,
+          operationFingerprint: requestFingerprint,
+          resultRequestFingerprint: requestFingerprint,
+        }),
+      });
+      if (ownerResult) return ownerResult;
+    }
+
     // Persistence-only recovery is deliberately attempted before preparing a
     // fresh quote. A staged validated provider result can never spend twice.
     const stagedRecovery = await recoverStagedResult();
@@ -33417,35 +33524,9 @@ export class TongsCommitService {
       }
     }
     if (!input.paid_execution) throw new HttpError(423, "narrative_interpretation_paid_execution_inactive", "Narrative interpretation paid execution is not active.");
-    const begun = await authority.rpc("begin_image_prompt_interpretation", {
-      p_workspace_id: input.workspace_id,
-      p_workpiece_id: workpieceId,
-      p_image_moment_id: input.image_moment_id,
-      p_image_map_revision_id: input.image_map_revision_id,
-      p_script_approval_id: input.script_approval_id,
-      p_expected_prompt_revision_id: input.expected_prompt_revision_id,
-      p_expected_prompt_revision: input.expected_prompt_revision,
-      p_operation_id: input.operation_id,
-      p_operation_fingerprint: input.operation_fingerprint,
-      p_normalized_inputs_json: normalizedInputs,
-      p_actor_id: auth.userId,
-    });
-    if (begun.error || !isRecord(begun.data))
-      throw new HttpError(
-        502,
-        "image_prompt_begin_failed",
-        begun.error?.message ?? "Tongs could not reserve interpretation",
-      );
-    const beginDisposition = readStringField(begun.data, "disposition");
-    if (beginDisposition !== "reserved" && beginDisposition !== "replay")
-      throw new HttpError(
-        409,
-        beginDisposition ?? "image_prompt_begin_rejected",
-        "Tongs rejected the interpretation reservation.",
-        begun.data,
-      );
-    const operation = isRecord(begun.data.operation)
-      ? begun.data.operation
+    const begun = await beginCanonicalOperation(input.operation_id, input.operation_fingerprint);
+    const operation = isRecord(begun.operation)
+      ? begun.operation
       : null;
     const state = operation ? readStringField(operation, "state") : null;
     if (state === "committed" && isRecord(operation?.receipt_json) && !input.paid_execution)
@@ -35943,6 +36024,7 @@ export function createTongsCommitService(
     options.openAiTextGate,
     options.cleanupReviewGenerator,
     options.referenceVisualReadinessEvaluator,
+    options.ownerNarrativeInterpretationExecutor ?? null,
   );
 }
 
