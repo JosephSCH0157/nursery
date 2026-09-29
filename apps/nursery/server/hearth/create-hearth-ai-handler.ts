@@ -203,7 +203,6 @@ import {
   type OwnerHearthResearchCostSession,
 } from "./owner-hearth-research-cost-execution";
 import {
-  ownerHearthExecutionGate,
   prepareOwnerHearthOperation,
   readOwnerHearthExecutionRequirement,
   recordOwnerCompatibilityOutcome,
@@ -5697,14 +5696,17 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
           currentOwnerFinancialEnvironment ??= await ownerFinancialEnvironment(ownerCostGate);
           const ownerRoute = paidRouteCode as OwnerHearthTextRoute;
-          const approval = approvedTitleScript && [HEARTH_TITLE_ROUTE, HEARTH_TAG_ROUTE, HEARTH_FRAMING_PACK_ROUTE].includes(ownerRoute)
+          const ownerRouteUsesApprovedScript = ownerRoute === HEARTH_TITLE_ROUTE
+            || ownerRoute === HEARTH_TAG_ROUTE
+            || ownerRoute === HEARTH_FRAMING_PACK_ROUTE;
+          const approval = approvedTitleScript && ownerRouteUsesApprovedScript
             ? { id: approvedTitleScript.approvalId, revision: approvedTitleScript.approvalRevision, scriptContentHash: approvedTitleScript.scriptHash }
             : null;
           const providerMessages = ownerRoute === "hearth.research_synthesis" ? completionMessages : paidCompletionMessages;
           const providerBody: Record<string, unknown> = {
             model: HEARTH_OWNER_TEXT_MODEL,
             messages: providerMessages,
-            ...([HEARTH_TITLE_ROUTE, HEARTH_TAG_ROUTE, HEARTH_FRAMING_PACK_ROUTE].includes(ownerRoute)
+            ...(ownerRouteUsesApprovedScript
               ? { reasoning_effort: "none" }
               : {}),
             ...(ownerRoute === "hearth.research_synthesis" && ownerResearchMaximumOutputTokens
@@ -7107,8 +7109,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ...buildBillingSnapshot(lane),
               });
             }
-            const ownerCompatibility = ownerHearthRequirement?.authorization_kind === "compatibility_batch";
-            const paidGate = ownerHearthRequirement ? withOwnerFundingEnvironment(ownerHearthExecutionGate(openAiTextGate)) : openAiTextGate;
+            // Shared owner authority has already returned above; this is the unchanged customer path.
+            const ownerCompatibility = false;
+            const paidGate = openAiTextGate;
             const paidOutcome = await executePaidHearthChatCompletion({
               gate: paidGate,
               handle: paidExecutionHandle,

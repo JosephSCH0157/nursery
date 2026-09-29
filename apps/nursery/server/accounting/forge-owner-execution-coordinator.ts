@@ -168,15 +168,22 @@ export class ForgeOwnerAuthorizationError extends Error {
 }
 
 export class ForgeOwnerExecutionFailure extends Error {
+  readonly phase: "replay" | "capture" | "valuation" | "parse" | "validation" | "persistence";
+  readonly operationId: string;
+  readonly attemptId: string;
+
   constructor(
     message: string,
-    readonly phase: "replay" | "capture" | "valuation" | "parse" | "validation" | "persistence",
-    readonly operationId: string,
-    readonly attemptId: string,
+    phase: "replay" | "capture" | "valuation" | "parse" | "validation" | "persistence",
+    operationId: string,
+    attemptId: string,
     options?: ErrorOptions,
   ) {
     super(message, options);
     this.name = "ForgeOwnerExecutionFailure";
+    this.phase = phase;
+    this.operationId = operationId;
+    this.attemptId = attemptId;
   }
 }
 
@@ -472,11 +479,19 @@ function validateValuation(valuation: ForgeOwnerDirectValuation): ForgeOwnerDire
 }
 
 export class ForgeOwnerExecutionCoordinator {
-  constructor(private readonly dependencies: {
+  private readonly dependencies: {
     gate: OwnerCostRpcGate;
     authorityReader: OwnerAuthorityReader;
     now?: () => Date;
-  }) {}
+  };
+
+  constructor(dependencies: {
+    gate: OwnerCostRpcGate;
+    authorityReader: OwnerAuthorityReader;
+    now?: () => Date;
+  }) {
+    this.dependencies = dependencies;
+  }
 
   private async rpc(name: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> {
     const result = await this.dependencies.gate.rpc(name, args);

@@ -50,12 +50,17 @@ type BraveCapture = {
 };
 
 export class BarStockOwnerBraveAttemptError extends Error {
+  readonly outcome: "definitively_rejected" | "submission_unknown";
+  readonly attemptNumber: number;
+
   constructor(
-    readonly outcome: "definitively_rejected" | "submission_unknown",
-    readonly attemptNumber: number,
+    outcome: "definitively_rejected" | "submission_unknown",
+    attemptNumber: number,
   ) {
     super(`Bar Stock owner Brave attempt ${attemptNumber} ended as ${outcome}`);
     this.name = "BarStockOwnerBraveAttemptError";
+    this.outcome = outcome;
+    this.attemptNumber = attemptNumber;
   }
 }
 
