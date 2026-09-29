@@ -35,6 +35,8 @@ const boundary = resolveNurseryTongsProviderBoundary({
     lazyFallbackDisabled: true,
     acquisitionRuntimeInjected: true,
     lateAcquisitionImportDisabled: true,
+    ownerImageCredentialConfigured: false,
+    ownerImageExecutorInjected: true,
   });
 
   const service = createTongsCommitService(boundary.options);

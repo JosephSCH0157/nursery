@@ -33,6 +33,7 @@ import {
   ForgeOwnerExecutionCoordinator,
 } from "../server/accounting/forge-owner-execution-coordinator";
 import { createOwnerNarrativeInterpretationExecutor } from "../server/hearth/owner-narrative-interpretation-execution";
+import { createOwnerHearthImageExecutionExecutor } from "../server/hearth/owner-hearth-image-execution";
 import { createOwnerHearthRunwayExecutionBoundary } from "../server/hearth/owner-hearth-runway-execution";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import {
@@ -66,6 +67,8 @@ export type NurseryTongsProviderBoundary = {
     lazyFallbackDisabled: boolean;
     acquisitionRuntimeInjected: boolean;
     lateAcquisitionImportDisabled: boolean;
+    ownerImageCredentialConfigured: boolean;
+    ownerImageExecutorInjected: boolean;
   };
 };
 
@@ -106,6 +109,7 @@ export function resolveNurseryTongsProviderBoundary(
     },
   };
   let ownerNarrativeInterpretationExecutor: TongsCommitApiOptions["ownerNarrativeInterpretationExecutor"];
+  let ownerImageExecutionExecutor: TongsCommitApiOptions["ownerImageExecutionExecutor"];
   let ownerRunwayExecutionBoundary: TongsCommitApiOptions["ownerRunwayExecutionBoundary"];
   if (config.options.supabaseUrl && config.options.supabaseServiceRoleKey) {
     ownerServiceClient = createClient<Database>(
@@ -122,6 +126,15 @@ export function resolveNurseryTongsProviderBoundary(
         authorityReader: ownerAuthorityReader,
       }),
       credential: config.ownerHearthOpenAiApiKey,
+    });
+    ownerImageExecutionExecutor = createOwnerHearthImageExecutionExecutor({
+      gate: ownerCostGate,
+      authorityReader: ownerAuthorityReader,
+      coordinator: new ForgeOwnerExecutionCoordinator({
+        gate: ownerCostGate,
+        authorityReader: ownerAuthorityReader,
+      }),
+      credential: config.ownerHearthOpenAiImageApiKey,
     });
     ownerRunwayExecutionBoundary = createOwnerHearthRunwayExecutionBoundary({
       gate: ownerCostGate,
@@ -196,6 +209,7 @@ export function resolveNurseryTongsProviderBoundary(
     ownerBrollVideoProvider: ownerRunwayProvider,
     brollAcquisitionRuntime: acquisitionRuntime,
     ownerNarrativeInterpretationExecutor,
+    ownerImageExecutionExecutor,
     ownerRunwayExecutionBoundary,
   };
   return {
@@ -209,6 +223,8 @@ export function resolveNurseryTongsProviderBoundary(
       lazyFallbackDisabled: options.runwayApiKey == null,
       acquisitionRuntimeInjected: options.brollAcquisitionRuntime === acquisitionRuntime,
       lateAcquisitionImportDisabled: true,
+      ownerImageCredentialConfigured: Boolean(config.ownerHearthOpenAiImageApiKey?.trim()),
+      ownerImageExecutorInjected: Boolean(options.ownerImageExecutionExecutor),
     },
   };
 }
