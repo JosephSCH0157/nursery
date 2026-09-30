@@ -93,7 +93,7 @@ test("canonical session accessor is authoritative and token failures stay saniti
 
 test("host shell can inject its canonical current-session accessor without browser globals", async () => {
   const restoreWindow = installWindow("http://localhost/apps/hearth");
-  const token = "header.payload.signature";
+  const token = "canonical-current-session-token";
   configureTongsUserAccessTokenResolver(async () => token);
   try {
     assert.equal(await resolveTongsUserAccessToken(), token);

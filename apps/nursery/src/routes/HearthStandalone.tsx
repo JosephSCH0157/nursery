@@ -6,7 +6,6 @@ import {
   readHearthAiRuntimeStatus,
   type HearthAiRuntimeStatus,
 } from "@hearth/lib/ai-runtime-status";
-import { configureTongsUserAccessTokenResolver } from "@hearth/lib/tongs-fetch";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
 import { resolveCanonicalSupabaseAccessToken, supabase } from "../lib/supabase";
@@ -23,13 +22,18 @@ import {
 } from "../workspace/useEpisodeWorkspaceReadModel";
 import "./HearthStandalone.css";
 
-configureTongsUserAccessTokenResolver(resolveCanonicalSupabaseAccessToken);
-
 const AiControlsPanel = lazy(async () => {
   const module = await import("../components/hearth/AiControlsPanel");
   return { default: module.AiControlsPanel };
 });
-const HearthShell = lazy(() => import("@hearth/routes/HearthShell"));
+const HearthShell = lazy(async () => {
+  const [shellModule, tokenModule] = await Promise.all([
+    import("@hearth/routes/HearthShell"),
+    import("@hearth/lib/tongs-fetch"),
+  ]);
+  tokenModule.configureTongsUserAccessTokenResolver(resolveCanonicalSupabaseAccessToken);
+  return shellModule;
+});
 
 type StoreKind = "local" | "tongs";
 
