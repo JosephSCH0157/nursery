@@ -12,6 +12,7 @@ import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 import {
   describeHearthVisualPlanOperation,
   type HearthVisualPlanOperationStage,
+  type HearthVisualPlanFailure,
 } from "../../lib/hearth-visual-plan-operation";
 
 type EpisodeMediaMapPanelProps = {
@@ -32,6 +33,7 @@ type EpisodeMediaMapPanelProps = {
   message: string | null;
   disabled?: boolean;
   operationStage: HearthVisualPlanOperationStage;
+  operationFailure: HearthVisualPlanFailure | null;
   generationScope: string;
   budgetPolicy: FullMediaBudgetPolicy;
   draft: {
@@ -377,8 +379,15 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             {props.operationStage === "generating" ? (
               <small>Keep this page open. Duplicate generation is disabled until this operation finishes.</small>
             ) : null}
-            {props.operationStage === "failed" && props.saveError ? (
-              <div className="hs-error-text-small"><strong>Why it failed:</strong> {props.saveError}</div>
+            {props.operationStage === "failed" && (props.operationFailure || props.saveError) ? (
+              <div className="hs-error-text-small">
+                <strong>Why it failed:</strong> {props.operationFailure?.message ?? props.saveError}
+                {props.operationFailure ? (
+                  <small data-error-code={props.operationFailure.code}>
+                    {[props.operationFailure.status ? `HTTP ${props.operationFailure.status}` : null, props.operationFailure.code, props.operationFailure.stage].filter(Boolean).join(" · ")}
+                  </small>
+                ) : null}
+              </div>
             ) : null}
           </span>
         </div>

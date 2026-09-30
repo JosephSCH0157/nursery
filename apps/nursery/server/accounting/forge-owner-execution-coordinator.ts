@@ -134,6 +134,12 @@ export type ForgeOwnerExecutionInput<TCapture, TResult> = {
     authorizationEvidence?: Record<string, unknown>;
     submissionEvidence?: Record<string, unknown>;
   };
+  beforeProviderSubmission?: (context: {
+    operationId: string;
+    attemptId: string;
+    attemptKey: string;
+    attemptNumber: number;
+  }) => Promise<void>;
   readPersistedResult(context: {
     operationId: string;
     requestFingerprint: string;
@@ -805,6 +811,39 @@ export class ForgeOwnerExecutionCoordinator {
         attempt,
         createdAt,
       });
+    }
+
+    if (input.beforeProviderSubmission) {
+      try {
+        await input.beforeProviderSubmission({
+          operationId: input.operation.identity.operationId,
+          attemptId: attemptIdentity.attemptId,
+          attemptKey: attemptIdentity.attemptKey,
+          attemptNumber: input.attempt.attemptNumber,
+        });
+      } catch (error) {
+        await this.appendEvent({
+          eventId: attemptIdentity.responseEventId,
+          attemptId: attemptIdentity.attemptId,
+          sequence: 3,
+          state: "failed",
+          providerReferenceId: null,
+          normalizedUsage: {},
+          privateEvidence: {
+            schema: "forge.owner-execution-pre-submission-failure.v1",
+            provider_submission_started: false,
+            error_name: error instanceof Error ? error.name : "unknown",
+          },
+          occurredAt: stableTimestamp(createdAt, input.attempt.attemptNumber, 3),
+        });
+        throw new ForgeOwnerExecutionFailure(
+          "Owner provider pre-submission authority failed before network transmission",
+          "persistence",
+          input.operation.identity.operationId,
+          attemptIdentity.attemptId,
+          { cause: error },
+        );
+      }
     }
 
     let capture: ForgeOwnerProviderCapture<TCapture>;

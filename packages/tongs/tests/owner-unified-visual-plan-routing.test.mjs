@@ -1,0 +1,26 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
+const ownerExecutor = await readFile(new URL("../../../apps/nursery/server/hearth/owner-unified-visual-plan-execution.ts", import.meta.url), "utf8");
+
+test("owner Unified Visual Plan authority branches before ordinary customer funding", () => {
+  const methodStart = service.indexOf("async generateUnifiedVisualPlan(");
+  const methodEnd = service.indexOf("async beginReferenceClipAcquisition(", methodStart);
+  const method = service.slice(methodStart, methodEnd);
+  const owner = method.indexOf("ownerUnifiedVisualPlanExecutor");
+  const customer = method.indexOf("resolveOrdinaryOpenAiTextFunding");
+  assert.ok(owner > 0);
+  assert.ok(customer > owner);
+  assert.match(method, /if \(ownerResult\) return ownerResult/);
+  assert.match(method, /if \(!options\?\.ownerRecovery && !options\?\.recoveryOnly\)/);
+  assert.ok(method.indexOf("ownerUnifiedVisualPlanExecutor") < method.indexOf("if (!input.paid_execution"));
+  assert.match(method, /canonicalInputFingerprint: expectedFingerprint/);
+  assert.match(method, /max_output_tokens: 6144/);
+});
+
+test("owner continuation never synthesizes customer financial authority", () => {
+  assert.doesNotMatch(ownerExecutor, /reservationId|spending_acceptance|customer_balance|quote|settlement|stripe/i);
+  assert.match(service, /ownerRecovery[\s\S]*skipPaidFundingResolution: true/);
+});

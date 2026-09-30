@@ -7,7 +7,11 @@ import {
 import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
-import type { HearthVisualPlanOperationStage } from "../../lib/hearth-visual-plan-operation";
+import {
+  sanitizeHearthVisualPlanFailure,
+  type HearthVisualPlanFailure,
+  type HearthVisualPlanOperationStage,
+} from "../../lib/hearth-visual-plan-operation";
 
 type PersistMediaMapResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
@@ -33,6 +37,7 @@ type UseMediaMapGenerationActionsArgs = {
   setMediaMapGenerationScope: (scope: MediaMapGenerationScope) => void;
   setIsMediaMapBusy: (next: boolean) => void;
   setVisualPlanOperationStage: (next: HearthVisualPlanOperationStage) => void;
+  setVisualPlanFailure: (next: HearthVisualPlanFailure | null) => void;
   setMediaMapSaveState: (next: "saved" | "editing" | "saving" | "error") => void;
   setMediaMapSaveError: (next: string | null) => void;
   setMediaMapMessage: (next: string | null) => void;
@@ -53,7 +58,7 @@ type UseMediaMapGenerationActionsArgs = {
   repairImageMapAuthority: () => Promise<{ ok: true } | { ok: false; error: string }>;
   generateUnifiedVisualPlan: (generationScope: MediaMapGenerationScope, creatorDirection?: string | null) => Promise<
     | { ok: true; data: { imageMapRevision: number; brollPlanRevision: number; referenceClipPlanRevision: number; referenceVisualPlanRevision: number } }
-    | { ok: false; error: string; stage: string | null }
+    | { ok: false; status: number; code: string; error: string; stage: string | null }
   >;
   refreshCanonicalBroll: () => Promise<boolean>;
   notifyCanonicalReferenceClipsChanged: () => void;
@@ -70,6 +75,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     const operation = args.operationAuthority.begin("media-map.generate");
     args.setIsMediaMapBusy(true);
     args.setVisualPlanOperationStage("generating");
+    args.setVisualPlanFailure(null);
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
@@ -77,6 +83,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!generated.ok) {
         args.setVisualPlanOperationStage("failed");
+        args.setVisualPlanFailure(sanitizeHearthVisualPlanFailure({ status: generated.status, code: generated.code, stage: generated.stage, message: generated.error }));
         args.setMediaMapSaveError(`${generated.stage ? `${generated.stage}: ` : ""}${generated.error}`);
         args.setMediaMapSaveState("error");
         return;
@@ -86,6 +93,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!repaired.ok) {
         args.setVisualPlanOperationStage("failed");
+        args.setVisualPlanFailure(sanitizeHearthVisualPlanFailure({ code: "visual_plan_canonical_repair_failed", stage: "canonical_persistence", message: repaired.error }));
         args.setMediaMapSaveError(repaired.error);
         args.setMediaMapSaveState("error");
         return;
@@ -102,6 +110,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;
       args.setVisualPlanOperationStage("failed");
+      args.setVisualPlanFailure(sanitizeHearthVisualPlanFailure({ code: "visual_plan_unexpected_failure", stage: "generation", message: error instanceof Error ? error.message : "Unable to create the canonical Episode Visual Plan." }));
       args.setMediaMapSaveError(error instanceof Error ? error.message : "Unable to create the canonical Episode Visual Plan.");
       args.setMediaMapSaveState("error");
     } finally {
@@ -125,6 +134,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     args.setMediaMapGenerationScope(conversationScope);
     args.setIsMediaMapBusy(true);
     args.setVisualPlanOperationStage("generating");
+    args.setVisualPlanFailure(null);
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
@@ -133,6 +143,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!generated.ok) {
         args.setVisualPlanOperationStage("failed");
+        args.setVisualPlanFailure(sanitizeHearthVisualPlanFailure({ status: generated.status, code: generated.code, stage: generated.stage, message: generated.error }));
         args.setMediaMapSaveError(`${generated.stage ? `${generated.stage}: ` : ""}${generated.error}`);
         args.setMediaMapSaveState("error");
         return false;
@@ -142,6 +153,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!repaired.ok) {
         args.setVisualPlanOperationStage("failed");
+        args.setVisualPlanFailure(sanitizeHearthVisualPlanFailure({ code: "visual_plan_canonical_repair_failed", stage: "canonical_persistence", message: repaired.error }));
         args.setMediaMapSaveError(repaired.error);
         args.setMediaMapSaveState("error");
         return false;
@@ -159,6 +171,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return false;
       args.setVisualPlanOperationStage("failed");
+      args.setVisualPlanFailure(sanitizeHearthVisualPlanFailure({ code: "visual_plan_unexpected_failure", stage: "generation", message: error instanceof Error ? error.message : "Unable to build and apply the Episode Visual Plan." }));
       args.setMediaMapSaveError(error instanceof Error
         ? error.message
         : "Unable to build and apply the Episode Visual Plan.");

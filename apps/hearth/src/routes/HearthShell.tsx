@@ -1319,6 +1319,8 @@ export default function HearthShell({
     setIsMediaMapBusy,
     visualPlanOperationStage,
     setVisualPlanOperationStage,
+    visualPlanFailure,
+    setVisualPlanFailure,
     mediaMapConversationSeed,
     setMediaMapConversationSeed,
     mediaMapConversationState,
@@ -2464,6 +2466,7 @@ export default function HearthShell({
     setMediaMapGenerationScope,
     setIsMediaMapBusy,
     setVisualPlanOperationStage,
+    setVisualPlanFailure,
     setMediaMapSaveState,
     setMediaMapSaveError,
     setMediaMapMessage,
@@ -2488,7 +2491,7 @@ export default function HearthShell({
       return { ok: true as const };
     },
     generateUnifiedVisualPlan: async (generationScope, creatorDirection) => {
-      if (!workspaceId || !workpieceId) return { ok: false as const, error: "Select an episode before generating its Visual Plan.", stage: "context" };
+      if (!workspaceId || !workpieceId) return { ok: false as const, status: 409, code: "visual_plan_context_required", error: "Select an episode before generating its Visual Plan.", stage: "context" };
       return generateOrResumeUnifiedVisualPlan({ workspaceId, workpieceId, generationScope, creatorDirection });
     },
     refreshCanonicalBroll: canonicalBrollV2.refresh,
@@ -6619,6 +6622,7 @@ export default function HearthShell({
       message: mediaMapMessage,
       disabled: isApprovingScript || isMediaMapBusy || unifiedVisualPlanRecovery.retryBlocked || !episodePackage,
       operationStage: visualPlanOperationStage,
+      operationFailure: visualPlanFailure,
       generationScope: mediaMapGenerationScope,
       budgetPolicy: deriveFullMediaBudgetPolicy({ wordCount }),
       draft: {

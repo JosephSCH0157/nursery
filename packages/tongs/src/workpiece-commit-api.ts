@@ -204,6 +204,7 @@ import {
 } from "./providers/broll-motion-interpretation-provider.js";
 import {
   arbitrateUnifiedVisualPlanCoverage,
+  buildUnifiedVisualPlanProviderRequestBody,
   canonicalizeUnifiedVisualSourceCatalog,
   normalizeUnifiedVisualPlanContextAnchors,
   OpenAiUnifiedVisualPlanProvider,
@@ -2514,6 +2515,7 @@ export type TongsCommitApiOptions = {
   unifiedVisualPlanProvider?: UnifiedVisualPlanProvider;
   narrativeInterpretationProvider?: NarrativeInterpretationProvider;
   ownerNarrativeInterpretationExecutor?: OwnerNarrativeInterpretationExecutor;
+  ownerUnifiedVisualPlanExecutor?: OwnerUnifiedVisualPlanExecutor;
   ownerImageExecutionExecutor?: OwnerImageExecutionExecutor;
   ownerRunwayExecutionBoundary?: OwnerRunwayExecutionBoundary;
   brollMotionInterpretationProvider?: BrollMotionInterpretationProvider;
@@ -2589,6 +2591,41 @@ export type OwnerNarrativeInterpretationExecutor = (input: {
     value: OwnerNarrativeInterpretationValue,
   ): Promise<Record<string, Json>>;
 }) => Promise<Record<string, Json> | null>;
+
+export type OwnerUnifiedVisualPlanValue = {
+  plan: Record<string, unknown>;
+  rawResponse: Record<string, unknown>;
+  providerRequestId: string | null;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+};
+
+export type OwnerUnifiedVisualPlanExecutor = (input: {
+  authenticatedUserId: string;
+  workspaceId: string;
+  workpieceId: string;
+  canonicalInputFingerprint: string;
+  normalizedInputs: Record<string, unknown>;
+  providerBody: Record<string, unknown>;
+  scriptText: string;
+  generationScope: UnifiedVisualPlanGenerationScope;
+  sourceKeys: string[];
+  scriptApprovalId: string;
+  expectedImageRevisionId: string | null;
+  expectedImageRevision: number;
+  expectedBrollRevisionId: string | null;
+  expectedBrollRevision: number;
+  expectedReferenceRevisionId: string | null;
+  expectedReferenceRevision: number;
+  expectedReferenceVisualRevisionId: string | null;
+  expectedReferenceVisualRevision: number;
+  completeCanonical(
+    operationKey: string,
+    requestFingerprint: string,
+    canonicalInputFingerprint: string,
+  ): Promise<Record<string, unknown>>;
+}) => Promise<Record<string, unknown> | null>;
 
 export type OwnerRunwayExecutionInput = {
   authenticatedUserId: string;
@@ -9555,6 +9592,7 @@ export class TongsCommitService {
   readonly imageProvider: ImageProvider | null;
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
   readonly ownerNarrativeInterpretationExecutor: OwnerNarrativeInterpretationExecutor | null;
+  readonly ownerUnifiedVisualPlanExecutor: OwnerUnifiedVisualPlanExecutor | null;
   readonly ownerImageExecutionExecutor: OwnerImageExecutionExecutor | null;
   readonly ownerRunwayExecutionBoundary: OwnerRunwayExecutionBoundary | null;
   readonly brollVideoProvider: BrollVideoProvider | null;
@@ -9592,6 +9630,7 @@ export class TongsCommitService {
     ownerRunwayExecutionBoundary: OwnerRunwayExecutionBoundary | null = null,
     ownerBrollVideoProvider: BrollVideoProvider | null = null,
     ownerImageExecutionExecutor: OwnerImageExecutionExecutor | null = null,
+    ownerUnifiedVisualPlanExecutor: OwnerUnifiedVisualPlanExecutor | null = null,
   ) {
     this.supabase = supabase;
     this.cleanupReviewGenerator = cleanupReviewGenerator;
@@ -9601,6 +9640,7 @@ export class TongsCommitService {
     this.userClientFactory = userClientFactory;
     this.narrativeInterpretationProvider = narrativeInterpretationProvider;
     this.ownerNarrativeInterpretationExecutor = ownerNarrativeInterpretationExecutor;
+    this.ownerUnifiedVisualPlanExecutor = ownerUnifiedVisualPlanExecutor;
     this.ownerImageExecutionExecutor = ownerImageExecutionExecutor;
     this.ownerRunwayExecutionBoundary = ownerRunwayExecutionBoundary;
     this.brollVideoProvider = brollVideoProvider;
@@ -29558,6 +29598,7 @@ export class TongsCommitService {
       userAccessToken?: string | null;
       skipPaidFundingResolution?: boolean;
       recoveryOnly?: boolean;
+      ownerRecovery?: { canonicalInputFingerprint: string };
     },
   ): Promise<Record<string, Json>> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
@@ -29572,12 +29613,12 @@ export class TongsCommitService {
         "unified_visual_plan_authority_unavailable",
         "Authenticated unified Visual Plan authority is unavailable.",
       );
-    const authority = this.userClientFactory(options.userAccessToken).schema(
-      "tongs",
-    ) as unknown as UntypedTongsSchemaClient;
     const canonical = this.supabase.schema(
       "tongs",
     ) as unknown as UntypedTongsSchemaClient;
+    const authority = (options?.ownerRecovery
+      ? canonical
+      : this.userClientFactory(options.userAccessToken).schema("tongs")) as unknown as UntypedTongsSchemaClient;
     const existingResult = await authority.rpc(
       "read_unified_visual_plan_operation",
       {
@@ -29795,13 +29836,73 @@ export class TongsCommitService {
     const expectedFingerprint = await sha256Hex(
       canonicalJsonBytes(normalizedInputs),
     );
-    if (expectedFingerprint !== input.operation_fingerprint)
+    if (expectedFingerprint !== (options?.ownerRecovery?.canonicalInputFingerprint ?? input.operation_fingerprint))
       throw new HttpError(
         409,
         "operation_fingerprint_mismatch",
         "Unified Visual Plan fingerprint does not match canonical inputs.",
         { expected_operation_fingerprint: expectedFingerprint },
       );
+    const frozenGenerationScope = readStringField(
+      normalizedInputs,
+      "generation_scope",
+    );
+    const generationScope: UnifiedVisualPlanGenerationScope =
+      frozenGenerationScope === "images_only" ||
+      frozenGenerationScope === "images_broll" ||
+      frozenGenerationScope === "images_reference_clips" ||
+      frozenGenerationScope === "full_media_plan"
+        ? frozenGenerationScope
+        : "full_media_plan";
+    if (!options?.ownerRecovery && !options?.recoveryOnly) {
+      const ownerResult = await this.ownerUnifiedVisualPlanExecutor?.({
+        authenticatedUserId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        canonicalInputFingerprint: expectedFingerprint,
+        normalizedInputs,
+        providerBody: {
+          ...buildUnifiedVisualPlanProviderRequestBody({
+            scriptText,
+            creatorDirection: readStringField(normalizedInputs, "creator_direction"),
+            generationScope,
+            sourceCatalog: frozenCatalog,
+            model: "gpt-5.6-luna",
+          }),
+          max_output_tokens: 6144,
+        },
+        scriptText,
+        generationScope,
+        sourceKeys: frozenCatalog.map((source) => source.source_key),
+        scriptApprovalId: input.script_approval_id,
+        expectedImageRevisionId: input.expected_image_revision_id,
+        expectedImageRevision: input.expected_image_revision,
+        expectedBrollRevisionId: input.expected_broll_revision_id,
+        expectedBrollRevision: input.expected_broll_revision,
+        expectedReferenceRevisionId: input.expected_reference_revision_id,
+        expectedReferenceRevision: input.expected_reference_revision,
+        expectedReferenceVisualRevisionId: input.expected_reference_visual_revision_id,
+        expectedReferenceVisualRevision: input.expected_reference_visual_revision,
+        completeCanonical: (operationKey, requestFingerprint, canonicalInputFingerprint) =>
+          this.generateUnifiedVisualPlan(
+            workpieceId,
+            {
+              ...input,
+              operation_id: operationKey,
+              operation_fingerprint: requestFingerprint,
+              paid_execution: null,
+              spending_acceptance: null,
+            },
+            {
+              ...options,
+              skipPaidFundingResolution: true,
+              recoveryOnly: true,
+              ownerRecovery: { canonicalInputFingerprint },
+            },
+          ),
+      });
+      if (ownerResult) return ownerResult as Record<string, Json>;
+    }
     if (!input.paid_execution && !options?.skipPaidFundingResolution) {
       try {
         const paidExecution = await resolveOrdinaryOpenAiTextFunding({
@@ -29832,18 +29933,9 @@ export class TongsCommitService {
         throwOpenAiFundingHttpError(error);
       }
     }
-    const frozenGenerationScope = readStringField(
-      normalizedInputs,
-      "generation_scope",
-    );
-    const generationScope: UnifiedVisualPlanGenerationScope =
-      frozenGenerationScope === "images_only" ||
-      frozenGenerationScope === "images_broll" ||
-      frozenGenerationScope === "images_reference_clips" ||
-      frozenGenerationScope === "full_media_plan"
-        ? frozenGenerationScope
-        : "full_media_plan";
-    const begun = await authority.rpc("begin_unified_visual_plan", {
+    const begun = options?.ownerRecovery
+      ? { data: { disposition: "replay", operation: existingOperation }, error: null }
+      : await authority.rpc("begin_unified_visual_plan", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
       p_script_approval_id: input.script_approval_id,
@@ -36590,6 +36682,7 @@ export function createTongsCommitService(
     options.ownerRunwayExecutionBoundary ?? null,
     options.ownerBrollVideoProvider ?? null,
     options.ownerImageExecutionExecutor ?? null,
+    options.ownerUnifiedVisualPlanExecutor ?? null,
   );
 }
 

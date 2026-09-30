@@ -39,6 +39,7 @@ export type OwnerHearthTextRoute =
   | "hearth.tag_generation"
   | "hearth.framing_pack_generation"
   | "hearth.thumbnail_direction_generation"
+  | "visual.unified_plan"
   | "visual.narrative_interpretation";
 
 type OpenAiCapture = {
@@ -77,6 +78,13 @@ export type OwnerHearthTextExecutionInput = {
   providerFetch?: typeof fetch;
   now?: () => number;
   parseAndValidate(payload: Json): Json;
+  beforeProviderSubmit?: (context: {
+    attemptId: string;
+    operationId: string;
+    operationKey: string;
+    requestFingerprint: string;
+    attemptNumber: number;
+  }) => Promise<void>;
   readPersistedResult?: (context: {
     attemptId: string;
     operationId: string;
@@ -317,6 +325,15 @@ export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInpu
         }));
       return value ? { found: true, value } : { found: false };
     },
+    beforeProviderSubmission: input.beforeProviderSubmit ? async () => {
+      await input.beforeProviderSubmit!({
+        attemptId: attemptIdentity.attemptId,
+        operationId: operationIdentity.operationId,
+        operationKey: operationIdentity.operationKey,
+        requestFingerprint: operationIdentity.requestFingerprint,
+        attemptNumber,
+      });
+    } : undefined,
     submitProvider: async () => {
       const startedAt = now();
       let response: Response;

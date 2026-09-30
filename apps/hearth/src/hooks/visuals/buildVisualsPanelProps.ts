@@ -43,6 +43,7 @@ type BuildMediaMapPanelArgs = {
   message: string | null;
   disabled: boolean;
   operationStage: MediaMapPanelProps["operationStage"];
+  operationFailure: MediaMapPanelProps["operationFailure"];
   generationScope: MediaMapGenerationScope;
   budgetPolicy: FullMediaBudgetPolicy;
   draft: MediaMapPanelProps["draft"];
@@ -331,6 +332,7 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
     message: args.message,
     disabled: args.disabled,
     operationStage: args.operationStage,
+    operationFailure: args.operationFailure,
     generationScope: args.generationScope,
     budgetPolicy: args.budgetPolicy,
     draft: args.draft,
