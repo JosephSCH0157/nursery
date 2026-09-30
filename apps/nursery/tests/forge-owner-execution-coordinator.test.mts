@@ -406,8 +406,8 @@ test("operation identity is stable within one runtime and isolated across runtim
   assert.notEqual(production.operationId, development.operationId);
   assert.notEqual(production.operationKey, development.operationKey);
   assert.notEqual(production.requestFingerprint, development.requestFingerprint);
-  assert.match(development.operationKey, /:test:development:/);
-  assert.match(production.operationKey, /:test:production:/);
+  assert.match(development.operationKey, /^hearth:test_text_generation:test:[0-9a-f]{64}$/);
+  assert.match(production.operationKey, /^hearth:test_text_generation:test:[0-9a-f]{64}$/);
 });
 
 test("definitive rejection and ambiguity retain evidence without asserting zero provider cost", async () => {

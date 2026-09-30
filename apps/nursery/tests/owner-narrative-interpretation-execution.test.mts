@@ -249,7 +249,7 @@ test("owner narrative isolates identical logical requests by runtime before prov
     operationIntentId: `${input().operationIntentId}-runtime-isolation`,
     prepareCanonical: async () => undefined,
     persistCanonical: async (operationKey: string) => {
-      assert.match(operationKey, /:test:(development|production):/);
+      assert.match(operationKey, /^hearth:visual\.narrative_interpretation:test:[0-9a-f]{64}$/);
       return { disposition: "committed" };
     },
   };

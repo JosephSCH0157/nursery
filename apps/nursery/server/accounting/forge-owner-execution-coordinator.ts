@@ -293,7 +293,7 @@ export function deriveForgeOwnerOperationIdentity(args: {
     stable_operation_input: args.stableOperationInput,
   };
   const digest = forgeOwnerSha256(canonicalJson(stable));
-  const operationKey = `${originatingTool}:${operationType}:${args.financialEnvironment}:${args.runtimeEnvironment}:${digest}`;
+  const operationKey = `${originatingTool}:${operationType}:${args.financialEnvironment}:${digest}`;
   return {
     financialEnvironment: args.financialEnvironment,
     runtimeEnvironment: args.runtimeEnvironment,
