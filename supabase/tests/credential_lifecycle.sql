@@ -28,6 +28,7 @@ do $$
 declare
   v_result jsonb;
   v_report jsonb;
+  v_activation timestamptz;
 begin
   v_result:=tongs.register_credential_lifecycle(
     'ce000000-0000-4000-8000-000000000100','runway','Hearth owner B-roll',
@@ -92,7 +93,7 @@ begin
   perform tongs.register_credential_lifecycle(
     'ce000000-0000-4000-8000-000000000200','runway','Hearth owner B-roll',
     'HEARTH_OWNER_RUNWAY_API_KEY','Hearth owner bounded B-roll','live','production',
-    repeat('d',64),'2026-10-30T00:00:00Z','2026-11-01T00:01:00Z',null,
+    repeat('d',64),'2026-10-30T00:00:00Z',null,null,
     interval '7 days','planned','deploy-new',repeat('e',40),'{"config_presence_verified":true}','{}',
     'ce000000-0000-4000-8000-000000000002','register-runway-new','2026-11-01T00:01:00Z'
   );
@@ -108,10 +109,18 @@ begin
     'ce000000-0000-4000-8000-000000000100','expired','replacement_ready',
     'ce000000-0000-4000-8000-000000000200',null,'{}','ce000000-0000-4000-8000-000000000002',
     'old-replacement-ready','2026-11-01T00:02:00Z');
+  v_result:=tongs.read_credential_lifecycle_execution_gate('HEARTH_OWNER_RUNWAY_API_KEY','live','production');
+  if (v_result->>'allowed')::boolean then
+    raise exception 'replacement-ready credential did not fail closed';
+  end if;
   perform tongs.transition_credential_lifecycle(
     'ce000000-0000-4000-8000-000000000100','replacement_ready','replacement_active',
     'ce000000-0000-4000-8000-000000000200',null,'{"route_configuration_verified":true}',
     'ce000000-0000-4000-8000-000000000002','old-replacement-active','2026-11-01T00:03:00Z');
+  if (select activated_at from tongs.credential_lifecycle_records where credential_id='ce000000-0000-4000-8000-000000000100')
+       <> '2026-10-02T00:10:00Z'::timestamptz then
+    raise exception 'replacement_active rewrote the old credential activation timestamp';
+  end if;
   perform tongs.transition_credential_lifecycle(
     'ce000000-0000-4000-8000-000000000100','replacement_active','revocation_pending',
     'ce000000-0000-4000-8000-000000000200',null,'{}','ce000000-0000-4000-8000-000000000002',
@@ -124,6 +133,22 @@ begin
     'ce000000-0000-4000-8000-000000000200','planned','active',null,null,
     '{"non_paid_readiness_verified":true}','ce000000-0000-4000-8000-000000000002',
     'new-active','2026-11-01T00:06:00Z');
+  select activated_at into v_activation from tongs.credential_lifecycle_records
+    where credential_id='ce000000-0000-4000-8000-000000000200';
+  if v_activation <> '2026-11-01T00:06:00Z'::timestamptz then
+    raise exception 'planned to active did not record the canonical transition timestamp';
+  end if;
+  begin
+    perform tongs.transition_credential_lifecycle(
+      'ce000000-0000-4000-8000-000000000200','planned','active',null,null,
+      '{"non_paid_readiness_verified":true}','ce000000-0000-4000-8000-000000000002',
+      'new-active','2026-11-01T00:06:00Z');
+    raise exception 'activation replay unexpectedly succeeded';
+  exception when serialization_failure then null; end;
+  if (select activated_at from tongs.credential_lifecycle_records where credential_id='ce000000-0000-4000-8000-000000000200')
+       <> v_activation then
+    raise exception 'failed activation replay changed the activation timestamp';
+  end if;
   if (select replacement_credential_id from tongs.credential_lifecycle_records where credential_id='ce000000-0000-4000-8000-000000000100')
        is distinct from 'ce000000-0000-4000-8000-000000000200'::uuid
      or (select lifecycle_status from tongs.credential_lifecycle_records where credential_id='ce000000-0000-4000-8000-000000000100')<>'revoked'
@@ -132,8 +157,12 @@ begin
     raise exception 'replacement/revocation history failed';
   end if;
   v_result:=tongs.read_credential_lifecycle_execution_gate('HEARTH_OWNER_RUNWAY_API_KEY','live','production');
-  if not (v_result->>'allowed')::boolean or v_result->>'status'<>'active' then
+  if not (v_result->>'allowed')::boolean or v_result->>'status'<>'active'
+     or v_result->>'credential_id'<>'ce000000-0000-4000-8000-000000000200' then
     raise exception 'active replacement was not selected';
+  end if;
+  if v_result ? 'credential_identity_hash' or v_result::text like '%'||repeat('d',64)||'%' then
+    raise exception 'execution gate exposed credential identity evidence';
   end if;
   select value into v_report from tongs.read_credential_lifecycle_report('2026-11-01T00:06:00Z',false) value limit 1;
   if v_report::text like '%'||repeat('a',64)||'%'
