@@ -30324,7 +30324,7 @@ export class TongsCommitService {
         { invalid_fields: invalid },
       );
     }
-    const coverageCheck = await authority.rpc(
+    const coverageCheck = await userAuthority.rpc(
       "assert_unified_visual_plan_coverage_exclusive",
       {
         p_workspace_id: input.workspace_id,
@@ -30418,7 +30418,7 @@ export class TongsCommitService {
             members,
           }),
         );
-        const committed = await authority.rpc(
+        const committed = await userAuthority.rpc(
           "commit_visual_source_attribution",
           {
             p_workspace_id: input.workspace_id,
@@ -30495,7 +30495,7 @@ export class TongsCommitService {
               members,
             }),
           );
-        const committed = await authority.rpc(
+        const committed = await userAuthority.rpc(
           "commit_reference_visual_source_set",
           {
             p_workspace_id: input.workspace_id,
@@ -30656,7 +30656,7 @@ export class TongsCommitService {
       state = "image_plan_committed";
     }
     if (state === "image_plan_committed") {
-      const result = await authority.rpc("commit_broll_plan", {
+        const result = await userAuthority.rpc("commit_broll_plan", {
         p_workspace_id: input.workspace_id,
         p_workpiece_id: workpieceId,
         p_expected_revision_id: input.expected_broll_revision_id,
@@ -30783,7 +30783,7 @@ export class TongsCommitService {
             };
           }),
         );
-        const result = await authority.rpc("commit_reference_clip_plan", {
+        const result = await userAuthority.rpc("commit_reference_clip_plan", {
           p_workspace_id: input.workspace_id,
           p_workpiece_id: workpieceId,
           p_expected_revision_id: input.expected_reference_revision_id,
@@ -30912,7 +30912,7 @@ export class TongsCommitService {
             };
           }),
         );
-        const result = await authority.rpc("commit_reference_visual_plan", {
+        const result = await userAuthority.rpc("commit_reference_visual_plan", {
           p_workspace_id: input.workspace_id,
           p_workpiece_id: workpieceId,
           p_expected_revision_id: input.expected_reference_visual_revision_id,
