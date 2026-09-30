@@ -97,6 +97,19 @@ do $$ begin
   end if;
 end $$;
 
+-- Production recovery begins from a provider response captured before a
+-- downstream persistence failure. The operation trigger must accept that
+-- exact durable response without requiring another provider attempt.
+select tongs.append_owner_cost_attempt_event(
+  '9d000000-0000-4000-8000-000000000025'::uuid,'9d000000-0000-4000-8000-000000000022'::uuid,4,
+  'failed','owner-persistence-provider-request','{}'::jsonb,'{}'::jsonb,clock_timestamp()
+);
+set local role service_role;
+update tongs.unified_visual_plan_operations
+set updated_at=updated_at
+where operation_id='owner-unified-persistence-test';
+reset role;
+
 -- Exact canonical owner binding succeeds, while every independently varied
 -- binding dimension fails closed.
 select tongs._assert_owner_unified_visual_plan_persistence_authority(
