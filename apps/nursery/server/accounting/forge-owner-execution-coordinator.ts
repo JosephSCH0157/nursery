@@ -193,8 +193,18 @@ export type ForgeOwnerExecutionResult<TResult> =
   | { state: "submission_unknown"; operationId: string; attemptId: string; replay: boolean };
 
 export class ForgeOwnerAuthorizationError extends Error {
+  readonly code:
+    | "owner_authentication_required"
+    | "owner_authority_not_configured"
+    | "owner_authority_mismatch"
+    | "owner_authority_unavailable"
+    | "owner_workspace_membership_required"
+    | "owner_workspace_membership_unavailable"
+    | "owner_route_authorization_required"
+    | "owner_route_authorization_unavailable";
+
   constructor(
-    readonly code:
+    code:
       | "owner_authentication_required"
       | "owner_authority_not_configured"
       | "owner_authority_mismatch"
@@ -208,6 +218,7 @@ export class ForgeOwnerAuthorizationError extends Error {
   ) {
     super(message, options);
     this.name = "ForgeOwnerAuthorizationError";
+    this.code = code;
   }
 }
 
