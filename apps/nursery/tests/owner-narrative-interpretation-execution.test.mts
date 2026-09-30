@@ -14,6 +14,13 @@ const WORKPIECE_ID = "30000000-0000-4000-8000-000000000001";
 type Attempt = {
   attempt_id: string;
   attempt_number: number;
+  attempt_key: string;
+  request_fingerprint: string;
+  provider: string;
+  service: string;
+  model: string | null;
+  sku: string | null;
+  credential_identity_hash: string;
   events: Array<Record<string, unknown>>;
   valuations: Array<Record<string, unknown>>;
 };
@@ -56,17 +63,29 @@ class NarrativeOwnerGate implements OwnerCostRpcGate {
     if (name === "authorize_owner_cost_provider_attempt") {
       const operation = this.operations.get(String(args.p_operation_id));
       assert.ok(operation);
-      let attempt = operation.attempts.find((value) => value.attempt_id === args.p_attempt_id);
+      let attempt = operation.attempts.find((value) => value.attempt_id === args.p_attempt_id
+        || value.attempt_number === Number(args.p_attempt_number));
+      if (attempt && (attempt.attempt_id !== args.p_attempt_id
+        || attempt.request_fingerprint !== args.p_request_fingerprint)) {
+        return { data: null, error: { code: "23505", message: "owner-cost provider attempt replay conflict" } };
+      }
       if (!attempt) {
         attempt = {
           attempt_id: String(args.p_attempt_id),
           attempt_number: Number(args.p_attempt_number),
+          attempt_key: String(args.p_attempt_key),
+          request_fingerprint: String(args.p_request_fingerprint),
+          provider: String(args.p_provider),
+          service: String(args.p_service),
+          model: typeof args.p_model === "string" ? args.p_model : null,
+          sku: typeof args.p_sku === "string" ? args.p_sku : null,
+          credential_identity_hash: String(args.p_credential_identity_hash),
           events: [{ event_sequence: 1, lifecycle_state: "authorized", occurred_at: args.p_authorized_at }],
           valuations: [],
         };
         operation.attempts.push(attempt);
       }
-      return { data: { attempt_id: attempt.attempt_id, authorized: true, replay: false }, error: null };
+      return { data: { attempt_id: attempt.attempt_id, authorized: attempt.events.length === 1, replay: attempt.events.length > 1 }, error: null };
     }
     if (name === "append_owner_cost_attempt_event") {
       const attempt = this.attempt(args.p_attempt_id);
@@ -304,4 +323,212 @@ test("owner narrative canonical persistence recovers from captured evidence with
   const recovered = await executor(request);
   assert.equal(recovered?.disposition, "committed");
   assert.equal(providerCalls, 1);
+});
+
+test("owner narrative credential replacement creates attempt 2 and exact replay recovers attempt 2", async () => {
+  const gate = new NarrativeOwnerGate();
+  let oldProviderCalls = 0;
+  let replacementProviderCalls = 0;
+  const request = {
+    ...input(),
+    operationIntentId: `${input().operationIntentId}-credential-replacement`,
+    prepareCanonical: async () => undefined,
+    persistCanonical: async () => ({ disposition: "committed" }),
+  };
+  const oldExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "superseded-owner-openai-key",
+    providerFetch: async () => {
+      oldProviderCalls += 1;
+      return Response.json({ error: { message: "invalid_api_key" } }, { status: 401 });
+    },
+  });
+  await assert.rejects(oldExecutor(request), /definitively rejected/);
+
+  const replacementExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "replacement-owner-openai-key",
+    providerFetch: async () => {
+      replacementProviderCalls += 1;
+      return Response.json({
+        id: "resp_owner_narrative_retry_2",
+        model: "gpt-5.6-luna",
+        output: [{ content: [{ type: "output_text", text: JSON.stringify(brief) }] }],
+        usage: { input_tokens: 100, output_tokens: 50 },
+      });
+    },
+  });
+  const retry = await replacementExecutor(request);
+  const replay = await replacementExecutor(request);
+
+  assert.equal(retry?.disposition, "committed");
+  assert.equal(replay?.disposition, "committed");
+  assert.equal(oldProviderCalls, 1);
+  assert.equal(replacementProviderCalls, 1);
+  const attempts = [...gate.operations.values()][0].attempts;
+  assert.deepEqual(attempts.map((attempt) => attempt.attempt_number), [1, 2]);
+  assert.deepEqual(attempts[0].events.map((event) => event.lifecycle_state), ["authorized", "submitted", "definitively_rejected"]);
+  assert.deepEqual(attempts[1].events.map((event) => event.lifecycle_state), ["authorized", "submitted", "response_captured", "succeeded"]);
+  assert.notEqual(attempts[0].credential_identity_hash, attempts[1].credential_identity_hash);
+  assert.equal(gate.calls.some((call) => call.name.includes("reservation") || call.name.includes("quote") || call.name.includes("customer")), false);
+});
+
+test("owner narrative explicitly retries a failed captured attempt with the next number", async () => {
+  const gate = new NarrativeOwnerGate();
+  const request = {
+    ...input(),
+    operationIntentId: `${input().operationIntentId}-failed-retry`,
+    prepareCanonical: async () => undefined,
+    persistCanonical: async () => { throw new Error("canonical persistence unavailable"); },
+  };
+  const firstExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "failed-attempt-owner-key",
+    providerFetch: async () => Response.json({
+      id: "resp_owner_narrative_failed_1",
+      model: "gpt-5.6-luna",
+      output: [{ content: [{ type: "output_text", text: JSON.stringify(brief) }] }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+  });
+  await assert.rejects(firstExecutor(request), /Owner product result persistence failed/);
+
+  let retryCalls = 0;
+  const retryExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "failed-attempt-replacement-key",
+    providerFetch: async () => {
+      retryCalls += 1;
+      return Response.json({
+        id: "resp_owner_narrative_failed_retry_2",
+        model: "gpt-5.6-luna",
+        output: [{ content: [{ type: "output_text", text: JSON.stringify(brief) }] }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      });
+    },
+  });
+  const retry = await retryExecutor({
+    ...request,
+    persistCanonical: async () => ({ disposition: "committed" }),
+  });
+  assert.equal(retry?.disposition, "committed");
+  assert.equal(retryCalls, 1);
+  const attempts = [...gate.operations.values()][0].attempts;
+  assert.deepEqual(attempts.map((attempt) => attempt.attempt_number), [1, 2]);
+  assert.equal(attempts[0].events.at(-1)?.lifecycle_state, "failed");
+  assert.equal(attempts[1].events.at(-1)?.lifecycle_state, "succeeded");
+});
+
+test("owner narrative blocks a changed retry after submission ambiguity", async () => {
+  const gate = new NarrativeOwnerGate();
+  const request = {
+    ...input(),
+    operationIntentId: `${input().operationIntentId}-ambiguous-retry`,
+    prepareCanonical: async () => undefined,
+    persistCanonical: async () => assert.fail("ambiguous submission must not persist"),
+  };
+  const firstExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "ambiguous-owner-key",
+    providerFetch: async () => { throw new TypeError("connection reset"); },
+  });
+  await assert.rejects(firstExecutor(request), /submission is unresolved/);
+
+  let retryCalls = 0;
+  const replacementExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "ambiguous-replacement-key",
+    providerFetch: async () => { retryCalls += 1; return Response.json({}); },
+  });
+  await assert.rejects(replacementExecutor(request), /unresolved \(submission_unknown\)/);
+  assert.equal(retryCalls, 0);
+  assert.equal([...gate.operations.values()][0].attempts.length, 1);
+});
+
+test("owner narrative blocks changed execution while submitted or response-captured work is unresolved", async () => {
+  for (const unresolvedState of ["submitted", "response_captured"] as const) {
+    const gate = new NarrativeOwnerGate();
+    const request = {
+      ...input(),
+      operationIntentId: `${input().operationIntentId}-${unresolvedState}`,
+      prepareCanonical: async () => undefined,
+      persistCanonical: async () => { throw new Error("persistence unavailable"); },
+    };
+    const firstExecutor = createOwnerNarrativeInterpretationExecutor({
+      gate,
+      authorityReader,
+      coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+      credential: `owner-${unresolvedState}-key`,
+      providerFetch: async () => Response.json({
+        id: `resp_${unresolvedState}`,
+        model: "gpt-5.6-luna",
+        output: [{ content: [{ type: "output_text", text: JSON.stringify(brief) }] }],
+        usage: { input_tokens: 10, output_tokens: 5 },
+      }),
+    });
+    await assert.rejects(firstExecutor(request), /Owner product result persistence failed/);
+    const attempt = [...gate.operations.values()][0].attempts[0];
+    while (attempt.events.at(-1)?.lifecycle_state !== unresolvedState) attempt.events.pop();
+
+    let retryCalls = 0;
+    const replacementExecutor = createOwnerNarrativeInterpretationExecutor({
+      gate,
+      authorityReader,
+      coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+      credential: `owner-${unresolvedState}-replacement-key`,
+      providerFetch: async () => { retryCalls += 1; return Response.json({}); },
+    });
+    await assert.rejects(replacementExecutor(request), new RegExp(`unresolved \\(${unresolvedState}\\)`));
+    assert.equal(retryCalls, 0);
+    assert.equal([...gate.operations.values()][0].attempts.length, 1);
+  }
+});
+
+test("owner narrative attempt numbers increase monotonically across deliberate credential retries", async () => {
+  const gate = new NarrativeOwnerGate();
+  const request = {
+    ...input(),
+    operationIntentId: `${input().operationIntentId}-monotonic-retries`,
+    prepareCanonical: async () => undefined,
+    persistCanonical: async () => ({ disposition: "committed" }),
+  };
+  for (const credential of ["retry-key-one", "retry-key-two"]) {
+    const executor = createOwnerNarrativeInterpretationExecutor({
+      gate,
+      authorityReader,
+      coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+      credential,
+      providerFetch: async () => Response.json({ error: { message: "rejected" } }, { status: 401 }),
+    });
+    await assert.rejects(executor(request), /definitively rejected/);
+  }
+  const finalExecutor = createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "retry-key-three",
+    providerFetch: async () => Response.json({
+      id: "resp_owner_narrative_retry_3",
+      model: "gpt-5.6-luna",
+      output: [{ content: [{ type: "output_text", text: JSON.stringify(brief) }] }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }),
+  });
+  await finalExecutor(request);
+  const attempts = [...gate.operations.values()][0].attempts;
+  assert.deepEqual(attempts.map((attempt) => attempt.attempt_number), [1, 2, 3]);
+  assert.deepEqual(attempts.slice(0, 2).map((attempt) => attempt.events.at(-1)?.lifecycle_state), ["definitively_rejected", "definitively_rejected"]);
+  assert.equal(attempts[2].events.at(-1)?.lifecycle_state, "succeeded");
 });

@@ -14,6 +14,14 @@ import {
 
 type Json = Record<string, unknown>;
 
+type OwnerTextAttemptSnapshot = Json & {
+  events?: Json[];
+};
+
+type OwnerTextOperationSnapshot = {
+  attempts?: OwnerTextAttemptSnapshot[];
+};
+
 export const HEARTH_OWNER_TEXT_MODEL = "gpt-5.6-luna" as const;
 export const HEARTH_OWNER_TEXT_RATE = Object.freeze({
   inputMicrosPerMillion: 200_000,
@@ -89,6 +97,16 @@ function object(value: unknown): Json | null {
 
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function attemptNumber(attempt: OwnerTextAttemptSnapshot): number | null {
+  const value = Number(attempt.attempt_number);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function attemptState(attempt: OwnerTextAttemptSnapshot): string | null {
+  const events = Array.isArray(attempt.events) ? attempt.events : [];
+  return text(events.at(-1)?.lifecycle_state)?.toLowerCase() ?? null;
 }
 
 function responseHeaders(headers: Headers): Record<string, string> {
@@ -171,6 +189,61 @@ export function deriveOwnerHearthTextOperation(args: Pick<OwnerHearthTextExecuti
     },
     exactRequestInput: args.logicalRequest,
   });
+}
+
+export async function selectExplicitOwnerHearthTextAttemptNumber(args: {
+  gate: OwnerHearthTextExecutionInput["gate"];
+  operationIdentity: ForgeOwnerOperationIdentity;
+  credential: string;
+  providerBody: Json;
+  providerEndpoint?: "/v1/chat/completions" | "/v1/responses";
+  providerService?: "chat_completions" | "responses";
+}): Promise<number> {
+  if (!args.credential.trim()) throw new Error("Hearth owner OpenAI credential is required");
+  const model = text(args.providerBody.model);
+  if (model !== HEARTH_OWNER_TEXT_MODEL) throw new Error("Hearth owner text model must be gpt-5.6-luna");
+  const providerEndpoint = args.providerEndpoint ?? "/v1/chat/completions";
+  const providerService = args.providerService ?? "chat_completions";
+  const credentialIdentityHash = forgeOwnerCredentialIdentityHash(args.credential);
+  const result = await args.gate.rpc("read_owner_cost_operation", {
+    p_operation_id: args.operationIdentity.operationId,
+  });
+  if (result.error) {
+    throw new Error(`read_owner_cost_operation: ${result.error.message ?? "unknown error"}`);
+  }
+  const snapshot = object(result.data) as OwnerTextOperationSnapshot | null;
+  const attempts = (snapshot?.attempts ?? [])
+    .map((attempt) => ({ attempt, number: attemptNumber(attempt) }))
+    .filter((row): row is { attempt: OwnerTextAttemptSnapshot; number: number } => row.number !== null)
+    .sort((left, right) => left.number - right.number);
+  if (attempts.length === 0) return 1;
+
+  const exactProviderRequest = { method: "POST", path: providerEndpoint, body: args.providerBody };
+  for (const row of [...attempts].reverse()) {
+    const identity = deriveForgeOwnerAttemptIdentity({
+      operation: args.operationIdentity,
+      attemptNumber: row.number,
+      provider: "openai",
+      service: providerService,
+      model,
+      sku: model,
+      credentialIdentityHash,
+      exactProviderRequest,
+    });
+    if (text(row.attempt.request_fingerprint)?.toLowerCase() === identity.requestFingerprint) {
+      return row.number;
+    }
+  }
+
+  const latest = attempts.at(-1)!;
+  const state = attemptState(latest.attempt);
+  if (["submission_unknown", "authorized", "submitted", "response_captured"].includes(state ?? "")) {
+    throw new Error(`Owner provider attempt ${latest.number} is unresolved (${state}) and cannot be retried`);
+  }
+  if (state !== "definitively_rejected" && state !== "failed") {
+    throw new Error(`Owner provider attempt ${latest.number} is not eligible for explicit retry (${state ?? "unknown"})`);
+  }
+  return latest.number + 1;
 }
 
 export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInput) {

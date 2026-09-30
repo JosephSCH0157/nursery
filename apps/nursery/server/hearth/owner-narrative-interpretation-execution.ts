@@ -20,6 +20,7 @@ import {
 } from "../accounting/forge-owner-execution-coordinator";
 import {
   executeOwnerHearthText,
+  selectExplicitOwnerHearthTextAttemptNumber,
   type OwnerHearthTextResult,
 } from "./owner-hearth-text-execution";
 
@@ -144,6 +145,14 @@ export function createOwnerNarrativeInterpretationExecutor(args: {
         ownerValue(value),
       );
     };
+    const attemptNumber = await selectExplicitOwnerHearthTextAttemptNumber({
+      gate: args.gate,
+      operationIdentity,
+      credential: args.credential,
+      providerBody: input.providerBody,
+      providerEndpoint: "/v1/responses",
+      providerService: "responses",
+    });
     const execution = await executeOwnerHearthText({
       coordinator: args.coordinator,
       gate: args.gate,
@@ -160,6 +169,7 @@ export function createOwnerNarrativeInterpretationExecutor(args: {
       providerService: "responses",
       logicalRequest: input.logicalRequest,
       operationIdentity,
+      attemptNumber,
       providerFetch: args.providerFetch,
       parseAndValidate: parseNarrativeValue,
       readPersistedResult: async ({ attemptId }) => {
