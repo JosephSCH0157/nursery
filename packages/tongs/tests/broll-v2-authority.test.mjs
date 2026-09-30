@@ -9,6 +9,7 @@ const paidVideoShapeMigration=readFileSync(new URL("../../../supabase/migrations
 const paidVideoOperationMigration=readFileSync(new URL("../../../supabase/migrations/20260811170000_tongs_paid_media_video_operation_identity.sql",import.meta.url),"utf8");
 const paidVideoUsageMigration=readFileSync(new URL("../../../supabase/migrations/20260811180000_tongs_allow_paid_video_actual_usage_component.sql",import.meta.url),"utf8");
 const runwayPricingMigration=readFileSync(new URL("../../../supabase/migrations/20260808131000_tongs_runway_gen45_pricing.sql",import.meta.url),"utf8");
+const zeroBeatMigration=readFileSync(new URL("../../../supabase/migrations/20261012000000_allow_zero_beat_unified_broll_plan.sql",import.meta.url),"utf8");
 
 test("paid-media video quotes retain all canonical quote contract versions",()=>{
   assert.match(paidMediaQuoteMigration,/'forge\.paid-media\.quote\.v1'/);
@@ -43,6 +44,12 @@ const readbackMigration=readFileSync(new URL("../../../supabase/migrations/20260
 test("B-roll V2 establishes immutable plans, beats, prompts, candidates, selections, and receipts",()=>{
   for(const name of ["broll_plan_revisions","broll_beat_revisions","broll_prompt_revisions","broll_candidate_revisions","broll_selections","broll_operation_receipts"])assert.match(migration,new RegExp(`create table tongs\\.${name}`));
   assert.match(migration,/reject_broll_immutable_mutation/);assert.match(migration,/revoke all on tongs\.%I from public,anon,authenticated/);
+});
+test("a completed zero-beat B-roll plan is explicit without weakening document validation",()=>{
+  assert.match(zeroBeatMigration,/jsonb_typeof\(p_beats\) <> 'array'[\s\S]*beats_array_required/);
+  assert.doesNotMatch(zeroBeatMigration,/jsonb_array_length\(p_beats\)\s*=\s*0 then[\s\S]*beats_required/);
+  assert.match(zeroBeatMigration,/'beat_count',jsonb_array_length\(p_beats\),'empty',jsonb_array_length\(p_beats\)=0/);
+  assert.match(zeroBeatMigration,/for v_beat in select value from jsonb_array_elements\(p_beats\)/);
 });
 test("B-roll V2 reserves external work and requires a verified video asset before candidate commit",()=>{
   assert.match(migration,/begin_broll_operation/);assert.match(migration,/provider_or_upload_completed/);assert.match(migration,/verify_broll_operation_asset/);assert.match(migration,/status='ready'.*mime_type like 'video\/%'.*content_hash is not null.*ready_at is not null/s);
