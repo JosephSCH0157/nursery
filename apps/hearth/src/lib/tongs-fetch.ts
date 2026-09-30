@@ -172,6 +172,7 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
 
   const runtimeWindow = window as Window & typeof globalThis & {
+    __forge_resolve_user_access_token__?: () => Promise<string | null>;
     __forge_supabase_client__?: {
       auth?: {
         getSession?: () => Promise<unknown>;
@@ -179,6 +180,15 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
       };
     };
   };
+
+  const canonicalResolver = runtimeWindow.__forge_resolve_user_access_token__;
+  if (typeof canonicalResolver === "function") {
+    try {
+      return sanitizeAccessToken(await canonicalResolver());
+    } catch {
+      return null;
+    }
+  }
 
   const auth = runtimeWindow.__forge_supabase_client__?.auth;
   if (auth && typeof auth.getSession === "function") {
@@ -191,11 +201,13 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
         const refreshedToken = sanitizeAccessToken(extractAccessTokenFromAuthPayload(refreshedPayload));
         if (refreshedToken) return refreshedToken;
       }
+      return null;
     } catch {
-      // Fall through to compatibility storage for older shells that do not
-      // expose a functioning runtime Supabase client.
+      return null;
     }
   }
+  // Compatibility only for older shells that expose no canonical Supabase
+  // authority. A present canonical client always remains authoritative.
   return resolveUserAccessTokenFromStorage();
 }
 

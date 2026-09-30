@@ -5,6 +5,7 @@ import {
 } from "@supabase/supabase-js";
 import type { Database as TongsDatabase } from "@forge/tongs";
 import type { Database as NurseryDatabase } from "./supabase/database.types";
+import { createCanonicalSupabaseAccessTokenResolver } from "./supabase-session-authority";
 
 type AppDatabase = {
   __InternalSupabase: NurseryDatabase["__InternalSupabase"];
@@ -20,6 +21,7 @@ const AUTH_STORAGE_KEY = "forge-auth";
 
 const GLOBAL_KEY = "__forge_supabase_client__";
 const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
+const ACCESS_TOKEN_RESOLVER_KEY = "__forge_resolve_user_access_token__";
 export type TongsSupabaseClient = SupabaseClient<TongsDatabase, "tongs", "tongs">;
 
 const supabaseAuthLockQueues = new Map<string, Promise<void>>();
@@ -53,6 +55,7 @@ async function runWithSupabaseAuthLock<Result>(
 const globalStore = globalThis as typeof globalThis & {
   [GLOBAL_KEY]?: SupabaseClient<AppDatabase>;
   [TONGS_GLOBAL_KEY]?: TongsSupabaseClient;
+  [ACCESS_TOKEN_RESOLVER_KEY]?: () => Promise<string | null>;
 };
 
 if (!url || !anon) {
@@ -77,6 +80,10 @@ export const supabase: SupabaseClient<AppDatabase> =
     auth: primaryAuthOptions,
   });
 
+export const resolveCanonicalSupabaseAccessToken =
+  globalStore[ACCESS_TOKEN_RESOLVER_KEY]
+  ?? createCanonicalSupabaseAccessTokenResolver(supabase.auth);
+
 const tongsOptions: SupabaseClientOptions<"tongs"> = {
   db: { schema: "tongs" },
   // Share the primary client's current token without creating or persisting a
@@ -92,3 +99,4 @@ export const tongsSupabase: TongsSupabaseClient =
 
 globalStore[GLOBAL_KEY] = supabase as SupabaseClient<AppDatabase>;
 globalStore[TONGS_GLOBAL_KEY] = tongsSupabase;
+globalStore[ACCESS_TOKEN_RESOLVER_KEY] = resolveCanonicalSupabaseAccessToken;

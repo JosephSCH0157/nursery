@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { tongsFetch } from "../src/lib/tongs-fetch";
+import { resolveTongsUserAccessToken, tongsFetch } from "../src/lib/tongs-fetch";
 
 function installWindow(url: string) {
   const dom = new JSDOM("<!doctype html>", { url });
@@ -52,6 +52,35 @@ test("a browser with no Tongs credential fails clearly without making a request"
     assert.equal(response.status, 401);
     assert.equal(called, false);
     assert.equal((await response.json()).error.code, "missing_tongs_auth");
+  } finally {
+    globalThis.fetch = previousFetch;
+    restoreWindow();
+  }
+});
+
+test("canonical session accessor is authoritative and token failures stay sanitized", async () => {
+  const restoreWindow = installWindow("http://localhost/apps/hearth");
+  const runtime = window as Window & typeof globalThis & {
+    __forge_resolve_user_access_token__?: () => Promise<string | null>;
+  };
+  window.localStorage.setItem("forge-auth", "compatibility-token-must-not-be-used");
+  runtime.__forge_resolve_user_access_token__ = async () => {
+    throw new Error("private refresh failure with secret-token-material");
+  };
+  const previousFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    throw new Error("network must not be reached");
+  }) as typeof fetch;
+  try {
+    assert.equal(await resolveTongsUserAccessToken(), null);
+    const response = await tongsFetch("/tongs/workpieces/fixture/script-approval", { method: "GET" });
+    const body = await response.json() as { error?: { code?: string; message?: string } };
+    assert.equal(response.status, 401);
+    assert.equal(body.error?.code, "missing_tongs_auth");
+    assert.doesNotMatch(JSON.stringify(body), /secret-token-material|compatibility-token/);
+    assert.equal(called, false);
   } finally {
     globalThis.fetch = previousFetch;
     restoreWindow();
