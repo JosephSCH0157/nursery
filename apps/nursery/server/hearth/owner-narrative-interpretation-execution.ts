@@ -18,6 +18,7 @@ import {
   type OwnerFinancialEnvironment,
   type OwnerRuntimeEnvironment,
 } from "../accounting/forge-owner-execution-coordinator";
+import { readOwnerRuntimeEnvironment } from "../accounting/owner-runtime-environment";
 import {
   executeOwnerHearthText,
   selectExplicitOwnerHearthTextAttemptNumber,
@@ -93,13 +94,6 @@ async function financialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinanc
   return value;
 }
 
-function runtimeEnvironment(): OwnerRuntimeEnvironment {
-  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
-  if (value === "production") return "production";
-  if (value === "deploy-preview" || value === "preview") return "preview";
-  return "development";
-}
-
 export function createOwnerNarrativeInterpretationExecutor(args: {
   gate: OwnerCostRpcGate;
   coordinator: ForgeOwnerExecutionCoordinator;
@@ -123,7 +117,7 @@ export function createOwnerNarrativeInterpretationExecutor(args: {
     if (!args.credential?.trim()) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
 
     const financial = await financialEnvironment(args.gate);
-    const runtime = args.runtimeEnvironment ?? runtimeEnvironment();
+    const runtime = args.runtimeEnvironment ?? readOwnerRuntimeEnvironment();
     const operationIdentity = deriveForgeOwnerOperationIdentity({
       financialEnvironment: financial,
       runtimeEnvironment: runtime,

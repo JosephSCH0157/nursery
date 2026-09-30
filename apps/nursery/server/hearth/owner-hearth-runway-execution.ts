@@ -9,8 +9,8 @@ import {
   type OwnerAuthorityReader,
   type OwnerCostRpcGate,
   type OwnerFinancialEnvironment,
-  type OwnerRuntimeEnvironment,
 } from "../accounting/forge-owner-execution-coordinator";
+import { readOwnerRuntimeEnvironment } from "../accounting/owner-runtime-environment";
 import type {
   OwnerRunwayExecutionBoundary,
   OwnerRunwayExecutionContext,
@@ -45,13 +45,6 @@ async function financialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinanc
   const value = data?.financial_environment;
   if (value !== "test" && value !== "live") throw new Error("Owner financial environment is unavailable");
   return value;
-}
-
-function runtimeEnvironment(): OwnerRuntimeEnvironment {
-  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
-  if (value === "production") return "production";
-  if (value === "deploy-preview" || value === "preview") return "preview";
-  return "development";
 }
 
 function timestamp(createdAt: string, sequence: number): string {
@@ -135,7 +128,7 @@ export function createOwnerHearthRunwayExecutionBoundary(args: {
         throw new Error("Owner Runway execution is restricted to one reference-free Gen-4.5 5-second 1280x720 generation");
       }
       const financial = await financialEnvironment(args.gate);
-      const runtime = runtimeEnvironment();
+      const runtime = readOwnerRuntimeEnvironment();
       const lifecycle = object(await rpc(args.gate, "read_credential_lifecycle_execution_gate", {
         p_configuration_variable_name: "HEARTH_OWNER_RUNWAY_API_KEY",
         p_financial_environment: financial,

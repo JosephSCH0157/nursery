@@ -24,8 +24,8 @@ import {
   type OwnerAuthorityReader,
   type OwnerCostRpcGate,
   type OwnerFinancialEnvironment,
-  type OwnerRuntimeEnvironment,
 } from "../accounting/forge-owner-execution-coordinator";
+import { readOwnerRuntimeEnvironment } from "../accounting/owner-runtime-environment";
 
 type Json = Record<string, unknown>;
 
@@ -55,13 +55,6 @@ async function financialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinanc
   const value = data?.financial_environment;
   if (value !== "test" && value !== "live") throw new Error("Owner financial environment is unavailable");
   return value;
-}
-
-function runtimeEnvironment(): OwnerRuntimeEnvironment {
-  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
-  if (value === "production") return "production";
-  if (value === "deploy-preview" || value === "preview") return "preview";
-  return "development";
 }
 
 function sha256BytesBase64(value: string): string {
@@ -169,7 +162,7 @@ export function createOwnerHearthImageExecutionExecutor(args: {
     validateContract(input);
 
     const financial = await financialEnvironment(args.gate);
-    const runtime = runtimeEnvironment();
+    const runtime = readOwnerRuntimeEnvironment();
     const contract = input.routeCode === "hearth.thumbnail_base_generation"
       ? THUMBNAIL_BASE_GENERATION_CONTRACT
       : TIMELINE_IMAGE_GENERATION_CONTRACT;

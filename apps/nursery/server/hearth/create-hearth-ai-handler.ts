@@ -191,8 +191,8 @@ import {
   requireForgeOwnerExecutionAuthority,
   type OwnerCostRpcGate,
   type OwnerFinancialEnvironment,
-  type OwnerRuntimeEnvironment,
 } from "../accounting/forge-owner-execution-coordinator";
+import { readOwnerRuntimeEnvironment } from "../accounting/owner-runtime-environment";
 import {
   HEARTH_OWNER_TEXT_MODEL,
   executeOwnerHearthText,
@@ -439,13 +439,6 @@ async function readJsonBody(request: Request): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function ownerRuntimeEnvironment(): OwnerRuntimeEnvironment {
-  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
-  if (value === "production") return "production";
-  if (value === "deploy-preview" || value === "preview") return "preview";
-  return "development";
 }
 
 async function ownerFinancialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinancialEnvironment> {
@@ -4844,7 +4837,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           workpieceId: episodeContext.episodeId,
           operationIntentId: chatActionId,
           financialEnvironment: currentOwnerFinancialEnvironment,
-          runtimeEnvironment: ownerRuntimeEnvironment(),
+          runtimeEnvironment: readOwnerRuntimeEnvironment(),
           braveCredential: ownerResearchApiKey,
           plan: ownerResearchPlan,
           providerFetch: config.openAiProviderFetch,
@@ -5775,7 +5768,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             routeCode: ownerRoute,
             operationIntentId: chatActionId,
             financialEnvironment: currentOwnerFinancialEnvironment,
-            runtimeEnvironment: ownerRuntimeEnvironment(),
+            runtimeEnvironment: readOwnerRuntimeEnvironment(),
             credential: ownerCredential,
             providerBody,
             logicalRequest: ownerRoute === "hearth.research_synthesis" ? ownerResearchPlan : paidFingerprintPayload,

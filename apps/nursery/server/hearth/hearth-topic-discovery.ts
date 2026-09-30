@@ -12,8 +12,8 @@ import {
   requireForgeOwnerExecutionAuthority,
   type OwnerCostRpcGate,
   type OwnerFinancialEnvironment,
-  type OwnerRuntimeEnvironment,
 } from "../accounting/forge-owner-execution-coordinator";
+import { readOwnerRuntimeEnvironment } from "../accounting/owner-runtime-environment";
 import { extractUrlToResearchSource, classifyResearchSourceAuthority } from "./hearth-research-runtime";
 import type { HearthRuntimeConfig } from "./hearth-runtime-config";
 
@@ -54,13 +54,6 @@ async function readFinancialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFi
   if (value !== "test" && value !== "live") throw new Error("Owner-cost financial environment is invalid");
   return value;
 }
-function runtimeEnvironment(): OwnerRuntimeEnvironment {
-  const value = (process.env.CONTEXT ?? process.env.NODE_ENV ?? "").trim().toLowerCase();
-  if (value === "production") return "production";
-  if (value === "deploy-preview" || value === "preview") return "preview";
-  return "development";
-}
-
 export function buildDiscoveryQueries(preference: Json): string[] {
   const genre = text(preference.genre) ?? "";
   const interests = Array.isArray(preference.topic_interests) ? preference.topic_interests.map(text).filter(Boolean).slice(0, 4).join(" ") : "";
@@ -109,7 +102,7 @@ async function runDiscovery(args: {
     preferenceRevision: args.revision,
     queries: discoveryQueries,
     financialEnvironment: args.financialEnvironment,
-    runtimeEnvironment: runtimeEnvironment(),
+    runtimeEnvironment: readOwnerRuntimeEnvironment(),
     credential: args.config.barStockOwnerBraveApiKey!,
     routeAuthorization: {
       required: true,
