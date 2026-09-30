@@ -29868,7 +29868,17 @@ export class TongsCommitService {
     const expectedFingerprint = await sha256Hex(
       canonicalJsonBytes(normalizedInputs),
     );
-    if (expectedFingerprint !== (options?.ownerRecovery?.canonicalInputFingerprint ?? input.operation_fingerprint))
+    const ownerCostAttemptId = readStringField(existingOperation, "owner_cost_attempt_id");
+    const ownerContinuation = Boolean(
+      options?.recoveryOnly &&
+      !options.ownerRecovery &&
+      ownerCostAttemptId,
+    );
+    if (
+      expectedFingerprint !==
+      (options?.ownerRecovery?.canonicalInputFingerprint ??
+        (ownerContinuation ? expectedFingerprint : input.operation_fingerprint))
+    )
       throw new HttpError(
         409,
         "operation_fingerprint_mismatch",
@@ -29886,7 +29896,7 @@ export class TongsCommitService {
       frozenGenerationScope === "full_media_plan"
         ? frozenGenerationScope
         : "full_media_plan";
-    if (!options?.ownerRecovery && !options?.recoveryOnly) {
+    if (!options?.ownerRecovery && (!options?.recoveryOnly || ownerContinuation)) {
       const ownerResult = await this.ownerUnifiedVisualPlanExecutor?.({
         authenticatedUserId: auth.userId,
         workspaceId: input.workspace_id,

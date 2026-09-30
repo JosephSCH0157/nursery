@@ -14,10 +14,21 @@ test("owner Unified Visual Plan authority branches before ordinary customer fund
   assert.ok(owner > 0);
   assert.ok(customer > owner);
   assert.match(method, /if \(ownerResult\) return ownerResult/);
-  assert.match(method, /if \(!options\?\.ownerRecovery && !options\?\.recoveryOnly\)/);
+  assert.match(method, /if \(!options\?\.ownerRecovery && \(!options\?\.recoveryOnly \|\| ownerContinuation\)\)/);
   assert.ok(method.indexOf("ownerUnifiedVisualPlanExecutor") < method.indexOf("if (!input.paid_execution"));
   assert.match(method, /canonicalInputFingerprint: expectedFingerprint/);
   assert.match(method, /max_output_tokens: 6144/);
+});
+
+test("owner recovery re-enters persisted-result continuation without customer funding", () => {
+  const methodStart = service.indexOf("async generateUnifiedVisualPlan(");
+  const methodEnd = service.indexOf("async beginReferenceClipAcquisition(", methodStart);
+  const method = service.slice(methodStart, methodEnd);
+  assert.match(method, /const ownerCostAttemptId = readStringField\(existingOperation, "owner_cost_attempt_id"\)/);
+  assert.match(method, /options\?\.recoveryOnly[\s\S]*!options\.ownerRecovery[\s\S]*ownerCostAttemptId/);
+  assert.match(method, /ownerContinuation \? expectedFingerprint : input\.operation_fingerprint/);
+  assert.ok(method.indexOf("ownerContinuation") < method.indexOf("ownerUnifiedVisualPlanExecutor"));
+  assert.ok(method.indexOf("ownerUnifiedVisualPlanExecutor") < method.indexOf("resolveOrdinaryOpenAiTextFunding"));
 });
 
 test("owner continuation never synthesizes customer financial authority", () => {
