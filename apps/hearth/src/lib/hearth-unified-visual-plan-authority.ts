@@ -1,4 +1,4 @@
-import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
+import { resolveTongsUserAccessTokenResult, tongsFetch } from "./tongs-fetch";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 import { OPENAI_TEXT_OUTER_REQUEST_DEADLINE_MS } from "../../../../packages/tongs/src/providers/openai-text-timing-contract";
@@ -25,7 +25,18 @@ export type UnifiedVisualPlanReceipt = {
 const record = (value: unknown): value is JsonRecord => !!value && typeof value === "object" && !Array.isArray(value);
 const string = (value: unknown): string | null => typeof value === "string" && value.trim() ? value.trim() : null;
 const integer = (value: unknown): number => Number.isInteger(Number(value)) ? Number(value) : 0;
-const env = (name: string): string | null => string((import.meta as unknown as { env?: Record<string, string> }).env?.[name]);
+
+function supabaseBrowserConfig(): { url: string; anonKey: string } | null {
+  const runtime = typeof window === "undefined" ? null : window as typeof window & {
+    __forge_supabase_client__?: { supabaseUrl?: unknown; supabaseKey?: unknown };
+  };
+  const url = string(runtime?.__forge_supabase_client__?.supabaseUrl)
+    ?? string(import.meta.env?.VITE_SUPABASE_URL)
+    ?? string(import.meta.env?.VITE_SUPABASE_DATABASE_URL);
+  const anonKey = string(runtime?.__forge_supabase_client__?.supabaseKey)
+    ?? string(import.meta.env?.VITE_SUPABASE_ANON_KEY);
+  return url && anonKey ? { url, anonKey } : null;
+}
 
 function normalize(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
@@ -66,10 +77,19 @@ function failure(response: Response, value: unknown, fallback: string): Result<n
 }
 
 async function postgrest(path: string): Promise<Result<unknown>> {
-  const url = env("VITE_SUPABASE_URL"), anon = env("VITE_SUPABASE_ANON_KEY"), token = await resolveTongsUserAccessToken();
-  if (!url || !anon || !token) return { ok: false, status: 401, code: "unified_visual_plan_auth_unavailable", error: "Sign in to generate the canonical Visual Plan.", stage: "authentication" };
-  const response = await fetch(`${url}/rest/v1/${path}`, { headers: { apikey: anon, authorization: `Bearer ${token}`, "accept-profile": "tongs" } });
+  const config = supabaseBrowserConfig();
+  if (!config) return { ok: false, status: 503, code: "unified_visual_plan_runtime_config_unavailable", error: "Visual Plan authentication configuration is unavailable.", stage: "authentication" };
+  const token = await resolveTongsUserAccessTokenResult();
+  if (!token.ok) return {
+    ok: false,
+    status: 401,
+    code: token.reason === "refresh_failed" ? "unified_visual_plan_token_refresh_failed" : "unified_visual_plan_auth_unavailable",
+    error: token.reason === "refresh_failed" ? "Your sign-in session could not be refreshed." : "Sign in to generate the canonical Visual Plan.",
+    stage: "authentication",
+  };
+  const response = await fetch(`${config.url}/rest/v1/${path}`, { headers: { apikey: config.anonKey, authorization: `Bearer ${token.accessToken}`, "accept-profile": "tongs" } });
   const value = await json(response);
+  if (response.status === 401) return { ok: false, status: 401, code: "unified_visual_plan_bearer_rejected", error: "The current sign-in token was rejected. Refresh your session and try again.", stage: "authentication" };
   return response.ok ? { ok: true, data: value } : failure(response, value, "Tongs canonical Visual Plan readback failed.");
 }
 
@@ -116,6 +136,23 @@ export async function readLatestUnifiedVisualPlanOperation(workspaceId: string, 
   const result = await postgrest(`unified_visual_plan_operations?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=*&order=created_at.desc&limit=1`);
   if (!result.ok) return result;
   return { ok: true, data: Array.isArray(result.data) && record(result.data[0]) ? result.data[0] : null };
+}
+
+export async function preflightUnifiedVisualPlanAuthentication(args: {
+  workspaceId: string;
+  workpieceId: string;
+  generationScope: MediaMapGenerationScope;
+}): Promise<Result<JsonRecord>> {
+  const inputs = await currentInputs(args.workspaceId, args.workpieceId, args.generationScope);
+  if (!inputs.ok) return inputs;
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/preflight`, {
+    method: "POST",
+    json: { workspace_id: args.workspaceId },
+  });
+  const value = await json(response);
+  if (!response.ok) return failure(response, value, "Unified Visual Plan authentication preflight failed.");
+  const data = record(value) && record(value.data) ? value.data : null;
+  return data ? { ok: true, data } : { ok: false, status: 502, code: "unified_visual_plan_preflight_invalid", error: "Unified Visual Plan authentication preflight returned an invalid result.", stage: "authentication" };
 }
 
 function receipt(value: unknown): Result<UnifiedVisualPlanReceipt> {

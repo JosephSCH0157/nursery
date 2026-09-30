@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import {
   configureTongsUserAccessTokenResolver,
   resolveTongsUserAccessToken,
+  resolveTongsUserAccessTokenResult,
   tongsFetch,
 } from "../src/lib/tongs-fetch";
 
@@ -103,16 +104,35 @@ test("host shell can inject its canonical current-session accessor without brows
   }
 });
 
+test("host shell preserves a sanitized canonical refresh failure", async () => {
+  const restoreWindow = installWindow("http://localhost/apps/hearth");
+  configureTongsUserAccessTokenResolver(
+    async () => null,
+    async () => ({ ok: false, reason: "refresh_failed" }),
+  );
+  try {
+    assert.deepEqual(await resolveTongsUserAccessTokenResult(), { ok: false, reason: "refresh_failed" });
+    assert.equal(await resolveTongsUserAccessToken(), null);
+  } finally {
+    configureTongsUserAccessTokenResolver(null);
+    restoreWindow();
+  }
+});
+
 test("local request-token readers keep Vite env access directly transformable", async () => {
-  const [hearthSource, nurseryBridgeSource, nurseryApiSource] = await Promise.all([
+  const [hearthSource, nurseryBridgeSource, nurseryApiSource, visualPlanSource] = await Promise.all([
     readFile(new URL("../src/lib/tongs-fetch.ts", import.meta.url), "utf8"),
     readFile(new URL("../../nursery/src/lib/tongs-request-token.ts", import.meta.url), "utf8"),
     readFile(new URL("../../nursery/src/lib/tongs-api.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/hearth-unified-visual-plan-authority.ts", import.meta.url), "utf8"),
   ]);
   for (const source of [hearthSource, nurseryBridgeSource, nurseryApiSource]) {
     assert.match(source, /import\.meta\.env\?\.VITE_TONGS_API_TOKEN/);
     assert.doesNotMatch(source, /const\s+\w+\s*=\s*import\.meta[\s\S]{0,160}\.env\?\.VITE_TONGS_API_TOKEN/);
   }
+  assert.match(visualPlanSource, /import\.meta\.env\?\.VITE_SUPABASE_URL/);
+  assert.match(visualPlanSource, /import\.meta\.env\?\.VITE_SUPABASE_ANON_KEY/);
+  assert.doesNotMatch(visualPlanSource, /env\("VITE_SUPABASE_/);
 });
 
 test("approval flow has no canonical script writer before approval authority", async () => {

@@ -33,7 +33,10 @@ import {
   ForgeOwnerExecutionCoordinator,
 } from "../server/accounting/forge-owner-execution-coordinator";
 import { createOwnerNarrativeInterpretationExecutor } from "../server/hearth/owner-narrative-interpretation-execution";
-import { createOwnerUnifiedVisualPlanExecutor } from "../server/hearth/owner-unified-visual-plan-execution";
+import {
+  createOwnerUnifiedVisualPlanExecutor,
+  createOwnerUnifiedVisualPlanPreflight,
+} from "../server/hearth/owner-unified-visual-plan-execution";
 import { createOwnerHearthImageExecutionExecutor } from "../server/hearth/owner-hearth-image-execution";
 import { createOwnerHearthRunwayExecutionBoundary } from "../server/hearth/owner-hearth-runway-execution";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
@@ -111,6 +114,7 @@ export function resolveNurseryTongsProviderBoundary(
   };
   let ownerNarrativeInterpretationExecutor: TongsCommitApiOptions["ownerNarrativeInterpretationExecutor"];
   let ownerUnifiedVisualPlanExecutor: TongsCommitApiOptions["ownerUnifiedVisualPlanExecutor"];
+  let ownerUnifiedVisualPlanPreflight: TongsCommitApiOptions["ownerUnifiedVisualPlanPreflight"];
   let ownerImageExecutionExecutor: TongsCommitApiOptions["ownerImageExecutionExecutor"];
   let ownerRunwayExecutionBoundary: TongsCommitApiOptions["ownerRunwayExecutionBoundary"];
   if (config.options.supabaseUrl && config.options.supabaseServiceRoleKey) {
@@ -136,6 +140,11 @@ export function resolveNurseryTongsProviderBoundary(
         gate: ownerCostGate,
         authorityReader: ownerAuthorityReader,
       }),
+      credential: config.ownerHearthOpenAiApiKey,
+    });
+    ownerUnifiedVisualPlanPreflight = createOwnerUnifiedVisualPlanPreflight({
+      gate: ownerCostGate,
+      authorityReader: ownerAuthorityReader,
       credential: config.ownerHearthOpenAiApiKey,
     });
     ownerImageExecutionExecutor = createOwnerHearthImageExecutionExecutor({
@@ -221,6 +230,7 @@ export function resolveNurseryTongsProviderBoundary(
     brollAcquisitionRuntime: acquisitionRuntime,
     ownerNarrativeInterpretationExecutor,
     ownerUnifiedVisualPlanExecutor,
+    ownerUnifiedVisualPlanPreflight,
     ownerImageExecutionExecutor,
     ownerRunwayExecutionBoundary,
   };

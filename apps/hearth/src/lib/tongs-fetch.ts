@@ -21,13 +21,20 @@ const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
 
 export type TongsFetchOptions = RequestInit & { json?: unknown };
 export type TongsUserAccessTokenResolver = () => Promise<string | null>;
+export type TongsUserAccessTokenResolution =
+  | { ok: true; accessToken: string; source: "current" | "refreshed" }
+  | { ok: false; reason: "signed_out" | "session_unavailable" | "refresh_failed" };
+export type TongsUserAccessTokenResultResolver = () => Promise<TongsUserAccessTokenResolution>;
 
 let configuredUserAccessTokenResolver: TongsUserAccessTokenResolver | null = null;
+let configuredUserAccessTokenResultResolver: TongsUserAccessTokenResultResolver | null = null;
 
 export function configureTongsUserAccessTokenResolver(
   resolver: TongsUserAccessTokenResolver | null,
+  resultResolver: TongsUserAccessTokenResultResolver | null = null,
 ): void {
   configuredUserAccessTokenResolver = resolver;
+  configuredUserAccessTokenResultResolver = resultResolver;
 }
 
 function readString(value: unknown): string | null {
@@ -177,19 +184,31 @@ function resolveUserAccessTokenFromStorage(): string | null {
   return null;
 }
 
-export async function resolveTongsUserAccessToken(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
+export async function resolveTongsUserAccessTokenResult(): Promise<TongsUserAccessTokenResolution> {
+  if (typeof window === "undefined") return { ok: false, reason: "session_unavailable" };
+
+  if (configuredUserAccessTokenResultResolver) {
+    try {
+      return await configuredUserAccessTokenResultResolver();
+    } catch {
+      return { ok: false, reason: "session_unavailable" };
+    }
+  }
 
   if (configuredUserAccessTokenResolver) {
     try {
-      return sanitizeAccessToken(await configuredUserAccessTokenResolver());
+      const token = sanitizeAccessToken(await configuredUserAccessTokenResolver());
+      return token
+        ? { ok: true, accessToken: token, source: "current" }
+        : { ok: false, reason: "signed_out" };
     } catch {
-      return null;
+      return { ok: false, reason: "session_unavailable" };
     }
   }
 
   const runtimeWindow = window as Window & typeof globalThis & {
     __forge_resolve_user_access_token__?: () => Promise<string | null>;
+    __forge_resolve_user_access_token_result__?: TongsUserAccessTokenResultResolver;
     __forge_supabase_client__?: {
       auth?: {
         getSession?: () => Promise<unknown>;
@@ -198,12 +217,24 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
     };
   };
 
+  const canonicalResultResolver = runtimeWindow.__forge_resolve_user_access_token_result__;
+  if (typeof canonicalResultResolver === "function") {
+    try {
+      return await canonicalResultResolver();
+    } catch {
+      return { ok: false, reason: "session_unavailable" };
+    }
+  }
+
   const canonicalResolver = runtimeWindow.__forge_resolve_user_access_token__;
   if (typeof canonicalResolver === "function") {
     try {
-      return sanitizeAccessToken(await canonicalResolver());
+      const token = sanitizeAccessToken(await canonicalResolver());
+      return token
+        ? { ok: true, accessToken: token, source: "current" }
+        : { ok: false, reason: "signed_out" };
     } catch {
-      return null;
+      return { ok: false, reason: "session_unavailable" };
     }
   }
 
@@ -212,20 +243,29 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
     try {
       const sessionPayload = await auth.getSession();
       const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
-      if (token) return token;
+      if (token) return { ok: true, accessToken: token, source: "current" };
       if (typeof auth.refreshSession === "function") {
         const refreshedPayload = await auth.refreshSession();
         const refreshedToken = sanitizeAccessToken(extractAccessTokenFromAuthPayload(refreshedPayload));
-        if (refreshedToken) return refreshedToken;
+        if (refreshedToken) return { ok: true, accessToken: refreshedToken, source: "refreshed" };
+        return { ok: false, reason: "refresh_failed" };
       }
-      return null;
+      return { ok: false, reason: "signed_out" };
     } catch {
-      return null;
+      return { ok: false, reason: "session_unavailable" };
     }
   }
   // Compatibility only for older shells that expose no canonical Supabase
   // authority. A present canonical client always remains authoritative.
-  return resolveUserAccessTokenFromStorage();
+  const compatibilityToken = resolveUserAccessTokenFromStorage();
+  return compatibilityToken
+    ? { ok: true, accessToken: compatibilityToken, source: "current" }
+    : { ok: false, reason: "signed_out" };
+}
+
+export async function resolveTongsUserAccessToken(): Promise<string | null> {
+  const result = await resolveTongsUserAccessTokenResult();
+  return result.ok ? result.accessToken : null;
 }
 
 export function subscribeToForgeUserAccessToken(

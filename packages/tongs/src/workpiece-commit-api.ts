@@ -2516,6 +2516,7 @@ export type TongsCommitApiOptions = {
   narrativeInterpretationProvider?: NarrativeInterpretationProvider;
   ownerNarrativeInterpretationExecutor?: OwnerNarrativeInterpretationExecutor;
   ownerUnifiedVisualPlanExecutor?: OwnerUnifiedVisualPlanExecutor;
+  ownerUnifiedVisualPlanPreflight?: OwnerUnifiedVisualPlanPreflight;
   ownerImageExecutionExecutor?: OwnerImageExecutionExecutor;
   ownerRunwayExecutionBoundary?: OwnerRunwayExecutionBoundary;
   brollMotionInterpretationProvider?: BrollMotionInterpretationProvider;
@@ -2626,6 +2627,12 @@ export type OwnerUnifiedVisualPlanExecutor = (input: {
     canonicalInputFingerprint: string,
   ): Promise<Record<string, unknown>>;
 }) => Promise<Record<string, unknown> | null>;
+
+export type OwnerUnifiedVisualPlanPreflight = (input: {
+  authenticatedUserId: string;
+  workspaceId: string;
+  workpieceId: string;
+}) => Promise<Record<string, unknown>>;
 
 export type OwnerRunwayExecutionInput = {
   authenticatedUserId: string;
@@ -3879,6 +3886,11 @@ export type TongsCommitApiService = {
       recoveryOnly?: boolean;
     },
   ): Promise<Record<string, Json>>;
+  preflightUnifiedVisualPlanOwnerAuthority(
+    workpieceId: string,
+    workspaceId: string,
+    userAccessToken: string | null | undefined,
+  ): Promise<Record<string, unknown>>;
   readCurrentReferenceClipPlan(
     workpieceId: string,
     workspaceId: string,
@@ -9593,6 +9605,7 @@ export class TongsCommitService {
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
   readonly ownerNarrativeInterpretationExecutor: OwnerNarrativeInterpretationExecutor | null;
   readonly ownerUnifiedVisualPlanExecutor: OwnerUnifiedVisualPlanExecutor | null;
+  readonly ownerUnifiedVisualPlanPreflight: OwnerUnifiedVisualPlanPreflight | null;
   readonly ownerImageExecutionExecutor: OwnerImageExecutionExecutor | null;
   readonly ownerRunwayExecutionBoundary: OwnerRunwayExecutionBoundary | null;
   readonly brollVideoProvider: BrollVideoProvider | null;
@@ -9631,6 +9644,7 @@ export class TongsCommitService {
     ownerBrollVideoProvider: BrollVideoProvider | null = null,
     ownerImageExecutionExecutor: OwnerImageExecutionExecutor | null = null,
     ownerUnifiedVisualPlanExecutor: OwnerUnifiedVisualPlanExecutor | null = null,
+    ownerUnifiedVisualPlanPreflight: OwnerUnifiedVisualPlanPreflight | null = null,
   ) {
     this.supabase = supabase;
     this.cleanupReviewGenerator = cleanupReviewGenerator;
@@ -9641,6 +9655,7 @@ export class TongsCommitService {
     this.narrativeInterpretationProvider = narrativeInterpretationProvider;
     this.ownerNarrativeInterpretationExecutor = ownerNarrativeInterpretationExecutor;
     this.ownerUnifiedVisualPlanExecutor = ownerUnifiedVisualPlanExecutor;
+    this.ownerUnifiedVisualPlanPreflight = ownerUnifiedVisualPlanPreflight;
     this.ownerImageExecutionExecutor = ownerImageExecutionExecutor;
     this.ownerRunwayExecutionBoundary = ownerRunwayExecutionBoundary;
     this.brollVideoProvider = brollVideoProvider;
@@ -31064,6 +31079,36 @@ export class TongsCommitService {
       throw error;
     }
   }
+
+  async preflightUnifiedVisualPlanOwnerAuthority(
+    workpieceId: string,
+    workspaceId: string,
+    userAccessToken: string | null | undefined,
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(
+      workspaceId,
+      "editor",
+      userAccessToken,
+    );
+    if (!userAccessToken || !this.userClientFactory)
+      throw new HttpError(
+        503,
+        "unified_visual_plan_authority_unavailable",
+        "Authenticated unified Visual Plan authority is unavailable.",
+      );
+    if (!this.ownerUnifiedVisualPlanPreflight)
+      throw new HttpError(
+        503,
+        "unified_visual_plan_preflight_unavailable",
+        "Unified Visual Plan owner preflight is unavailable.",
+      );
+    return this.ownerUnifiedVisualPlanPreflight({
+      authenticatedUserId: auth.userId,
+      workspaceId,
+      workpieceId,
+    });
+  }
   async acquireReferenceClipCandidate(
     workpieceId: string,
     input: AcquireReferenceClipCandidateRequest,
@@ -36683,6 +36728,7 @@ export function createTongsCommitService(
     options.ownerBrollVideoProvider ?? null,
     options.ownerImageExecutionExecutor ?? null,
     options.ownerUnifiedVisualPlanExecutor ?? null,
+    options.ownerUnifiedVisualPlanPreflight ?? null,
   );
 }
 
@@ -38825,7 +38871,7 @@ export function createTongsCommitApiHandlerWithService(
         parts[0] === "tongs" &&
         parts[1] === "workpieces" &&
         parts[3] === "visual-plan-v2" &&
-        (parts[4] === "generate" || parts[4] === "recover")
+        (parts[4] === "generate" || parts[4] === "recover" || parts[4] === "preflight")
       ) {
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(
@@ -38834,6 +38880,14 @@ export function createTongsCommitApiHandlerWithService(
         );
         const body = await parseJsonBody(request);
         const userAccessToken = requireUserAccessTokenHeader(request);
+        if (parts[4] === "preflight") {
+          const result = await service.preflightUnifiedVisualPlanOwnerAuthority(
+            workpieceId,
+            normalizeUuid(body.workspace_id, "workspace_id"),
+            userAccessToken,
+          );
+          return jsonResponse(200, { ok: true, data: result });
+        }
         const recoveryOnly = parts[4] === "recover";
         const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
         if (body.paid_execution != null && !paidExecution)

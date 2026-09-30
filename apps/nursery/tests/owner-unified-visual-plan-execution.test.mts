@@ -5,7 +5,14 @@ import {
   type OwnerAuthorityReader,
   type OwnerCostRpcGate,
 } from "../server/accounting/forge-owner-execution-coordinator";
-import { createOwnerUnifiedVisualPlanExecutor } from "../server/hearth/owner-unified-visual-plan-execution";
+import {
+  createTongsCommitApiHandlerWithService,
+  TongsCommitService,
+} from "../../../packages/tongs/src/workpiece-commit-api";
+import {
+  createOwnerUnifiedVisualPlanExecutor,
+  createOwnerUnifiedVisualPlanPreflight,
+} from "../server/hearth/owner-unified-visual-plan-execution";
 
 const USER_ID = "10000000-0000-4000-8000-000000000001";
 const WORKSPACE_ID = "20000000-0000-4000-8000-000000000001";
@@ -234,6 +241,115 @@ test("ordinary customer authority returns null before owner accounting", async (
   });
   assert.equal(await executor(request(async () => ({}))), null);
   assert.equal(gate.calls.length, 0);
+});
+
+test("owner Unified Visual Plan preflight reaches admission without provider or accounting mutation", async () => {
+  const gate = new OwnerGate();
+  const preflight = createOwnerUnifiedVisualPlanPreflight({
+    gate,
+    authorityReader,
+    credential: "isolated-owner-openai-key",
+    runtimeEnvironment: "production",
+  });
+  const result = await preflight({
+    authenticatedUserId: USER_ID,
+    workspaceId: WORKSPACE_ID,
+    workpieceId: WORKPIECE_ID,
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    route_code: "visual.unified_plan",
+    authenticated_identity: "verified",
+    workspace_membership: "verified",
+    owner_authority: "verified",
+    credential_lifecycle: "allowed",
+    provider_admission: "ready",
+    provider_submission: false,
+    financial_environment: "test",
+    runtime_environment: "production",
+  });
+  assert.deepEqual(gate.calls.map((call) => call.name), [
+    "read_financial_runtime_environment",
+    "read_credential_lifecycle_execution_gate",
+  ]);
+  assert.equal(gate.operations.size, 0);
+  assert.equal(gate.products.size, 0);
+});
+
+test("Visual Plan preflight requires a bearer and ignores forged client identity claims", async () => {
+  const calls: Array<{ workpieceId: string; workspaceId: string; token: string | null | undefined }> = [];
+  const service = {
+    async preflightUnifiedVisualPlanOwnerAuthority(workpieceId: string, workspaceId: string, token: string | null | undefined) {
+      calls.push({ workpieceId, workspaceId, token });
+      return { ok: true, authenticated_identity: "verified" };
+    },
+  };
+  const handler = createTongsCommitApiHandlerWithService(service as never);
+  const url = `http://localhost/tongs/workpieces/${WORKPIECE_ID}/visual-plan-v2/preflight`;
+  const forgedBody = {
+    workspace_id: WORKSPACE_ID,
+    user_id: USER_ID,
+    account_class: "owner",
+    owner_authorized: true,
+  };
+  const anonymous = await handler(new Request(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(forgedBody),
+  }));
+  assert.equal(anonymous.status, 401);
+  assert.equal(calls.length, 0);
+
+  const authenticated = await handler(new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-forge-user-authorization": "Bearer fixture-token",
+    },
+    body: JSON.stringify(forgedBody),
+  }));
+  assert.equal(authenticated.status, 200);
+  assert.deepEqual(calls, [{
+    workpieceId: WORKPIECE_ID,
+    workspaceId: WORKSPACE_ID,
+    token: "fixture-token",
+  }]);
+});
+
+test("server preflight derives identity through verified bearer membership before owner authority", async () => {
+  const order: string[] = [];
+  const fakeService = {
+    async assertWorkpieceInWorkspace(workpieceId: string, workspaceId: string) {
+      assert.equal(workpieceId, WORKPIECE_ID);
+      assert.equal(workspaceId, WORKSPACE_ID);
+      order.push("workpiece");
+    },
+    async assertWorkspaceRoleFromAccessToken(workspaceId: string, role: string, token: string) {
+      assert.equal(workspaceId, WORKSPACE_ID);
+      assert.equal(role, "editor");
+      assert.equal(token, "fixture-token");
+      order.push("verified_bearer_membership");
+      return { userId: USER_ID, role: "owner" };
+    },
+    userClientFactory: () => ({}),
+    async ownerUnifiedVisualPlanPreflight(input: Record<string, unknown>) {
+      order.push("owner_authority");
+      assert.deepEqual(input, {
+        authenticatedUserId: USER_ID,
+        workspaceId: WORKSPACE_ID,
+        workpieceId: WORKPIECE_ID,
+      });
+      return { ok: true };
+    },
+  };
+  const result = await TongsCommitService.prototype.preflightUnifiedVisualPlanOwnerAuthority.call(
+    fakeService as never,
+    WORKPIECE_ID,
+    WORKSPACE_ID,
+    "fixture-token",
+  );
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(order, ["workpiece", "verified_bearer_membership", "owner_authority"]);
 });
 
 test("runtime environment separates otherwise identical owner operations", async () => {

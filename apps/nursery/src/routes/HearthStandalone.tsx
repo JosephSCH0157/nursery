@@ -8,7 +8,11 @@ import {
 } from "@hearth/lib/ai-runtime-status";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
-import { resolveCanonicalSupabaseAccessToken, supabase } from "../lib/supabase";
+import {
+  resolveCanonicalSupabaseAccessToken,
+  resolveCanonicalSupabaseAccessTokenResult,
+  supabase,
+} from "../lib/supabase";
 import {
   buildForgeRouteHref,
   parseForgeRouteContext,
@@ -31,7 +35,10 @@ const HearthShell = lazy(async () => {
     import("@hearth/routes/HearthShell"),
     import("@hearth/lib/tongs-fetch"),
   ]);
-  tokenModule.configureTongsUserAccessTokenResolver(resolveCanonicalSupabaseAccessToken);
+  tokenModule.configureTongsUserAccessTokenResolver(
+    resolveCanonicalSupabaseAccessToken,
+    resolveCanonicalSupabaseAccessTokenResult,
+  );
   return shellModule;
 });
 

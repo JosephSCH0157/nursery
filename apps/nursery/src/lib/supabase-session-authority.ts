@@ -12,6 +12,10 @@ export type CanonicalSupabaseAuth = {
   refreshSession(): Promise<SessionResult>;
 };
 
+export type SupabaseAccessTokenResolution =
+  | { ok: true; accessToken: string; source: "current" | "refreshed" }
+  | { ok: false; reason: "signed_out" | "session_unavailable" | "refresh_failed" };
+
 function readToken(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -38,34 +42,38 @@ function usableToken(session: SessionLike | null | undefined, now: number): stri
   return expiresAt !== null && expiresAt <= now + 5_000 ? null : token;
 }
 
-export function createCanonicalSupabaseAccessTokenResolver(
+export function createCanonicalSupabaseAccessTokenAuthority(
   auth: CanonicalSupabaseAuth,
   now: () => number = () => Date.now(),
-): () => Promise<string | null> {
-  let pending: Promise<string | null> | null = null;
+): { resolve(): Promise<SupabaseAccessTokenResolution> } {
+  let pending: Promise<SupabaseAccessTokenResolution> | null = null;
 
-  return async () => {
+  const resolve = async (): Promise<SupabaseAccessTokenResolution> => {
     if (pending) return pending;
     const current = (async () => {
       let sessionResult: SessionResult;
       try {
         sessionResult = await auth.getSession();
       } catch {
-        return null;
+        return { ok: false, reason: "session_unavailable" } as const;
       }
-      if (sessionResult.error || !sessionResult.data?.session) return null;
+      if (sessionResult.error) return { ok: false, reason: "session_unavailable" } as const;
+      if (!sessionResult.data?.session) return { ok: false, reason: "signed_out" } as const;
 
       const currentToken = usableToken(sessionResult.data.session, now());
-      if (currentToken) return currentToken;
+      if (currentToken) return { ok: true, accessToken: currentToken, source: "current" } as const;
 
       let refreshed: SessionResult;
       try {
         refreshed = await auth.refreshSession();
       } catch {
-        return null;
+        return { ok: false, reason: "refresh_failed" } as const;
       }
-      if (refreshed.error) return null;
-      return usableToken(refreshed.data?.session, now());
+      if (refreshed.error) return { ok: false, reason: "refresh_failed" } as const;
+      const refreshedToken = usableToken(refreshed.data?.session, now());
+      return refreshedToken
+        ? { ok: true, accessToken: refreshedToken, source: "refreshed" } as const
+        : { ok: false, reason: "refresh_failed" } as const;
     })();
     pending = current;
     try {
@@ -73,5 +81,18 @@ export function createCanonicalSupabaseAccessTokenResolver(
     } finally {
       if (pending === current) pending = null;
     }
+  };
+
+  return { resolve };
+}
+
+export function createCanonicalSupabaseAccessTokenResolver(
+  auth: CanonicalSupabaseAuth,
+  now: () => number = () => Date.now(),
+): () => Promise<string | null> {
+  const authority = createCanonicalSupabaseAccessTokenAuthority(auth, now);
+  return async () => {
+    const result = await authority.resolve();
+    return result.ok ? result.accessToken : null;
   };
 }

@@ -1,5 +1,6 @@
 import type {
   OwnerUnifiedVisualPlanExecutor,
+  OwnerUnifiedVisualPlanPreflight,
   OwnerUnifiedVisualPlanValue,
 } from "../../../../packages/tongs/src/workpiece-commit-api";
 import {
@@ -14,6 +15,7 @@ import {
   ForgeOwnerAuthorizationError,
   ForgeOwnerExecutionCoordinator,
   deriveForgeOwnerOperationIdentity,
+  requireForgeOwnerCredentialLifecycle,
   requireForgeOwnerExecutionAuthority,
   type OwnerAuthorityReader,
   type OwnerCostRpcGate,
@@ -112,6 +114,59 @@ async function financialEnvironment(gate: OwnerCostRpcGate): Promise<OwnerFinanc
   return value;
 }
 
+async function requireOwnerUnifiedVisualPlanAdmission(args: {
+  gate: OwnerCostRpcGate;
+  authorityReader: OwnerAuthorityReader;
+  credential?: string;
+  runtimeEnvironment?: OwnerRuntimeEnvironment;
+}, input: {
+  authenticatedUserId: string;
+  workspaceId: string;
+}): Promise<{
+  financialEnvironment: OwnerFinancialEnvironment;
+  runtimeEnvironment: OwnerRuntimeEnvironment;
+}> {
+  await requireForgeOwnerExecutionAuthority({
+    reader: args.authorityReader,
+    authenticatedUserId: input.authenticatedUserId,
+    workspaceId: input.workspaceId,
+    routeCode: "visual.unified_plan",
+  });
+  if (!args.credential?.trim()) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
+  const financial = await financialEnvironment(args.gate);
+  const runtime = args.runtimeEnvironment ?? readOwnerRuntimeEnvironment();
+  await requireForgeOwnerCredentialLifecycle({
+    gate: args.gate,
+    configurationVariableName: "OPENAI_HEARTH_OWNER_API_KEY",
+    financialEnvironment: financial,
+    runtimeEnvironment: runtime,
+  });
+  return { financialEnvironment: financial, runtimeEnvironment: runtime };
+}
+
+export function createOwnerUnifiedVisualPlanPreflight(args: {
+  gate: OwnerCostRpcGate;
+  authorityReader: OwnerAuthorityReader;
+  credential?: string;
+  runtimeEnvironment?: OwnerRuntimeEnvironment;
+}): OwnerUnifiedVisualPlanPreflight {
+  return async (input) => {
+    const admission = await requireOwnerUnifiedVisualPlanAdmission(args, input);
+    return {
+      ok: true,
+      route_code: "visual.unified_plan",
+      authenticated_identity: "verified",
+      workspace_membership: "verified",
+      owner_authority: "verified",
+      credential_lifecycle: "allowed",
+      provider_admission: "ready",
+      provider_submission: false,
+      financial_environment: admission.financialEnvironment,
+      runtime_environment: admission.runtimeEnvironment,
+    };
+  };
+}
+
 function persistedValue(row: Json): OwnerHearthTextResult | null {
   const response = object(row.provider_response_json);
   const plan = object(response?.canonical_plan);
@@ -141,21 +196,15 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
   runtimeEnvironment?: OwnerRuntimeEnvironment;
 }): OwnerUnifiedVisualPlanExecutor {
   return async (input) => {
+    let admission: Awaited<ReturnType<typeof requireOwnerUnifiedVisualPlanAdmission>>;
     try {
-      await requireForgeOwnerExecutionAuthority({
-        reader: args.authorityReader,
-        authenticatedUserId: input.authenticatedUserId,
-        workspaceId: input.workspaceId,
-        routeCode: "visual.unified_plan",
-      });
+      admission = await requireOwnerUnifiedVisualPlanAdmission(args, input);
     } catch (error) {
       if (error instanceof ForgeOwnerAuthorizationError && error.code === "owner_authority_not_configured") return null;
       throw error;
     }
-    if (!args.credential?.trim()) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
-
-    const financial = await financialEnvironment(args.gate);
-    const runtime = args.runtimeEnvironment ?? readOwnerRuntimeEnvironment();
+    const financial = admission.financialEnvironment;
+    const runtime = admission.runtimeEnvironment;
     const operationIdentity = deriveForgeOwnerOperationIdentity({
       financialEnvironment: financial,
       runtimeEnvironment: runtime,

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCanonicalSupabaseAccessTokenResolver } from "../src/lib/supabase-session-authority";
+import {
+  createCanonicalSupabaseAccessTokenAuthority,
+  createCanonicalSupabaseAccessTokenResolver,
+} from "../src/lib/supabase-session-authority";
 
 function jwt(expirationMs: number, marker: string): string {
   const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
@@ -50,4 +53,36 @@ test("expired, signed-out, and failed sessions fail closed", async () => {
     }),
   ];
   for (const resolve of cases) assert.equal(await resolve(), null);
+});
+
+test("canonical authority distinguishes signed-out, session, and refresh failures without exposing errors", async () => {
+  const expired = jwt(2_000, "expired");
+  const signedOut = createCanonicalSupabaseAccessTokenAuthority({
+    async getSession() { return { data: { session: null } }; },
+    async refreshSession() { throw new Error("must not refresh"); },
+  });
+  const unavailable = createCanonicalSupabaseAccessTokenAuthority({
+    async getSession() { throw new Error("private session diagnostics"); },
+    async refreshSession() { throw new Error("must not refresh"); },
+  });
+  const refreshFailed = createCanonicalSupabaseAccessTokenAuthority({
+    async getSession() { return { data: { session: { access_token: expired } } }; },
+    async refreshSession() { throw new Error("private refresh diagnostics"); },
+  }, () => 10_000);
+
+  assert.deepEqual(await signedOut.resolve(), { ok: false, reason: "signed_out" });
+  assert.deepEqual(await unavailable.resolve(), { ok: false, reason: "session_unavailable" });
+  assert.deepEqual(await refreshFailed.resolve(), { ok: false, reason: "refresh_failed" });
+});
+
+test("canonical authority reads a changed current token on a later request", async () => {
+  let token = jwt(20_000, "first");
+  const authority = createCanonicalSupabaseAccessTokenAuthority({
+    async getSession() { return { data: { session: { access_token: token } } }; },
+    async refreshSession() { throw new Error("must not refresh"); },
+  }, () => 1_000);
+  assert.equal((await authority.resolve()).ok, true);
+  token = jwt(30_000, "second");
+  const changed = await authority.resolve();
+  assert.equal(changed.ok && changed.accessToken, token);
 });

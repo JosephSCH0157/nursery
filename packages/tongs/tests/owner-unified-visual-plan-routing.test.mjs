@@ -24,3 +24,19 @@ test("owner continuation never synthesizes customer financial authority", () => 
   assert.doesNotMatch(ownerExecutor, /reservationId|spending_acceptance|customer_balance|quote|settlement|stripe/i);
   assert.match(service, /ownerRecovery[\s\S]*skipPaidFundingResolution: true/);
 });
+
+test("read-only preflight authenticates before the paid Visual Plan request parser", () => {
+  const route = service.slice(
+    service.indexOf('parts[3] === "visual-plan-v2"'),
+    service.indexOf('parts[3] === "reference-clips"', service.indexOf('parts[3] === "visual-plan-v2"')),
+  );
+  assert.match(route, /parts\[4\] === "preflight"/);
+  assert.ok(route.indexOf("preflightUnifiedVisualPlanOwnerAuthority") < route.indexOf("normalizeOpenAiTextPaidExecutionHandle"));
+  const preflight = service.slice(
+    service.indexOf("async preflightUnifiedVisualPlanOwnerAuthority("),
+    service.indexOf("async acquireReferenceClipCandidate(", service.indexOf("async preflightUnifiedVisualPlanOwnerAuthority(")),
+  );
+  assert.match(preflight, /assertWorkspaceRoleFromAccessToken/);
+  assert.match(preflight, /"editor"/);
+  assert.doesNotMatch(preflight, /provider|attempt|valuation|journal|quote|reservation|settlement/i);
+});

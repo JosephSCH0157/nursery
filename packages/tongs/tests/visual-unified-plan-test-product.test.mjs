@@ -270,7 +270,7 @@ test("Reference Visual persistence reconciliation uses one canonical nested hash
 });
 
 test("Visual Plan recovery is readback-only while terminal ambiguity permits only a distinct fresh operation", () => {
-  assert.match(service, /parts\[4\] === "generate" \|\| parts\[4\] === "recover"/);
+  assert.match(service, /parts\[4\] === "generate" \|\| parts\[4\] === "recover" \|\| parts\[4\] === "preflight"/);
   assert.match(service, /recoveryOnly = parts\[4\] === "recover"/);
   assert.match(service, /recover_expired_unified_visual_plan_attempt/);
   assert.match(service, /mark_unified_visual_plan_submission_unknown/);
