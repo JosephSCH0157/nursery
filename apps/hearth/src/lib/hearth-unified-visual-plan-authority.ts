@@ -181,7 +181,7 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
   let operationFingerprint: string;
   const latestState = string(latest.data?.state);
   if (latest.data && latestState !== "verified" && latestState !== "failed" && latestState !== "submission_unknown") {
-    return { ok: false, status: 409, code: "unified_visual_plan_recovery_required", error: "A durable Visual Plan operation already exists. Use recovery readback; a normal retry is disabled to prevent another provider submission.", stage: latestState };
+    return recoverUnifiedVisualPlanOperation({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
   } else {
     const current = await currentInputs(args.workspaceId, args.workpieceId, args.generationScope);
     if (!current.ok) return current;
