@@ -4,10 +4,35 @@ This release activates only the explicitly authorized private owner testing lane
 
 ## Credential boundary
 
-`OPENAI_HEARTH_OWNER_API_KEY` is a server-only Netlify Production Functions secret. Only the coordinated owner Hearth chat path reads it. Legacy text, research, transcription, job-runner, customer, and browser paths continue to use their existing credential resolution and cannot fall back to this key.
+`OPENAI_HEARTH_OWNER_API_KEY` and `OPENAI_HEARTH_OWNER_IMAGE_API_KEY` are
+server-only Netlify Production Functions secrets. Only their respective
+coordinated owner Hearth text and image paths may read them. Legacy text,
+research, transcription, job-runner, customer, and browser paths continue to
+use their existing credential resolution and cannot fall back to either key.
 
-The key must be a restricted OpenAI project key with Models Read and Chat Completions Write. No browser variable or report may contain its value.
-After rotating this secret, publish a fresh Git-backed `main` deployment before compatibility checks so the executing Production Function is provably built after the secret revision.
+Every Forge OpenAI credential must be created only after verifying this
+authority chain, in order:
+
+1. account: `support@podcastersforge.com`
+2. organization: `org-M9AuhWvVFuGxXTGTsv33dc7X`
+3. exact lane project
+4. credential purpose
+5. key creation
+6. secret-manager installation
+
+The owner-text service-account key belongs to project `Podcaster's Forge`
+(`proj_ZuYi36uhWk4Xu8zEYs0PmI2H`). The owner-image service-account key belongs
+to project `Podcasters Forge Images` (`proj_JSh3dPfs9QVm5eDMFNSQCmnu`). A key
+created from a personal account, another organization, or the wrong project is
+invalid for Forge even when it can call the intended model. Never create the
+key first and inspect its authority afterward, and never reuse a key across
+these two lanes for convenience.
+
+No browser variable, source file, log, lifecycle report, or operator report may
+contain a raw secret value. Only non-secret provider identity, suffix, and hash
+evidence may be retained. After rotating either secret, publish a fresh
+Git-backed `main` deployment before compatibility checks so the executing
+Production Function is provably built after the secret revision.
 
 ## Authorized phases
 
