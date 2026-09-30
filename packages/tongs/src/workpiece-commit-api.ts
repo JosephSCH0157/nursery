@@ -29635,9 +29635,12 @@ export class TongsCommitService {
     const canonical = this.supabase.schema(
       "tongs",
     ) as unknown as UntypedTongsSchemaClient;
+    const userAuthority = this.userClientFactory(options.userAccessToken).schema(
+      "tongs",
+    ) as unknown as UntypedTongsSchemaClient;
     const authority = (options?.ownerRecovery
       ? canonical
-      : this.userClientFactory(options.userAccessToken).schema("tongs")) as unknown as UntypedTongsSchemaClient;
+      : userAuthority) as unknown as UntypedTongsSchemaClient;
     const existingResult = options?.ownerRecovery
       ? await canonical.rpc("read_owner_unified_visual_plan_operation", {
           p_owner_cost_attempt_id: options.ownerRecovery.ownerCostAttemptId,
@@ -29776,7 +29779,7 @@ export class TongsCommitService {
         "The exact approved script could not be read.",
       );
     const scriptText = readStringField(approval.data, "script_text")!;
-    const sourceRead = await authority.rpc("read_workpiece_sources", {
+    const sourceRead = await userAuthority.rpc("read_workpiece_sources", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
     });

@@ -45,6 +45,8 @@ test("owner continuation reads the durable operation through owner attempt autho
   assert.match(method, /p_owner_cost_attempt_id: options\.ownerRecovery\.ownerCostAttemptId/);
   assert.match(method, /owner_unified_visual_plan_recovery_identity_conflict/);
   assert.match(method, /ownerCostAttemptId[\s\S]*skipPaidFundingResolution: true[\s\S]*recoveryOnly: true/);
+  assert.match(method, /const userAuthority = this\.userClientFactory\(options\.userAccessToken\)\.schema/);
+  assert.match(method, /const sourceRead = await userAuthority\.rpc\("read_workpiece_sources"/);
 });
 
 test("read-only preflight authenticates before the paid Visual Plan request parser", () => {
