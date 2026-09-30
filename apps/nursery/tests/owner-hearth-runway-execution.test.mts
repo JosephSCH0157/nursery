@@ -34,6 +34,9 @@ class RunwayOwnerGate implements OwnerCostRpcGate {
     if (name === "read_financial_runtime_environment") {
       return { data: { financial_environment: "test" }, error: null };
     }
+    if (name === "read_credential_lifecycle_execution_gate") {
+      return { data: { tracked: false, allowed: true, status: "untracked" }, error: null };
+    }
     if (name === "read_owner_cost_operation") {
       return {
         data: this.operation ? { operation: this.operation, attempts: this.attempts, links: [] } : null,
@@ -159,6 +162,7 @@ test("owner Runway records operation, authorization, and submitted evidence befo
   assert.equal(prepared.disposition, "submit");
   assert.deepEqual(gate.calls.map((call) => call.name), [
     "read_financial_runtime_environment",
+    "read_credential_lifecycle_execution_gate",
     "read_owner_cost_operation",
     "establish_owner_cost_operation",
     "authorize_owner_cost_provider_attempt",
@@ -168,6 +172,29 @@ test("owner Runway records operation, authorization, and submitted evidence befo
   assert.equal(submitted.args.p_lifecycle_state, "submitted");
   assert.equal(submitted.args.p_provider_reference_id, null);
   assert.equal((gate.calls.find((call) => call.name === "establish_owner_cost_operation")!.args.p_creation_evidence as Record<string, unknown>).customer_finance_involved, false);
+});
+
+test("expired owner Runway lifecycle remains fail-closed without accounting or fallback", async () => {
+  const gate = new RunwayOwnerGate();
+  const originalRpc = gate.rpc.bind(gate);
+  gate.rpc = async (name: string, args: Record<string, unknown> = {}) => {
+    if (name === "read_credential_lifecycle_execution_gate") {
+      gate.calls.push({ name, args: structuredClone(args) });
+      return { data: { tracked: true, allowed: false, status: "expired" }, error: null };
+    }
+    return originalRpc(name, args);
+  };
+  const boundary = createOwnerHearthRunwayExecutionBoundary({
+    gate,
+    authorityReader: ownerReader,
+    credential: "expired-owner-only-test-key",
+  });
+  await assert.rejects(boundary.prepare(request()), /credential is expired; the route remains fail-closed/);
+  assert.deepEqual(gate.calls.map((call) => call.name), [
+    "read_financial_runtime_environment",
+    "read_credential_lifecycle_execution_gate",
+  ]);
+  assert.equal(gate.calls.some((call) => /owner_cost|quote|reservation|credit|customer/i.test(call.name)), false);
 });
 
 test("accepted Runway task creates one journal-recognized valuation and replays without a second submission", async () => {

@@ -135,6 +135,15 @@ export function createOwnerHearthRunwayExecutionBoundary(args: {
         throw new Error("Owner Runway execution is restricted to one reference-free Gen-4.5 5-second 1280x720 generation");
       }
       const financial = await financialEnvironment(args.gate);
+      const runtime = runtimeEnvironment();
+      const lifecycle = object(await rpc(args.gate, "read_credential_lifecycle_execution_gate", {
+        p_configuration_variable_name: "HEARTH_OWNER_RUNWAY_API_KEY",
+        p_financial_environment: financial,
+        p_runtime_environment: runtime,
+      }));
+      if (lifecycle?.tracked === true && lifecycle.allowed !== true) {
+        throw new Error(`The isolated Hearth owner Runway credential is ${text(lifecycle.status) ?? "not active"}; the route remains fail-closed`);
+      }
       const operation = deriveForgeOwnerOperationIdentity({
         financialEnvironment: financial,
         originatingTool: "hearth",
@@ -173,7 +182,7 @@ export function createOwnerHearthRunwayExecutionBoundary(args: {
         p_operation_key: operation.operationKey,
         p_request_fingerprint: operation.requestFingerprint,
         p_financial_environment: operation.financialEnvironment,
-        p_runtime_environment: runtimeEnvironment(),
+        p_runtime_environment: runtime,
         p_originating_tool: "hearth",
         p_operation_type: "hearth.runway_broll_generation",
         p_workspace_id: input.workspaceId,
