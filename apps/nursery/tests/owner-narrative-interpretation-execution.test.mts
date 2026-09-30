@@ -41,6 +41,9 @@ class NarrativeOwnerGate implements OwnerCostRpcGate {
     if (name === "read_financial_runtime_environment") {
       return { data: { financial_environment: "test" }, error: null };
     }
+    if (name === "read_credential_lifecycle_execution_gate") {
+      return { data: { tracked: true, allowed: true, status: "active" }, error: null };
+    }
     if (name === "read_owner_cost_operation") {
       const value = this.operations.get(String(args.p_operation_id));
       return { data: value ? { operation: value.operation, attempts: value.attempts, links: [] } : null, error: null };
@@ -134,7 +137,12 @@ class NarrativeOwnerGate implements OwnerCostRpcGate {
 }
 
 const authorityReader: OwnerAuthorityReader = {
-  async readEnabledPrincipal() { return { revision: 1 }; },
+  async readTransitionAuthority(userId) { return {
+    userId, canonicalUserId: userId, accountClass: "owner", accountAuthorityRevision: 1,
+    accountAuthorityExplicit: true, legacyUserId: userId, legacyPrincipalStatus: "enabled",
+    legacyPrincipalRevision: 1, sameUser: true, consistent: true, eligible: true,
+    state: "eligible", authorityMode: "canonical_legacy_dual_read",
+  }; },
   async readWorkspaceMembership() { return { role: "owner" }; },
 };
 
@@ -276,7 +284,12 @@ test("non-owner authority leaves the existing customer narrative path untouched"
   const gate = new NarrativeOwnerGate();
   let providerCalls = 0;
   const deniedReader: OwnerAuthorityReader = {
-    async readEnabledPrincipal() { return null; },
+    async readTransitionAuthority(userId) { return {
+      userId, canonicalUserId: null, accountClass: "customer", accountAuthorityRevision: null,
+      accountAuthorityExplicit: false, legacyUserId: null, legacyPrincipalStatus: null,
+      legacyPrincipalRevision: null, sameUser: true, consistent: true, eligible: false,
+      state: "not_owner", authorityMode: "canonical_legacy_dual_read",
+    }; },
     async readWorkspaceMembership() { return { role: "owner" }; },
   };
   const executor = createOwnerNarrativeInterpretationExecutor({

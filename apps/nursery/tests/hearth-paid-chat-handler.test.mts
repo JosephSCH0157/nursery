@@ -27,7 +27,12 @@ const FINGERPRINT = fingerprintPaidHearthChatRequest({
 
 function ownerAuthorityReader() {
   return {
-    async readEnabledPrincipal() { return { revision: 1 }; },
+    async readTransitionAuthority(userId: string) { return {
+      userId, canonicalUserId: userId, accountClass: "owner" as const, accountAuthorityRevision: 1,
+      accountAuthorityExplicit: true, legacyUserId: userId, legacyPrincipalStatus: "enabled" as const,
+      legacyPrincipalRevision: 1, sameUser: true, consistent: true, eligible: true,
+      state: "eligible" as const, authorityMode: "canonical_legacy_dual_read" as const,
+    }; },
     async readWorkspaceMembership() { return { role: "owner" }; },
   };
 }
@@ -1168,6 +1173,60 @@ test("explicit owner Hearth authority fails closed without exposing or falling b
   assert.equal(payload.error, "Private owner AI is unavailable in this runtime.");
   assert.equal(JSON.stringify(payload).includes("OPENAI_HEARTH_OWNER_API_KEY"), false);
   assert.equal(providerCalls, 0);
+});
+
+test("one-sided owner authority cannot fall through to customer finance", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  let providerCalls = 0;
+  const gateCalls: string[] = [];
+  const handler = createHearthAiHandler({
+    textApiKey: "customer-key-must-not-be-used",
+    ownerTextApiKey: "owner-key-must-not-be-used",
+    imageApiKey: null,
+    researchApiKey: null,
+    apiKey: "customer-key-must-not-be-used",
+    model: "gpt-5.6-luna",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge",
+    initialTokenBalance: 99,
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: null,
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: { async rpc(name: string) { gateCalls.push(name); return { data: {}, error: null }; } },
+    ownerAuthorityReader: {
+      async readTransitionAuthority(userId: string) { return {
+        userId, canonicalUserId: userId, accountClass: "owner" as const, accountAuthorityRevision: 1,
+        accountAuthorityExplicit: true, legacyUserId: null, legacyPrincipalStatus: null,
+        legacyPrincipalRevision: null, sameUser: true, consistent: false, eligible: false,
+        state: "authority_mismatch" as const, authorityMode: "canonical_legacy_dual_read" as const,
+      }; },
+      async readWorkspaceMembership() { return { role: "owner" }; },
+    },
+    resolveUserIdForAccessToken: async () => USER_ID,
+    openAiProviderFetch: async () => { providerCalls += 1; return new Response(); },
+  });
+  const response = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer owner-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge",
+      messages: [{ role: "user", content: USER_MESSAGE }],
+      user_authored_text: USER_MESSAGE,
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: { episodeId: "owner-workpiece", workspaceId, title: "", titleVariants: { A: "", B: "", C: "" }, outline: "", body: "", sources: [], sparks: [] },
+    }),
+  }));
+  const payload = await response.json() as Record<string, unknown>;
+  assert.equal(response.status, 403, JSON.stringify(payload));
+  assert.equal(payload.code, "owner_authority_mismatch");
+  assert.equal(payload.error, "Owner execution is not authorized.");
+  assert.equal(providerCalls, 0);
+  assert.equal(gateCalls.some((name) => /quote|reserv|settle|customer/i.test(name)), false);
 });
 
 test("customer research synthesis admission requires current inspected evidence, not merely a source row", () => {

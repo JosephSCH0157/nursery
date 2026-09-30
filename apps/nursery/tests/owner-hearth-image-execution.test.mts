@@ -113,7 +113,12 @@ class OwnerImageGate implements OwnerCostRpcGate {
 }
 
 const ownerReader: OwnerAuthorityReader = {
-  async readEnabledPrincipal() { return { revision: 1 }; },
+  async readTransitionAuthority(userId) { return {
+    userId, canonicalUserId: userId, accountClass: "owner", accountAuthorityRevision: 1,
+    accountAuthorityExplicit: true, legacyUserId: userId, legacyPrincipalStatus: "enabled",
+    legacyPrincipalRevision: 1, sameUser: true, consistent: true, eligible: true,
+    state: "eligible", authorityMode: "canonical_legacy_dual_read",
+  }; },
   async readWorkspaceMembership() { return { role: "owner" }; },
 };
 
@@ -224,7 +229,12 @@ test("owner image accounting is durable before provider submission and exact rep
 
 test("non-owner cannot select owner image execution and missing owner credential fails before provider", async () => {
   const deniedReader: OwnerAuthorityReader = {
-    async readEnabledPrincipal() { return null; },
+    async readTransitionAuthority(userId) { return {
+      userId, canonicalUserId: null, accountClass: "customer", accountAuthorityRevision: null,
+      accountAuthorityExplicit: false, legacyUserId: null, legacyPrincipalStatus: null,
+      legacyPrincipalRevision: null, sameUser: true, consistent: true, eligible: false,
+      state: "not_owner", authorityMode: "canonical_legacy_dual_read",
+    }; },
     async readWorkspaceMembership() { return { role: "owner" }; },
   };
   const deniedGate = new OwnerImageGate();

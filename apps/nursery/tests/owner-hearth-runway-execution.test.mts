@@ -105,7 +105,12 @@ class RunwayOwnerGate implements OwnerCostRpcGate {
 }
 
 const ownerReader: OwnerAuthorityReader = {
-  async readEnabledPrincipal() { return { revision: 1 }; },
+  async readTransitionAuthority(userId) { return {
+    userId, canonicalUserId: userId, accountClass: "owner", accountAuthorityRevision: 1,
+    accountAuthorityExplicit: true, legacyUserId: userId, legacyPrincipalStatus: "enabled",
+    legacyPrincipalRevision: 1, sameUser: true, consistent: true, eligible: true,
+    state: "eligible", authorityMode: "canonical_legacy_dual_read",
+  }; },
   async readWorkspaceMembership() { return { role: "owner" }; },
 };
 
@@ -138,7 +143,12 @@ test("owner Runway authority fails closed without its isolated credential and ne
     gate,
     credential: "owner-only-test-key",
     authorityReader: {
-      async readEnabledPrincipal() { return null; },
+      async readTransitionAuthority(userId) { return {
+        userId, canonicalUserId: null, accountClass: "customer", accountAuthorityRevision: null,
+        accountAuthorityExplicit: false, legacyUserId: null, legacyPrincipalStatus: null,
+        legacyPrincipalRevision: null, sameUser: true, consistent: true, eligible: false,
+        state: "not_owner", authorityMode: "canonical_legacy_dual_read",
+      }; },
       async readWorkspaceMembership() { return { role: "owner" }; },
     },
   });

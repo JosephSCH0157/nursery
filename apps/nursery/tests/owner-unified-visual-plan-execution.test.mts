@@ -113,7 +113,12 @@ class OwnerGate implements OwnerCostRpcGate {
 }
 
 const authorityReader: OwnerAuthorityReader = {
-  async readEnabledPrincipal() { return { revision: 1 }; },
+  async readTransitionAuthority(userId) { return {
+    userId, canonicalUserId: userId, accountClass: "owner", accountAuthorityRevision: 1,
+    accountAuthorityExplicit: true, legacyUserId: userId, legacyPrincipalStatus: "enabled",
+    legacyPrincipalRevision: 1, sameUser: true, consistent: true, eligible: true,
+    state: "eligible", authorityMode: "canonical_legacy_dual_read",
+  }; },
   async readWorkspaceMembership() { return { role: "owner" }; },
 };
 
@@ -212,7 +217,12 @@ test("owner Unified Visual Plan reserves canonical authority before one paid sub
 test("ordinary customer authority returns null before owner accounting", async () => {
   const gate = new OwnerGate();
   const denied: OwnerAuthorityReader = {
-    async readEnabledPrincipal() { return null; },
+    async readTransitionAuthority(userId) { return {
+      userId, canonicalUserId: null, accountClass: "customer", accountAuthorityRevision: null,
+      accountAuthorityExplicit: false, legacyUserId: null, legacyPrincipalStatus: null,
+      legacyPrincipalRevision: null, sameUser: true, consistent: true, eligible: false,
+      state: "not_owner", authorityMode: "canonical_legacy_dual_read",
+    }; },
     async readWorkspaceMembership() { return { role: "owner" }; },
   };
   const executor = createOwnerUnifiedVisualPlanExecutor({

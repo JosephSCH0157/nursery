@@ -19,8 +19,24 @@ export type OwnerCostRpcGate = {
   }>;
 };
 
+export type OwnerTransitionAuthority = {
+  userId: string;
+  canonicalUserId: string | null;
+  accountClass: "customer" | "owner";
+  accountAuthorityRevision: number | null;
+  accountAuthorityExplicit: boolean;
+  legacyUserId: string | null;
+  legacyPrincipalStatus: "enabled" | "disabled" | null;
+  legacyPrincipalRevision: number | null;
+  sameUser: boolean;
+  consistent: boolean;
+  eligible: boolean;
+  state: "eligible" | "authority_mismatch" | "not_owner";
+  authorityMode: "canonical_legacy_dual_read";
+};
+
 export type OwnerAuthorityReader = {
-  readEnabledPrincipal(userId: string): Promise<{ revision: number } | null>;
+  readTransitionAuthority(userId: string): Promise<OwnerTransitionAuthority>;
   readWorkspaceMembership(userId: string, workspaceId: string): Promise<{ role: string } | null>;
 };
 
@@ -32,6 +48,8 @@ export type OwnerRouteAuthorization =
         authenticatedUserId: string;
         workspaceId: string;
         routeCode: string;
+        accountAuthorityRevision: number;
+        legacyPrincipalRevision: number;
         principalRevision: number;
         membershipRole: string;
       }): Promise<{
@@ -45,6 +63,10 @@ export type AuthorizedOwnerExecution = {
   authenticatedUserId: string;
   workspaceId: string;
   routeCode: string;
+  accountClass: "owner";
+  accountAuthorityRevision: number;
+  legacyPrincipalRevision: number;
+  authorityMode: "canonical_legacy_dual_read";
   principalRevision: number;
   membershipRole: string;
   ownerOperatingBudgetId: string | null;
@@ -171,7 +193,22 @@ export type ForgeOwnerExecutionResult<TResult> =
   | { state: "submission_unknown"; operationId: string; attemptId: string; replay: boolean };
 
 export class ForgeOwnerAuthorizationError extends Error {
-  readonly code = "owner_execution_not_authorized";
+  constructor(
+    readonly code:
+      | "owner_authentication_required"
+      | "owner_authority_not_configured"
+      | "owner_authority_mismatch"
+      | "owner_authority_unavailable"
+      | "owner_workspace_membership_required"
+      | "owner_workspace_membership_unavailable"
+      | "owner_route_authorization_required"
+      | "owner_route_authorization_unavailable",
+    message = "Owner execution is not authorized.",
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "ForgeOwnerAuthorizationError";
+  }
 }
 
 export class ForgeOwnerExecutionFailure extends Error {
@@ -232,6 +269,7 @@ type OwnerAuthorityFilter = {
 
 type OwnerAuthoritySchemaClient = {
   from(table: string): { select(columns: string): OwnerAuthorityFilter };
+  rpc(name: string, args?: Record<string, unknown>): Promise<OwnerAuthorityQueryResult>;
 };
 
 function readObject(value: unknown): Record<string, unknown> | null {
@@ -357,16 +395,40 @@ export function createSupabaseOwnerAuthorityReader(
 ): OwnerAuthorityReader {
   const tongs = serviceClient.schema("tongs") as unknown as OwnerAuthoritySchemaClient;
   return {
-    async readEnabledPrincipal(userId) {
-      const result = await tongs.from("owner_testing_principals")
-        .select("revision,status")
-        .eq("user_id", userId)
-        .eq("status", "enabled")
-        .maybeSingle();
-      if (result.error) throw new Error(`owner_testing_principals lookup failed: ${result.error.message ?? "unknown error"}`);
+    async readTransitionAuthority(userId) {
+      const result = await tongs.rpc("resolve_transition_owner_authority", { p_user_id: userId });
+      if (result.error) throw new Error("transition owner authority lookup failed");
       const row = readObject(result.data);
-      const revision = Number(row?.revision);
-      return Number.isSafeInteger(revision) && revision > 0 ? { revision } : null;
+      const accountClass = readString(row?.account_class);
+      const legacyStatus = readString(row?.legacy_principal_status);
+      const state = readString(row?.state);
+      const authorityMode = readString(row?.authority_mode);
+      const accountRevision = row?.account_authority_revision == null ? null : Number(row.account_authority_revision);
+      const legacyRevision = row?.legacy_principal_revision == null ? null : Number(row.legacy_principal_revision);
+      if (!row || readString(row.user_id) !== userId
+        || (accountClass !== "customer" && accountClass !== "owner")
+        || (legacyStatus !== null && legacyStatus !== "enabled" && legacyStatus !== "disabled")
+        || (state !== "eligible" && state !== "authority_mismatch" && state !== "not_owner")
+        || authorityMode !== "canonical_legacy_dual_read"
+        || (accountRevision !== null && (!Number.isSafeInteger(accountRevision) || accountRevision < 1))
+        || (legacyRevision !== null && (!Number.isSafeInteger(legacyRevision) || legacyRevision < 1))) {
+        throw new Error("transition owner authority response is invalid");
+      }
+      return {
+        userId,
+        canonicalUserId: readString(row.canonical_user_id),
+        accountClass,
+        accountAuthorityRevision: accountRevision,
+        accountAuthorityExplicit: row.account_authority_explicit === true,
+        legacyUserId: readString(row.legacy_user_id),
+        legacyPrincipalStatus: legacyStatus,
+        legacyPrincipalRevision: legacyRevision,
+        sameUser: row.same_user === true,
+        consistent: row.consistent === true,
+        eligible: row.eligible === true,
+        state,
+        authorityMode,
+      };
     },
     async readWorkspaceMembership(userId, workspaceId) {
       const result = await tongs.from("workspace_members")
@@ -391,28 +453,65 @@ export async function requireForgeOwnerExecutionAuthority(args: {
   const authenticatedUserId = readString(args.authenticatedUserId);
   const workspaceId = readString(args.workspaceId);
   const routeCode = readString(args.routeCode)?.toLowerCase() ?? null;
-  if (!authenticatedUserId || !workspaceId || !routeCode) {
-    throw new ForgeOwnerAuthorizationError("Authenticated owner, Workspace, and route are required");
+  if (!authenticatedUserId) {
+    throw new ForgeOwnerAuthorizationError("owner_authentication_required");
   }
-  const [principal, membership] = await Promise.all([
-    args.reader.readEnabledPrincipal(authenticatedUserId),
+  if (!workspaceId) {
+    throw new ForgeOwnerAuthorizationError("owner_workspace_membership_required");
+  }
+  if (!routeCode) {
+    throw new ForgeOwnerAuthorizationError("owner_route_authorization_required");
+  }
+  const [authorityRead, membershipRead] = await Promise.allSettled([
+    args.reader.readTransitionAuthority(authenticatedUserId),
     args.reader.readWorkspaceMembership(authenticatedUserId, workspaceId),
   ]);
-  if (!principal || !membership) {
-    throw new ForgeOwnerAuthorizationError("Explicit owner principal and Workspace membership are required");
+  if (authorityRead.status === "rejected") {
+    throw new ForgeOwnerAuthorizationError("owner_authority_unavailable", undefined, { cause: authorityRead.reason });
+  }
+  if (membershipRead.status === "rejected") {
+    throw new ForgeOwnerAuthorizationError("owner_workspace_membership_unavailable", undefined, { cause: membershipRead.reason });
+  }
+  const authority = authorityRead.value;
+  const membership = membershipRead.value;
+  if (authority.userId !== authenticatedUserId
+    || (authority.canonicalUserId !== null && authority.canonicalUserId !== authenticatedUserId)
+    || (authority.legacyUserId !== null && authority.legacyUserId !== authenticatedUserId)
+    || !authority.sameUser) {
+    throw new ForgeOwnerAuthorizationError("owner_authority_mismatch");
+  }
+  if (authority.state === "not_owner") {
+    throw new ForgeOwnerAuthorizationError("owner_authority_not_configured");
+  }
+  if (!authority.eligible || !authority.consistent || authority.accountClass !== "owner"
+    || !authority.accountAuthorityExplicit || authority.canonicalUserId !== authenticatedUserId
+    || authority.legacyUserId !== authenticatedUserId
+    || authority.accountAuthorityRevision === null || authority.legacyPrincipalStatus !== "enabled"
+    || authority.legacyPrincipalRevision === null) {
+    throw new ForgeOwnerAuthorizationError("owner_authority_mismatch");
+  }
+  if (!membership) {
+    throw new ForgeOwnerAuthorizationError("owner_workspace_membership_required");
   }
 
   let ownerOperatingBudgetId: string | null = null;
   let routeAuthorizationEvidence: Record<string, unknown> = {};
   if (args.routeAuthorization?.required) {
-    const decision = await args.routeAuthorization.authorize({
-      authenticatedUserId,
-      workspaceId,
-      routeCode,
-      principalRevision: principal.revision,
-      membershipRole: membership.role,
-    });
-    if (!decision.authorized) throw new ForgeOwnerAuthorizationError("Owner route authorization is required");
+    let decision: Awaited<ReturnType<Extract<OwnerRouteAuthorization, { required: true }>["authorize"]>>;
+    try {
+      decision = await args.routeAuthorization.authorize({
+        authenticatedUserId,
+        workspaceId,
+        routeCode,
+        accountAuthorityRevision: authority.accountAuthorityRevision,
+        legacyPrincipalRevision: authority.legacyPrincipalRevision,
+        principalRevision: authority.legacyPrincipalRevision,
+        membershipRole: membership.role,
+      });
+    } catch (error) {
+      throw new ForgeOwnerAuthorizationError("owner_route_authorization_unavailable", undefined, { cause: error });
+    }
+    if (!decision.authorized) throw new ForgeOwnerAuthorizationError("owner_route_authorization_required");
     ownerOperatingBudgetId = readString(decision.ownerOperatingBudgetId);
     routeAuthorizationEvidence = decision.evidence ?? {};
   }
@@ -421,7 +520,11 @@ export async function requireForgeOwnerExecutionAuthority(args: {
     authenticatedUserId,
     workspaceId,
     routeCode,
-    principalRevision: principal.revision,
+    accountClass: "owner",
+    accountAuthorityRevision: authority.accountAuthorityRevision,
+    legacyPrincipalRevision: authority.legacyPrincipalRevision,
+    authorityMode: authority.authorityMode,
+    principalRevision: authority.legacyPrincipalRevision,
     membershipRole: membership.role,
     ownerOperatingBudgetId,
     routeAuthorizationEvidence,
@@ -753,8 +856,13 @@ export class ForgeOwnerExecutionCoordinator {
       p_owner_operating_budget_id: authority.ownerOperatingBudgetId,
       p_creation_evidence: {
         ...(input.operation.creationEvidence ?? {}),
-        schema: "forge.owner-execution-operation.v1",
+        schema: "forge.owner-execution-operation.v2",
         route_code: authority.routeCode,
+        authenticated_user_id: authority.authenticatedUserId,
+        account_classification: authority.accountClass,
+        account_authority_revision: authority.accountAuthorityRevision,
+        legacy_owner_principal_revision: authority.legacyPrincipalRevision,
+        owner_authority_mode: authority.authorityMode,
         owner_principal_revision: authority.principalRevision,
         workspace_membership_role: authority.membershipRole,
         route_authorization: authority.routeAuthorizationEvidence,

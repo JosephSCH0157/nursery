@@ -226,12 +226,40 @@ test("non-production owner execution does not require hosted lifecycle tracking"
   assert.equal(called, false);
 });
 
-function authorityReader(args: { principal?: boolean; membership?: boolean } = {}): OwnerAuthorityReader {
+function authorityReader(args: {
+  canonicalOwner?: boolean;
+  legacyEnabled?: boolean;
+  membership?: boolean;
+  readError?: boolean;
+  membershipReadError?: boolean;
+  canonicalUserId?: string | null;
+  legacyUserId?: string | null;
+} = {}): OwnerAuthorityReader {
   return {
-    async readEnabledPrincipal() {
-      return args.principal === false ? null : { revision: 7 };
+    async readTransitionAuthority(userId) {
+      if (args.readError) throw new Error("private lookup failed");
+      const canonicalOwner = args.canonicalOwner !== false;
+      const legacyEnabled = args.legacyEnabled !== false;
+      const eligible = canonicalOwner && legacyEnabled;
+      return {
+        userId,
+        canonicalUserId: args.canonicalUserId === undefined ? userId : args.canonicalUserId,
+        accountClass: canonicalOwner ? "owner" : "customer",
+        accountAuthorityRevision: canonicalOwner ? 11 : null,
+        accountAuthorityExplicit: canonicalOwner,
+        legacyUserId: args.legacyUserId === undefined ? userId : args.legacyUserId,
+        legacyPrincipalStatus: legacyEnabled ? "enabled" : null,
+        legacyPrincipalRevision: legacyEnabled ? 7 : null,
+        sameUser: (args.canonicalUserId === undefined || args.canonicalUserId === userId)
+          && (args.legacyUserId === undefined || args.legacyUserId === userId),
+        consistent: canonicalOwner === legacyEnabled,
+        eligible,
+        state: eligible ? "eligible" : canonicalOwner === legacyEnabled ? "not_owner" : "authority_mismatch",
+        authorityMode: "canonical_legacy_dual_read",
+      };
     },
     async readWorkspaceMembership() {
+      if (args.membershipReadError) throw new Error("private membership lookup failed");
       return args.membership === false ? null : { role: "viewer" };
     },
   };
@@ -327,16 +355,18 @@ function coordinator(gate: MemoryOwnerCostGate, reader: OwnerAuthorityReader = a
   });
 }
 
-test("owner authority requires both the explicit principal and Workspace membership", async () => {
+test("owner authority requires canonical and legacy agreement plus Workspace membership", async () => {
   const valid = await requireForgeOwnerExecutionAuthority({
     reader: authorityReader(), authenticatedUserId: ownerId, workspaceId, routeCode: "hearth.test",
   });
+  assert.equal(valid.accountAuthorityRevision, 11);
+  assert.equal(valid.legacyPrincipalRevision, 7);
   assert.equal(valid.principalRevision, 7);
   assert.equal(valid.membershipRole, "viewer");
 
   await assert.rejects(
     requireForgeOwnerExecutionAuthority({
-      reader: authorityReader({ principal: false }),
+      reader: authorityReader({ canonicalOwner: false, legacyEnabled: false }),
       authenticatedUserId: ownerId,
       workspaceId,
       routeCode: "hearth.test",
@@ -346,7 +376,7 @@ test("owner authority requires both the explicit principal and Workspace members
   );
   await assert.rejects(
     requireForgeOwnerExecutionAuthority({
-      reader: authorityReader({ principal: false }),
+      reader: authorityReader({ canonicalOwner: false, legacyEnabled: false }),
       authenticatedUserId: ownerId,
       workspaceId,
       routeCode: "hearth.test",
@@ -363,6 +393,31 @@ test("owner authority requires both the explicit principal and Workspace members
     }),
     ForgeOwnerAuthorizationError,
   );
+});
+
+test("owner transition mismatches and unreadable authority fail with sanitized distinct codes", async () => {
+  const cases = [
+    { reader: authorityReader({ legacyEnabled: false }), code: "owner_authority_mismatch" },
+    { reader: authorityReader({ canonicalOwner: false }), code: "owner_authority_mismatch" },
+    { reader: authorityReader({ canonicalOwner: false, legacyEnabled: false }), code: "owner_authority_not_configured" },
+    { reader: authorityReader({ canonicalUserId: "90000000-0000-4000-8000-000000000099" }), code: "owner_authority_mismatch" },
+    { reader: authorityReader({ membership: false }), code: "owner_workspace_membership_required" },
+    { reader: authorityReader({ readError: true }), code: "owner_authority_unavailable" },
+    { reader: authorityReader({ membershipReadError: true }), code: "owner_workspace_membership_unavailable" },
+  ] as const;
+  for (const caseDef of cases) {
+    await assert.rejects(
+      requireForgeOwnerExecutionAuthority({
+        reader: caseDef.reader,
+        authenticatedUserId: ownerId,
+        workspaceId,
+        routeCode: "hearth.test",
+      }),
+      (error: unknown) => error instanceof ForgeOwnerAuthorizationError
+        && error.code === caseDef.code
+        && error.message === "Owner execution is not authorized.",
+    );
+  }
 });
 
 test("required route authority is server-derived and may supply budget classification", async () => {
@@ -387,6 +442,26 @@ test("required route authority is server-derived and may supply budget classific
     reader: authorityReader(), authenticatedUserId: ownerId, workspaceId, routeCode: "hearth.research",
     routeAuthorization: { required: true, async authorize() { return { authorized: false }; } },
   }), ForgeOwnerAuthorizationError);
+});
+
+test("authority mismatch stops before owner accounting and provider submission", async () => {
+  const gate = new MemoryOwnerCostGate();
+  let providerCalls = 0;
+  const execution = input({
+    gate,
+    submit: async () => {
+      providerCalls += 1;
+      throw new Error("provider must not be reached");
+    },
+  });
+  await assert.rejects(
+    coordinator(gate, authorityReader({ legacyEnabled: false })).executeAttempt(execution),
+    (error: unknown) => error instanceof ForgeOwnerAuthorizationError
+      && error.code === "owner_authority_mismatch",
+  );
+  assert.equal(providerCalls, 0);
+  assert.equal(gate.calls.length, 0);
+  assert.equal(gate.operations.size, 0);
 });
 
 test("submission is durably recorded before the provider and exact replay does not submit twice", async () => {
@@ -427,6 +502,25 @@ test("submission is durably recorded before the provider and exact replay does n
   assert.equal(second.replay, true);
   assert.equal(providerCalls, 1);
   assert.equal(gate.journalValuations.length, 1);
+  const creationEvidence = gate.calls.find((call) => call.name === "establish_owner_cost_operation")
+    ?.args.p_creation_evidence as Record<string, unknown>;
+  assert.deepEqual({
+    schema: creationEvidence.schema,
+    authenticated_user_id: creationEvidence.authenticated_user_id,
+    account_classification: creationEvidence.account_classification,
+    account_authority_revision: creationEvidence.account_authority_revision,
+    legacy_owner_principal_revision: creationEvidence.legacy_owner_principal_revision,
+    owner_authority_mode: creationEvidence.owner_authority_mode,
+    workspace_membership_role: creationEvidence.workspace_membership_role,
+  }, {
+    schema: "forge.owner-execution-operation.v2",
+    authenticated_user_id: ownerId,
+    account_classification: "owner",
+    account_authority_revision: 11,
+    legacy_owner_principal_revision: 7,
+    owner_authority_mode: "canonical_legacy_dual_read",
+    workspace_membership_role: "viewer",
+  });
   const states = gate.operations.values().next().value!.attempts[0]!.events.map((event) => event.lifecycle_state);
   assert.deepEqual(states, ["authorized", "submitted", "response_captured", "succeeded"]);
 });

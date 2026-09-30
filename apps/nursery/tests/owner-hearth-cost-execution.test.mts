@@ -132,7 +132,12 @@ function coordinator(gate: HearthOwnerGate) {
   return new ForgeOwnerExecutionCoordinator({
     gate,
     authorityReader: {
-      async readEnabledPrincipal() { return { revision: 1 }; },
+      async readTransitionAuthority(userId) { return {
+        userId, canonicalUserId: userId, accountClass: "owner" as const, accountAuthorityRevision: 1,
+        accountAuthorityExplicit: true, legacyUserId: userId, legacyPrincipalStatus: "enabled" as const,
+        legacyPrincipalRevision: 1, sameUser: true, consistent: true, eligible: true,
+        state: "eligible" as const, authorityMode: "canonical_legacy_dual_read" as const,
+      }; },
       async readWorkspaceMembership() { return { role: "owner" }; },
     },
   });

@@ -4407,15 +4407,22 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           if (turnDecision.mode === "research") ownerResearchRequirement = requirement;
           else ownerHearthRequirement = requirement;
         } catch (error) {
-          if (error instanceof ForgeOwnerAuthorizationError) {
+          if (error instanceof ForgeOwnerAuthorizationError && error.code === "owner_authority_not_configured") {
             // Not an enabled owner principal. Continue through the unchanged customer path.
+          } else if (error instanceof ForgeOwnerAuthorizationError) {
+            return jsonResponse(403, {
+              ok: false,
+              error: "Owner execution is not authorized.",
+              code: error.code,
+              ...buildBillingSnapshot(lane),
+            });
           } else {
-          return jsonResponse(503, {
-            ok: false,
-            error: "Private owner execution controls are unavailable.",
-            code: "owner_hearth_control_unavailable",
-            ...buildBillingSnapshot(lane),
-          });
+            return jsonResponse(503, {
+              ok: false,
+              error: "Private owner execution controls are unavailable.",
+              code: "owner_hearth_control_unavailable",
+              ...buildBillingSnapshot(lane),
+            });
           }
         }
       }

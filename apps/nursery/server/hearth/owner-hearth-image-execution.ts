@@ -154,7 +154,7 @@ export function createOwnerHearthImageExecutionExecutor(args: {
         routeCode: input.routeCode,
       });
     } catch (error) {
-      if (error instanceof ForgeOwnerAuthorizationError) return null;
+      if (error instanceof ForgeOwnerAuthorizationError && error.code === "owner_authority_not_configured") return null;
       throw error;
     }
 

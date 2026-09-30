@@ -118,7 +118,13 @@ class MemoryOwnerCostGate implements OwnerCostRpcGate {
 
 function authorityReader(enabled = true): OwnerAuthorityReader {
   return {
-    readEnabledPrincipal: async () => enabled ? { revision: 4 } : null,
+    readTransitionAuthority: async (userId) => ({
+      userId, canonicalUserId: enabled ? userId : null, accountClass: enabled ? "owner" : "customer",
+      accountAuthorityRevision: enabled ? 8 : null, accountAuthorityExplicit: enabled,
+      legacyUserId: enabled ? userId : null, legacyPrincipalStatus: enabled ? "enabled" : null,
+      legacyPrincipalRevision: enabled ? 4 : null, sameUser: true, consistent: true, eligible: enabled,
+      state: enabled ? "eligible" : "not_owner", authorityMode: "canonical_legacy_dual_read",
+    }),
     readWorkspaceMembership: async () => ({ role: "owner" }),
   };
 }

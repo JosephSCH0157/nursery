@@ -149,7 +149,7 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
         routeCode: "visual.unified_plan",
       });
     } catch (error) {
-      if (error instanceof ForgeOwnerAuthorizationError) return null;
+      if (error instanceof ForgeOwnerAuthorizationError && error.code === "owner_authority_not_configured") return null;
       throw error;
     }
     if (!args.credential?.trim()) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
