@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { resolveTongsUserAccessToken, tongsFetch } from "../src/lib/tongs-fetch";
+import {
+  configureTongsUserAccessTokenResolver,
+  resolveTongsUserAccessToken,
+  tongsFetch,
+} from "../src/lib/tongs-fetch";
 
 function installWindow(url: string) {
   const dom = new JSDOM("<!doctype html>", { url });
@@ -83,6 +87,18 @@ test("canonical session accessor is authoritative and token failures stay saniti
     assert.equal(called, false);
   } finally {
     globalThis.fetch = previousFetch;
+    restoreWindow();
+  }
+});
+
+test("host shell can inject its canonical current-session accessor without browser globals", async () => {
+  const restoreWindow = installWindow("http://localhost/apps/hearth");
+  const token = "header.payload.signature";
+  configureTongsUserAccessTokenResolver(async () => token);
+  try {
+    assert.equal(await resolveTongsUserAccessToken(), token);
+  } finally {
+    configureTongsUserAccessTokenResolver(null);
     restoreWindow();
   }
 });

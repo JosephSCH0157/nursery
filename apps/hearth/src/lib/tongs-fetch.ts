@@ -20,6 +20,15 @@ const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 const PLACEHOLDER_TONGS_TOKENS = new Set(["DEV_TOKEN"]);
 
 export type TongsFetchOptions = RequestInit & { json?: unknown };
+export type TongsUserAccessTokenResolver = () => Promise<string | null>;
+
+let configuredUserAccessTokenResolver: TongsUserAccessTokenResolver | null = null;
+
+export function configureTongsUserAccessTokenResolver(
+  resolver: TongsUserAccessTokenResolver | null,
+): void {
+  configuredUserAccessTokenResolver = resolver;
+}
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -170,6 +179,14 @@ function resolveUserAccessTokenFromStorage(): string | null {
 
 export async function resolveTongsUserAccessToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
+
+  if (configuredUserAccessTokenResolver) {
+    try {
+      return sanitizeAccessToken(await configuredUserAccessTokenResolver());
+    } catch {
+      return null;
+    }
+  }
 
   const runtimeWindow = window as Window & typeof globalThis & {
     __forge_resolve_user_access_token__?: () => Promise<string | null>;

@@ -6,9 +6,10 @@ import {
   readHearthAiRuntimeStatus,
   type HearthAiRuntimeStatus,
 } from "@hearth/lib/ai-runtime-status";
+import { configureTongsUserAccessTokenResolver } from "@hearth/lib/tongs-fetch";
 import { ForgeNav } from "../nav/ForgeNav";
 import { FORGE_NAV_ACTION_AI_CONTROLS, forgeNavTree } from "../nav/forgeNavTree";
-import { supabase } from "../lib/supabase";
+import { resolveCanonicalSupabaseAccessToken, supabase } from "../lib/supabase";
 import {
   buildForgeRouteHref,
   parseForgeRouteContext,
@@ -21,6 +22,8 @@ import {
   useEpisodeWorkspaceReadModel,
 } from "../workspace/useEpisodeWorkspaceReadModel";
 import "./HearthStandalone.css";
+
+configureTongsUserAccessTokenResolver(resolveCanonicalSupabaseAccessToken);
 
 const AiControlsPanel = lazy(async () => {
   const module = await import("../components/hearth/AiControlsPanel");
