@@ -2625,6 +2625,7 @@ export type OwnerUnifiedVisualPlanExecutor = (input: {
     operationKey: string,
     requestFingerprint: string,
     canonicalInputFingerprint: string,
+    ownerCostAttemptId: string,
   ): Promise<Record<string, unknown>>;
 }) => Promise<Record<string, unknown> | null>;
 
@@ -29613,7 +29614,10 @@ export class TongsCommitService {
       userAccessToken?: string | null;
       skipPaidFundingResolution?: boolean;
       recoveryOnly?: boolean;
-      ownerRecovery?: { canonicalInputFingerprint: string };
+      ownerRecovery?: {
+        canonicalInputFingerprint: string;
+        ownerCostAttemptId: string;
+      };
     },
   ): Promise<Record<string, Json>> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
@@ -29634,14 +29638,15 @@ export class TongsCommitService {
     const authority = (options?.ownerRecovery
       ? canonical
       : this.userClientFactory(options.userAccessToken).schema("tongs")) as unknown as UntypedTongsSchemaClient;
-    const existingResult = await authority.rpc(
-      "read_unified_visual_plan_operation",
-      {
-        p_workspace_id: input.workspace_id,
-        p_workpiece_id: workpieceId,
-        p_operation_id: input.operation_id,
-      },
-    );
+    const existingResult = options?.ownerRecovery
+      ? await canonical.rpc("read_owner_unified_visual_plan_operation", {
+          p_owner_cost_attempt_id: options.ownerRecovery.ownerCostAttemptId,
+        })
+      : await authority.rpc("read_unified_visual_plan_operation", {
+          p_workspace_id: input.workspace_id,
+          p_workpiece_id: workpieceId,
+          p_operation_id: input.operation_id,
+        });
     if (existingResult.error)
       throw new HttpError(
         502,
@@ -29651,6 +29656,18 @@ export class TongsCommitService {
     const existingOperation = isRecord(existingResult.data)
       ? existingResult.data
       : null;
+    if (options?.ownerRecovery && existingOperation && (
+      readStringField(existingOperation, "operation_id") !== input.operation_id
+      || readStringField(existingOperation, "operation_fingerprint") !== input.operation_fingerprint
+      || readStringField(existingOperation, "owner_cost_attempt_id") !== options.ownerRecovery.ownerCostAttemptId
+      || readStringField(existingOperation, "workspace_id") !== input.workspace_id
+      || readStringField(existingOperation, "workpiece_id") !== workpieceId
+    ))
+      throw new HttpError(
+        409,
+        "owner_unified_visual_plan_recovery_identity_conflict",
+        "The owner Visual Plan recovery evidence does not match this canonical operation.",
+      );
     if (readStringField(existingOperation, "state") === "submission_unknown")
       throw new HttpError(
         202,
@@ -29898,7 +29915,7 @@ export class TongsCommitService {
         expectedReferenceRevision: input.expected_reference_revision,
         expectedReferenceVisualRevisionId: input.expected_reference_visual_revision_id,
         expectedReferenceVisualRevision: input.expected_reference_visual_revision,
-        completeCanonical: (operationKey, requestFingerprint, canonicalInputFingerprint) =>
+        completeCanonical: (operationKey, requestFingerprint, canonicalInputFingerprint, ownerCostAttemptId) =>
           this.generateUnifiedVisualPlan(
             workpieceId,
             {
@@ -29912,7 +29929,10 @@ export class TongsCommitService {
               ...options,
               skipPaidFundingResolution: true,
               recoveryOnly: true,
-              ownerRecovery: { canonicalInputFingerprint },
+              ownerRecovery: {
+                canonicalInputFingerprint,
+                ownerCostAttemptId,
+              },
             },
           ),
       });

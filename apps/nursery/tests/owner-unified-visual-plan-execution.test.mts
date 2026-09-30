@@ -109,6 +109,7 @@ class OwnerGate implements OwnerCostRpcGate {
       const row = this.products.get(String(args.p_operation_id));
       assert.ok(row);
       row.provider_response_json = args.p_provider_response_json;
+      row.state = "provider_completed";
       return { data: row, error: null };
     }
     if (name === "read_owner_unified_visual_plan_operation") {
@@ -129,7 +130,7 @@ const authorityReader: OwnerAuthorityReader = {
   async readWorkspaceMembership() { return { role: "owner" }; },
 };
 
-function request(completeCanonical: (key: string) => Promise<Record<string, unknown>>) {
+function request(completeCanonical: (key: string, attemptId: string) => Promise<Record<string, unknown>>) {
   return {
     authenticatedUserId: USER_ID,
     workspaceId: WORKSPACE_ID,
@@ -149,7 +150,8 @@ function request(completeCanonical: (key: string) => Promise<Record<string, unkn
     expectedReferenceRevision: 0,
     expectedReferenceVisualRevisionId: null,
     expectedReferenceVisualRevision: 0,
-    completeCanonical: async (key: string) => completeCanonical(key),
+    completeCanonical: async (key: string, _requestFingerprint: string, _canonicalInputFingerprint: string, attemptId: string) =>
+      completeCanonical(key, attemptId),
   };
 }
 
@@ -377,6 +379,52 @@ test("runtime environment separates otherwise identical owner operations", async
   }
   assert.equal(providerCalls, 2);
   assert.equal(gate.operations.size, 2);
+});
+
+test("provider success survives canonical persistence failure and recovers without resubmission", async () => {
+  const gate = new OwnerGate();
+  let providerCalls = 0;
+  let canonicalCalls = 0;
+  let recoveredAttemptId: string | null = null;
+  const executor = createOwnerUnifiedVisualPlanExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "isolated-owner-openai-key",
+    runtimeEnvironment: "production",
+    providerFetch: async () => {
+      providerCalls += 1;
+      return Response.json({
+        id: "resp_owner_unified_persistence_failure",
+        model: "gpt-5.6-luna",
+        output: [{ content: [{ type: "output_text", text: JSON.stringify(plan) }] }],
+        usage: { input_tokens: 100, output_tokens: 50 },
+      }, { headers: { "x-request-id": "request-owner-unified-persistence-failure" } });
+    },
+  });
+  const complete = async (key: string, attemptId: string) => {
+    canonicalCalls += 1;
+    recoveredAttemptId = attemptId;
+    if (canonicalCalls === 1) throw new Error("owner recovery read returned no operation");
+    const row = gate.products.get(key);
+    assert.ok(row);
+    row.state = "verified";
+    row.receipt_json = { disposition: "verified", operation_id: key };
+    return row.receipt_json as Record<string, unknown>;
+  };
+
+  await assert.rejects(() => executor(request(complete)), /Owner product result persistence failed/);
+  const attempt = [...gate.operations.values()][0]!.attempts[0]!;
+  assert.deepEqual(attempt.events.map((event) => event.lifecycle_state), ["authorized", "submitted", "response_captured", "failed"]);
+  assert.equal(gate.products.values().next().value?.state, "provider_completed");
+
+  const recovered = await executor(request(complete));
+  assert.equal(recovered?.disposition, "verified");
+  assert.equal(providerCalls, 1);
+  assert.equal(canonicalCalls, 2);
+  assert.equal(recoveredAttemptId, attempt.attempt_id);
+  assert.equal(attempt.valuations.length, 1);
+  assert.equal(gate.calls.some((call) => /quote|reservation|settlement|customer|stripe/i.test(call.name)), false);
 });
 
 test("canonical reservation failure is terminal failed evidence, never submission unknown", async () => {

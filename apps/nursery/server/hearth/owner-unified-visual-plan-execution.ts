@@ -230,11 +230,12 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
     });
 
     let canonicalResult: Record<string, unknown> | null = null;
-    const complete = async () => {
+    const complete = async (attemptId: string) => {
       canonicalResult = await input.completeCanonical(
         operationIdentity.operationKey,
         operationIdentity.requestFingerprint,
         input.canonicalInputFingerprint,
+        attemptId,
       );
     };
     const execution = await executeOwnerHearthText({
@@ -289,11 +290,11 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
         if (!row) return null;
         const value = persistedValue(row);
         if (!value) return null;
-        if (text(row.state) !== "verified" || !object(row.receipt_json)) await complete();
+        if (text(row.state) !== "verified" || !object(row.receipt_json)) await complete(attemptId);
         else canonicalResult = row.receipt_json as Record<string, unknown>;
         return value;
       },
-      persistResult: async (value) => {
+      persistResult: async (value, { attemptId }) => {
         const result = ownerValue(value);
         await rpc(args.gate, "record_unified_visual_plan_provider_response", {
           p_operation_id: operationIdentity.operationKey,
@@ -308,12 +309,12 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
             validation_contract_revision: UNIFIED_VISUAL_PLAN_PROVIDER_CONTRACT_VERSION,
           },
         });
-        await complete();
+        await complete(attemptId);
       },
     });
     if (execution.state === "submission_unknown") throw new Error("Owner Unified Visual Plan submission is unresolved and was not retried");
     if (execution.state === "definitively_rejected") throw new Error("Owner Unified Visual Plan request was definitively rejected");
-    if (!canonicalResult) await complete();
+    if (!canonicalResult) await complete(execution.attemptId);
     return canonicalResult;
   };
 }

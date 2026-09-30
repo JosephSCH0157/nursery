@@ -25,6 +25,16 @@ test("owner continuation never synthesizes customer financial authority", () => 
   assert.match(service, /ownerRecovery[\s\S]*skipPaidFundingResolution: true/);
 });
 
+test("owner continuation reads the durable operation through owner attempt authority", () => {
+  const methodStart = service.indexOf("async generateUnifiedVisualPlan(");
+  const methodEnd = service.indexOf("async beginReferenceClipAcquisition(", methodStart);
+  const method = service.slice(methodStart, methodEnd);
+  assert.match(method, /options\?\.ownerRecovery[\s\S]*read_owner_unified_visual_plan_operation/);
+  assert.match(method, /p_owner_cost_attempt_id: options\.ownerRecovery\.ownerCostAttemptId/);
+  assert.match(method, /owner_unified_visual_plan_recovery_identity_conflict/);
+  assert.match(method, /ownerCostAttemptId[\s\S]*skipPaidFundingResolution: true[\s\S]*recoveryOnly: true/);
+});
+
 test("read-only preflight authenticates before the paid Visual Plan request parser", () => {
   const route = service.slice(
     service.indexOf('parts[3] === "visual-plan-v2"'),
