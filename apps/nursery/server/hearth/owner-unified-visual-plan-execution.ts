@@ -123,6 +123,7 @@ async function requireOwnerUnifiedVisualPlanAdmission(args: {
   authenticatedUserId: string;
   workspaceId: string;
 }): Promise<{
+  credential: string;
   financialEnvironment: OwnerFinancialEnvironment;
   runtimeEnvironment: OwnerRuntimeEnvironment;
 }> {
@@ -132,7 +133,8 @@ async function requireOwnerUnifiedVisualPlanAdmission(args: {
     workspaceId: input.workspaceId,
     routeCode: "visual.unified_plan",
   });
-  if (!args.credential?.trim()) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
+  const credential = args.credential?.trim();
+  if (!credential) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
   const financial = await financialEnvironment(args.gate);
   const runtime = args.runtimeEnvironment ?? readOwnerRuntimeEnvironment();
   await requireForgeOwnerCredentialLifecycle({
@@ -141,7 +143,7 @@ async function requireOwnerUnifiedVisualPlanAdmission(args: {
     financialEnvironment: financial,
     runtimeEnvironment: runtime,
   });
-  return { financialEnvironment: financial, runtimeEnvironment: runtime };
+  return { credential, financialEnvironment: financial, runtimeEnvironment: runtime };
 }
 
 export function createOwnerUnifiedVisualPlanPreflight(args: {
@@ -221,7 +223,7 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
     const attemptNumber = await selectExplicitOwnerHearthTextAttemptNumber({
       gate: args.gate,
       operationIdentity,
-      credential: args.credential,
+      credential: admission.credential,
       providerBody: input.providerBody,
       providerEndpoint: "/v1/responses",
       providerService: "responses",
@@ -245,7 +247,7 @@ export function createOwnerUnifiedVisualPlanExecutor(args: {
       operationIntentId: input.canonicalInputFingerprint,
       financialEnvironment: financial,
       runtimeEnvironment: runtime,
-      credential: args.credential,
+      credential: admission.credential,
       providerBody: input.providerBody,
       providerEndpoint: "/v1/responses",
       providerService: "responses",
