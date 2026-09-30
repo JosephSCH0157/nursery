@@ -176,6 +176,7 @@ export function createOwnerHearthImageExecutionExecutor(args: {
     const sku = `${contract.model}:${contract.size}:${contract.quality}:n${input.imageCount}`;
     const operation = deriveForgeOwnerOperationIdentity({
       financialEnvironment: financial,
+      runtimeEnvironment: runtime,
       originatingTool: "hearth",
       operationType: input.routeCode,
       stableOperationInput: {

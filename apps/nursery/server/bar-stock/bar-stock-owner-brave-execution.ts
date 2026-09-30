@@ -153,6 +153,7 @@ function capturedResponse(attempt: OwnerAttemptSnapshot): BraveCapture | null {
 
 export function deriveBarStockOwnerDiscoveryIdentity(args: {
   financialEnvironment: OwnerFinancialEnvironment;
+  runtimeEnvironment: OwnerRuntimeEnvironment;
   workspaceId: string;
   discoveryRunId: string;
   preferenceRevision: number;
@@ -164,6 +165,7 @@ export function deriveBarStockOwnerDiscoveryIdentity(args: {
   }));
   return deriveForgeOwnerOperationIdentity({
     financialEnvironment: args.financialEnvironment,
+    runtimeEnvironment: args.runtimeEnvironment,
     originatingTool: "bar-stock",
     operationType: "brave_topic_discovery",
     stableOperationInput: {

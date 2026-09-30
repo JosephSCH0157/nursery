@@ -56,6 +56,7 @@ export type ForgeOwnerOperationIdentity = {
   operationKey: string;
   requestFingerprint: string;
   financialEnvironment: OwnerFinancialEnvironment;
+  runtimeEnvironment: OwnerRuntimeEnvironment;
   originatingTool: string;
   operationType: string;
 };
@@ -276,6 +277,7 @@ function requireSha256(value: string, label: string): string {
 
 export function deriveForgeOwnerOperationIdentity(args: {
   financialEnvironment: OwnerFinancialEnvironment;
+  runtimeEnvironment: OwnerRuntimeEnvironment;
   originatingTool: string;
   operationType: string;
   stableOperationInput: unknown;
@@ -285,14 +287,16 @@ export function deriveForgeOwnerOperationIdentity(args: {
   const operationType = normalizedCode(args.operationType, "operation type");
   const stable = {
     financial_environment: args.financialEnvironment,
+    runtime_environment: args.runtimeEnvironment,
     originating_tool: originatingTool,
     operation_type: operationType,
     stable_operation_input: args.stableOperationInput,
   };
   const digest = forgeOwnerSha256(canonicalJson(stable));
-  const operationKey = `${originatingTool}:${operationType}:${args.financialEnvironment}:${digest}`;
+  const operationKey = `${originatingTool}:${operationType}:${args.financialEnvironment}:${args.runtimeEnvironment}:${digest}`;
   return {
     financialEnvironment: args.financialEnvironment,
+    runtimeEnvironment: args.runtimeEnvironment,
     originatingTool,
     operationType,
     operationKey,

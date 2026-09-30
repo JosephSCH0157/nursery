@@ -240,6 +240,7 @@ test("ordinary customers cannot invoke the owner coordinator and request fields 
 test("same run identity is stable while a conflicting query fingerprint fails closed", async () => {
   const original = deriveBarStockOwnerDiscoveryIdentity({
     financialEnvironment: "live",
+    runtimeEnvironment: "production",
     workspaceId: "20000000-0000-4000-8000-000000000001",
     discoveryRunId: "30000000-0000-4000-8000-000000000001",
     preferenceRevision: 7,
@@ -247,6 +248,7 @@ test("same run identity is stable while a conflicting query fingerprint fails cl
   });
   const replay = deriveBarStockOwnerDiscoveryIdentity({
     financialEnvironment: "live",
+    runtimeEnvironment: "production",
     workspaceId: "20000000-0000-4000-8000-000000000001",
     discoveryRunId: "30000000-0000-4000-8000-000000000001",
     preferenceRevision: 7,
@@ -254,6 +256,7 @@ test("same run identity is stable while a conflicting query fingerprint fails cl
   });
   const conflict = deriveBarStockOwnerDiscoveryIdentity({
     financialEnvironment: "live",
+    runtimeEnvironment: "production",
     workspaceId: "20000000-0000-4000-8000-000000000001",
     discoveryRunId: "30000000-0000-4000-8000-000000000001",
     preferenceRevision: 7,

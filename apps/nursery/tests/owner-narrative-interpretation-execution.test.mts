@@ -53,6 +53,8 @@ class NarrativeOwnerGate implements OwnerCostRpcGate {
             operation_id: id,
             operation_key: args.p_operation_key,
             request_fingerprint: args.p_request_fingerprint,
+            financial_environment: args.p_financial_environment,
+            runtime_environment: args.p_runtime_environment,
             created_at: args.p_created_at,
           },
           attempts: [],
@@ -220,6 +222,54 @@ test("owner narrative interpretation establishes accounting before OpenAI and re
   assert.equal(attempt.valuations[0].p_recognition_mode, "journal_recognized");
   assert.equal(attempt.valuations[0].p_amount_micros, 80);
   assert.equal(gate.calls.some((call) => call.name.includes("reservation") || call.name.includes("quote") || call.name.includes("customer")), false);
+});
+
+test("owner narrative isolates identical logical requests by runtime before provider submission", async () => {
+  const gate = new NarrativeOwnerGate();
+  let providerCalls = 0;
+  const providerFetch = async () => {
+    providerCalls += 1;
+    return Response.json({
+      id: `resp_runtime_${providerCalls}`,
+      model: "gpt-5.6-luna",
+      output: [{ content: [{ type: "output_text", text: JSON.stringify(brief) }] }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+  };
+  const makeExecutor = (runtimeEnvironment: "development" | "production") => createOwnerNarrativeInterpretationExecutor({
+    gate,
+    authorityReader,
+    coordinator: new ForgeOwnerExecutionCoordinator({ gate, authorityReader }),
+    credential: "isolated-owner-openai-key",
+    runtimeEnvironment,
+    providerFetch,
+  });
+  const request = {
+    ...input(),
+    operationIntentId: `${input().operationIntentId}-runtime-isolation`,
+    prepareCanonical: async () => undefined,
+    persistCanonical: async (operationKey: string) => {
+      assert.match(operationKey, /:test:(development|production):/);
+      return { disposition: "committed" };
+    },
+  };
+
+  await makeExecutor("development")(request);
+  await makeExecutor("production")(request);
+  await makeExecutor("production")(request);
+
+  assert.equal(providerCalls, 2);
+  assert.equal(gate.operations.size, 2);
+  const operations = [...gate.operations.values()];
+  const development = operations.find((value) => value.operation.runtime_environment === "development");
+  const production = operations.find((value) => value.operation.runtime_environment === "production");
+  assert.ok(development);
+  assert.ok(production);
+  assert.notEqual(development.operation.operation_id, production.operation.operation_id);
+  assert.deepEqual(development.attempts.map((attempt) => attempt.attempt_number), [1]);
+  assert.deepEqual(production.attempts.map((attempt) => attempt.attempt_number), [1]);
+  assert.equal(development.attempts.length, 1);
+  assert.equal(production.attempts.length, 1);
 });
 
 test("non-owner authority leaves the existing customer narrative path untouched", async () => {

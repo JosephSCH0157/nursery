@@ -94,6 +94,7 @@ export function createOwnerHearthResearchCostSession(input: Input): OwnerHearthR
   if (!input.braveCredential.trim()) throw new Error("Hearth owner Brave credential is required");
   const operationIdentity = deriveOwnerHearthTextOperation({
     financialEnvironment: input.financialEnvironment,
+    runtimeEnvironment: input.runtimeEnvironment,
     workspaceId: input.workspaceId,
     workpieceId: input.workpieceId,
     routeCode: "hearth.research_synthesis",

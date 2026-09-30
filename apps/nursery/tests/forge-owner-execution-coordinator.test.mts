@@ -190,9 +190,14 @@ function authorityReader(args: { principal?: boolean; membership?: boolean } = {
   };
 }
 
-function identity(exactRequestInput: unknown = { prompt: "hello" }, financialEnvironment: "test" | "live" = "test") {
+function identity(
+  exactRequestInput: unknown = { prompt: "hello" },
+  financialEnvironment: "test" | "live" = "test",
+  runtimeEnvironment: "production" | "preview" | "development" = "development",
+) {
   return deriveForgeOwnerOperationIdentity({
     financialEnvironment,
+    runtimeEnvironment,
     originatingTool: "hearth",
     operationType: "test_text_generation",
     stableOperationInput: { workspace_id: workspaceId, workpiece_id: workpieceId, action: "generate" },
@@ -390,6 +395,19 @@ test("operation-key reuse with a conflicting request fingerprint fails closed", 
     coordinator(gate).executeAttempt(input({ gate, operationIdentity: changed })),
     /owner-cost operation replay conflict/,
   );
+});
+
+test("operation identity is stable within one runtime and isolated across runtimes", () => {
+  const development = identity({ prompt: "same logical request" }, "test", "development");
+  const developmentReplay = identity({ prompt: "same logical request" }, "test", "development");
+  const production = identity({ prompt: "same logical request" }, "test", "production");
+
+  assert.deepEqual(developmentReplay, development);
+  assert.notEqual(production.operationId, development.operationId);
+  assert.notEqual(production.operationKey, development.operationKey);
+  assert.notEqual(production.requestFingerprint, development.requestFingerprint);
+  assert.match(development.operationKey, /:test:development:/);
+  assert.match(production.operationKey, /:test:production:/);
 });
 
 test("definitive rejection and ambiguity retain evidence without asserting zero provider cost", async () => {

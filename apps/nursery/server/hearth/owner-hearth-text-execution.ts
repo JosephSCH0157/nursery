@@ -176,9 +176,10 @@ async function rpc(gate: OwnerHearthTextExecutionInput["gate"], name: string, ar
 }
 
 export function deriveOwnerHearthTextOperation(args: Pick<OwnerHearthTextExecutionInput,
-  "financialEnvironment" | "workspaceId" | "workpieceId" | "routeCode" | "operationIntentId" | "logicalRequest">): ForgeOwnerOperationIdentity {
+  "financialEnvironment" | "runtimeEnvironment" | "workspaceId" | "workpieceId" | "routeCode" | "operationIntentId" | "logicalRequest">): ForgeOwnerOperationIdentity {
   return deriveForgeOwnerOperationIdentity({
     financialEnvironment: args.financialEnvironment,
+    runtimeEnvironment: args.runtimeEnvironment,
     originatingTool: "hearth",
     operationType: args.routeCode,
     stableOperationInput: {

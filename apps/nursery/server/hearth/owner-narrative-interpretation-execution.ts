@@ -106,6 +106,7 @@ export function createOwnerNarrativeInterpretationExecutor(args: {
   authorityReader: OwnerAuthorityReader;
   credential?: string;
   providerFetch?: typeof fetch;
+  runtimeEnvironment?: OwnerRuntimeEnvironment;
 }): OwnerNarrativeInterpretationExecutor {
   return async (input) => {
     try {
@@ -122,9 +123,10 @@ export function createOwnerNarrativeInterpretationExecutor(args: {
     if (!args.credential?.trim()) throw new Error("The isolated Hearth owner OpenAI credential is unavailable");
 
     const financial = await financialEnvironment(args.gate);
-    const runtime = runtimeEnvironment();
+    const runtime = args.runtimeEnvironment ?? runtimeEnvironment();
     const operationIdentity = deriveForgeOwnerOperationIdentity({
       financialEnvironment: financial,
+      runtimeEnvironment: runtime,
       originatingTool: "hearth",
       operationType: "visual.narrative_interpretation",
       stableOperationInput: {

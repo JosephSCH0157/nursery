@@ -146,6 +146,7 @@ export function createOwnerHearthRunwayExecutionBoundary(args: {
       }
       const operation = deriveForgeOwnerOperationIdentity({
         financialEnvironment: financial,
+        runtimeEnvironment: runtime,
         originatingTool: "hearth",
         operationType: "hearth.runway_broll_generation",
         stableOperationInput: {
