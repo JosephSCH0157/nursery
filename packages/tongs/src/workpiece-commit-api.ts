@@ -34068,7 +34068,7 @@ export class TongsCommitService {
     input: GenerateImageMapCandidatesRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<GenerateImageMapCandidatesResponse> {
-    if (!this.imageProvider) {
+    if (!this.imageProvider && !this.ownerImageExecutionExecutor) {
       throw new HttpError(
         503,
         "image_map_candidate_provider_unavailable",
@@ -34294,6 +34294,15 @@ export class TongsCommitService {
           creatorDirection: entry.description, visualStyle: entry.style_preset ?? null,
         }))),
       });
+    }
+
+    const imageProvider = this.imageProvider;
+    if (!imageProvider) {
+      throw new HttpError(
+        503,
+        "image_map_candidate_provider_unavailable",
+        "Image provider is not configured",
+      );
     }
 
     const priorCandidateAssets = await this.listReadyImageMapCandidateAssets(
@@ -34584,7 +34593,7 @@ export class TongsCommitService {
           : null;
       const image =
         paidContext?.image ??
-        (await this.imageProvider.generateImage({
+        (await imageProvider.generateImage({
           prompt,
           size,
           model: "gpt-image-2-2026-04-21",
@@ -34636,7 +34645,7 @@ export class TongsCommitService {
           : null;
       const retryImage =
         retryPaidContext?.image ??
-        (await this.imageProvider.generateImage({
+        (await imageProvider.generateImage({
           prompt: retryPrompt,
           size,
           model: "gpt-image-2-2026-04-21",
