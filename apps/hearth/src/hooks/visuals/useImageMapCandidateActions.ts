@@ -17,6 +17,7 @@ import type { HearthOperationAuthority } from "../../lib/hearth-operation-author
 import type { CanonicalImagePromptRevision } from "../../lib/hearth-image-prompt-authority";
 import { prepareOutsideImageForFrame } from "../../lib/hearth-thumbnail-outside-image-fit";
 import { uploadHearthGenerationReference, type HearthGenerationReferencePurpose } from "../../lib/hearth-generation-reference";
+import { isHearthAiCreditAdmissionDepleted, type HearthOwnerFundingStatus } from "../../lib/hearth-ai-runtime-contract";
 
 type CanonicalScriptResult =
   | {
@@ -60,6 +61,7 @@ type UseImageMapCandidateActionsArgs = {
   isImageMapCandidateGenerating: boolean;
   aiBillingMode: string;
   aiTokenBalance: number | null;
+  ownerFundingStatus: HearthOwnerFundingStatus;
   readCanonicalScriptForImageMapGeneration: () => Promise<CanonicalScriptResult>;
   replaceEpisodePackageImageMap: (
     episodePackage: EpisodePackageV2,
@@ -112,7 +114,11 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateError("Save the image-map entry before generating candidates.");
       return;
     }
-    if (args.aiBillingMode === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+    if (isHearthAiCreditAdmissionDepleted({
+      billingMode: args.aiBillingMode === "byo" ? "byo" : "forge",
+      tokenBalance: args.aiTokenBalance,
+      ownerFundingStatus: args.ownerFundingStatus,
+    })) {
       args.setImageMapCandidateError("No AI credits remaining.");
       return;
     }

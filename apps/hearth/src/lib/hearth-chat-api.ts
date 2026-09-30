@@ -12,6 +12,7 @@ import {
   type HearthAiBehavior,
   type HearthAiLane,
   type HearthAiRuntimeSnapshot,
+  type HearthOwnerFundingStatus,
   type HearthChatMessage,
   type HearthOp,
   type HearthChatRequest,
@@ -45,6 +46,7 @@ export type {
   HearthAiLane,
   HearthAiRuntimeSnapshot,
   HearthOwnerChatCapability,
+  HearthOwnerFundingStatus,
   HearthChatMessage,
   HearthChatRole,
   HearthExplicitUiAction,
@@ -715,6 +717,7 @@ function runtimeFromResponse(payload: {
     status: "not_required" | "available" | "unavailable" | "unknown";
     reason_code: "owner_runtime_unavailable" | "owner_controls_unavailable" | null;
   };
+  owner_funding_status?: HearthOwnerFundingStatus;
 }): HearthAiRuntimeSnapshot {
   return {
     billingMode: payload.billing_mode,
@@ -725,6 +728,7 @@ function runtimeFromResponse(payload: {
         reasonCode: payload.owner_chat_capability.reason_code,
       },
     } : {}),
+    ...(payload.owner_funding_status ? { ownerFundingStatus: payload.owner_funding_status } : {}),
   };
 }
 
@@ -1037,6 +1041,7 @@ export async function fetchHearthAiStatus(workspaceId: string | null): Promise<H
           status: normalizedWorkspaceId ? "unknown" : "not_required",
           reasonCode: normalizedWorkspaceId ? "owner_controls_unavailable" : null,
         },
+        ownerFundingStatus: "unknown",
       },
     };
   }
@@ -1057,6 +1062,7 @@ export async function fetchHearthAiStatus(workspaceId: string | null): Promise<H
       status: normalizedWorkspaceId ? "unknown" : "not_required",
       reasonCode: normalizedWorkspaceId ? "owner_controls_unavailable" : null,
     },
+    ownerFundingStatus: statusRuntime.ownerFundingStatus ?? "unknown",
   };
 
   if (!response.ok) {

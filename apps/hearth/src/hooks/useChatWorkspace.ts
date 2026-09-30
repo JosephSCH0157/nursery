@@ -13,8 +13,10 @@ import type {
   HearthCustomerBillingQuote,
   HearthOutputPreference,
   HearthOwnerChatCapability,
+  HearthOwnerFundingStatus,
   HearthTurnResult,
 } from "../lib/hearth-chat-api";
+import { isHearthAiCreditAdmissionDepleted } from "../lib/hearth-ai-runtime-contract";
 import {
   resolveBrowserSpeechRecognitionConstructor,
   type BrowserSpeechRecognition,
@@ -562,6 +564,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
   ownerChatCapability: HearthOwnerChatCapability;
+  ownerFundingStatus: HearthOwnerFundingStatus;
   chatDraft: string;
   setChatDraft: (value: string) => void;
   setChatMessages: (value: HearthChatMessage[] | ((prev: HearthChatMessage[]) => HearthChatMessage[])) => void;
@@ -857,8 +860,11 @@ export function useChatWorkspaceRuntime<
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
-    if (lane === "forge" && params.productionAction !== "seo"
-      && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+    if (params.productionAction !== "seo" && isHearthAiCreditAdmissionDepleted({
+      billingMode: lane,
+      tokenBalance: args.aiTokenBalance,
+      ownerFundingStatus: args.ownerFundingStatus,
+    })) {
       args.setChatError("You are out of AI credits for now.");
       return;
     }

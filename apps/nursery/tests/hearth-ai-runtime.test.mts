@@ -18,6 +18,7 @@ import {
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { createHearthResearchRuntime } from "../server/hearth/hearth-research-runtime";
+import type { OwnerAuthorityReader, OwnerTransitionAuthority } from "../server/accounting/forge-owner-execution-coordinator";
 import { mwHearthChatApi } from "../scripts/mw-hearth-chat-api";
 import "./hearth-youtube-source-ingest.test.mts";
 
@@ -82,6 +83,39 @@ function buildConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntim
     disableExpensiveAiActions: false,
     disableCdcGeneration: false,
     ...overrides,
+  };
+}
+
+function buildOwnerAuthorityReader(
+  state: "eligible" | "not_owner" | "canonical_only" | "legacy_only" | "unavailable",
+  membership = true,
+): OwnerAuthorityReader {
+  return {
+    async readTransitionAuthority(userId): Promise<OwnerTransitionAuthority> {
+      if (state === "unavailable") throw new Error("authority unavailable");
+      const canonicalOwner = state === "eligible" || state === "canonical_only";
+      const legacyOwner = state === "eligible" || state === "legacy_only";
+      return {
+        userId,
+        canonicalUserId: canonicalOwner ? userId : null,
+        accountClass: canonicalOwner ? "owner" : "customer",
+        accountAuthorityRevision: canonicalOwner ? 7 : null,
+        accountAuthorityExplicit: canonicalOwner,
+        legacyUserId: legacyOwner ? userId : null,
+        legacyPrincipalStatus: legacyOwner ? "enabled" : null,
+        legacyPrincipalRevision: legacyOwner ? 9 : null,
+        sameUser: true,
+        consistent: canonicalOwner === legacyOwner,
+        eligible: canonicalOwner && legacyOwner,
+        state: canonicalOwner === legacyOwner
+          ? canonicalOwner ? "eligible" : "not_owner"
+          : "authority_mismatch",
+        authorityMode: "canonical_legacy_dual_read",
+      };
+    },
+    async readWorkspaceMembership() {
+      return membership ? { role: "owner" } : null;
+    },
   };
 }
 
@@ -275,6 +309,52 @@ test("workspace-scoped status distinguishes unknown owner controls and requires 
     `http://localhost${HEARTH_AI_ROUTES.chatStatus}?lane=forge&workspace_id=${workspaceId}`,
   ));
   assert.equal(unauthenticated.status, 401);
+});
+
+test("workspace-scoped status exposes only sanitized dual-read owner funding admission", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  const userId = "44444444-4444-4444-8444-444444444444";
+  const request = (query = "") => new Request(
+    `http://localhost${HEARTH_AI_ROUTES.chatStatus}?lane=forge&workspace_id=${workspaceId}${query}`,
+    { headers: { authorization: "Bearer owner-token" } },
+  );
+  const status = async (
+    state: Parameters<typeof buildOwnerAuthorityReader>[0],
+    membership = true,
+    query = "",
+  ) => {
+    const handler = createHearthAiHandler(buildConfig({
+      ownerTextApiKey: null,
+      ownerAuthorityReader: buildOwnerAuthorityReader(state, membership),
+      openAiTextGate: {
+        async rpc() {
+          return { data: { owner_testing_effective: true }, error: null };
+        },
+      },
+      resolveUserIdForAccessToken: async () => userId,
+    }));
+    const response = await handler(request(query));
+    assert.equal(response.status, 200);
+    return response.json() as Promise<Record<string, unknown>>;
+  };
+
+  const active = await status("eligible");
+  assert.equal(active.owner_funding_status, "active");
+  assert.deepEqual(active.owner_chat_capability, {
+    status: "unavailable",
+    reason_code: "owner_runtime_unavailable",
+  });
+  assert.doesNotMatch(JSON.stringify(active), /revision|principal|budget|credential|account_authority|accounting/i);
+
+  assert.equal((await status("not_owner")).owner_funding_status, "not_owner");
+  assert.equal((await status("canonical_only")).owner_funding_status, "blocked");
+  assert.equal((await status("legacy_only")).owner_funding_status, "blocked");
+  assert.equal((await status("eligible", false)).owner_funding_status, "blocked");
+  assert.equal((await status("unavailable")).owner_funding_status, "unknown");
+  assert.equal(
+    (await status("not_owner", true, "&owner_funding_status=active")).owner_funding_status,
+    "not_owner",
+  );
 });
 
 test("createHearthAiHandler keeps chat error semantics when text api key is missing", async () => {

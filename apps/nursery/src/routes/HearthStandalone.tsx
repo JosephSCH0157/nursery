@@ -321,6 +321,7 @@ export default function HearthStandalone() {
               <AiControlsPanel
                 onClose={() => setAiControlsOpen(false)}
                 workspaceId={workspaceId}
+                ownerFundingStatus={aiStatus.ownerFundingStatus}
               />
             </Suspense>
           </div>
@@ -342,6 +343,11 @@ export default function HearthStandalone() {
           <span className="hearth-standalone__pill hearth-standalone__pill--credits">
             {aiBalanceLabel}
           </span>
+          {aiStatus.ownerFundingStatus === "active" ? (
+            <span className="hearth-standalone__pill hearth-standalone__pill--credits">
+              Funding: Forge-funded
+            </span>
+          ) : null}
           <span
             className={`hearth-standalone__pill hearth-standalone__pill--activity${
               aiStatus.isAiProcessing ? " is-active" : ""

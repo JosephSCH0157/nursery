@@ -53,6 +53,7 @@ type Props = {
   onClose: () => void;
   workspaceId?: string | null;
   workspaceRole?: string | null;
+  ownerFundingStatus?: "active" | "not_owner" | "blocked" | "unknown";
 };
 
 function roleCanManageFeatures(role: string | null | undefined): boolean {
@@ -323,7 +324,12 @@ function makeForgeReferenceKey(ref: RecentScriptReference): string {
   return `${ref.workpieceId}:${ref.scriptPath}`;
 }
 
-export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = null }: Props) {
+export function AiControlsPanel({
+  onClose,
+  workspaceId = null,
+  workspaceRole = null,
+  ownerFundingStatus = "unknown",
+}: Props) {
   const [settings, setSettings] = React.useState(() => loadAiSettings());
   const [keyDraft, setKeyDraft] = React.useState(settings.byoKey ?? "");
   const keyOk = hasByoKey();
@@ -1104,27 +1110,37 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
 
       {settings.lane === "forge" ? (
         <div className="forge-ai-panel__section">
-          <div className="forge-ai-panel__label">Who pays for this workspace?</div>
-          <div className="forge-ai-panel__row">
-            <select
-              aria-label="AI funding account"
-              value={fundingOptions?.selectedPayer ?? "personal"}
-              disabled={!workspaceId || fundingLoading || fundingSaving}
-              onChange={(event) => void updateFundingPreference(event.target.value as AiFundingPayerKind)}
-            >
-              {(fundingOptions?.options ?? [{ kind: "personal" as const, label: "My purchased credits", available: true, requiresActiveBudget: false }]).map((option) => (
-                <option key={option.kind} value={option.kind} disabled={!option.available}>
-                  {option.label}{option.available ? "" : " — unavailable"}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="forge-ai-panel__hint">
-            {fundingLoading ? "Loading server-authorized funding choices…" : fundingError ?? "Changing the payer requires a fresh quote. Forge never switches funding sources silently."}
-          </div>
-          {fundingOptions?.selectedPayer === "owner_testing" ? (
-            <div className="forge-ai-panel__hint">Owner testing has no customer charge or revenue. Real supplier costs still require a separately configured active cap.</div>
-          ) : null}
+          {ownerFundingStatus === "active" ? (
+            <>
+              <div className="forge-ai-panel__label">AI funding</div>
+              <div className="forge-ai-panel__row"><strong>Forge-funded owner execution</strong></div>
+              <div className="forge-ai-panel__hint">Owner-capable routes use server-authorized Forge funding. Customer credits remain visible but are not used for those routes.</div>
+            </>
+          ) : (
+            <>
+              <div className="forge-ai-panel__label">Who pays for this workspace?</div>
+              <div className="forge-ai-panel__row">
+                <select
+                  aria-label="AI funding account"
+                  value={fundingOptions?.selectedPayer ?? "personal"}
+                  disabled={!workspaceId || fundingLoading || fundingSaving}
+                  onChange={(event) => void updateFundingPreference(event.target.value as AiFundingPayerKind)}
+                >
+                  {(fundingOptions?.options ?? [{ kind: "personal" as const, label: "My purchased credits", available: true, requiresActiveBudget: false }]).map((option) => (
+                    <option key={option.kind} value={option.kind} disabled={!option.available}>
+                      {option.label}{option.available ? "" : " — unavailable"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="forge-ai-panel__hint">
+                {fundingLoading ? "Loading server-authorized funding choices…" : fundingError ?? "Changing the payer requires a fresh quote. Forge never switches funding sources silently."}
+              </div>
+              {fundingOptions?.selectedPayer === "owner_testing" ? (
+                <div className="forge-ai-panel__hint">Owner testing has no customer charge or revenue. Real supplier costs still require a separately configured active cap.</div>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
 

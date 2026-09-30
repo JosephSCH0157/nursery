@@ -20,6 +20,7 @@ import { DEFAULT_HEARTH_VISUAL_STYLE } from "../../lib/hearth-visual-styles";
 import { DEFAULT_TITLE_STYLE } from "../../lib/hearth-title-fonts";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
+import { isHearthAiCreditAdmissionDepleted, type HearthOwnerFundingStatus } from "../../lib/hearth-ai-runtime-contract";
 
 type PersistThumbnailEpisodePackage = (
   nextEpisodePackage: EpisodePackageV2,
@@ -43,6 +44,7 @@ type UseThumbnailGenerationActionsArgs = {
   isThumbnailConceptSaving: boolean;
   aiBillingMode: string;
   aiTokenBalance: number | null;
+  ownerFundingStatus: HearthOwnerFundingStatus;
   persistThumbnailEpisodePackage: PersistThumbnailEpisodePackage;
   replaceEpisodePackageImageMap: (
     episodePackage: EpisodePackageV2,
@@ -86,7 +88,11 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.setThumbnailGenerateError("Select an Episode before generating thumbnails.");
       return;
     }
-    if (args.aiBillingMode === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+    if (isHearthAiCreditAdmissionDepleted({
+      billingMode: args.aiBillingMode === "byo" ? "byo" : "forge",
+      tokenBalance: args.aiTokenBalance,
+      ownerFundingStatus: args.ownerFundingStatus,
+    })) {
       args.setThumbnailGenerateError("No AI credits remaining.");
       return;
     }

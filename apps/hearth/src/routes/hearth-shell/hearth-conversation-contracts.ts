@@ -1,4 +1,4 @@
-import type { HearthChatMessage, HearthAiLane } from "../../lib/hearth-chat-api";
+import type { HearthChatMessage, HearthAiLane, HearthOwnerFundingStatus } from "../../lib/hearth-chat-api";
 import type {
   ChatAttachmentUi,
   PendingAiProposal,
@@ -23,6 +23,7 @@ export type HearthConversationController = {
     runtime: {
       billingMode: HearthAiLane;
       tokenBalance: number | null;
+      ownerFundingStatus: HearthOwnerFundingStatus;
       aiEnabled: boolean;
     };
   };

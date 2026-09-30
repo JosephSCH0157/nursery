@@ -1,4 +1,4 @@
-import type { HearthOwnerChatCapability } from "./hearth-ai-runtime-contract";
+import type { HearthOwnerChatCapability, HearthOwnerFundingStatus } from "./hearth-ai-runtime-contract";
 
 export type HearthAiBillingMode = "forge" | "byo";
 
@@ -7,6 +7,7 @@ export type HearthAiRuntimeStatus = {
   tokenBalance: number | null;
   billingMode: HearthAiBillingMode;
   ownerChatCapability: HearthOwnerChatCapability;
+  ownerFundingStatus: HearthOwnerFundingStatus;
 };
 
 const STATUS_EVENT = "forge:ai:status";
@@ -49,6 +50,12 @@ function normalizeOwnerChatCapability(value: unknown): HearthOwnerChatCapability
   return { status, reasonCode };
 }
 
+function normalizeOwnerFundingStatus(value: unknown): HearthOwnerFundingStatus {
+  return value === "active" || value === "not_owner" || value === "blocked" || value === "unknown"
+    ? value
+    : "unknown";
+}
+
 export function readHearthAiRuntimeStatus(): HearthAiRuntimeStatus {
   if (typeof window === "undefined") {
     return {
@@ -56,6 +63,7 @@ export function readHearthAiRuntimeStatus(): HearthAiRuntimeStatus {
       tokenBalance: null,
       billingMode: "forge",
       ownerChatCapability: { status: "checking", reasonCode: null },
+      ownerFundingStatus: "unknown",
     };
   }
 
@@ -65,12 +73,14 @@ export function readHearthAiRuntimeStatus(): HearthAiRuntimeStatus {
   const isAiProcessing = root.isAiProcessing === true;
   const billingMode = normalizeBillingMode(root.billingMode ?? w.__forgeAiBillingMode);
   const ownerChatCapability = normalizeOwnerChatCapability(root.ownerChatCapability);
+  const ownerFundingStatus = normalizeOwnerFundingStatus(root.ownerFundingStatus);
 
   return {
     isAiProcessing,
     tokenBalance: tokenFromRoot,
     billingMode,
     ownerChatCapability,
+    ownerFundingStatus,
   };
 }
 
@@ -81,6 +91,7 @@ export function writeHearthAiRuntimeStatus(patch: Partial<HearthAiRuntimeStatus>
       tokenBalance: normalizeNumber(patch.tokenBalance),
       billingMode: normalizeBillingMode(patch.billingMode),
       ownerChatCapability: normalizeOwnerChatCapability(patch.ownerChatCapability),
+      ownerFundingStatus: normalizeOwnerFundingStatus(patch.ownerFundingStatus),
     };
   }
 
@@ -93,6 +104,9 @@ export function writeHearthAiRuntimeStatus(patch: Partial<HearthAiRuntimeStatus>
     ownerChatCapability: patch.ownerChatCapability === undefined
       ? current.ownerChatCapability
       : normalizeOwnerChatCapability(patch.ownerChatCapability),
+    ownerFundingStatus: patch.ownerFundingStatus === undefined
+      ? current.ownerFundingStatus
+      : normalizeOwnerFundingStatus(patch.ownerFundingStatus),
   };
 
   w[GLOBAL_STATUS_KEY] = next;

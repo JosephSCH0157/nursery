@@ -30,6 +30,7 @@ import {
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
+import { isHearthAiCreditAdmissionDepleted } from "../lib/hearth-ai-runtime-contract";
 import {
   serializeHearthConversation,
 } from "../lib/hearth-conversation-export";
@@ -1164,11 +1165,13 @@ export default function HearthShell({
       tokenBalance: aiTokenBalance,
       billingMode: aiBillingMode,
       ownerChatCapability,
+      ownerFundingStatus,
     },
     bindings: {
       setTokenBalance: setAiTokenBalance,
       setBillingMode: setAiBillingMode,
       setOwnerChatCapability,
+      setOwnerFundingStatus,
     },
   } = useHearthConversationRuntimeState(resolveAiLaneFromStorage());
   const [aiStatusRefreshNonce, setAiStatusRefreshNonce] = useState(0);
@@ -1808,7 +1811,12 @@ export default function HearthShell({
     archived: activeWorkpieceIsArchived,
     scriptText: activeDraft?.body ?? "",
   });
-  const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
+  const customerAiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
+  const aiCreditsDepleted = isHearthAiCreditAdmissionDepleted({
+    billingMode: aiBillingMode,
+    tokenBalance: aiTokenBalance,
+    ownerFundingStatus,
+  });
   const ownerChatBlocked = ownerChatCapability.status === "checking"
     || ownerChatCapability.status === "unavailable"
     || ownerChatCapability.status === "unknown";
@@ -2768,6 +2776,7 @@ export default function HearthShell({
     isAiProcessing,
     aiTokenBalance,
     ownerChatCapability,
+    ownerFundingStatus,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
     aiRequestControllerRef,
     draftEditVersionRef,
@@ -2892,6 +2901,7 @@ export default function HearthShell({
     isAiProcessing,
     aiTokenBalance,
     ownerChatCapability,
+    ownerFundingStatus,
     chatDraft,
     setChatDraft,
     setChatMessages,
@@ -3613,6 +3623,7 @@ export default function HearthShell({
       runtime: {
         billingMode: aiBillingMode,
         tokenBalance: aiTokenBalance,
+        ownerFundingStatus,
         aiEnabled: !aiCreditsDepleted && !ownerChatBlocked,
       },
     },
@@ -3891,6 +3902,7 @@ export default function HearthShell({
         setAiBillingMode(lane);
         setDefaultVisualProvider(visualProvider);
         setOwnerChatCapability({ status: "checking", reasonCode: null });
+        setOwnerFundingStatus("unknown");
         if (lane === "byo") {
           setAiTokenBalance(null);
         }
@@ -3903,6 +3915,7 @@ export default function HearthShell({
         status: "unknown",
         reasonCode: "owner_controls_unavailable",
       });
+      setOwnerFundingStatus(status.runtime.ownerFundingStatus ?? "unknown");
       if (lane === "byo") {
         setAiTokenBalance(null);
       } else {
@@ -4002,8 +4015,9 @@ export default function HearthShell({
       tokenBalance: aiTokenBalance,
       billingMode: aiBillingMode,
       ownerChatCapability,
+      ownerFundingStatus,
     });
-  }, [aiBillingMode, aiRuntimeBusy, aiTokenBalance, ownerChatCapability]);
+  }, [aiBillingMode, aiRuntimeBusy, aiTokenBalance, ownerChatCapability, ownerFundingStatus]);
 
   useEffect(() => {
     return () => {
@@ -4463,6 +4477,7 @@ export default function HearthShell({
     isThumbnailConceptSaving,
     aiBillingMode,
     aiTokenBalance,
+    ownerFundingStatus,
     persistThumbnailEpisodePackage,
     replaceEpisodePackageImageMap,
     createThumbnailClientId,
@@ -4573,6 +4588,7 @@ export default function HearthShell({
     isImageMapCandidateGenerating,
     aiBillingMode,
     aiTokenBalance,
+    ownerFundingStatus,
     readCanonicalScriptForImageMapGeneration,
     replaceEpisodePackageImageMap,
     persistImageMapEntries,
@@ -6526,7 +6542,7 @@ export default function HearthShell({
       generateError: thumbnailGenerateError,
       uploadError: thumbnailUploadError,
       pairingError: thumbnailPairingError,
-      canGenerateConcepts: !aiCreditsDepleted && thumbnailTitleOptions.length > 0,
+      canGenerateConcepts: !customerAiCreditsDepleted && thumbnailTitleOptions.length > 0,
       isGeneratingConcepts: activeProductionAction === "thumbnails" && isAiProcessing,
       canGenerateTitles: !aiCreditsDepleted,
       isGeneratingTitles: activeProductionAction === "seo" && isAiProcessing,

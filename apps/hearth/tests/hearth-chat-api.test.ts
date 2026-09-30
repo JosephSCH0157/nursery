@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateScriptTags } from "@forge/shared/script-tags";
 import { coalesceScriptTextIntoOps, requestHearthChatReply, resolveForgeUserAccessToken, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
-import { parseHearthAiStatusResponse, type HearthOp } from "../src/lib/hearth-ai-runtime-contract";
+import {
+  isHearthAiCreditAdmissionDepleted,
+  parseHearthAiStatusResponse,
+  type HearthOp,
+} from "../src/lib/hearth-ai-runtime-contract";
 import { resolveOwnerChatCapabilityMessage } from "../src/hooks/useChatWorkspace";
 import { isOwnerChatCapabilityBlocked, resolveHearthAttachmentStatusLabel } from "../src/views/surfaces/ChatSurface";
 
@@ -139,6 +143,47 @@ test("owner chat readiness preserves distinct unavailable and unknown states", (
     resolveOwnerChatCapabilityMessage({ status: "unknown", reasonCode: "owner_controls_unavailable" }),
     "Hearth couldn’t verify private owner AI availability. Saved content and non-AI tools remain available.",
   );
+});
+
+test("owner funding admission bypasses only active owner state", () => {
+  const depleted = (ownerFundingStatus: "active" | "not_owner" | "blocked" | "unknown", tokenBalance = 0) => (
+    isHearthAiCreditAdmissionDepleted({
+      billingMode: "forge",
+      tokenBalance,
+      ownerFundingStatus,
+    })
+  );
+
+  assert.equal(depleted("active"), false);
+  assert.equal(depleted("not_owner"), true);
+  assert.equal(depleted("blocked"), true);
+  assert.equal(depleted("unknown"), true);
+  assert.equal(depleted("not_owner", 1), false);
+  assert.equal(isHearthAiCreditAdmissionDepleted({
+    billingMode: "byo",
+    tokenBalance: 0,
+    ownerFundingStatus: "not_owner",
+  }), false);
+
+  const parsed = parseHearthAiStatusResponse({
+    billing_mode: "forge",
+    token_balance: 0,
+    owner_funding_status: "active",
+    owner_chat_capability: {
+      status: "unavailable",
+      reason_code: "owner_runtime_unavailable",
+    },
+  }, "forge");
+  assert.equal(parsed.token_balance, 0);
+  assert.equal(parsed.owner_funding_status, "active");
+  assert.equal(parsed.owner_chat_capability?.status, "unavailable");
+
+  const forged = parseHearthAiStatusResponse({
+    billing_mode: "forge",
+    token_balance: 0,
+    owner_funding_status: "forged-owner",
+  }, "forge");
+  assert.equal(forged.owner_funding_status, undefined);
 });
 
 test("request authentication never borrows another Supabase environment's token", async () => {

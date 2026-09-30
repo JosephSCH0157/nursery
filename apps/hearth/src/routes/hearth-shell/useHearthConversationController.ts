@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { HearthAiLane, HearthOwnerChatCapability } from "../../lib/hearth-chat-api";
+import type { HearthAiLane, HearthOwnerChatCapability, HearthOwnerFundingStatus } from "../../lib/hearth-chat-api";
 import type { ChatAttachmentUi } from "./hearth-shell-contracts";
 import type { HearthConversationController } from "./hearth-conversation-contracts";
 
@@ -36,9 +36,10 @@ export function useHearthConversationRuntimeState(initialLane: HearthAiLane) {
     status: "checking",
     reasonCode: null,
   });
+  const [ownerFundingStatus, setOwnerFundingStatus] = useState<HearthOwnerFundingStatus>("unknown");
   return {
-    state: { tokenBalance, billingMode, ownerChatCapability },
-    bindings: { setTokenBalance, setBillingMode, setOwnerChatCapability },
+    state: { tokenBalance, billingMode, ownerChatCapability, ownerFundingStatus },
+    bindings: { setTokenBalance, setBillingMode, setOwnerChatCapability, setOwnerFundingStatus },
   };
 }
 

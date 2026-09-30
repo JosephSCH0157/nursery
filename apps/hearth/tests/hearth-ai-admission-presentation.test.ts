@@ -27,6 +27,18 @@ const scriptHeaderSource = readFileSync(
   new URL("../src/views/modes/HearthDraftScriptHeader.tsx", import.meta.url),
   "utf8",
 );
+const shellSource = readFileSync(
+  new URL("../src/routes/HearthShell.tsx", import.meta.url),
+  "utf8",
+);
+const aiControlsSource = readFileSync(
+  new URL("../../nursery/src/components/hearth/AiControlsPanel.tsx", import.meta.url),
+  "utf8",
+);
+const chatRuntimeSource = readFileSync(
+  new URL("../src/hooks/useChatWorkspace.ts", import.meta.url),
+  "utf8",
+);
 
 test("an authoritative admission failure hides artifact actions and blocks another AI submission", () => {
   const availability = resolveHearthAiActionAvailability("admission_failure");
@@ -71,8 +83,23 @@ test("the header separates execution readiness from credits and cloud connectivi
   assert.match(standaloneSource, /AI: Unavailable/);
   assert.match(standaloneSource, /AI: Status unknown/);
   assert.match(standaloneSource, /AI Credits:/);
+  assert.match(standaloneSource, /Funding: Forge-funded/);
   assert.match(standaloneSource, /useForgeCloudStatus/);
   assert.doesNotMatch(runtimeStatusSource, /localStorage/);
+});
+
+test("owner funding presentation is server-derived and not a selectable payer", () => {
+  assert.match(aiControlsSource, /ownerFundingStatus === "active"/);
+  assert.match(aiControlsSource, /Forge-funded owner execution/);
+  assert.match(aiControlsSource, /ownerFundingStatus === "active"[\s\S]*?<strong>Forge-funded owner execution<\/strong>[\s\S]*?: \([\s\S]*?<select/);
+  assert.match(shellSource, /isHearthAiCreditAdmissionDepleted\(\{[\s\S]*ownerFundingStatus/);
+  assert.match(shellSource, /canGenerateConcepts: !customerAiCreditsDepleted/);
+  assert.match(shellSource, /setOwnerFundingStatus\(status\.runtime\.ownerFundingStatus \?\? "unknown"\)/);
+  assert.match(chatRuntimeSource, /isHearthAiCreditAdmissionDepleted\(\{[\s\S]*ownerFundingStatus: args\.ownerFundingStatus/);
+});
+
+test("STT retains its independent customer-credit gate", () => {
+  assert.match(chatRuntimeSource, /if \(lane === "forge" && args\.aiTokenBalance != null && args\.aiTokenBalance <= 0\) \{\s*args\.setSttError\("No AI credits remaining\."\)/);
 });
 
 test("owner readiness also guards the direct AI script-repair path", () => {

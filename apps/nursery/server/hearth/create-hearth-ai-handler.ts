@@ -3224,6 +3224,29 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           return jsonResponse(401, { ok: false, error: "Authentication required." });
         }
 
+        let ownerFundingStatus: "active" | "not_owner" | "blocked" | "unknown" = "unknown";
+        if (ownerAuthorityReader) {
+          try {
+            await requireForgeOwnerExecutionAuthority({
+              reader: ownerAuthorityReader,
+              authenticatedUserId: userId,
+              workspaceId,
+              routeCode: "hearth.owner_funding_status",
+            });
+            ownerFundingStatus = "active";
+          } catch (error) {
+            if (error instanceof ForgeOwnerAuthorizationError) {
+              ownerFundingStatus = error.code === "owner_authority_not_configured"
+                ? "not_owner"
+                : error.code === "owner_authority_unavailable"
+                  || error.code === "owner_workspace_membership_unavailable"
+                  || error.code === "owner_route_authorization_unavailable"
+                  ? "unknown"
+                  : "blocked";
+            }
+          }
+        }
+
         let ownerChatCapability: {
           status: "not_required" | "available" | "unavailable" | "unknown";
           reason_code: "owner_runtime_unavailable" | "owner_controls_unavailable" | null;
@@ -3258,6 +3281,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ok: true,
           ...buildBillingSnapshot(lane),
           owner_chat_capability: ownerChatCapability,
+          owner_funding_status: ownerFundingStatus,
         });
       }
 

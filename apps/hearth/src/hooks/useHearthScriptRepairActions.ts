@@ -1,7 +1,8 @@
 import { useCallback } from "react";
 import type { Draft } from "../domain/draft";
 import type { EpisodeContext, HearthOp } from "../lib/hearth-ai-ops";
-import type { HearthAiLane, HearthChatMessage, HearthOwnerChatCapability } from "../lib/hearth-chat-api";
+import type { HearthAiLane, HearthChatMessage, HearthOwnerChatCapability, HearthOwnerFundingStatus } from "../lib/hearth-chat-api";
+import { isHearthAiCreditAdmissionDepleted } from "../lib/hearth-ai-runtime-contract";
 import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import { normalizeScriptTags, repairScriptTags, type ScriptValidationResult } from "@forge/shared/script-tags";
@@ -57,6 +58,7 @@ type UseHearthScriptRepairActionsArgs = {
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
   ownerChatCapability: HearthOwnerChatCapability;
+  ownerFundingStatus: HearthOwnerFundingStatus;
   chatHistoryMaxMessages: number;
   aiRequestControllerRef: { current: AbortController | null };
   draftEditVersionRef: { current: number };
@@ -153,7 +155,11 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
-    if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+    if (isHearthAiCreditAdmissionDepleted({
+      billingMode: lane,
+      tokenBalance: args.aiTokenBalance,
+      ownerFundingStatus: args.ownerFundingStatus,
+    })) {
       args.setChatError("No AI credits remaining.");
       return;
     }

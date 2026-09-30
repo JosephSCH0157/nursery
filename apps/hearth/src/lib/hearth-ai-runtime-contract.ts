@@ -58,6 +58,8 @@ export type HearthOwnerChatCapability = {
   reasonCode: HearthOwnerChatCapabilityReasonCode;
 };
 
+export type HearthOwnerFundingStatus = "active" | "not_owner" | "blocked" | "unknown";
+
 export type HearthChatMessage = {
   role: HearthChatRole;
   content: string;
@@ -109,6 +111,7 @@ export type HearthAiRuntimeSnapshot = {
   tokenBalance: number | null;
   billingMode: HearthAiLane;
   ownerChatCapability?: HearthOwnerChatCapability;
+  ownerFundingStatus?: HearthOwnerFundingStatus;
 };
 
 export type HearthAiStatusResponse = {
@@ -118,7 +121,19 @@ export type HearthAiStatusResponse = {
     status: Exclude<HearthOwnerChatCapabilityStatus, "checking">;
     reason_code: HearthOwnerChatCapabilityReasonCode;
   };
+  owner_funding_status?: HearthOwnerFundingStatus;
 };
+
+export function isHearthAiCreditAdmissionDepleted(runtime: {
+  billingMode: HearthAiLane;
+  tokenBalance: number | null;
+  ownerFundingStatus: HearthOwnerFundingStatus;
+}): boolean {
+  return runtime.ownerFundingStatus !== "active"
+    && runtime.billingMode === "forge"
+    && runtime.tokenBalance != null
+    && runtime.tokenBalance <= 0;
+}
 
 export type HearthChatResponse = {
   turn_result: HearthTurnResult;
@@ -623,11 +638,19 @@ export function readHearthAiRuntimeSnapshot(
         ? ownerChatReasonCode
         : null,
     } satisfies HearthOwnerChatCapability : undefined;
+  const ownerFundingStatusRaw = readTrimmedField(payload, "owner_funding_status");
+  const ownerFundingStatus = ownerFundingStatusRaw === "active"
+    || ownerFundingStatusRaw === "not_owner"
+    || ownerFundingStatusRaw === "blocked"
+    || ownerFundingStatusRaw === "unknown"
+    ? ownerFundingStatusRaw
+    : undefined;
 
   return {
     tokenBalance,
     billingMode,
     ...(ownerChatCapability ? { ownerChatCapability } : {}),
+    ...(ownerFundingStatus ? { ownerFundingStatus } : {}),
   };
 }
 
@@ -650,6 +673,7 @@ export function parseHearthAiStatusResponse(
         reason_code: runtime.ownerChatCapability.reasonCode,
       },
     } : {}),
+    ...(runtime.ownerFundingStatus ? { owner_funding_status: runtime.ownerFundingStatus } : {}),
   };
 }
 
