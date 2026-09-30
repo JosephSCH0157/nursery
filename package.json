@@ -17,6 +17,7 @@
     "test:db:pricing-reservation-concurrency": "node scripts/verify-private-pricing-reservation-concurrency.mjs",
     "test:db:owner-budget-concurrency": "node scripts/verify-owner-budget-reservation-concurrency.mjs",
     "test:db:owner-cost-accounting": "node scripts/verify-owner-cost-accounting-authority-isolated.mjs",
+    "test:db:account-authority": "node scripts/verify-account-authority-classifications-isolated.mjs",
     "test:db:hearth-owner-results": "node scripts/verify-hearth-owner-result-authority-isolated.mjs",
     "test:db:hearth-owner-image-results": "node scripts/verify-hearth-owner-image-result-authority-isolated.mjs",
     "test:db:credential-lifecycle": "node scripts/verify-credential-lifecycle-isolated.mjs",
