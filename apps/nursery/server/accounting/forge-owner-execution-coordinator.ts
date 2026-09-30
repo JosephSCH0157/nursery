@@ -451,7 +451,7 @@ export async function requireForgeOwnerCredentialLifecycle(args: {
   if (args.runtimeEnvironment === "production" && lifecycle?.tracked !== true) {
     throw new Error(`The isolated Forge owner credential lifecycle is untracked; the route remains fail-closed`);
   }
-  if (lifecycle.allowed !== true) {
+  if (lifecycle?.allowed !== true) {
     throw new Error(`The isolated Forge owner credential is ${status}; the route remains fail-closed`);
   }
 }
