@@ -19,6 +19,7 @@ import {
   deriveForgeOwnerAttemptIdentity,
   deriveForgeOwnerOperationIdentity,
   forgeOwnerCredentialIdentityHash,
+  requireForgeOwnerCredentialLifecycle,
   requireForgeOwnerExecutionAuthority,
   type OwnerAttemptSnapshot,
   type OwnerAuthorityReader,
@@ -163,6 +164,12 @@ export function createOwnerHearthImageExecutionExecutor(args: {
 
     const financial = await financialEnvironment(args.gate);
     const runtime = readOwnerRuntimeEnvironment();
+    await requireForgeOwnerCredentialLifecycle({
+      gate: args.gate,
+      configurationVariableName: "OPENAI_HEARTH_OWNER_IMAGE_API_KEY",
+      financialEnvironment: financial,
+      runtimeEnvironment: runtime,
+    });
     const contract = input.routeCode === "hearth.thumbnail_base_generation"
       ? THUMBNAIL_BASE_GENERATION_CONTRACT
       : TIMELINE_IMAGE_GENERATION_CONTRACT;

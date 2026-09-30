@@ -44,6 +44,7 @@ try {
   check(docker(["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database], remove), "remove cloned lifecycle objects");
   check(docker(["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database], readFileSync("supabase/migrations/20261011900000_forge_credential_lifecycle.sql", "utf8")), "apply credential lifecycle migration");
   check(docker(["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database], readFileSync("supabase/migrations/20261011910000_credential_lifecycle_secret_key_role.sql", "utf8")), "apply secret-key role compatibility migration");
+  check(docker(["exec", "-i", container, "psql", "-X", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database], readFileSync("supabase/migrations/20261011930000_credential_lifecycle_activation_ordering.sql", "utf8")), "apply credential lifecycle activation ordering migration");
   const lintSql = `
     do $lint$
     declare

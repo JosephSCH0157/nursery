@@ -7,6 +7,7 @@ import {
   ForgeOwnerProviderBoundaryError,
   deriveForgeOwnerOperationIdentity,
   forgeOwnerSha256,
+  requireForgeOwnerCredentialLifecycle,
   requireForgeOwnerExecutionAuthority,
   type ForgeOwnerExecutionInput,
   type OwnerAuthorityReader,
@@ -178,6 +179,52 @@ class MemoryOwnerCostGate implements OwnerCostRpcGate {
     throw new Error(`Unexpected RPC: ${name}`);
   }
 }
+
+test("production owner credentials require a tracked active lifecycle record", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const lifecycleGate = (data: unknown): OwnerCostRpcGate => ({
+    async rpc(name, args = {}) {
+      calls.push({ name, ...args });
+      return { data, error: null };
+    },
+  });
+  const base = {
+    configurationVariableName: "OPENAI_HEARTH_OWNER_API_KEY",
+    financialEnvironment: "test" as const,
+    runtimeEnvironment: "production" as const,
+  };
+
+  await assert.rejects(
+    requireForgeOwnerCredentialLifecycle({ ...base, gate: lifecycleGate({ tracked: false, allowed: true }) }),
+    /lifecycle is untracked/,
+  );
+  await assert.rejects(
+    requireForgeOwnerCredentialLifecycle({ ...base, gate: lifecycleGate({ tracked: true, allowed: false, status: "expired" }) }),
+    /credential is expired/,
+  );
+  await requireForgeOwnerCredentialLifecycle({
+    ...base,
+    gate: lifecycleGate({ tracked: true, allowed: true, status: "active" }),
+  });
+  assert.equal(calls.at(-1)?.p_configuration_variable_name, "OPENAI_HEARTH_OWNER_API_KEY");
+});
+
+test("non-production owner execution does not require hosted lifecycle tracking", async () => {
+  let called = false;
+  const gate: OwnerCostRpcGate = {
+    async rpc() {
+      called = true;
+      return { data: null, error: null };
+    },
+  };
+  await requireForgeOwnerCredentialLifecycle({
+    gate,
+    configurationVariableName: "OPENAI_HEARTH_OWNER_API_KEY",
+    financialEnvironment: "test",
+    runtimeEnvironment: "development",
+  });
+  assert.equal(called, false);
+});
 
 function authorityReader(args: { principal?: boolean; membership?: boolean } = {}): OwnerAuthorityReader {
   return {

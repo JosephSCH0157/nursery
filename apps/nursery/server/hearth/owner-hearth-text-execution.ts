@@ -6,6 +6,7 @@ import {
   deriveForgeOwnerOperationIdentity,
   forgeOwnerCredentialIdentityHash,
   forgeOwnerSha256,
+  requireForgeOwnerCredentialLifecycle,
   type ForgeOwnerOperationIdentity,
   type OwnerAttemptSnapshot,
   type OwnerFinancialEnvironment,
@@ -259,6 +260,12 @@ export async function executeOwnerHearthText(input: OwnerHearthTextExecutionInpu
   if (!input.credential.trim()) throw new Error("Hearth owner OpenAI credential is required");
   const model = text(input.providerBody.model);
   if (model !== HEARTH_OWNER_TEXT_MODEL) throw new Error("Hearth owner text model must be gpt-5.6-luna");
+  await requireForgeOwnerCredentialLifecycle({
+    gate: input.gate,
+    configurationVariableName: "OPENAI_HEARTH_OWNER_API_KEY",
+    financialEnvironment: input.financialEnvironment,
+    runtimeEnvironment: input.runtimeEnvironment,
+  });
   const operationIdentity = input.operationIdentity ?? deriveOwnerHearthTextOperation(input);
   if (operationIdentity.operationType !== input.routeCode) throw new Error("Hearth owner operation route mismatch");
   const attemptNumber = input.attemptNumber ?? 1;

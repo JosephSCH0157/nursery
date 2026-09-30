@@ -34,6 +34,9 @@ class OwnerGate implements OwnerCostRpcGate {
     const args = structuredClone(rawArgs);
     this.calls.push({ name, args });
     if (name === "read_financial_runtime_environment") return { data: { financial_environment: "test" }, error: null };
+    if (name === "read_credential_lifecycle_execution_gate") {
+      return { data: { tracked: true, allowed: true, status: "active" }, error: null };
+    }
     if (name === "read_owner_cost_operation") {
       const value = this.operations.get(String(args.p_operation_id));
       return { data: value ? { operation: value.operation, attempts: value.attempts, links: [] } : null, error: null };

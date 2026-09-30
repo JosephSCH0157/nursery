@@ -428,6 +428,34 @@ export async function requireForgeOwnerExecutionAuthority(args: {
   };
 }
 
+export async function requireForgeOwnerCredentialLifecycle(args: {
+  gate: OwnerCostRpcGate;
+  configurationVariableName: string;
+  financialEnvironment: OwnerFinancialEnvironment;
+  runtimeEnvironment: OwnerRuntimeEnvironment;
+  inspectInNonProduction?: boolean;
+}): Promise<void> {
+  // Hosted owner execution must be covered by an explicitly active lifecycle
+  // record. Preview and development remain usable for isolated local tests.
+  if (args.runtimeEnvironment !== "production" && !args.inspectInNonProduction) return;
+  const result = await args.gate.rpc("read_credential_lifecycle_execution_gate", {
+    p_configuration_variable_name: args.configurationVariableName,
+    p_financial_environment: args.financialEnvironment,
+    p_runtime_environment: args.runtimeEnvironment,
+  });
+  if (result.error) {
+    throw new Error(`read_credential_lifecycle_execution_gate: ${result.error.message ?? "unknown error"}`);
+  }
+  const lifecycle = readObject(result.data);
+  const status = readString(lifecycle?.status) ?? "not active";
+  if (args.runtimeEnvironment === "production" && lifecycle?.tracked !== true) {
+    throw new Error(`The isolated Forge owner credential lifecycle is untracked; the route remains fail-closed`);
+  }
+  if (lifecycle.allowed !== true) {
+    throw new Error(`The isolated Forge owner credential is ${status}; the route remains fail-closed`);
+  }
+}
+
 function stableTimestamp(createdAt: string, attemptNumber: number, sequence: number): string {
   const epoch = new Date(createdAt).getTime();
   if (!Number.isFinite(epoch)) throw new Error("Invalid owner operation creation time");

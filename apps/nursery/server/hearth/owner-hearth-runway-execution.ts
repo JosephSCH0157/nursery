@@ -4,6 +4,7 @@ import {
   deriveForgeOwnerOperationIdentity,
   forgeOwnerCredentialIdentityHash,
   forgeOwnerDeterministicUuid,
+  requireForgeOwnerCredentialLifecycle,
   requireForgeOwnerExecutionAuthority,
   type OwnerAttemptSnapshot,
   type OwnerAuthorityReader,
@@ -129,14 +130,13 @@ export function createOwnerHearthRunwayExecutionBoundary(args: {
       }
       const financial = await financialEnvironment(args.gate);
       const runtime = readOwnerRuntimeEnvironment();
-      const lifecycle = object(await rpc(args.gate, "read_credential_lifecycle_execution_gate", {
-        p_configuration_variable_name: "HEARTH_OWNER_RUNWAY_API_KEY",
-        p_financial_environment: financial,
-        p_runtime_environment: runtime,
-      }));
-      if (lifecycle?.tracked === true && lifecycle.allowed !== true) {
-        throw new Error(`The isolated Hearth owner Runway credential is ${text(lifecycle.status) ?? "not active"}; the route remains fail-closed`);
-      }
+      await requireForgeOwnerCredentialLifecycle({
+        gate: args.gate,
+        configurationVariableName: "HEARTH_OWNER_RUNWAY_API_KEY",
+        financialEnvironment: financial,
+        runtimeEnvironment: runtime,
+        inspectInNonProduction: true,
+      });
       const operation = deriveForgeOwnerOperationIdentity({
         financialEnvironment: financial,
         runtimeEnvironment: runtime,
