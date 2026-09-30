@@ -29896,7 +29896,22 @@ export class TongsCommitService {
       frozenGenerationScope === "full_media_plan"
         ? frozenGenerationScope
         : "full_media_plan";
-    if (!options?.ownerRecovery && (!options?.recoveryOnly || ownerContinuation)) {
+    if (ownerContinuation && ownerCostAttemptId) {
+      return this.generateUnifiedVisualPlan(
+        workpieceId,
+        input,
+        {
+          ...options,
+          skipPaidFundingResolution: true,
+          recoveryOnly: true,
+          ownerRecovery: {
+            canonicalInputFingerprint: expectedFingerprint,
+            ownerCostAttemptId,
+          },
+        },
+      );
+    }
+    if (!options?.ownerRecovery && !options?.recoveryOnly) {
       const ownerResult = await this.ownerUnifiedVisualPlanExecutor?.({
         authenticatedUserId: auth.userId,
         workspaceId: input.workspace_id,
