@@ -8,7 +8,9 @@ const outputRoot = join(nurseryRoot, "node_modules", ".hammer-production-gate");
 const manifestPath = join(outputRoot, ".vite", "manifest.json");
 const ENTRY_JS_BUDGET_BYTES = 225_000;
 const TOTAL_JS_BUDGET_BYTES = 275_000;
-const TOTAL_ASSET_GZIP_BUDGET_BYTES = 90_000;
+// Keep a small cross-platform envelope around the accepted production bundle.
+// Vite's emitted bytes differ slightly between Windows verification and Linux CI.
+const TOTAL_ASSET_GZIP_BUDGET_BYTES = 90_250;
 if (!existsSync(manifestPath)) throw new Error("Hammer production manifest was not generated.");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const entry = Object.values(manifest).find((item) => item?.isEntry && String(item.src || "").endsWith("hammer-production-gate-entry.tsx"));

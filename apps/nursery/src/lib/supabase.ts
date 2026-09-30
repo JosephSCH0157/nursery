@@ -22,7 +22,6 @@ const AUTH_STORAGE_KEY = "forge-auth";
 const GLOBAL_KEY = "__forge_supabase_client__";
 const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
 const ACCESS_TOKEN_RESOLVER_KEY = "__forge_resolve_user_access_token__";
-const ACCESS_TOKEN_RESULT_RESOLVER_KEY = "__forge_resolve_user_access_token_result__";
 export type TongsSupabaseClient = SupabaseClient<TongsDatabase, "tongs", "tongs">;
 
 const supabaseAuthLockQueues = new Map<string, Promise<void>>();
@@ -57,7 +56,6 @@ const globalStore = globalThis as typeof globalThis & {
   [GLOBAL_KEY]?: SupabaseClient<AppDatabase>;
   [TONGS_GLOBAL_KEY]?: TongsSupabaseClient;
   [ACCESS_TOKEN_RESOLVER_KEY]?: () => Promise<string | null>;
-  [ACCESS_TOKEN_RESULT_RESOLVER_KEY]?: ReturnType<typeof createCanonicalSupabaseAccessTokenAuthority>["resolve"];
 };
 
 if (!url || !anon) {
@@ -83,9 +81,7 @@ export const supabase: SupabaseClient<AppDatabase> =
   });
 
 const canonicalAccessTokenAuthority = createCanonicalSupabaseAccessTokenAuthority(supabase.auth);
-export const resolveCanonicalSupabaseAccessTokenResult =
-  globalStore[ACCESS_TOKEN_RESULT_RESOLVER_KEY]
-  ?? canonicalAccessTokenAuthority.resolve;
+export const resolveCanonicalSupabaseAccessTokenResult = canonicalAccessTokenAuthority.resolve;
 export const resolveCanonicalSupabaseAccessToken =
   globalStore[ACCESS_TOKEN_RESOLVER_KEY]
   ?? (async () => {
@@ -109,4 +105,3 @@ export const tongsSupabase: TongsSupabaseClient =
 globalStore[GLOBAL_KEY] = supabase as SupabaseClient<AppDatabase>;
 globalStore[TONGS_GLOBAL_KEY] = tongsSupabase;
 globalStore[ACCESS_TOKEN_RESOLVER_KEY] = resolveCanonicalSupabaseAccessToken;
-globalStore[ACCESS_TOKEN_RESULT_RESOLVER_KEY] = resolveCanonicalSupabaseAccessTokenResult;
