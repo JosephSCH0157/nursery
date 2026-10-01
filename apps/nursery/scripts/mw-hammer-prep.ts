@@ -2042,6 +2042,8 @@ export type HammerPrepMiddlewareOptions = {
   runtimeConfig?: HearthRuntimeConfig;
   openAiTextGate?: OpenAiTextGateClient;
   openAiProviderFetch?: typeof fetch;
+  /** Production transport must never fall back to legacy provider execution. */
+  requirePaidExecutionAuthority?: boolean;
 };
 
 export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions = {}) {
@@ -2151,6 +2153,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         const userId = userResult.data.user?.id ?? null;
         if (userResult.error || !userId) {
           sendJson(res, 401, { ok: false, error: { code: "hammer_shorts_auth_required" } });
+          return;
+        }
+        if (options.requirePaidExecutionAuthority && !openAiTextGate) {
+          sendJson(res, 503, { ok: false, error: {
+            code: "paid_execution_unavailable",
+            message: "This AI operation is not enabled for funded execution. Existing content and manual editing remain available.",
+          } });
           return;
         }
         const userClient = createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
@@ -2587,6 +2596,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         });
         if (!preflight.ok) {
           sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
+          return;
+        }
+        if (options.requirePaidExecutionAuthority && (!openAiTextGate || !supabaseService || !cleanupUserId)) {
+          sendJson(res, 503, { ok: false, error: {
+            code: "paid_execution_unavailable",
+            message: "This AI operation is not enabled for funded execution. Existing content and manual editing remain available.",
+          } });
           return;
         }
         if (!cleanupRequest.paid_execution && cleanupUserId && openAiTextGate) {

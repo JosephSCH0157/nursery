@@ -9,8 +9,6 @@ export default async function handler(_request?: Request): Promise<Response> {
 }
 
 export const config = { path: [
-  "/api/hammer/editorial/transcript-cleanup",
-  "/api/hammer/shorts/discover",
   "/api/hammer/prep/transcript",
   "/api/quench/metadata/assist",
 ] };

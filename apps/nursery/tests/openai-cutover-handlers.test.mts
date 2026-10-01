@@ -4,8 +4,11 @@ import unavailable, { config as unavailableConfig } from "../netlify/functions/o
 import { createAnvilWhisperHandler } from "../server/anvil/create-anvil-whisper-handler";
 import { createTongsCommitApiHandlerWithService, type TongsCommitApiService } from "../../../packages/tongs/src/workpiece-commit-api";
 
-test("the four unsupported production HTTP paths explicitly reject without any service work", async () => {
-  assert.equal(unavailableConfig.path.length, 4);
+test("the remaining unsupported production HTTP paths explicitly reject without any service work", async () => {
+  assert.deepEqual(unavailableConfig.path, [
+    "/api/hammer/prep/transcript",
+    "/api/quench/metadata/assist",
+  ]);
   for (const path of unavailableConfig.path) {
     const response = await unavailable(new Request(`https://fixture.invalid${path}`, { method: "POST" }));
     assert.equal(response.status, 503);
