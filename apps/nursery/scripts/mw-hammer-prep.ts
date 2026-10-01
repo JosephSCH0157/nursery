@@ -26,6 +26,7 @@ import {
   OpenAiTextQuoteRequiredError,
   normalizeOpenAiTextSpendingAcceptance,
   resolveOrdinaryOpenAiTextFunding,
+  type CustomerOpenAiTextQuote,
   type OpenAiTextSpendingAcceptance,
 } from "../../../packages/tongs/src/providers/openai-text-customer-funding";
 import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
@@ -1115,6 +1116,41 @@ function sendOpenAiFundingError(res: ServerResponse, error: unknown): boolean {
   return false;
 }
 
+export function toHammerCustomerSpendingQuote(quote: CustomerOpenAiTextQuote): Record<string, unknown> {
+  return {
+    quote_id: quote.quoteId,
+    operation_id: quote.operationId,
+    quote_hash: quote.quoteHash,
+    request_fingerprint: quote.requestFingerprint,
+    credit_charge: quote.customerCreditUnits,
+    failure_terms: quote.failureTerms,
+    funding_eligible: quote.fundingEligible,
+    funding_label: quote.fundingLabel,
+    model_display_name: quote.modelDisplayName,
+    model_tradeoff_summary: quote.modelTradeoffSummary,
+    expires_at: quote.expiresAt,
+  };
+}
+
+function sendHammerOpenAiFundingError(res: ServerResponse, error: unknown): boolean {
+  if (error instanceof OpenAiTextQuoteRequiredError) {
+    sendJson(res, 409, {
+      ok: false,
+      error: {
+        code: error.code,
+        message: error.message,
+        billing_quote: toHammerCustomerSpendingQuote(error.quote),
+      },
+    });
+    return true;
+  }
+  if (error instanceof OpenAiTextFundingPreparationError) {
+    sendJson(res, error.status, { ok: false, error: { code: error.code, message: error.message, ...error.details } });
+    return true;
+  }
+  return false;
+}
+
 function toHammerPreflightErrorMessage(
   reasonCode: AiReasonCode | null,
   decisionType: AiDecisionType,
@@ -2172,7 +2208,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               userGate: userClient.schema("tongs") as unknown as OpenAiTextGateClient,
             });
           } catch (error) {
-            if (sendOpenAiFundingError(res, error)) return;
+            if (sendHammerOpenAiFundingError(res, error)) return;
             throw error;
           }
         }
@@ -2582,7 +2618,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             });
             if (handle) cleanupRequest = { ...cleanupRequest, paid_execution: handle };
           } catch (error) {
-            if (sendOpenAiFundingError(res, error)) return;
+            if (sendHammerOpenAiFundingError(res, error)) return;
             throw error;
           }
         }
@@ -3228,14 +3264,11 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           return;
         } catch (error) {
           if (error instanceof OpenAiTranscriptionQuoteRequiredError) {
-            sendJson(res, error.quote.fundingEligible ? 409 : 402, { ok: false, error: { code: "transcription_spending_confirmation_required", message: error.message }, billing_quote: {
-              quote_id: error.quote.quoteId, operation_id: error.quote.operationId, quote_hash: error.quote.quoteHash, request_fingerprint: error.quote.requestFingerprint,
-              currency: error.quote.currency, maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros, failure_customer_charge_micros: 0,
-              failure_terms: error.quote.failureTerms, funding_eligible: error.quote.fundingEligible, funding_source: error.quote.fundingSource,
-              funding_label: error.quote.fundingLabel, model_display_name: error.quote.modelDisplayName, provider_model_id: error.quote.providerModelId,
-              model_tradeoff_summary: error.quote.modelTradeoffSummary, catalog_revision: error.quote.catalogRevision,
-              estimated_customer_charge_micros: error.quote.estimatedCustomerChargeMicros, expires_at: error.quote.expiresAt,
-            } });
+            sendJson(res, error.quote.fundingEligible ? 409 : 402, {
+              ok: false,
+              error: { code: "transcription_spending_confirmation_required", message: error.message },
+              billing_quote: toHammerCustomerSpendingQuote(error.quote),
+            });
             return;
           }
           if (error instanceof OpenAiTranscriptionFundingPreparationError) {
