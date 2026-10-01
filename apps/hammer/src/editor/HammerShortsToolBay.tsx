@@ -9,6 +9,11 @@ import { tongsFetch } from "../lib/tongsFetch";
 import { fingerprintHammerShortsValue, type HammerShortsOutputSegment } from "./hammerShortsResolver";
 import { projectHammerShortArtifacts, type HammerShortTimingInterval } from "./hammerShortsProjection";
 import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import {
+  HammerShortsOperationIdentity,
+  hammerShortsLogicalRequestRetryKey,
+  type HammerShortsLogicalRequestIdentityInput,
+} from "./hammerShortsOperationIdentity";
 
 type JsonRow = Record<string, unknown>;
 export interface HammerShortsToolBayAuthority {
@@ -58,9 +63,13 @@ export default function HammerShortsToolBay(props: { authority: HammerShortsTool
   const duration = durationPreset === "custom" ? { minimum: 20, maximum: 105 } : HAMMER_SHORTS_DURATION_RANGES[durationPreset];
   const ready = props.authority;
   const readyRef = useRef(ready);
+  const discoveryIdentityRef = useRef(new HammerShortsOperationIdentity());
   readyRef.current = ready;
   const basisKey = `${ready?.recordingRevisionId ?? ""}:${ready?.historyHeadId ?? ""}:${ready?.editorStateHash ?? ""}`;
-  useEffect(() => { setBasis(null); setCandidates([]); setChildren({}); setMessage(null); }, [basisKey]);
+  useEffect(() => {
+    discoveryIdentityRef.current = new HammerShortsOperationIdentity();
+    setBasis(null); setCandidates([]); setChildren({}); setMessage(null);
+  }, [basisKey]);
   useEffect(() => {
     const current = readyRef.current;
     if (!current) return;
@@ -110,12 +119,17 @@ export default function HammerShortsToolBay(props: { authority: HammerShortsTool
     setBusy("discover"); setMessage(null);
     try {
       const locked = basis ?? await lockBasis();
-      const data = await request("/api/hammer/shorts/discover", { method: "POST", json: {
-        workspace_id: ready.workspaceId, parent_workpiece_id: ready.workpieceId, basis_lock_id: locked.id,
-        basis_fingerprint: locked.basis_fingerprint, goal, duration_preset: durationPreset,
+      const logicalRequest: HammerShortsLogicalRequestIdentityInput = {
+        workspace_id: ready.workspaceId, parent_workpiece_id: ready.workpieceId, basis_lock_id: String(locked.id ?? ""),
+        basis_fingerprint: String(locked.basis_fingerprint ?? ""), goal, duration_preset: durationPreset,
         minimum_duration_sec: duration.minimum, maximum_duration_sec: duration.maximum, target_candidate_count: 4,
-        output_segments: ready.outputSegments, operation_id: `hammer-shorts-discovery:${crypto.randomUUID()}`,
-      } }) as JsonRow;
+        output_segments: ready.outputSegments,
+      };
+      const retryKey = hammerShortsLogicalRequestRetryKey(logicalRequest);
+      const data = await discoveryIdentityRef.current.run(retryKey, (operationId) => request("/api/hammer/shorts/discover", {
+        method: "POST",
+        json: { ...logicalRequest, operation_id: operationId },
+      })) as JsonRow;
       const next = candidatesFrom(data);
       setCandidates(next);
       const discovery = data.discovery;

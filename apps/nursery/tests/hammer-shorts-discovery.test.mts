@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../../../packages/tongs/src/db.types.ts";
-import { executeHammerShortsDiscovery, type HammerShortsDiscoveryBody } from "../scripts/hammer-shorts-discovery.ts";
+import { buildHammerShortsPaidRequestIdentity, executeHammerShortsDiscovery, type HammerShortsDiscoveryBody } from "../scripts/hammer-shorts-discovery.ts";
 
 const body: HammerShortsDiscoveryBody = {
   workspace_id: "11111111-1111-4111-8111-111111111111", parent_workpiece_id: "22222222-2222-4222-8222-222222222222",
@@ -64,4 +64,102 @@ test("records provider structured-output failures without fabricating candidates
   assert.deepEqual(usage, ["error"]);
   assert.deepEqual(calls.map((call) => call.name), ["reserve_hammer_shorts_discovery", "fail_hammer_shorts_discovery"]);
   assert.equal(calls[1]?.args.p_failure_code, "validation_failed");
+});
+
+test("equivalent retries retain paid identity while intentional operation ids remain distinct", async () => {
+  const first = await buildHammerShortsPaidRequestIdentity(body, "gpt-test");
+  const retry = await buildHammerShortsPaidRequestIdentity({ ...body }, "gpt-test");
+  const intentionalRerun = await buildHammerShortsPaidRequestIdentity({ ...body, operation_id: "discover:test:rerun" }, "gpt-test");
+  assert.deepEqual(retry, first);
+  assert.equal(intentionalRerun.request.request_fingerprint, first.request.request_fingerprint);
+  assert.notEqual(intentionalRerun.operationFingerprint, first.operationFingerprint);
+});
+
+test("changed cost-affecting input changes the canonical paid request fingerprint", async () => {
+  const first = await buildHammerShortsPaidRequestIdentity(body, "gpt-test");
+  for (const changed of [
+    { ...body, goal: "drive_to_full_episode" as const },
+    { ...body, target_candidate_count: 3 as const },
+    { ...body, minimum_duration_sec: 21 },
+    { ...body, maximum_duration_sec: 41 },
+    { ...body, basis_fingerprint: "b".repeat(64) },
+  ]) {
+    const identity = await buildHammerShortsPaidRequestIdentity(changed, "gpt-test");
+    assert.notEqual(identity.request.request_fingerprint, first.request.request_fingerprint);
+    assert.notEqual(identity.operationFingerprint, first.operationFingerprint);
+  }
+});
+
+test("operation reuse with a conflicting paid request fingerprint fails before provider execution", async () => {
+  const original = await buildHammerShortsPaidRequestIdentity(body, "gpt-test");
+  let providerCalls = 0;
+  const changed: HammerShortsDiscoveryBody = {
+    ...body,
+    goal: "drive_to_full_episode",
+    paid_execution: {
+      operationId: body.operation_id,
+      reservationId: "55555555-5555-4555-8555-555555555555",
+      requestFingerprint: original.operationFingerprint,
+      fundingEnvironment: "test",
+    },
+  };
+  const result = await executeHammerShortsDiscovery(changed, {
+    userClient: client([]), model: "gpt-test", apiKey: "secret",
+    policyPreflight: async () => ({ ok: true }), recordUsage: async () => undefined,
+    fetchImpl: (async () => { providerCalls += 1; throw new Error("must not run"); }) as typeof fetch,
+    paid: {
+      gate: { rpc: async () => ({ data: null, error: { message: "must not reach paid gate" } }) },
+      userId: "66666666-6666-4666-8666-666666666666",
+      credentialSource: "forge_managed",
+    },
+  });
+  assert.equal(result.status, 403);
+  assert.equal(providerCalls, 0);
+});
+
+test("settled Shorts replay returns persisted result without another provider attempt", async () => {
+  const identity = await buildHammerShortsPaidRequestIdentity(body, "gpt-test");
+  const reservationId = "55555555-5555-4555-8555-555555555555";
+  const gateCalls: string[] = [];
+  let providerCalls = 0;
+  const result = await executeHammerShortsDiscovery({
+    ...body,
+    paid_execution: {
+      operationId: body.operation_id,
+      reservationId,
+      requestFingerprint: identity.operationFingerprint,
+      fundingEnvironment: "test",
+    },
+  }, {
+    userClient: client([]), model: "gpt-test", apiKey: "secret",
+    policyPreflight: async () => ({ ok: true }), recordUsage: async () => undefined,
+    fetchImpl: (async () => { providerCalls += 1; throw new Error("must not run"); }) as typeof fetch,
+    paid: {
+      userId: "66666666-6666-4666-8666-666666666666",
+      credentialSource: "forge_managed",
+      gate: { rpc: async (name: string, args: Record<string, unknown>) => {
+        gateCalls.push(name);
+        if (name === "resolve_openai_text_paid_execution_context") return { data: {
+          operation_id: body.operation_id, reservation_id: reservationId,
+          quote_id: "77777777-7777-4777-8777-777777777777", route_code: args.p_route_code,
+          funding_source_type: "customer_deposit", funding_source_id: "88888888-8888-4888-8888-888888888888",
+          funding_environment: "test", credential_funding: "forge", model: "gpt-test",
+          maximum_input_units: 10_000, maximum_output_units: 1_000, maximum_attempts: 1,
+          maximum_failure_exposure_micros: 5_000, direct_provider_ceiling_micros: 4_000,
+          supporting_cost_ceiling_micros: 1_000, input_micros_per_million_tokens: 1_000,
+          cached_input_micros_per_million_tokens: 500, output_micros_per_million_tokens: 2_000,
+          reservation_state: "settled",
+        }, error: null };
+        if (name === "read_openai_text_paid_result") return { data: {
+          result_json: { data: { discovery: { id: "44444444-4444-4444-8444-444444444444" }, candidates: [] }, resolution: { outcome: "empty", rejected: [] } },
+          provider_request_id: "req-existing", input_units: 10, output_units: 2, customer_charge_micros: 5_000,
+        }, error: null };
+        return { data: {}, error: null };
+      } },
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(providerCalls, 0);
+  assert.equal(gateCalls.includes("read_openai_text_paid_result"), true);
+  assert.equal(gateCalls.includes("authorize_openai_text_provider_attempt_with_aggregate"), false);
 });
