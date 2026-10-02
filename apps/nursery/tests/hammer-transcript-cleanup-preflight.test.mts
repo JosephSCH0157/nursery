@@ -94,6 +94,24 @@ async function runCase(caseDef: CaseDef): Promise<void> {
       if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
         return jsonResponse(200, [{ decision_type: caseDef.decision, reason_code: caseDef.reasonCode }]);
       }
+      if (url.endsWith("/rest/v1/rpc/resolve_openai_text_model_for_funding_quote")) {
+        return jsonResponse(200, {
+          catalog_revision_id: "66666666-6666-4666-8666-666666666666",
+          catalog_revision: 7,
+          model_catalog_entry_id: "77777777-7777-4777-8777-777777777777",
+          customer_selection_key: "88888888-8888-4888-8888-888888888888",
+          runtime_model_id: "fixture-certified-model",
+          provider_model_id: "fixture-certified-model-v1",
+          display_name: "Fixture Certified Model",
+          tradeoff_summary: "Fixture-only certified choice.",
+        });
+      }
+      if (url.endsWith("/rest/v1/rpc/read_openai_execution_requirement")) {
+        return jsonResponse(200, { mode: "halt_new" });
+      }
+      if (url.endsWith("/rest/v1/rpc/read_existing_openai_text_funding_handle")) {
+        return jsonResponse(200, null);
+      }
       if (url === "https://api.openai.com/v1/chat/completions") {
         return jsonResponse(200, {
           choices: [{
@@ -165,9 +183,9 @@ async function main(): Promise<void> {
     label: "allow",
     decision: "ALLOW",
     reasonCode: null,
-    expectedStatus: 200,
-    expectedMessageIncludes: null,
-    expectOpenAiCalled: true,
+    expectedStatus: 423,
+    expectedMessageIncludes: "unavailable for new Forge-funded execution",
+    expectOpenAiCalled: false,
   });
   await runCase({
     label: "soft-deny",

@@ -5246,6 +5246,7 @@ export default function HammerWorkspaceEditor(
             resetToRawError={resetToRawError}
             onRequestResetToRaw={canPersistCanonicalState ? handleResetToRaw : undefined}
             onRequestRegenerateAiTranscript={openRegenAiTranscriptModal}
+            onRequestAiSettings={props.onRequestAiSettings}
             regenerateAiTranscriptDisabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
             transcriptVersionRegistry={loadedPersistenceSnapshot?.transcript_version_registry?.data ?? null} onShowVisualIssues={compactVisualIssues.length > 0 ? diagnosticsPresentation.showVisualDetails : undefined}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}

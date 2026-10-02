@@ -19,7 +19,10 @@ import {
   type SpeakerPanelOptions,
   type SpeakerSoloOptions,
 } from "./hammerCleanupTools";
-import { requestHammerTranscriptCleanupAssist } from "./hammerTranscriptCleanupAssistApi";
+import {
+  HammerTranscriptCleanupAssistError,
+  requestHammerTranscriptCleanupAssist,
+} from "./hammerTranscriptCleanupAssistApi";
 import {
   buildPolishResultSummaryFromCleanupPreview,
   type HammerPolishResultSummary,
@@ -98,6 +101,7 @@ export type UseHammerWorkspaceShellTranscriptCleanupArgs = {
   editableDerivedTextLayers: DerivedLayers;
   selectCleanupPass: () => void;
   focusTool: () => void;
+  openTranscriptCleanupModelSettings?: () => void;
   setTranscriptTimingHint: (value: string | null) => void;
   createCheckpoint: (label: string) => void;
   applyHistoryMutation: (args: {
@@ -231,6 +235,10 @@ export function useHammerWorkspaceShellTranscriptCleanup(args: UseHammerWorkspac
         args.setTranscriptTimingHint(null);
       } catch (error) {
         if (!lifecycle.accepts(token)) return;
+        if (error instanceof HammerTranscriptCleanupAssistError
+          && error.code === "model_selection_unavailable") {
+          args.openTranscriptCleanupModelSettings?.();
+        }
         args.setTranscriptTimingHint(
           error instanceof Error && error.message.trim()
             ? error.message

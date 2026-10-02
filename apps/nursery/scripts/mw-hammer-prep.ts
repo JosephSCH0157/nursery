@@ -25,6 +25,7 @@ import {
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
   normalizeOpenAiTextSpendingAcceptance,
+  resolveOpenAiTextModelSelection,
   resolveOrdinaryOpenAiTextFunding,
   type CustomerOpenAiTextQuote,
   type OpenAiTextSpendingAcceptance,
@@ -1011,14 +1012,29 @@ function normalizeQuenchMetadataAssistRequest(body: unknown): QuenchMetadataAssi
   };
 }
 
-function cleanupPaidFingerprintPayload(request: CleanupAssistRequest, model: string): Record<string, unknown> {
+type CleanupResolvedModelIdentity = {
+  catalogRevisionId: string;
+  modelCatalogEntryId: string;
+  customerSelectionKey: string;
+  runtimeModelId: string;
+};
+
+function cleanupPaidFingerprintPayload(
+  request: CleanupAssistRequest,
+  model: CleanupResolvedModelIdentity,
+): Record<string, unknown> {
   return {
     schema: "forge.hammer.transcript-cleanup.paid.v1",
     route_code: "hammer.transcript_cleanup",
     workspace_id: request.workspace_id,
     workpiece_id: request.workpiece_id,
     segments: request.segments.filter((segment) => request.segment_ids.includes(segment.segment_id)),
-    model,
+    model: {
+      catalog_revision_id: model.catalogRevisionId,
+      model_catalog_entry_id: model.modelCatalogEntryId,
+      customer_selection_key: model.customerSelectionKey,
+      runtime_model_id: model.runtimeModelId,
+    },
   };
 }
 
@@ -1424,6 +1440,7 @@ function isModelAccessError(message: string, model: string): boolean {
 async function runOpenAiTranscriptCleanupAssist(args: {
   apiKey: string;
   model: string;
+  modelIdentity: CleanupResolvedModelIdentity;
   request: CleanupAssistRequest;
   paid?: {
     gate: OpenAiTextGateClient;
@@ -1465,7 +1482,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
       credentialSource: args.paid.credentialSource,
       callerClass: "background",
       apiKey: args.apiKey,
-      requestFingerprintPayload: cleanupPaidFingerprintPayload(args.request, args.model),
+      requestFingerprintPayload: cleanupPaidFingerprintPayload(args.request, args.modelIdentity),
       providerRequestBody: (model) => transcriptCleanupProviderBody(args.request, model),
       fetchImpl: args.fetchImpl,
       recover: args.recover,
@@ -2050,7 +2067,6 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
   const runtimeConfig = options.runtimeConfig ?? resolveHearthRuntimeConfig();
   const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
-  const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.3";
   const quenchMetadataModel = readTrimmed(process.env.QUENCH_METADATA_AI_MODEL) ?? "gpt-5.3";
   const supabaseService: SupabaseClient<Database> | null = runtimeConfig.supabaseUrl && runtimeConfig.supabaseServiceRoleKey
     ? createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseServiceRoleKey, {
@@ -2605,43 +2621,88 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           } });
           return;
         }
-        if (!cleanupRequest.paid_execution && cleanupUserId && openAiTextGate) {
+        let cleanupExecutionModel: string | null = null;
+        let cleanupModelIdentity: CleanupResolvedModelIdentity | null = null;
+        if (cleanupUserId && openAiTextGate) {
           const boundedCleanupRequest = cleanupRequest;
-          const requestFingerprint = await fingerprintOpenAiTextPaidRequest(cleanupPaidFingerprintPayload(cleanupRequest, cleanupModel));
           try {
-            const handle = await resolveOrdinaryOpenAiTextFunding({
+            const selectedModel = await resolveOpenAiTextModelSelection({
               routeCode: "hammer.transcript_cleanup",
-              operationId: cleanupRequest.operation_id,
               userId: cleanupUserId,
               workspaceId: cleanupRequest.workspace_id,
-              workpieceId: cleanupRequest.workpiece_id,
-              requestFingerprint,
-              model: cleanupModel,
               credentialFunding: "forge",
-              acceptance: cleanupRequest.spending_acceptance,
               serviceGate: openAiTextGate,
-              prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
-                buildBoundedPaidJsonOpenAiRequest({
-                  body: transcriptCleanupProviderBody(boundedCleanupRequest, model),
-                  model,
-                  maximumOutputTokens,
-                  maximumAttempts,
-                }),
-              userGate: createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
-                auth: { persistSession: false, autoRefreshToken: false },
-                global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
-              }).schema("tongs") as unknown as OpenAiTextGateClient,
             });
-            if (handle) cleanupRequest = { ...cleanupRequest, paid_execution: handle };
+            cleanupExecutionModel = selectedModel.runtimeModelId;
+            cleanupModelIdentity = {
+              catalogRevisionId: selectedModel.catalogRevisionId,
+              modelCatalogEntryId: selectedModel.modelCatalogEntryId,
+              customerSelectionKey: selectedModel.customerSelectionKey,
+              runtimeModelId: selectedModel.runtimeModelId,
+            };
+            const requestFingerprint = await fingerprintOpenAiTextPaidRequest(
+              cleanupPaidFingerprintPayload(cleanupRequest, cleanupModelIdentity),
+            );
+            if (cleanupRequest.paid_execution) {
+              if (cleanupRequest.paid_execution.operationId !== cleanupRequest.operation_id
+                || cleanupRequest.paid_execution.requestFingerprint !== requestFingerprint) {
+                throw new OpenAiTextFundingPreparationError(
+                  409,
+                  "quote_request_changed",
+                  "The request or selected model changed after pricing. Review and accept a new quote.",
+                );
+              }
+            } else {
+              const handle = await resolveOrdinaryOpenAiTextFunding({
+                routeCode: "hammer.transcript_cleanup",
+                operationId: cleanupRequest.operation_id,
+                userId: cleanupUserId,
+                workspaceId: cleanupRequest.workspace_id,
+                workpieceId: cleanupRequest.workpiece_id,
+                requestFingerprint,
+                model: cleanupExecutionModel,
+                credentialFunding: "forge",
+                acceptance: cleanupRequest.spending_acceptance,
+                serviceGate: openAiTextGate,
+                prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
+                  buildBoundedPaidJsonOpenAiRequest({
+                    body: transcriptCleanupProviderBody(boundedCleanupRequest, model),
+                    model,
+                    maximumOutputTokens,
+                    maximumAttempts,
+                  }),
+                userGate: createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
+                  auth: { persistSession: false, autoRefreshToken: false },
+                  global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
+                }).schema("tongs") as unknown as OpenAiTextGateClient,
+              });
+              if (!handle) {
+                sendJson(res, 423, { ok: false, error: {
+                  code: "paid_execution_halted",
+                  message: "Transcript cleanup AI is currently unavailable.",
+                } });
+                return;
+              }
+              cleanupRequest = { ...cleanupRequest, paid_execution: handle };
+            }
           } catch (error) {
             if (sendHammerOpenAiFundingError(res, error)) return;
             throw error;
           }
         }
 
+        if (!cleanupRequest.paid_execution || !cleanupExecutionModel || !cleanupModelIdentity) {
+          sendJson(res, 423, { ok: false, error: {
+            code: "paid_execution_halted",
+            message: "Transcript cleanup AI is currently unavailable.",
+          } });
+          return;
+        }
+
         const assisted = await runOpenAiTranscriptCleanupAssist({
           apiKey: textApiKey,
-          model: cleanupModel,
+          model: cleanupExecutionModel,
+          modelIdentity: cleanupModelIdentity,
           request: cleanupRequest,
           fetchImpl: options.openAiProviderFetch,
           ...(cleanupRequest.paid_execution && supabaseService && cleanupUserId && openAiTextGate && domainRpc

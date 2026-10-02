@@ -38,6 +38,7 @@ import {
   type WorkspaceFeatures,
 } from "@hearth/lib/hearth-style-service";
 import {
+  HAMMER_TRANSCRIPT_CLEANUP_MODEL_ROUTE,
   loadOpenAiTextModelChoices,
   saveOpenAiTextModelPreference,
   type OpenAiTextModelChoiceSnapshot,
@@ -408,7 +409,7 @@ export function AiControlsPanel({
     let cancelled = false;
     setTextModelLoading(true);
     setTextModelError(null);
-    void loadOpenAiTextModelChoices().then((snapshot) => {
+    void loadOpenAiTextModelChoices(HAMMER_TRANSCRIPT_CLEANUP_MODEL_ROUTE).then((snapshot) => {
       if (!cancelled) setTextModelSnapshot(snapshot);
     }).catch((error: unknown) => {
       if (!cancelled) setTextModelError(error instanceof Error ? error.message : "Unable to load model choices.");
@@ -744,7 +745,12 @@ export function AiControlsPanel({
     setTextModelError(null);
     try {
       const kind = value === "best_available" ? "best_available" : "specific";
-      const next = await saveOpenAiTextModelPreference(kind, kind === "specific" ? value : null, textModelSnapshot.preference.revision);
+      const next = await saveOpenAiTextModelPreference(
+        HAMMER_TRANSCRIPT_CLEANUP_MODEL_ROUTE,
+        kind,
+        kind === "specific" ? value : null,
+        textModelSnapshot.preference.revision,
+      );
       setTextModelSnapshot({ ...textModelSnapshot, preference: next });
     } catch (error) {
       setTextModelError(error instanceof Error ? error.message : "Unable to save model preference.");
@@ -1144,21 +1150,24 @@ export function AiControlsPanel({
         </div>
       ) : null}
 
-      <div className="forge-ai-panel__section">
-        <div className="forge-ai-panel__label">Text model</div>
+      <div className="forge-ai-panel__section" data-ai-controls-section="hammer-transcript-cleanup">
+        <div className="forge-ai-panel__label">Hammer</div>
+        <div className="forge-ai-panel__hint">Transcript Cleanup</div>
         <div className="forge-ai-panel__row">
           <select
-            aria-label="Preferred OpenAI text model"
+            aria-label="Hammer transcript cleanup model"
             value={textModelSnapshot?.preference.preferenceKind === "specific"
-              ? textModelSnapshot.preference.providerModelId ?? "best_available"
+              ? textModelSnapshot.preference.selectionKey ?? "best_available"
               : "best_available"}
-            disabled={textModelLoading || textModelSaving}
+            disabled={textModelLoading || textModelSaving || (textModelSnapshot?.eligibleChoices.length ?? 0) === 0}
             onChange={(event) => void updateTextModelPreference(event.target.value)}
           >
             <option value="best_available">Best available</option>
             {(textModelSnapshot?.eligibleChoices ?? []).slice(0, 5).map((model) => (
-              <option key={model.providerModelId} value={model.providerModelId}>
-                {model.displayName} — {model.tradeoffSummary}
+              <option key={model.selectionKey} value={model.selectionKey}>
+                {model.displayName} — {model.tradeoffSummary} — {model.creditCharge} Forge Credits
+                {model.selectionState === "recommended" ? " — Recommended" : ""}
+                {model.selectionState === "retiring" ? " — Retiring" : ""}
               </option>
             ))}
           </select>
@@ -1166,9 +1175,11 @@ export function AiControlsPanel({
         <div className="forge-ai-panel__hint">
           {textModelLoading ? "Loading server-owned model catalog…" : textModelError ?? textModelSnapshot?.blocker ?? "Your choice is saved to your Forge account."}
         </div>
-        {textModelSnapshot && textModelSnapshot.candidateStatus.length > 0 && textModelSnapshot.eligibleChoices.length === 0 ? (
+        {textModelSnapshot?.selectionUnavailable ? (
           <div className="forge-ai-panel__hint">
-            Candidates under verification: {textModelSnapshot.candidateStatus.map((item) => item.displayName).join(", ")}. They cannot run until availability, full costs, and pricing are approved.
+            {textModelSnapshot.preference.displayName
+              ? `${textModelSnapshot.preference.displayName} is no longer available. Select another model.`
+              : "Your selected model is no longer available. Select another model."}
           </div>
         ) : null}
       </div>

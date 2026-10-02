@@ -45,6 +45,9 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
         model_catalog_entry_id: selectedModel === "gpt-5.6-terra"
           ? "66666666-6666-4666-8666-666666666666"
           : "77777777-7777-4777-8777-777777777777",
+        customer_selection_key: selectedModel === "gpt-5.6-terra"
+          ? "88888888-8888-4888-8888-888888888888"
+          : "99999999-9999-4999-8999-999999999999",
         runtime_model_id: selectedModel,
         provider_model_id: selectedModel,
         display_name: selectedModel === "gpt-5.6-terra" ? "GPT-5.6 Terra" : "GPT-5.6 Luna",
@@ -85,7 +88,7 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
   };
 }
 
-function input(serviceGate, userGate, acceptance = null) {
+function input(serviceGate, userGate, acceptance = null, model = "gpt-5.6-terra") {
   return {
     routeCode: "visual.unified_plan",
     operationId: "ordinary-operation-1",
@@ -94,7 +97,7 @@ function input(serviceGate, userGate, acceptance = null) {
     workpieceId: "workpiece-1",
     requestFingerprint: fingerprint,
     fundingEnvironment: "test",
-    model: "gpt-5-mini",
+    model,
     credentialFunding: "forge",
     acceptance,
     serviceGate,
@@ -170,6 +173,7 @@ test("bounded Hearth research may reserve from its immutable plan before the fin
     requestFingerprint: fingerprint,
   });
   args.routeCode = "hearth.research_synthesis";
+  args.model = "gpt-5.6-luna";
   args.deferProviderRequestBinding = true;
   const result = await resolveOrdinaryOpenAiTextFunding(args);
   assert.equal(result?.reservationId, reservationId);
@@ -253,11 +257,22 @@ test("server model resolution is customer-visible and a changed model produces a
   let terraError;
   let lunaError;
   await resolveOrdinaryOpenAiTextFunding(input(terra, makeGate())).catch((error) => { terraError = error; });
-  await resolveOrdinaryOpenAiTextFunding(input(luna, makeGate())).catch((error) => { lunaError = error; });
+  await resolveOrdinaryOpenAiTextFunding(input(luna, makeGate(), null, "gpt-5.6-luna")).catch((error) => { lunaError = error; });
   assert.equal(terraError.quote.modelDisplayName, "GPT-5.6 Terra");
   assert.equal(terraError.quote.catalogRevision, 7);
   assert.equal(lunaError.quote.modelDisplayName, "GPT-5.6 Luna");
   const terraQuoteId = terra.calls.find((call) => call.name === "create_customer_openai_text_quote").args.p_quote_id;
   const lunaQuoteId = luna.calls.find((call) => call.name === "create_customer_openai_text_quote").args.p_quote_id;
   assert.notEqual(terraQuoteId, lunaQuoteId);
+});
+
+test("a requested runtime model that differs from route-scoped resolution fails before quote creation", async () => {
+  const service = makeGate("enforce", "gpt-5.6-terra");
+  await assert.rejects(
+    resolveOrdinaryOpenAiTextFunding(input(service, makeGate(), null, "gpt-5.6-luna")),
+    (error) => error instanceof OpenAiTextFundingPreparationError
+      && error.code === "model_selection_changed",
+  );
+  assert.equal(service.calls.some((call) => call.name === "create_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
 });

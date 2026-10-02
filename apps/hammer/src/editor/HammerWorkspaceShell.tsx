@@ -309,6 +309,7 @@ type HammerWorkspaceShellProps = {
   resetToRawError?: string | null;
   onRequestResetToRaw?: () => void;
   onRequestRegenerateAiTranscript?: () => void;
+  onRequestAiSettings?: () => void;
   regenerateAiTranscriptDisabled?: boolean;
   transcriptVersionRegistry?: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerPersistedTranscriptVersionRegistry | null;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
@@ -2010,6 +2011,7 @@ function HammerWorkspaceShellWithContext(
     editableDerivedTextLayers,
     selectCleanupPass: () => selectPass("transcript_cleanup"),
     focusTool: () => setFocusOverride("tool-focus"),
+    openTranscriptCleanupModelSettings: props.onRequestAiSettings,
     setTranscriptTimingHint,
     createCheckpoint: (label) => historyAuthority.createCheckpoint(label),
     applyHistoryMutation,

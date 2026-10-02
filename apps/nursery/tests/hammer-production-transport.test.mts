@@ -14,6 +14,16 @@ const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
 const WORKSPACE_ID = "33333333-3333-4333-8333-333333333333";
 const WORKPIECE_ID = "44444444-4444-4444-8444-444444444444";
+const MODEL_SELECTION = {
+  catalog_revision_id: "66666666-6666-4666-8666-666666666666",
+  catalog_revision: 7,
+  model_catalog_entry_id: "77777777-7777-4777-8777-777777777777",
+  customer_selection_key: "88888888-8888-4888-8888-888888888888",
+  runtime_model_id: "fixture-certified-model",
+  provider_model_id: "fixture-certified-model-v1",
+  display_name: "Fixture Certified Model",
+  tradeoff_summary: "Fixture-only certified choice.",
+};
 
 function runtimeConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntimeConfig {
   return {
@@ -165,6 +175,9 @@ test("production Hammer transport preserves operation identity and halt authorit
     openAiTextGate: {
       rpc: async (name: string, args: Record<string, unknown>) => {
         gateCalls.push({ name, args });
+        if (name === "resolve_openai_text_model_for_funding_quote") {
+          return { data: MODEL_SELECTION, error: null };
+        }
         if (name === "read_openai_execution_requirement") {
           return { data: { mode: "halt_new" }, error: null };
         }
@@ -231,6 +244,43 @@ test("missing production paid authority cannot fall through to a provider", asyn
     });
     assert.equal(response.status, 503);
     assert.equal((await response.json()).error.code, "paid_execution_unavailable");
+    assert.equal(providerCalls, 0);
+    assert.equal(fixtureFetch.providerCalls(), 0);
+  } finally {
+    fixtureFetch.restore();
+  }
+});
+
+test("an unavailable stored cleanup model stops before quote, reservation, or provider execution", async () => {
+  const fixtureFetch = installSupabaseFixtureFetch();
+  const gateCalls: string[] = [];
+  let providerCalls = 0;
+  const handler = createNetlifyHammerFunction({
+    runtimeConfig: runtimeConfig({
+      supabaseUrl: "https://fixture.supabase.co",
+      supabaseServiceRoleKey: "fixture-service-key",
+      supabaseRpcKey: "fixture-anon-key",
+    }),
+    openAiTextGate: {
+      rpc: async (name: string) => {
+        gateCalls.push(name);
+        return { data: null, error: { message: "model_selection_unavailable: selected model is no longer available" } };
+      },
+    },
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      throw new Error("provider execution must not occur");
+    },
+  });
+  try {
+    const response = await handler(request(HAMMER_PRODUCTION_TEXT_ROUTES[0], cleanupBody()), {
+      deploy: { context: "production" },
+    });
+    const payload = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(payload.error.code, "model_selection_unavailable");
+    assert.match(payload.error.message, /Select another model in AI Controls/);
+    assert.deepEqual(gateCalls, ["resolve_openai_text_model_for_funding_quote"]);
     assert.equal(providerCalls, 0);
     assert.equal(fixtureFetch.providerCalls(), 0);
   } finally {

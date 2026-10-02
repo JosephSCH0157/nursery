@@ -9,6 +9,15 @@ type HammerTranscriptCleanupAssistResponse = {
   preview: HammerCleanupPreview;
 };
 
+export class HammerTranscriptCleanupAssistError extends Error {
+  readonly code: string | null;
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = "HammerTranscriptCleanupAssistError";
+    this.code = code;
+  }
+}
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -37,6 +46,11 @@ function readErrorMessage(payload: unknown): string {
     ?? readString(row?.message)
     ?? readString(row?.detail)
     ?? "Hammer transcript cleanup assist failed.";
+}
+
+function readErrorCode(payload: unknown): string | null {
+  const row = readObject(payload);
+  return readString(readObject(row?.error)?.code);
 }
 
 function normalizeSegment(value: unknown, fallbackId: string): HammerTranscriptSegment | null {
@@ -147,9 +161,12 @@ export async function requestHammerTranscriptCleanupAssist(args: {
       requestBody.spending_acceptance = acceptance;
       continue;
     }
-    throw new Error(quote && !quote.funding_eligible
-      ? `${readErrorMessage(payload)} ${quote.funding_label}.`
-      : readErrorMessage(payload));
+    throw new HammerTranscriptCleanupAssistError(
+      quote && !quote.funding_eligible
+        ? `${readErrorMessage(payload)} ${quote.funding_label}.`
+        : readErrorMessage(payload),
+      readErrorCode(payload),
+    );
   }
 
   const preview = normalizePreview(payload);

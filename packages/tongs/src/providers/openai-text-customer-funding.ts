@@ -48,10 +48,11 @@ export type CustomerOpenAiTextQuote = {
   expiresAt: string;
 };
 
-type OpenAiTextModelSelection = {
+export type OpenAiTextModelSelection = {
   catalogRevisionId: string;
   catalogRevision: number;
   modelCatalogEntryId: string;
+  customerSelectionKey: string;
   runtimeModelId: string;
   providerModelId: string;
   displayName: string;
@@ -114,7 +115,9 @@ async function rpc(
   if (result.error) {
     const diagnosticMessage = result.error.message || `${name} failed`;
     const lower = diagnosticMessage.toLowerCase();
-    const code = lower.includes("expired")
+    const code = lower.includes("model_selection_unavailable") || lower.includes("selected model is no longer available")
+      ? "model_selection_unavailable"
+      : lower.includes("expired")
       ? "quote_expired"
       : lower.includes("replay conflict") || lower.includes("request changed")
         ? "quote_request_changed"
@@ -128,7 +131,9 @@ async function rpc(
               || lower.includes("not authorized for this scope")
             ? "paid_execution_halted"
             : "funding_preparation_failed";
-    const customerMessage = code === "insufficient_verified_funds"
+    const customerMessage = code === "model_selection_unavailable"
+      ? "Your selected model is no longer available. Select another model in AI Controls."
+      : code === "insufficient_verified_funds"
       ? "Not enough Forge Credits for this operation."
       : code === "operation_already_in_progress"
         ? "Another AI operation is already in progress."
@@ -191,23 +196,40 @@ export function normalizeOpenAiTextSpendingAcceptance(
     : null;
 }
 
-function normalizeModelSelection(value: unknown): OpenAiTextModelSelection {
+function normalizeModelSelection(value: unknown, requireCustomerSelectionKey = false): OpenAiTextModelSelection {
   const row = object(value);
   const selection = {
     catalogRevisionId: string(row.catalog_revision_id),
     catalogRevision: integer(row.catalog_revision),
     modelCatalogEntryId: string(row.model_catalog_entry_id),
+    customerSelectionKey: string(row.customer_selection_key),
     runtimeModelId: string(row.runtime_model_id),
     providerModelId: string(row.provider_model_id),
     displayName: string(row.display_name),
     tradeoffSummary: string(row.tradeoff_summary),
   };
   if (!UUID_RE.test(selection.catalogRevisionId) || !UUID_RE.test(selection.modelCatalogEntryId)
+    || (requireCustomerSelectionKey && !UUID_RE.test(selection.customerSelectionKey))
     || selection.catalogRevision < 1 || !selection.runtimeModelId || !selection.providerModelId
     || !selection.displayName || !selection.tradeoffSummary) {
     throw new OpenAiTextFundingPreparationError(503, "model_selection_unavailable", "No eligible model is available for this operation.");
   }
   return selection;
+}
+
+export async function resolveOpenAiTextModelSelection(args: {
+  routeCode: OpenAiTextRouteCode;
+  userId: string;
+  workspaceId: string;
+  credentialFunding: "forge" | "byo_customer";
+  serviceGate: OpenAiTextGateClient;
+}): Promise<OpenAiTextModelSelection> {
+  return normalizeModelSelection(await rpc(args.serviceGate, "resolve_openai_text_model_for_funding_quote", {
+    p_user_id: args.userId,
+    p_workspace_id: args.workspaceId,
+    p_route_code: args.routeCode,
+    p_credential_funding: args.credentialFunding,
+  }), true);
 }
 
 function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): CustomerOpenAiTextQuote {
@@ -336,7 +358,16 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     ...(!transcriptionRoute ? { p_workspace_id: args.workspaceId } : {}),
     p_route_code: args.routeCode,
     p_credential_funding: args.credentialFunding,
-  }));
+  }), !transcriptionRoute);
+  if (!transcriptionRoute && args.model !== selection.runtimeModelId) {
+    throw new OpenAiTextFundingPreparationError(
+      409,
+      "model_selection_changed",
+      "The selected model changed. Review this operation again.",
+      {},
+      `requested model ${args.model} did not match resolved model ${selection.runtimeModelId}`,
+    );
+  }
   const modelIdentity = `${selection.catalogRevisionId}:${selection.modelCatalogEntryId}:${selection.providerModelId}`;
   const identifiers = deriveIdentifiers(args.routeCode, args.userId, args.operationId, modelIdentity, args.acceptance?.quoteId);
   if (transcriptionRoute && !args.transcriptionSource) {
