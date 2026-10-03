@@ -38,11 +38,14 @@ import {
   type WorkspaceFeatures,
 } from "@hearth/lib/hearth-style-service";
 import {
-  HAMMER_TRANSCRIPT_CLEANUP_MODEL_ROUTE,
-  loadOpenAiTextModelChoices,
-  saveOpenAiTextModelPreference,
-  type OpenAiTextModelChoiceSnapshot,
-} from "../../lib/hearth/openai-text-model-preference";
+  aiRelativeCostLabel,
+  clearAiOperationModelOverride,
+  HAMMER_TRANSCRIPT_CLEANUP_OPERATION,
+  loadAiModelControls,
+  saveAiOperationModelOverride,
+  saveGlobalAiModelPreference,
+  type AiModelControlSnapshot,
+} from "../../lib/hearth/ai-model-preference";
 import {
   loadAiFundingOptions,
   saveAiFundingPreference,
@@ -352,7 +355,7 @@ export function AiControlsPanel({
     () => readHammerTranscriptPrepNonAiMissingBehavior(),
   );
   const [transcriptPrepNotice, setTranscriptPrepNotice] = React.useState<string | null>(null);
-  const [textModelSnapshot, setTextModelSnapshot] = React.useState<OpenAiTextModelChoiceSnapshot | null>(null);
+  const [textModelSnapshot, setTextModelSnapshot] = React.useState<AiModelControlSnapshot | null>(null);
   const [textModelLoading, setTextModelLoading] = React.useState(true);
   const [textModelSaving, setTextModelSaving] = React.useState(false);
   const [textModelError, setTextModelError] = React.useState<string | null>(null);
@@ -409,7 +412,7 @@ export function AiControlsPanel({
     let cancelled = false;
     setTextModelLoading(true);
     setTextModelError(null);
-    void loadOpenAiTextModelChoices(HAMMER_TRANSCRIPT_CLEANUP_MODEL_ROUTE).then((snapshot) => {
+    void loadAiModelControls(HAMMER_TRANSCRIPT_CLEANUP_OPERATION).then((snapshot) => {
       if (!cancelled) setTextModelSnapshot(snapshot);
     }).catch((error: unknown) => {
       if (!cancelled) setTextModelError(error instanceof Error ? error.message : "Unable to load model choices.");
@@ -739,21 +742,45 @@ export function AiControlsPanel({
     saveAiSettings(next);
   }
 
-  async function updateTextModelPreference(value: string) {
+  async function refreshModelControls() {
+    setTextModelSnapshot(await loadAiModelControls(HAMMER_TRANSCRIPT_CLEANUP_OPERATION));
+  }
+
+  async function updateGlobalModelPreference(value: string) {
     if (!textModelSnapshot || textModelSaving) return;
     setTextModelSaving(true);
     setTextModelError(null);
     try {
-      const kind = value === "best_available" ? "best_available" : "specific";
-      const next = await saveOpenAiTextModelPreference(
-        HAMMER_TRANSCRIPT_CLEANUP_MODEL_ROUTE,
-        kind,
-        kind === "specific" ? value : null,
-        textModelSnapshot.preference.revision,
-      );
-      setTextModelSnapshot({ ...textModelSnapshot, preference: next });
+      if (!value) return;
+      await saveGlobalAiModelPreference(value, textModelSnapshot.globalPreference.revision);
+      await refreshModelControls();
     } catch (error) {
       setTextModelError(error instanceof Error ? error.message : "Unable to save model preference.");
+    } finally {
+      setTextModelSaving(false);
+    }
+  }
+
+  async function updateOperationModelOverride(value: string) {
+    if (!textModelSnapshot || textModelSaving) return;
+    setTextModelSaving(true);
+    setTextModelError(null);
+    try {
+      if (value === "use_global") {
+        await clearAiOperationModelOverride(
+          HAMMER_TRANSCRIPT_CLEANUP_OPERATION,
+          textModelSnapshot.operationOverride.revision,
+        );
+      } else {
+        await saveAiOperationModelOverride(
+          HAMMER_TRANSCRIPT_CLEANUP_OPERATION,
+          value,
+          textModelSnapshot.operationOverride.revision,
+        );
+      }
+      await refreshModelControls();
+    } catch (error) {
+      setTextModelError(error instanceof Error ? error.message : "Unable to save operation override.");
     } finally {
       setTextModelSaving(false);
     }
@@ -1150,38 +1177,56 @@ export function AiControlsPanel({
         </div>
       ) : null}
 
-      <div className="forge-ai-panel__section" data-ai-controls-section="hammer-transcript-cleanup">
-        <div className="forge-ai-panel__label">Hammer</div>
-        <div className="forge-ai-panel__hint">Transcript Cleanup</div>
+      <div className="forge-ai-panel__section" data-ai-controls-section="global-model-preference">
+        <div className="forge-ai-panel__label">Preferred AI model</div>
         <div className="forge-ai-panel__row">
           <select
-            aria-label="Hammer transcript cleanup model"
-            value={textModelSnapshot?.preference.preferenceKind === "specific"
-              ? textModelSnapshot.preference.selectionKey ?? "best_available"
-              : "best_available"}
-            disabled={textModelLoading || textModelSaving || (textModelSnapshot?.eligibleChoices.length ?? 0) === 0}
-            onChange={(event) => void updateTextModelPreference(event.target.value)}
+            aria-label="Preferred AI model"
+            value={textModelSnapshot?.globalPreference.selectionKey ?? ""}
+            disabled={textModelLoading || textModelSaving || (textModelSnapshot?.globalChoices.length ?? 0) === 0}
+            onChange={(event) => void updateGlobalModelPreference(event.target.value)}
           >
-            <option value="best_available">Best available</option>
-            {(textModelSnapshot?.eligibleChoices ?? []).slice(0, 5).map((model) => (
+            <option value="" disabled>Choose a preferred model</option>
+            {(textModelSnapshot?.globalChoices ?? []).map((model) => (
               <option key={model.selectionKey} value={model.selectionKey}>
-                {model.displayName} — {model.tradeoffSummary} — {model.creditCharge} Forge Credits
-                {model.selectionState === "recommended" ? " — Recommended" : ""}
-                {model.selectionState === "retiring" ? " — Retiring" : ""}
+                {model.displayName} — {aiRelativeCostLabel(model.relativeCostClass)}
               </option>
             ))}
           </select>
         </div>
         <div className="forge-ai-panel__hint">
-          {textModelLoading ? "Loading server-owned model catalog…" : textModelError ?? textModelSnapshot?.blocker ?? "Your choice is saved to your Forge account."}
+          Your preferred model is Forge-wide. Each operation still requires separate certification and pricing.
         </div>
-        {textModelSnapshot?.selectionUnavailable ? (
-          <div className="forge-ai-panel__hint">
-            {textModelSnapshot.preference.displayName
-              ? `${textModelSnapshot.preference.displayName} is no longer available. Select another model.`
-              : "Your selected model is no longer available. Select another model."}
-          </div>
-        ) : null}
+      </div>
+
+      <div className="forge-ai-panel__section" data-ai-controls-section="hammer-transcript-cleanup">
+        <div className="forge-ai-panel__label">Hammer</div>
+        <div className="forge-ai-panel__hint">Transcript Cleanup model override</div>
+        <div className="forge-ai-panel__row">
+          <select
+            aria-label="Hammer transcript cleanup model override"
+            value={textModelSnapshot?.operationOverride.state === "specific"
+              ? textModelSnapshot.operationOverride.selectionKey ?? "use_global"
+              : "use_global"}
+            disabled={textModelLoading || textModelSaving || (textModelSnapshot?.eligibleChoices.length ?? 0) === 0}
+            onChange={(event) => void updateOperationModelOverride(event.target.value)}
+          >
+            <option value="use_global">Use preferred AI model</option>
+            {(textModelSnapshot?.eligibleChoices ?? []).map((model) => (
+              <option key={model.selectionKey} value={model.selectionKey}>
+                {model.displayName} — {aiRelativeCostLabel(model.relativeCostClass)} — {model.creditCharge} Forge Credits
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="forge-ai-panel__hint">
+          {textModelLoading
+            ? "Loading server-owned model authority…"
+            : textModelError ?? textModelSnapshot?.blocker
+              ?? (textModelSnapshot?.operationOverride.state === "specific"
+                ? "This explicit override remains authoritative until you change it or select Use preferred AI model."
+                : "Hammer will use your preferred model only when that exact model is eligible.")}
+        </div>
       </div>
 
       <div className="forge-ai-panel__section">

@@ -1060,7 +1060,7 @@ const QUENCH_METADATA_SYSTEM_PROMPT =
 
 function transcriptCleanupProviderBody(request: CleanupAssistRequest, model: string): Record<string, unknown> {
   const selectedSegments = request.segments.filter((segment) => request.segment_ids.includes(segment.segment_id));
-  return {
+  const body: Record<string, unknown> = {
     model,
     temperature: 0.2,
     response_format: { type: "json_object" },
@@ -1076,6 +1076,10 @@ function transcriptCleanupProviderBody(request: CleanupAssistRequest, model: str
       }) },
     ],
   };
+  // Both Sol models reject non-default temperature values. Omitting this one
+  // provider parameter preserves the frozen Hammer prompt and JSON contract.
+  if (model === "gpt-5.6-sol" || model === "gpt-6.1-sol") delete body.temperature;
+  return body;
 }
 
 function quenchMetadataProviderBody(request: QuenchMetadataAssistRequest, model: string): Record<string, unknown> {

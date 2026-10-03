@@ -35,15 +35,24 @@ function asObject(value: unknown): JsonObject {
     : {};
 }
 
-function readUsage(payload: unknown): { input: number; cachedInput: number; output: number } {
+function readUsage(payload: unknown): { input: number; cachedInput: number; cacheWriteInput: number; output: number } {
   const usage = asObject(asObject(payload).usage);
   const input = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
   const output = Number(usage.output_tokens ?? usage.completion_tokens ?? 0);
   const inputDetails = asObject(usage.input_tokens_details ?? usage.prompt_tokens_details);
   const cachedInput = Number(inputDetails.cached_tokens ?? 0);
+  const cacheWriteInput = Number(
+    inputDetails.cache_write_tokens
+      ?? inputDetails.cache_creation_tokens
+      ?? inputDetails.cache_creation_input_tokens
+      ?? 0,
+  );
   return {
     input: Number.isSafeInteger(input) && input >= 0 ? input : 0,
     cachedInput: Number.isSafeInteger(cachedInput) && cachedInput >= 0 && cachedInput <= input ? cachedInput : 0,
+    cacheWriteInput: Number.isSafeInteger(cacheWriteInput) && cacheWriteInput >= 0 && cacheWriteInput <= input
+      ? cacheWriteInput
+      : 0,
     output: Number.isSafeInteger(output) && output >= 0 ? output : 0,
   };
 }
@@ -249,12 +258,18 @@ export async function executePaidJsonOpenAiRoute<
         outputUnits: usage.output,
         supplierCostMicros:
           context.credentialFunding === "forge"
-            ? estimateOpenAiTextDirectCostMicros(
-                context,
-                usage.input,
-                usage.output,
-                usage.cachedInput,
-              )
+            ? usage.cacheWriteInput > 0
+              // The accepted Sol price reserves every bounded input token at
+              // the cache-write rate. Until provider invoices make write cost
+              // authoritative, record the accepted ceiling rather than
+              // understating supplier exposure.
+              ? context.directProviderCeilingMicros
+              : estimateOpenAiTextDirectCostMicros(
+                  context,
+                  usage.input,
+                  usage.output,
+                  usage.cachedInput,
+                )
             : 0,
         supplierCostAuthoritative: false,
         supportingCostMicros: args.realizedSupportingCost?.amountMicros
@@ -274,6 +289,7 @@ export async function executePaidJsonOpenAiRoute<
               : "customer_direct",
           route_code: args.routeCode,
           cached_input_units: usage.cachedInput,
+          cache_write_input_units: usage.cacheWriteInput,
           reasoning_output_included: true,
           ...boundedProviderRequestEvidence(boundedRequest),
           ...(args.validationEvidence
