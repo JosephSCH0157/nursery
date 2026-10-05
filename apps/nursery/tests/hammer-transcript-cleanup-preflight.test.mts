@@ -106,6 +106,14 @@ async function runCase(caseDef: CaseDef): Promise<void> {
           tradeoff_summary: "Fixture-only certified choice.",
         });
       }
+      if (url.endsWith("/rest/v1/rpc/resolve_owner_openai_text_canary_eligibility")) {
+        return jsonResponse(200, {
+          eligible: false,
+          financial_environment: "test",
+          route_code: "hammer.transcript_cleanup",
+          model: "fixture-certified-model",
+        });
+      }
       if (url.endsWith("/rest/v1/rpc/read_openai_execution_requirement")) {
         return jsonResponse(200, { mode: "halt_new" });
       }

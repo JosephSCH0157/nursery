@@ -25,6 +25,8 @@ import {
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
   normalizeOpenAiTextSpendingAcceptance,
+  resolveOwnerCanaryOpenAiTextFunding,
+  resolveOwnerOpenAiTextCanaryEligibility,
   resolveOpenAiTextModelSelection,
   resolveOrdinaryOpenAiTextFunding,
   type CustomerOpenAiTextQuote,
@@ -2657,15 +2659,25 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
                 );
               }
             } else {
-              const handle = await resolveOrdinaryOpenAiTextFunding({
-                routeCode: "hammer.transcript_cleanup",
+              const ownerCanaryEligible = await resolveOwnerOpenAiTextCanaryEligibility({
+                routeCode: "hammer.transcript_cleanup" as const,
+                userId: cleanupUserId,
+                workspaceId: cleanupRequest.workspace_id,
+                model: cleanupExecutionModel,
+                serviceGate: openAiTextGate,
+              });
+              const userGate = createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
+                auth: { persistSession: false, autoRefreshToken: false },
+                global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
+              }).schema("tongs") as unknown as OpenAiTextGateClient;
+              const fundingArgs = {
+                routeCode: "hammer.transcript_cleanup" as const,
                 operationId: cleanupRequest.operation_id,
                 userId: cleanupUserId,
                 workspaceId: cleanupRequest.workspace_id,
                 workpieceId: cleanupRequest.workpiece_id,
                 requestFingerprint,
                 model: cleanupExecutionModel,
-                credentialFunding: "forge",
                 acceptance: cleanupRequest.spending_acceptance,
                 serviceGate: openAiTextGate,
                 prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
@@ -2675,11 +2687,11 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
                     maximumOutputTokens,
                     maximumAttempts,
                   }),
-                userGate: createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
-                  auth: { persistSession: false, autoRefreshToken: false },
-                  global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
-                }).schema("tongs") as unknown as OpenAiTextGateClient,
-              });
+                userGate,
+              };
+              const handle = ownerCanaryEligible
+                ? await resolveOwnerCanaryOpenAiTextFunding(fundingArgs)
+                : await resolveOrdinaryOpenAiTextFunding({ ...fundingArgs, credentialFunding: "forge" });
               if (!handle) {
                 sendJson(res, 423, { ok: false, error: {
                   code: "paid_execution_halted",

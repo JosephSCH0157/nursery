@@ -232,6 +232,25 @@ export async function resolveOpenAiTextModelSelection(args: {
   }), true);
 }
 
+export async function resolveOwnerOpenAiTextCanaryEligibility(args: {
+  routeCode: OpenAiTextRouteCode;
+  userId: string;
+  workspaceId: string;
+  model: string;
+  serviceGate: OpenAiTextGateClient;
+}): Promise<boolean> {
+  const result = object(await rpc(args.serviceGate, "resolve_owner_openai_text_canary_eligibility", {
+    p_user_id: args.userId,
+    p_workspace_id: args.workspaceId,
+    p_route_code: args.routeCode,
+    p_model: args.model,
+  }));
+  return result.eligible === true
+    && string(result.financial_environment) === "test"
+    && string(result.route_code) === args.routeCode
+    && string(result.model) === args.model;
+}
+
 function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): CustomerOpenAiTextQuote {
   const row = object(value);
   const quoteId = string(row.quote_id);
@@ -503,6 +522,170 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   const handle = normalizeOpenAiTextPaidExecutionHandle(object(reserved.paid_execution));
   if (!handle || handle.operationId !== args.operationId || handle.requestFingerprint !== args.requestFingerprint) {
     throw new OpenAiTextFundingPreparationError(502, "invalid_funding_handle", "The server could not establish exact bounded funding authority.");
+  }
+  return handle;
+}
+
+/**
+ * Resolves the private owner-only Test lane. Eligibility must be established by
+ * canonical server-side authority; this function never falls back to ordinary
+ * customer funding and never treats owner_only as normal_customer.
+ */
+export async function resolveOwnerCanaryOpenAiTextFunding(args: {
+  routeCode: OpenAiTextRouteCode;
+  operationId: string;
+  userId: string;
+  workspaceId: string;
+  workpieceId: string;
+  requestFingerprint: string;
+  model: string;
+  acceptance?: OpenAiTextSpendingAcceptance | null;
+  serviceGate: OpenAiTextGateClient;
+  userGate: OpenAiTextGateClient;
+  quoteLifetimeSeconds?: number;
+  prepareBoundedRequest: (limits: {
+    model: string;
+    maximumInputTokens: number;
+    maximumOutputTokens: number;
+    maximumAttempts: number;
+  }) => BoundedProviderRequest | Promise<BoundedProviderRequest>;
+}): Promise<OpenAiTextPaidExecutionHandle> {
+  const eligible = await resolveOwnerOpenAiTextCanaryEligibility({
+    routeCode: args.routeCode,
+    userId: args.userId,
+    workspaceId: args.workspaceId,
+    model: args.model,
+    serviceGate: args.serviceGate,
+  });
+  if (!eligible) {
+    throw new OpenAiTextFundingPreparationError(
+      423,
+      "paid_execution_halted",
+      "This operation is unavailable for owner Test execution.",
+    );
+  }
+  const existing = object(await rpc(args.serviceGate, "read_existing_openai_text_funding_handle", {
+    p_user_id: args.userId,
+    p_operation_id: args.operationId,
+    p_route_code: args.routeCode,
+    p_request_fingerprint: args.requestFingerprint,
+  }));
+  if (Object.keys(existing).length > 0) {
+    const handle = normalizeOpenAiTextPaidExecutionHandle(existing);
+    if (!handle || handle.operationId !== args.operationId
+      || handle.requestFingerprint !== args.requestFingerprint
+      || handle.fundingEnvironment !== "test") {
+      throw new OpenAiTextFundingPreparationError(502, "invalid_funding_handle", "Stored owner Test funding authority is invalid.");
+    }
+    return handle;
+  }
+  const selection = normalizeModelSelection(await rpc(
+    args.serviceGate,
+    "resolve_openai_text_model_for_funding_quote",
+    {
+      p_user_id: args.userId,
+      p_workspace_id: args.workspaceId,
+      p_route_code: args.routeCode,
+      p_credential_funding: "forge",
+    },
+  ), true);
+  if (args.model !== selection.runtimeModelId) {
+    throw new OpenAiTextFundingPreparationError(
+      409,
+      "model_selection_changed",
+      "The selected model changed. Review this operation again.",
+    );
+  }
+  const modelIdentity = `${selection.catalogRevisionId}:${selection.modelCatalogEntryId}:${selection.providerModelId}`;
+  const identifiers = deriveIdentifiers(args.routeCode, args.userId, args.operationId, modelIdentity, args.acceptance?.quoteId);
+  const quote = normalizeQuote(await rpc(args.serviceGate, "create_owner_openai_text_canary_quote", {
+    p_quote_id: identifiers.quoteId,
+    p_user_id: args.userId,
+    p_operation_id: args.operationId,
+    p_route_code: args.routeCode,
+    p_workspace_id: args.workspaceId,
+    p_workpiece_id: args.workpieceId,
+    p_request_fingerprint: args.requestFingerprint,
+    p_model: selection.runtimeModelId,
+    p_credential_funding: "forge",
+    p_expires_at: new Date(Date.now() + Math.max(60, Math.min(args.quoteLifetimeSeconds ?? 600, 3600)) * 1000).toISOString(),
+  }), selection);
+  const boundedContext = object(await rpc(args.serviceGate, "read_openai_text_quote_bounding_context", {
+    p_quote_id: quote.quoteId,
+    p_user_id: args.userId,
+    p_operation_id: args.operationId,
+    p_route_code: args.routeCode,
+    p_request_fingerprint: args.requestFingerprint,
+  }));
+  const maximumInputTokens = integer(boundedContext.maximum_input_units);
+  const maximumOutputTokens = integer(boundedContext.maximum_output_units);
+  const maximumAttempts = integer(boundedContext.maximum_attempts);
+  const acceptedModel = string(boundedContext.model);
+  if (maximumInputTokens < 1 || maximumOutputTokens < 1 || maximumAttempts !== 1
+    || acceptedModel !== selection.runtimeModelId) {
+    throw new OpenAiTextFundingPreparationError(502, "invalid_quote_bounding_context", "The billing service returned invalid provider-request limits.");
+  }
+  const bounded = await args.prepareBoundedRequest({
+    model: acceptedModel,
+    maximumInputTokens,
+    maximumOutputTokens,
+    maximumAttempts,
+  });
+  if (bounded.model !== acceptedModel || bounded.boundedInputTokens > maximumInputTokens
+    || bounded.maximumOutputTokens !== maximumOutputTokens || bounded.maximumAttempts !== 1) {
+    throw new OpenAiTextFundingPreparationError(422, "provider_request_out_of_bounds", "The complete provider request exceeds the accepted cost-policy limits.");
+  }
+  const evidence = boundedProviderRequestEvidence(bounded);
+  await rpc(args.serviceGate, "bind_bounded_provider_quote_request", {
+    p_quote_id: quote.quoteId,
+    p_user_id: args.userId,
+    p_operation_id: args.operationId,
+    p_route_code: args.routeCode,
+    p_request_fingerprint: args.requestFingerprint,
+    p_model: bounded.model,
+    p_service_tier: bounded.serviceTier,
+    p_estimator_revision: bounded.estimatorRevision,
+    p_tokenizer_revision: bounded.tokenizerRevision,
+    p_serialized_body_sha256: evidence.serialized_body_sha256,
+    p_serialized_bytes: evidence.serialized_bytes,
+    p_tokenizer_input_tokens: evidence.tokenizer_input_tokens,
+    p_protocol_overhead_tokens: evidence.protocol_overhead_tokens,
+    p_utf8_byte_token_upper_bound: evidence.utf8_byte_token_upper_bound,
+    p_bounded_input_tokens: evidence.bounded_input_tokens,
+    p_maximum_output_tokens: bounded.maximumOutputTokens,
+    p_maximum_attempts: bounded.maximumAttempts,
+  });
+  if (!args.acceptance) throw new OpenAiTextQuoteRequiredError(quote);
+  if (args.acceptance.operationId !== args.operationId || args.acceptance.quoteId !== quote.quoteId
+    || args.acceptance.quoteHash !== quote.quoteHash || args.acceptance.requestFingerprint !== args.requestFingerprint) {
+    throw new OpenAiTextFundingPreparationError(409, "quote_request_changed", "The request changed after pricing. Review and accept a new quote.");
+  }
+  if (new Date(quote.expiresAt).getTime() <= Date.now()) {
+    throw new OpenAiTextFundingPreparationError(409, "quote_expired", "The quote expired. Review and accept a new quote.");
+  }
+  await rpc(args.userGate, "accept_quote", {
+    p_quote_id: quote.quoteId,
+    p_acceptance_id: identifiers.acceptanceId,
+    p_acceptance_key: `openai-text-owner-canary:${args.routeCode}:${quote.quoteId}`,
+    p_quote_hash: quote.quoteHash,
+  });
+  const reserved = object(await rpc(args.serviceGate, "reserve_owner_openai_text_canary_quote", {
+    p_quote_id: quote.quoteId,
+    p_reservation_id: identifiers.reservationId,
+    p_user_id: args.userId,
+    p_operation_id: args.operationId,
+    p_route_code: args.routeCode,
+    p_workspace_id: args.workspaceId,
+    p_workpiece_id: args.workpieceId,
+    p_request_fingerprint: args.requestFingerprint,
+    p_model: selection.runtimeModelId,
+    p_credential_funding: "forge",
+    p_idempotency_key: `openai-text-owner-canary:${args.routeCode}:${quote.quoteId}`,
+  }));
+  const handle = normalizeOpenAiTextPaidExecutionHandle(object(reserved.paid_execution));
+  if (!handle || handle.operationId !== args.operationId
+    || handle.requestFingerprint !== args.requestFingerprint || handle.fundingEnvironment !== "test") {
+    throw new OpenAiTextFundingPreparationError(502, "invalid_funding_handle", "The server could not establish exact owner Test funding authority.");
   }
   return handle;
 }

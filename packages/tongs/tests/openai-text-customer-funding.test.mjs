@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
+  resolveOwnerCanaryOpenAiTextFunding,
   resolveOrdinaryOpenAiTextFunding,
 } from "../dist/providers/openai-text-customer-funding.js";
 import { buildBoundedOpenAiProviderRequest } from "../dist/providers/bounded-provider-request.js";
@@ -275,4 +276,101 @@ test("a requested runtime model that differs from route-scoped resolution fails 
   );
   assert.equal(service.calls.some((call) => call.name === "create_customer_openai_text_quote"), false);
   assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
+});
+
+function makeOwnerCanaryGate(eligible = true) {
+  const gate = makeGate("halt_new", "gpt-5.4-mini");
+  const baseRpc = gate.rpc.bind(gate);
+  gate.rpc = async function rpc(name, args) {
+    if (name === "resolve_owner_openai_text_canary_eligibility") {
+      this.calls.push({ name, args });
+      return { data: {
+        eligible,
+        financial_environment: "test",
+        route_code: "hammer.transcript_cleanup",
+        model: "gpt-5.4-mini",
+      }, error: null };
+    }
+    if (name === "create_owner_openai_text_canary_quote") {
+      this.calls.push({ name, args });
+      return { data: {
+        quote_id: quoteId,
+        operation_id: "hammer-owner-canary-1",
+        quote_hash: quoteHash,
+        request_fingerprint: fingerprint,
+        currency: "USD",
+        maximum_customer_charge_micros: 230000,
+        customer_credit_units: 46,
+        failure_customer_charge_micros: 0,
+        funding_eligible: true,
+        funding_source: "owner_budget",
+        funding_environment: "test",
+        payer_kind: "owner_testing",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      }, error: null };
+    }
+    if (name === "reserve_owner_openai_text_canary_quote") {
+      this.calls.push({ name, args });
+      return { data: { paid_execution: {
+        operation_id: "hammer-owner-canary-1",
+        reservation_id: reservationId,
+        request_fingerprint: fingerprint,
+        funding_environment: "test",
+      } }, error: null };
+    }
+    return baseRpc(name, args);
+  };
+  return gate;
+}
+
+function ownerInput(serviceGate, userGate, acceptance = null) {
+  const args = input(serviceGate, userGate, acceptance, "gpt-5.4-mini");
+  args.routeCode = "hammer.transcript_cleanup";
+  args.operationId = "hammer-owner-canary-1";
+  delete args.credentialFunding;
+  return args;
+}
+
+test("owner canary remains distinct from ordinary funding and exposes the 46-credit safe quote", async () => {
+  const service = makeOwnerCanaryGate();
+  await assert.rejects(resolveOwnerCanaryOpenAiTextFunding(ownerInput(service, makeOwnerCanaryGate())), (error) => {
+    assert.ok(error instanceof OpenAiTextQuoteRequiredError);
+    assert.equal(error.quote.customerCreditUnits, 46);
+    assert.equal(error.quote.maximumCustomerChargeMicros, 230000);
+    assert.equal("provider_cost" in error.quote, false);
+    return true;
+  });
+  assert.equal(service.calls.some((call) => call.name === "create_owner_openai_text_canary_quote"), true);
+  assert.equal(service.calls.some((call) => call.name === "create_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "reserve_owner_openai_text_canary_quote"), false);
+});
+
+test("owner canary accepts and reserves only through the owner Test RPCs", async () => {
+  const service = makeOwnerCanaryGate();
+  const user = makeOwnerCanaryGate();
+  const handle = await resolveOwnerCanaryOpenAiTextFunding(ownerInput(service, user, {
+    operationId: "hammer-owner-canary-1",
+    quoteId,
+    quoteHash,
+    requestFingerprint: fingerprint,
+  }));
+  assert.equal(handle.fundingEnvironment, "test");
+  assert.equal(service.calls.filter((call) => call.name === "reserve_owner_openai_text_canary_quote").length, 1);
+  assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
+});
+
+test("an ineligible owner canary stops without falling through to ordinary funding", async () => {
+  const service = makeOwnerCanaryGate(false);
+  await assert.rejects(
+    resolveOwnerCanaryOpenAiTextFunding(ownerInput(service, makeOwnerCanaryGate())),
+    (error) => error instanceof OpenAiTextFundingPreparationError && error.code === "paid_execution_halted",
+  );
+  assert.deepEqual(service.calls.map((call) => call.name), ["resolve_owner_openai_text_canary_eligibility"]);
+});
+
+test("Hammer runtime selects the owner lane from private authority and never ordinary-to-owner fallback", () => {
+  const source = readFileSync(new URL("../../../apps/nursery/scripts/mw-hammer-prep.ts", import.meta.url), "utf8");
+  assert.match(source, /resolveOwnerOpenAiTextCanaryEligibility/);
+  assert.match(source, /ownerCanaryEligible\s*\?\s*await resolveOwnerCanaryOpenAiTextFunding/);
+  assert.doesNotMatch(source, /catch[^}]+resolveOwnerCanaryOpenAiTextFunding/s);
 });
