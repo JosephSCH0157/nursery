@@ -178,6 +178,14 @@ test("production Hammer transport preserves operation identity and halt authorit
         if (name === "resolve_openai_text_model_for_funding_quote") {
           return { data: MODEL_SELECTION, error: null };
         }
+        if (name === "resolve_owner_openai_text_canary_eligibility") {
+          return { data: {
+            eligible: false,
+            financial_environment: "test",
+            route_code: "hammer.transcript_cleanup",
+            model: MODEL_SELECTION.runtime_model_id,
+          }, error: null };
+        }
         if (name === "read_openai_execution_requirement") {
           return { data: { mode: "halt_new" }, error: null };
         }
@@ -205,6 +213,13 @@ test("production Hammer transport preserves operation identity and halt authorit
       assert.deepEqual(Object.keys(payload.error).sort(), ["code", "message"]);
     }
     assert.equal(fixtureFetch.providerCalls(), 0);
+    const ownerEligibility = gateCalls.filter((call) => call.name === "resolve_owner_openai_text_canary_eligibility");
+    assert.deepEqual(ownerEligibility.map((call) => call.args), [{
+      p_user_id: USER_ID,
+      p_workspace_id: WORKSPACE_ID,
+      p_route_code: "hammer.transcript_cleanup",
+      p_model: MODEL_SELECTION.runtime_model_id,
+    }]);
     const requirements = gateCalls.filter((call) => call.name === "read_openai_execution_requirement");
     assert.equal(requirements.length, 3);
     const existing = gateCalls.filter((call) => call.name === "read_existing_openai_text_funding_handle");
