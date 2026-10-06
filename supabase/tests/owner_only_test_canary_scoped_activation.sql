@@ -50,6 +50,7 @@ begin
   if execution_context->>'cost_policy_revision_id'<>'40010000-0000-4000-8000-000000000301'
      or execution_context->>'pricing_revision_id'<>'40010000-0000-4000-8000-000000000402'
      or execution_context->>'funding_source_type'<>'owner_budget'
+     or execution_context->>'funding_environment'<>'test'
      or execution_context->>'model'<>'gpt-5.4-mini'
      or (execution_context->>'full_cost_ceiling_micros')::bigint<>169728 then
     raise exception 'owner canary execution context did not preserve exact complete-cost authority: %',execution_context;

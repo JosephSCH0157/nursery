@@ -106,6 +106,7 @@ try {
   psql(setup, "Slice 6C.1 staged authority");
   psqlFile(resolve(root, "supabase/migrations/20261012050000_owner_only_test_canary_scoped_activation.sql"), "/tmp/forge-slice6c1-migration.sql", "Slice 6C.1 migration");
   psqlFile(resolve(root, "supabase/migrations/20261012060000_scoped_owner_canary_execution_context_activation.sql"), "/tmp/forge-slice6c4-execution-context.sql", "Slice 6C.4 execution-context migration");
+  psqlFile(resolve(root, "supabase/migrations/20261012070000_return_paid_funding_environment.sql"), "/tmp/forge-slice6c5-funding-environment.sql", "Slice 6C.5 funding-environment migration");
 
   const authority = JSON.parse(psql(String.raw`
     select jsonb_build_object(

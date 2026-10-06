@@ -100,6 +100,43 @@ test("a funding handle cannot cross financial environments", async () => {
   assert.equal(submissions, 0);
 });
 
+for (const fundingEnvironment of ["test", "live", "owner_internal"]) {
+  test(`the paid boundary accepts canonical ${fundingEnvironment} funding environment`, async () => {
+    const gate = makeGate();
+    const original = gate.rpc.bind(gate);
+    gate.rpc = async (name, rpcArgs) => {
+      const result = await original(name, rpcArgs);
+      if (name === "resolve_openai_text_paid_execution_context") {
+        result.data.funding_environment = fundingEnvironment;
+      }
+      return result;
+    };
+    const args = await argsFor("quench.metadata", { title: "test" }, () => true, gate);
+    args.handle.fundingEnvironment = fundingEnvironment;
+    const result = await executePaidOpenAiTextRoute(args);
+    assert.equal(result.state, "settled");
+  });
+}
+
+for (const invalidEnvironment of [undefined, null, "legacy_unverified", "production", ""]) {
+  test(`the paid boundary rejects invalid funding environment ${String(invalidEnvironment)}`, async () => {
+    const gate = makeGate();
+    const original = gate.rpc.bind(gate);
+    gate.rpc = async (name, rpcArgs) => {
+      const result = await original(name, rpcArgs);
+      if (name === "resolve_openai_text_paid_execution_context") {
+        result.data.funding_environment = invalidEnvironment;
+      }
+      return result;
+    };
+    const args = await argsFor("quench.metadata", { title: "test" }, () => true, gate);
+    let submissions = 0;
+    args.executeProvider = async () => { submissions += 1; throw new Error("must not execute"); };
+    await assert.rejects(() => executePaidOpenAiTextRoute(args), /funding_context_required/);
+    assert.equal(submissions, 0);
+  });
+}
+
 test("halted recovery settles captured canonical result but revoked member cannot receive it", async () => {
   const gate = makeGate();
   const original = gate.rpc.bind(gate);
