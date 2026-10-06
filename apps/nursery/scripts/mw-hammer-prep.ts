@@ -2067,7 +2067,145 @@ export type HammerPrepMiddlewareOptions = {
   openAiProviderFetch?: typeof fetch;
   /** Production transport must never fall back to legacy provider execution. */
   requirePaidExecutionAuthority?: boolean;
+  /** Private server/operator evidence. Never serialized into customer responses. */
+  recordPrivateDiagnostic?: (diagnostic: HammerPrivateDiagnostic) => void | Promise<void>;
+  /** Server-only seams for rollback-isolated actual-handler diagnostics. */
+  diagnosticUserIdResolver?: (accessToken: string) => Promise<string | null>;
+  diagnosticPolicyPreflight?: () => Promise<{ ok: true } | { ok: false; status?: number; error: string }>;
+  diagnosticUserGate?: OpenAiTextGateClient;
 };
+
+export type HammerPrivateDiagnostic = {
+  route: "hammer.transcript_cleanup";
+  operation_id: string | null;
+  quote_id: string | null;
+  request_fingerprint: string | null;
+  reservation_id: string | null;
+  stage: string;
+  http_status: number;
+  public_error_code: string;
+  private_error_code: string;
+  rpc_name: string | null;
+  sqlstate: string | null;
+  safe_details: Record<string, unknown>;
+  causal_chain: Array<{ name: string; message: string }>;
+  bounded_binding_created: boolean;
+  aggregate_admission_created: boolean;
+  provider_authorization_created: boolean;
+  provider_transport_invoked: boolean;
+  provider_submission_count: number;
+};
+
+export type HammerPrivateDiagnosticState = Omit<HammerPrivateDiagnostic,
+  "http_status" | "public_error_code" | "private_error_code" | "causal_chain"> & {
+    last_error: { message: string; code?: string; details?: string; hint?: string } | null;
+    rpc_failures: Array<{ rpc_name: string; stage: string; message: string; sqlstate: string | null; details?: string; hint?: string }>;
+  };
+
+function diagnosticStageForRpc(name: string): string | null {
+  if (name === "resolve_openai_text_paid_execution_context") return "paid_execution_context";
+  if (name === "resolve_openai_text_recovery_context") return "recovery_context_fallback";
+  if (name === "bind_bounded_provider_request") return "bounded_provider_request_binding";
+  if (name === "acquire_openai_text_aggregate_admission") return "aggregate_admission";
+  if (name === "authorize_openai_text_provider_attempt_with_aggregate") return "provider_authorization";
+  return null;
+}
+
+export function instrumentHammerDiagnosticGate(
+  gate: OpenAiTextGateClient,
+  state: HammerPrivateDiagnosticState,
+): OpenAiTextGateClient {
+  return {
+    rpc: async (name, args) => {
+      const stage = diagnosticStageForRpc(name);
+      if (stage) {
+        state.stage = stage;
+        state.rpc_name = name;
+      }
+      const result = await gate.rpc(name, args);
+      if (result.error) {
+        state.last_error = result.error;
+        state.sqlstate = result.error.code ?? null;
+        state.rpc_failures.push({
+          rpc_name: name,
+          stage: stage ?? state.stage,
+          message: result.error.message,
+          sqlstate: result.error.code ?? null,
+          ...(result.error.details ? { details: result.error.details } : {}),
+          ...(result.error.hint ? { hint: result.error.hint } : {}),
+        });
+        state.safe_details = { rpc_failures: state.rpc_failures };
+        return result;
+      }
+      const row = readJsonObject(result.data);
+      if (name === "bind_bounded_provider_request") state.bounded_binding_created = true;
+      if (name === "acquire_openai_text_aggregate_admission") {
+        state.aggregate_admission_created = row?.authorized === true;
+        if (row?.authorized !== true) state.safe_details = { reason: readTrimmed(row?.reason) ?? "aggregate_admission_denied" };
+      }
+      if (name === "authorize_openai_text_provider_attempt_with_aggregate") {
+        state.provider_authorization_created = row?.provider_execution_authorized === true;
+        if (row?.provider_execution_authorized !== true) state.safe_details = { reason: readTrimmed(row?.reason) ?? "provider_authorization_denied" };
+      }
+      return result;
+    },
+  };
+}
+
+function diagnosticCausalChain(error: unknown): Array<{ name: string; message: string }> {
+  const chain: Array<{ name: string; message: string }> = [];
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current instanceof Error && !seen.has(current) && chain.length < 8) {
+    seen.add(current);
+    chain.push({ name: current.name || "Error", message: current.message });
+    current = current.cause;
+  }
+  return chain;
+}
+
+export function toHammerPrivateDiagnostic(
+  state: HammerPrivateDiagnosticState,
+  error: unknown,
+): HammerPrivateDiagnostic {
+  return {
+    route: state.route,
+    operation_id: state.operation_id,
+    quote_id: state.quote_id,
+    request_fingerprint: state.request_fingerprint,
+    reservation_id: state.reservation_id,
+    stage: state.stage,
+    http_status: 500,
+    public_error_code: "hammer_transcript_cleanup_failed",
+    private_error_code: state.last_error?.code ?? (error instanceof Error ? error.name : "unknown_error"),
+    rpc_name: state.rpc_name,
+    sqlstate: state.sqlstate,
+    safe_details: state.safe_details,
+    causal_chain: diagnosticCausalChain(error),
+    bounded_binding_created: state.bounded_binding_created,
+    aggregate_admission_created: state.aggregate_admission_created,
+    provider_authorization_created: state.provider_authorization_created,
+    provider_transport_invoked: state.provider_transport_invoked,
+    provider_submission_count: state.provider_submission_count,
+  };
+}
+
+export function hammerCleanupCustomerFailure(): { ok: false; error: { code: string; message: string } } {
+  return { ok: false, error: {
+    code: "hammer_transcript_cleanup_failed",
+    message: "Transcript cleanup could not be completed.",
+  } };
+}
+
+async function recordHammerPrivateDiagnostic(
+  options: HammerPrepMiddlewareOptions,
+  state: HammerPrivateDiagnosticState,
+  error: unknown,
+): Promise<void> {
+  const diagnostic = toHammerPrivateDiagnostic(state, error);
+  if (options.recordPrivateDiagnostic) await options.recordPrivateDiagnostic(diagnostic);
+  else console.error("[hammer-private-diagnostic]", JSON.stringify(diagnostic));
+}
 
 export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions = {}) {
   const runtimeConfig = options.runtimeConfig ?? resolveHearthRuntimeConfig();
@@ -2091,6 +2229,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
   } | undefined;
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
+    let hammerPrivateDiagnostic: HammerPrivateDiagnosticState | null = null;
     try {
       const rawUrl = req.url || "";
       const origin = `http://${req.headers.host || "localhost"}`;
@@ -2575,6 +2714,25 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           return;
         }
 
+        hammerPrivateDiagnostic = {
+          route: "hammer.transcript_cleanup",
+          operation_id: cleanupRequest.operation_id,
+          quote_id: cleanupRequest.spending_acceptance?.quoteId ?? null,
+          request_fingerprint: cleanupRequest.spending_acceptance?.requestFingerprint ?? null,
+          reservation_id: cleanupRequest.paid_execution?.reservationId ?? null,
+          stage: "authentication",
+          rpc_name: null,
+          sqlstate: null,
+          safe_details: {},
+          bounded_binding_created: false,
+          aggregate_admission_created: false,
+          provider_authorization_created: false,
+          provider_transport_invoked: false,
+          provider_submission_count: 0,
+          last_error: null,
+          rpc_failures: [],
+        };
+
         const userAccessToken = readForgeUserAccessToken(req);
         if (!userAccessToken) {
           sendJson(res, 401, {
@@ -2596,10 +2754,15 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           sendJson(res, 400, { ok: false, error: { code: "invalid_paid_execution_context", message: "The paid execution context is invalid." } });
           return;
         }
-        const cleanupUser = supabaseService
-          ? await supabaseService.auth.getUser(userAccessToken)
+        const diagnosticUserId = options.diagnosticUserIdResolver
+          ? await options.diagnosticUserIdResolver(userAccessToken)
           : null;
-        const cleanupUserId = cleanupUser?.data.user?.id ?? null;
+        const cleanupUser = options.diagnosticUserIdResolver
+          ? null
+          : supabaseService
+            ? await supabaseService.auth.getUser(userAccessToken)
+            : null;
+        const cleanupUserId = diagnosticUserId ?? cleanupUser?.data.user?.id ?? null;
         if (cleanupRequest.paid_execution && (!supabaseService || !cleanupUserId || cleanupUser?.error)) {
           sendJson(res, 401, { ok: false, error: { message: "Authenticated server-owned funding context is required." } });
           return;
@@ -2608,14 +2771,17 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           sendJson(res, 400, { ok: false, error: { code: "conflicting_paid_execution_context", message: "Provide either paid_execution or spending_acceptance, not both." } });
           return;
         }
-        const preflight = await runHammerTranscriptPolicyPreflight({
-          supabaseUrl: runtimeConfig.supabaseUrl,
-          rpcKey: runtimeConfig.supabaseRpcKey,
-          userAccessToken,
-          workspaceId: cleanupRequest.workspace_id,
-          action: "chat",
-          feature: "heavy_tasks",
-        });
+        hammerPrivateDiagnostic.stage = "policy_preflight";
+        const preflight = options.diagnosticPolicyPreflight
+          ? await options.diagnosticPolicyPreflight()
+          : await runHammerTranscriptPolicyPreflight({
+              supabaseUrl: runtimeConfig.supabaseUrl,
+              rpcKey: runtimeConfig.supabaseRpcKey,
+              userAccessToken,
+              workspaceId: cleanupRequest.workspace_id,
+              action: "chat",
+              feature: "heavy_tasks",
+            });
         if (!preflight.ok) {
           sendJson(res, preflight.status || 500, { ok: false, error: { message: preflight.error } });
           return;
@@ -2630,14 +2796,16 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         let cleanupExecutionModel: string | null = null;
         let cleanupModelIdentity: CleanupResolvedModelIdentity | null = null;
         if (cleanupUserId && openAiTextGate) {
+          const cleanupGate = instrumentHammerDiagnosticGate(openAiTextGate, hammerPrivateDiagnostic);
           const boundedCleanupRequest = cleanupRequest;
           try {
+            hammerPrivateDiagnostic.stage = "model_resolution";
             const selectedModel = await resolveOpenAiTextModelSelection({
               routeCode: "hammer.transcript_cleanup",
               userId: cleanupUserId,
               workspaceId: cleanupRequest.workspace_id,
               credentialFunding: "forge",
-              serviceGate: openAiTextGate,
+              serviceGate: cleanupGate,
             });
             cleanupExecutionModel = selectedModel.runtimeModelId;
             cleanupModelIdentity = {
@@ -2649,6 +2817,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             const requestFingerprint = await fingerprintOpenAiTextPaidRequest(
               cleanupPaidFingerprintPayload(cleanupRequest, cleanupModelIdentity),
             );
+            hammerPrivateDiagnostic.request_fingerprint = requestFingerprint;
             if (cleanupRequest.paid_execution) {
               if (cleanupRequest.paid_execution.operationId !== cleanupRequest.operation_id
                 || cleanupRequest.paid_execution.requestFingerprint !== requestFingerprint) {
@@ -2664,12 +2833,12 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
                 userId: cleanupUserId,
                 workspaceId: cleanupRequest.workspace_id,
                 model: cleanupExecutionModel,
-                serviceGate: openAiTextGate,
+                serviceGate: cleanupGate,
               });
-              const userGate = createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
-                auth: { persistSession: false, autoRefreshToken: false },
-                global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
-              }).schema("tongs") as unknown as OpenAiTextGateClient;
+              const userGate = options.diagnosticUserGate ?? createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
+                  auth: { persistSession: false, autoRefreshToken: false },
+                  global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
+                }).schema("tongs") as unknown as OpenAiTextGateClient;
               const fundingArgs = {
                 routeCode: "hammer.transcript_cleanup" as const,
                 operationId: cleanupRequest.operation_id,
@@ -2679,7 +2848,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
                 requestFingerprint,
                 model: cleanupExecutionModel,
                 acceptance: cleanupRequest.spending_acceptance,
-                serviceGate: openAiTextGate,
+                serviceGate: cleanupGate,
                 prepareBoundedRequest: ({ model, maximumOutputTokens, maximumAttempts }) =>
                   buildBoundedPaidJsonOpenAiRequest({
                     body: transcriptCleanupProviderBody(boundedCleanupRequest, model),
@@ -2700,6 +2869,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
                 return;
               }
               cleanupRequest = { ...cleanupRequest, paid_execution: handle };
+              hammerPrivateDiagnostic.reservation_id = handle.reservationId;
             }
           } catch (error) {
             if (sendHammerOpenAiFundingError(res, error)) return;
@@ -2720,11 +2890,17 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           model: cleanupExecutionModel,
           modelIdentity: cleanupModelIdentity,
           request: cleanupRequest,
-          fetchImpl: options.openAiProviderFetch,
+          fetchImpl: options.openAiProviderFetch
+            ? async (input: string | URL | Request, init?: RequestInit) => {
+                hammerPrivateDiagnostic!.stage = "provider_transport";
+                hammerPrivateDiagnostic!.provider_transport_invoked = true;
+                return options.openAiProviderFetch!(input, init);
+              }
+            : undefined,
           ...(cleanupRequest.paid_execution && supabaseService && cleanupUserId && openAiTextGate && domainRpc
             ? {
                 paid: {
-                  gate: openAiTextGate,
+                  gate: instrumentHammerDiagnosticGate(openAiTextGate, hammerPrivateDiagnostic),
                   handle: cleanupRequest.paid_execution,
                   userId: cleanupUserId,
                   credentialSource: "forge_managed" as const,
@@ -3782,6 +3958,11 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           retryable: true,
           meta: readPrepMetaFromBody(null),
         });
+        return;
+      }
+      if (pathname === HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE && hammerPrivateDiagnostic) {
+        await recordHammerPrivateDiagnostic(options, hammerPrivateDiagnostic, error);
+        sendJson(res, 500, hammerCleanupCustomerFailure());
         return;
       }
       sendJson(res, 500, { ok: false, error: { message: error instanceof Error ? error.message : "Hammer prep middleware crashed unexpectedly." } });

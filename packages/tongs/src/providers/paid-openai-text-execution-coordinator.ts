@@ -7,7 +7,15 @@ import {
 import type { CoordinatedOpenAiRouteCode } from "./paid-openai-text-route-execution.js";
 import { OPENAI_TEXT_ATTEMPT_LEASE_SECONDS } from "./openai-text-timing-contract.js";
 
-type RpcResult = { data: unknown; error: { message: string } | null };
+type RpcResult = {
+  data: unknown;
+  error: {
+    message: string;
+    code?: string;
+    details?: string;
+    hint?: string;
+  } | null;
+};
 export type OpenAiTextGateClient = { rpc(name: string, args: Record<string, unknown>): Promise<RpcResult> };
 export type OpenAiCredentialFunding = "forge" | "byo_customer";
 
