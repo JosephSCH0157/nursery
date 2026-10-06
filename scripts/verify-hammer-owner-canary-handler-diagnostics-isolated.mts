@@ -46,7 +46,7 @@ type RpcError = { message: string; code?: string; details?: string; hint?: strin
 async function createGate(
   client: pg.Client,
   role: "service_role" | "authenticated",
-  callerOverride?: "interactive",
+  callerOverride?: "background",
 ): Promise<OpenAiTextGateClient> {
   const signatures = new Map<string, Array<{ names: string[]; types: string[]; defaults: number }>>();
   return {
@@ -101,7 +101,7 @@ async function createGate(
 async function invokeScenario(
   client: pg.Client,
   operationId: string,
-  callerOverride?: "interactive",
+  callerOverride?: "background",
 ) {
   await client.query("begin");
   try {
@@ -167,7 +167,7 @@ async function invokeScenario(
       'reservations',(select count(*) from tongs.openai_text_funding_bindings where route_code='hammer.transcript_cleanup')
     ) evidence`)).rows[0].evidence;
     return {
-      caller_class_seen_by_database: callerOverride ?? "background",
+      caller_class_seen_by_database: callerOverride ?? "interactive",
       quote_status: quoteResponse.status,
       execution_status: executionResponse.status,
       customer_error: executionPayload,
@@ -203,14 +203,36 @@ try {
   const client = new pg.Client({ connectionString: `postgresql://postgres:postgres@127.0.0.1:54322/${database}` });
   await client.connect();
   try {
-    const background = await invokeScenario(client, "hammer-owner-canary-diagnostic-background-0001");
+    const interactive = await invokeScenario(client, "hammer-owner-canary-diagnostic-interactive-0001");
+    const interactiveFailure = interactive.diagnostics.at(-1);
+    const reachedProviderTransport = interactive.caller_class_seen_by_database === "interactive"
+      && interactive.database_evidence.bounded_bindings === 1
+      && interactive.database_evidence.aggregate_bindings === 1
+      && interactive.database_evidence.provider_attempts === 1
+      && interactiveFailure?.stage === "provider_transport"
+      && interactiveFailure.bounded_binding_created === true
+      && interactiveFailure.aggregate_admission_created === true
+      && interactiveFailure.provider_authorization_created === true
+      && interactiveFailure.provider_transport_invoked === true
+      && interactiveFailure.provider_submission_count === 0
+      && interactive.provider_boundary_intercepts === 1
+      && interactive.actual_network_calls === 0;
+    if (!reachedProviderTransport) throw new Error(`production interactive path did not reach the intercepted provider boundary: ${JSON.stringify(interactive)}`);
+
+    const background = await invokeScenario(client, "hammer-owner-canary-diagnostic-background-control-0002", "background");
     const backgroundFailure = background.diagnostics.at(-1);
     const reachedCallerClassRejection = background.database_evidence.bounded_bindings === 1
+      && background.database_evidence.aggregate_bindings === 0
+      && background.database_evidence.provider_attempts === 0
       && backgroundFailure?.stage === "aggregate_admission"
-      && backgroundFailure.safe_details.reason === "caller_not_permitted";
-    const interactive = reachedCallerClassRejection
-      ? await invokeScenario(client, "hammer-owner-canary-diagnostic-interactive-0002", "interactive")
-      : null;
+      && backgroundFailure.safe_details.reason === "caller_not_permitted"
+      && backgroundFailure.aggregate_admission_created === false
+      && backgroundFailure.provider_authorization_created === false
+      && backgroundFailure.provider_transport_invoked === false
+      && backgroundFailure.provider_submission_count === 0
+      && background.provider_boundary_intercepts === 0
+      && background.actual_network_calls === 0;
+    if (!reachedCallerClassRejection) throw new Error(`background control was not rejected by caller policy: ${JSON.stringify(background)}`);
     const durable = (await client.query(`select jsonb_build_object(
       'quotes',(select count(*) from tongs.openai_text_customer_quote_bindings where route_code='hammer.transcript_cleanup'),
       'reservations',(select count(*) from tongs.openai_text_funding_bindings where route_code='hammer.transcript_cleanup'),
@@ -218,14 +240,18 @@ try {
       'aggregate_bindings',(select count(*) from tongs.paid_operation_aggregate_bindings),
       'holds',(select count(*) from tongs.restricted_beta_exposure_holds),
       'provider_attempts',(select count(*) from tongs.funding_reservation_events where provider_attempt_key is not null),
+      'settlements',(select count(*) from tongs.funding_reservation_events where event_type='settled'),
+      'usage_rows',(select count(*) from tongs.openai_text_usage_evidence),
+      'persisted_results',(select count(*) from tongs.openai_text_persisted_results),
+      'domain_results',(select count(*) from tongs.hammer_transcript_cleanup_assist_results),
       'expenses',(select count(*) from tongs.supplier_expenses)
     ) evidence`)).rows[0].evidence;
     if (Object.values(durable).some((value) => Number(value) !== 0)) throw new Error(`rollback left durable financial activity: ${JSON.stringify(durable)}`);
     console.log(JSON.stringify({
       ok: true,
-      background,
-      interactive_comparison_performed: interactive !== null,
-      interactive,
+      production_interactive_proof: interactive,
+      background_rejection_control: background,
+      provider_network_calls: 0,
       durable,
     }, null, 2));
   } finally {

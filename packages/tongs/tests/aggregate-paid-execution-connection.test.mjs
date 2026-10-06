@@ -59,21 +59,31 @@ test("migration is private and inactive by default", async () => {
   assert.match(sql, /platform operator required/i);
 });
 
-test("ordinary and background caller files reach the aggregate-wired adapters", async () => {
+test("caller classes match each route's execution lifecycle at aggregate-wired adapters", async () => {
   const root = new URL("../../../", import.meta.url);
   const files = {
     hearth: await readFile(new URL("apps/nursery/server/hearth/create-hearth-ai-handler.ts", root), "utf8"),
     visual: await readFile(workpieceUrl, "utf8"),
     hammer: await readFile(new URL("apps/nursery/scripts/mw-hammer-prep.ts", root), "utf8"),
     shorts: await readFile(new URL("apps/nursery/scripts/hammer-shorts-discovery.ts", root), "utf8"),
+    jobs: await readFile(new URL("apps/nursery/server/tongs/workpiece-job-runner.ts", root), "utf8"),
+    coordinator: await readFile(coordinatorUrl, "utf8"),
   };
   assert.match(files.hearth, /executePaidJsonOpenAiRoute\([\s\S]+?routeCode:\s*"hearth\.research_synthesis"/);
   for (const route of ["visual.unified_plan", "visual.narrative_interpretation", "motion.broll_interpretation"]) {
     assert.match(files.visual, new RegExp(`executePaidOpenAiTextRoute\\([\\s\\S]+?routeCode:\\s*"${route.replaceAll(".", "\\.")}"`));
   }
-  assert.match(files.hammer, /routeCode:\s*"hammer\.transcript_cleanup"[\s\S]+?callerClass:\s*"background"/);
+  const cleanupCaller = files.hammer.slice(
+    files.hammer.indexOf("async function runOpenAiTranscriptCleanupAssist"),
+    files.hammer.indexOf("async function runOpenAiQuenchMetadataAssist"),
+  );
+  assert.match(cleanupCaller, /routeCode:\s*"hammer\.transcript_cleanup"[\s\S]+?callerClass:\s*"interactive"/);
+  assert.doesNotMatch(cleanupCaller, /callerClass:\s*"background"/);
   assert.match(files.hammer, /routeCode:\s*"quench\.metadata"[\s\S]+?callerClass:\s*"background"/);
   assert.match(files.shorts, /routeCode:\s*"shorts\.discovery"[\s\S]+?callerClass:\s*"background"/);
+  assert.match(files.jobs, /p_caller_class:\s*"background"/);
+  assert.match(files.coordinator, /p_caller_class:\s*attemptNumber === 1 \? input\.aggregateCallerClass : "retry"/);
+  assert.doesNotMatch(files.coordinator, /owner[\s\S]{0,120}callerClass/i);
 });
 
 test("all JSON text callers bind a complete serialized request at quote and provider boundaries", async () => {

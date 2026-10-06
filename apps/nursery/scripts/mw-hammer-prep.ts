@@ -1486,7 +1486,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
       workspaceId: args.request.workspace_id,
       workpieceId: args.request.workpiece_id,
       credentialSource: args.paid.credentialSource,
-      callerClass: "background",
+      callerClass: "interactive",
       apiKey: args.apiKey,
       requestFingerprintPayload: cleanupPaidFingerprintPayload(args.request, args.modelIdentity),
       providerRequestBody: (model) => transcriptCleanupProviderBody(args.request, model),
