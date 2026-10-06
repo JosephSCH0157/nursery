@@ -10,7 +10,7 @@ declare
   reservation_id uuid:='6c100000-0000-4000-8000-000000000003';
   operation_id text:='hammer-owner-canary-proof-0001';
   fingerprint text:=repeat('a',64);
-  quote_result jsonb; bound_result jsonb; reserve_result jsonb;
+  quote_result jsonb; bound_result jsonb; reserve_result jsonb; execution_context jsonb;
   aggregate_result jsonb; provider_result jsonb; denied boolean:=false;
 begin
   quote_result:=tongs.create_owner_openai_text_canary_quote(
@@ -43,6 +43,50 @@ begin
      or (select rollout_authorization_id is null from tongs.funding_reservations where id=reservation_id) then
     raise exception 'owner canary reservation did not bind exact Test scope and budget';
   end if;
+
+  execution_context:=tongs.resolve_openai_text_paid_execution_context(
+    'hammer.transcript_cleanup',operation_id,reservation_id,owner_id,workspace_id,
+    'workpiece-proof',fingerprint);
+  if execution_context->>'cost_policy_revision_id'<>'40010000-0000-4000-8000-000000000301'
+     or execution_context->>'pricing_revision_id'<>'40010000-0000-4000-8000-000000000402'
+     or execution_context->>'funding_source_type'<>'owner_budget'
+     or execution_context->>'model'<>'gpt-5.4-mini'
+     or (execution_context->>'full_cost_ceiling_micros')::bigint<>169728 then
+    raise exception 'owner canary execution context did not preserve exact complete-cost authority: %',execution_context;
+  end if;
+
+  -- Every caller-controlled identity remains exact. None may be inferred from
+  -- owner identity or from the existence of a canary activation.
+  begin
+    perform tongs.resolve_openai_text_paid_execution_context(
+      'hammer.transcript_cleanup',operation_id,reservation_id,'6b100000-0000-4000-8000-000000000099',
+      workspace_id,'workpiece-proof',fingerprint);
+    raise exception 'wrong owner unexpectedly resolved execution context';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.resolve_openai_text_paid_execution_context(
+      'hammer.transcript_cleanup',operation_id,reservation_id,owner_id,'6b100000-0000-4000-8000-000000000199',
+      'workpiece-proof',fingerprint);
+    raise exception 'wrong workspace unexpectedly resolved execution context';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.resolve_openai_text_paid_execution_context(
+      'hammer.transcript_cleanup','hammer-owner-canary-proof-wrong',reservation_id,owner_id,workspace_id,
+      'workpiece-proof',fingerprint);
+    raise exception 'wrong operation unexpectedly resolved execution context';
+  exception when no_data_found then null; end;
+  begin
+    perform tongs.resolve_openai_text_paid_execution_context(
+      'hammer.transcript_cleanup',operation_id,reservation_id,owner_id,workspace_id,
+      'workpiece-proof',repeat('f',64));
+    raise exception 'wrong request fingerprint unexpectedly resolved execution context';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform tongs.resolve_openai_text_paid_execution_context(
+      'hammer.transcript_cleanup',operation_id,reservation_id,owner_id,workspace_id,
+      'wrong-workpiece',fingerprint);
+    raise exception 'wrong workpiece unexpectedly resolved execution context';
+  exception when insufficient_privilege then null; end;
 
   aggregate_result:=tongs.acquire_openai_text_aggregate_admission(reservation_id,'interactive','real');
   if coalesce((aggregate_result->>'authorized')::boolean,false) is not true then

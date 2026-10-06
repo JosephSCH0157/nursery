@@ -43,7 +43,11 @@ function psqlFile(hostPath: string, containerPath: string, label: string): strin
 
 type RpcError = { message: string; code?: string; details?: string; hint?: string };
 
-async function createGate(client: pg.Client, role: "service_role" | "authenticated"): Promise<OpenAiTextGateClient> {
+async function createGate(
+  client: pg.Client,
+  role: "service_role" | "authenticated",
+  callerOverride?: "interactive",
+): Promise<OpenAiTextGateClient> {
   const signatures = new Map<string, Array<{ names: string[]; types: string[]; defaults: number }>>();
   return {
     rpc: async (name, args) => {
@@ -51,6 +55,10 @@ async function createGate(client: pg.Client, role: "service_role" | "authenticat
       try {
         await client.query("select set_config('request.jwt.claim.role',$1,true),set_config('request.jwt.claim.sub',$2,true)", [role, role === "authenticated" ? ownerId : ""]);
         const effectiveArgs = { ...args };
+        if (callerOverride && (
+          name === "acquire_openai_text_aggregate_admission"
+          || name === "authorize_openai_text_provider_attempt_with_aggregate"
+        )) effectiveArgs.p_caller_class = callerOverride;
         if (!signatures.has(name)) {
           const found = await client.query<{ names: string[]; identity: string; defaults: number }>(`
             select coalesce(p.proargnames,'{}') names,
@@ -90,10 +98,14 @@ async function createGate(client: pg.Client, role: "service_role" | "authenticat
   };
 }
 
-async function invokeScenario(client: pg.Client) {
+async function invokeScenario(
+  client: pg.Client,
+  operationId: string,
+  callerOverride?: "interactive",
+) {
   await client.query("begin");
   try {
-    const serviceGate = await createGate(client, "service_role");
+    const serviceGate = await createGate(client, "service_role", callerOverride);
     const userGate = await createGate(client, "authenticated");
     const diagnostics: HammerPrivateDiagnostic[] = [];
     let boundaryIntercepts = 0;
@@ -124,7 +136,6 @@ async function invokeScenario(client: pg.Client) {
         throw new Error("diagnostic_provider_transport_intercepted");
       },
     });
-    const operationId = "hammer-owner-canary-diagnostic-background-0001";
     const base = {
       operation_id: operationId,
       workspace_id: workspaceId,
@@ -156,7 +167,7 @@ async function invokeScenario(client: pg.Client) {
       'reservations',(select count(*) from tongs.openai_text_funding_bindings where route_code='hammer.transcript_cleanup')
     ) evidence`)).rows[0].evidence;
     return {
-      caller_class_seen_by_database: "background",
+      caller_class_seen_by_database: callerOverride ?? "background",
       quote_status: quoteResponse.status,
       execution_status: executionResponse.status,
       customer_error: executionPayload,
@@ -186,11 +197,19 @@ try {
   psqlFile(resolve(root, "supabase/migrations/20261012040000_hammer_test_canary_prerequisites.sql"), "/tmp/forge-slice6c3-prerequisite.sql", "Slice 6B.1 migration");
   psql(setup, "Slice 6C.1 staged authority");
   psqlFile(resolve(root, "supabase/migrations/20261012050000_owner_only_test_canary_scoped_activation.sql"), "/tmp/forge-slice6c3-activation.sql", "Slice 6C.1 migration");
+  psqlFile(resolve(root, "supabase/migrations/20261012060000_scoped_owner_canary_execution_context_activation.sql"), "/tmp/forge-slice6c4-execution-context.sql", "Slice 6C.4 execution-context migration");
 
   const client = new pg.Client({ connectionString: `postgresql://postgres:postgres@127.0.0.1:54322/${database}` });
   await client.connect();
   try {
-    const background = await invokeScenario(client);
+    const background = await invokeScenario(client, "hammer-owner-canary-diagnostic-background-0001");
+    const backgroundFailure = background.diagnostics.at(-1);
+    const reachedCallerClassRejection = background.database_evidence.bounded_bindings === 1
+      && backgroundFailure?.stage === "aggregate_admission"
+      && backgroundFailure.safe_details.reason === "caller_not_permitted";
+    const interactive = reachedCallerClassRejection
+      ? await invokeScenario(client, "hammer-owner-canary-diagnostic-interactive-0002", "interactive")
+      : null;
     const durable = (await client.query(`select jsonb_build_object(
       'quotes',(select count(*) from tongs.openai_text_customer_quote_bindings where route_code='hammer.transcript_cleanup'),
       'reservations',(select count(*) from tongs.openai_text_funding_bindings where route_code='hammer.transcript_cleanup'),
@@ -201,7 +220,13 @@ try {
       'expenses',(select count(*) from tongs.supplier_expenses)
     ) evidence`)).rows[0].evidence;
     if (Object.values(durable).some((value) => Number(value) !== 0)) throw new Error(`rollback left durable financial activity: ${JSON.stringify(durable)}`);
-    console.log(JSON.stringify({ ok: true, background, interactive_comparison_performed: false, durable }, null, 2));
+    console.log(JSON.stringify({
+      ok: true,
+      background,
+      interactive_comparison_performed: interactive !== null,
+      interactive,
+      durable,
+    }, null, 2));
   } finally {
     await client.end();
   }

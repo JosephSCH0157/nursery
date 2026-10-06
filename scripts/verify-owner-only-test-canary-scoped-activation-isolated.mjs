@@ -33,7 +33,9 @@ const setup = String.raw`
 insert into tongs.openai_text_cost_policy_revisions(
  id,route_code,revision,policy_code,attempt_plan,maximum_input_units,maximum_output_units,maximum_attempts,
  direct_provider_ceiling_micros,supporting_cost_ceiling_micros,full_cost_ceiling_micros,cost_coverage,lifecycle_state,notes
-) values('40010000-0000-4000-8000-000000000301','hammer.transcript_cleanup',1,'slice6c1-mini','[{"attempt":1}]',128000,16384,1,169728,0,169728,'complete','active','Slice 6C.1 exact Mini policy');
+) values('40010000-0000-4000-8000-000000000301','hammer.transcript_cleanup',1,'slice6c1-mini',
+ '[{"attempt":1,"rate_revision_id":"6b100000-0000-4000-8000-000000000080","runtime_model":"gpt-5.4-mini","provider_model_id":"gpt-5.4-mini-2026-03-17","input_max":128000,"output_max":16384}]',
+ 128000,16384,1,169728,0,169728,'complete','active','Slice 6C.1 exact Mini policy');
 insert into tongs.openai_text_provider_rate_revisions(
  id,provider,runtime_model_alias,provider_model_id,revision,input_micros_per_million_tokens,
  cached_input_micros_per_million_tokens,output_micros_per_million_tokens,maximum_context_tokens,
@@ -103,6 +105,7 @@ try {
   psqlFile(resolve(root, "supabase/migrations/20261012040000_hammer_test_canary_prerequisites.sql"), "/tmp/forge-slice6c1-prerequisite.sql", "Slice 6B.1 migration");
   psql(setup, "Slice 6C.1 staged authority");
   psqlFile(resolve(root, "supabase/migrations/20261012050000_owner_only_test_canary_scoped_activation.sql"), "/tmp/forge-slice6c1-migration.sql", "Slice 6C.1 migration");
+  psqlFile(resolve(root, "supabase/migrations/20261012060000_scoped_owner_canary_execution_context_activation.sql"), "/tmp/forge-slice6c4-execution-context.sql", "Slice 6C.4 execution-context migration");
 
   const authority = JSON.parse(psql(String.raw`
     select jsonb_build_object(
