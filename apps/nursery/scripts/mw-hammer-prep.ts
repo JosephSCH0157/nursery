@@ -2839,7 +2839,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
                   auth: { persistSession: false, autoRefreshToken: false },
                   global: { headers: { Authorization: `Bearer ${userAccessToken}` } },
                 }).schema("tongs") as unknown as OpenAiTextGateClient;
-              const fundingArgs = {
+              const fundingArgs: Parameters<typeof resolveOwnerCanaryOpenAiTextFunding>[0] = {
                 routeCode: "hammer.transcript_cleanup" as const,
                 operationId: cleanupRequest.operation_id,
                 userId: cleanupUserId,
