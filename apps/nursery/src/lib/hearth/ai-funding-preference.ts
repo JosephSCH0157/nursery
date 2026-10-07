@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { aiControlRecord as object, aiControlRpc } from "./ai-control-rpc";
 
 export type AiFundingPayerKind = "personal" | "organization_shared" | "owner_testing";
 
@@ -16,13 +16,6 @@ export type AiFundingOptions = {
   selectedRevisionId: string | null;
   options: AiFundingOption[];
 };
-
-type RpcResult = { data: unknown; error: { message?: string } | null };
-type RpcClient = { rpc: (name: string, args?: Record<string, unknown>) => PromiseLike<RpcResult> };
-
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
 
 function normalizeKind(value: unknown): AiFundingPayerKind {
   return value === "organization_shared" || value === "owner_testing" ? value : "personal";
@@ -48,14 +41,12 @@ function normalize(value: unknown): AiFundingOptions {
   };
 }
 
-function client(): RpcClient {
-  return supabase.schema("tongs") as unknown as RpcClient;
-}
-
 export async function loadAiFundingOptions(workspaceId: string): Promise<AiFundingOptions> {
-  const result = await client().rpc("read_my_ai_funding_options", { p_workspace_id: workspaceId });
-  if (result.error) throw new Error(result.error.message || "Unable to load AI funding options.");
-  return normalize(result.data);
+  return normalize(await aiControlRpc(
+    "read_my_ai_funding_options",
+    { p_workspace_id: workspaceId },
+    "Unable to load AI funding options.",
+  ));
 }
 
 export async function saveAiFundingPreference(
@@ -65,10 +56,9 @@ export async function saveAiFundingPreference(
   const current = await loadAiFundingOptions(workspaceId);
   const selected = current.options.find((option) => option.kind === payerKind);
   if (!selected?.available) throw new Error("That funding source is not authorized for this workspace.");
-  const result = await client().rpc("set_my_ai_funding_preference", {
+  await aiControlRpc("set_my_ai_funding_preference", {
     p_workspace_id: workspaceId,
     p_payer_kind: payerKind,
     p_org_id: payerKind === "organization_shared" ? current.orgId : null,
-  });
-  if (result.error) throw new Error(result.error.message || "Unable to save AI funding preference.");
+  }, "Unable to save AI funding preference.");
 }
