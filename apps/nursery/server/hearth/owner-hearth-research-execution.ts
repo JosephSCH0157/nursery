@@ -94,7 +94,7 @@ export type OwnerResearchPlan = {
 
 export type CustomerResearchPlan = Omit<OwnerResearchPlan, "schema" | "requested_model" | "limit_profile"> & {
   schema: typeof CUSTOMER_RESEARCH_PLAN_SCHEMA;
-  requested_model: typeof CUSTOMER_RESEARCH_MODEL;
+  requested_model: string;
   limit_profile: "standard_customer";
 };
 
@@ -218,6 +218,7 @@ export function buildCustomerResearchPlan(args: {
   workpieceId: string;
   userAuthoredText: string;
   query: string;
+  requestedModel?: string;
 }): CustomerResearchPlan {
   const limits = OWNER_RESEARCH_LIMIT_PROFILES.creator_session;
   const userAuthoredText = args.userAuthoredText.trim();
@@ -242,7 +243,7 @@ export function buildCustomerResearchPlan(args: {
     user_authored_text: userAuthoredText,
     query,
     brief_fingerprint: briefFingerprint,
-    requested_model: CUSTOMER_RESEARCH_MODEL,
+    requested_model: args.requestedModel?.trim() || CUSTOMER_RESEARCH_MODEL,
     limit_profile: "standard_customer",
     maximum_search_requests: limits.maximumSearches,
     maximum_sources: limits.maximumSources,

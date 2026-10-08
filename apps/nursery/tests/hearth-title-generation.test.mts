@@ -286,6 +286,7 @@ test("Generate Titles requests a distinct one-credit quote before any provider c
         catalog_revision_id: "14000000-0000-4000-8000-000000000005",
         catalog_revision: 7,
         model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
         runtime_model_id: HEARTH_TITLE_MODEL,
         provider_model_id: HEARTH_TITLE_MODEL,
         display_name: "GPT-5.6 Luna",
@@ -468,6 +469,7 @@ test("accepted title quote settles once and exact replay reads the canonical res
         catalog_revision_id: "14000000-0000-4000-8000-000000000005",
         catalog_revision: 7,
         model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
         runtime_model_id: HEARTH_TITLE_MODEL, provider_model_id: HEARTH_TITLE_MODEL,
         display_name: "GPT-5.6 Luna", tradeoff_summary: "Five bounded titles.",
       }, error: null };

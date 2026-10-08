@@ -31,9 +31,12 @@ import {
   readSettledOpenAiTextRouteReplay,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import {
+  bindOpenAiTextModelSelectionToFingerprint,
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
+  resolveOpenAiTextModelSelection,
   resolveOrdinaryOpenAiTextFunding,
+  type OpenAiTextModelSelection,
 } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
 import {
   buildBoundedPaidJsonOpenAiRequest,
@@ -163,6 +166,7 @@ import {
 } from "./hearth-paid-framing-pack-generation";
 import {
   HEARTH_THUMBNAIL_DIRECTION_CONTRACT,
+  HEARTH_THUMBNAIL_DIRECTION_MODEL,
   HEARTH_THUMBNAIL_DIRECTION_OUTPUT_CONTRACT,
   HEARTH_THUMBNAIL_DIRECTION_ROUTE,
   HEARTH_THUMBNAIL_DIRECTION_STYLE_FALLBACK,
@@ -216,7 +220,6 @@ import {
   buildCustomerResearchPlan,
   buildOwnerResearchPlan,
   createCustomerHearthResearchFetch,
-  fingerprintCustomerResearchPlan,
   freezeOwnerHearthResearchSynthesis,
   ownerHearthResearchExecutionGate,
   settleCustomerHearthResearchBeforeSynthesis,
@@ -4824,6 +4827,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       let ownerResearchPlan: OwnerResearchPlan | null = null;
       let customerResearchPlan: CustomerResearchPlan | null = null;
+      let customerResearchModelSelection: OpenAiTextModelSelection | null = null;
+      let customerResearchFingerprintPayload: unknown = null;
       let ownerResearchDeadlineAt: number | null = null;
       let customerResearchDeadlineAt: number | null = null;
       let ownerResearchMaximumOutputTokens: number | null = null;
@@ -4878,6 +4883,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       if (productionAction === "seo") model = HEARTH_TITLE_MODEL;
       if (productionAction === "tags") model = HEARTH_TAG_MODEL;
       if (productionAction === "release_prep_pack") model = HEARTH_FRAMING_PACK_MODEL;
+      if (productionAction === "thumbnails") model = HEARTH_THUMBNAIL_DIRECTION_MODEL;
       if (researchModeRequested && !ownerResearchRequirement
         && effectiveLane === AI_USAGE_LANE.FORGE) {
         if (!researchBrief || !researchRequest || !userId || !bearerToken
@@ -4889,80 +4895,115 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ...buildBillingSnapshot(lane),
           });
         }
+        if (!paidExecutionHandle) {
+          try {
+            customerResearchModelSelection = await resolveOpenAiTextModelSelection({
+              routeCode: "hearth.research_synthesis",
+              userId,
+              workspaceId: episodeContext.workspaceId,
+              credentialFunding: "forge",
+              serviceGate: openAiTextGate,
+            });
+          } catch (error) {
+            if (error instanceof OpenAiTextFundingPreparationError) {
+              return jsonResponse(error.status, {
+                ok: false,
+                error: error.message,
+                code: error.code,
+                ...error.details,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            throw error;
+          }
+        }
+        const customerResearchModel = customerResearchModelSelection?.runtimeModelId
+          ?? CUSTOMER_RESEARCH_MODEL;
         customerResearchPlan = buildCustomerResearchPlan({
           workspaceId: episodeContext.workspaceId,
           workpieceId: episodeContext.episodeId,
           userAuthoredText: requestText,
           query: researchRequest.query,
+          requestedModel: customerResearchModel,
         });
-        const planFingerprint = fingerprintCustomerResearchPlan(customerResearchPlan);
+        customerResearchFingerprintPayload = customerResearchModelSelection
+          ? bindOpenAiTextModelSelectionToFingerprint({
+              routeCode: "hearth.research_synthesis",
+              semanticRequest: customerResearchPlan,
+              selection: customerResearchModelSelection,
+            })
+          : customerResearchPlan;
+        const planFingerprint = await fingerprintOpenAiTextPaidRequest(customerResearchFingerprintPayload);
         const operationId = deriveHearthCustomerPaidIdentifiers({
           userId,
           workspaceId: episodeContext.workspaceId,
           requestFingerprint: planFingerprint,
         }).operationId;
-        try {
-          paidExecutionHandle = await resolveOrdinaryOpenAiTextFunding({
-            routeCode: "hearth.research_synthesis",
-            operationId,
-            userId,
-            workspaceId: episodeContext.workspaceId,
-            workpieceId: episodeContext.episodeId,
-            requestFingerprint: planFingerprint,
-            model: CUSTOMER_RESEARCH_MODEL,
-            credentialFunding: "forge",
-            acceptance: spendingAcceptance,
-            serviceGate: openAiTextGate,
-            deferProviderRequestBinding: true,
-            userGate: {
-              rpc: async (name, payload) => {
-                const result = await callUserScopedTongsRpc({
-                  accessToken: bearerToken,
-                  fn: name,
-                  payload,
-                });
-                return result.ok
-                  ? { data: result.data, error: null }
-                  : { data: null, error: { message: result.error } };
+        if (!paidExecutionHandle) {
+          try {
+            paidExecutionHandle = await resolveOrdinaryOpenAiTextFunding({
+              routeCode: "hearth.research_synthesis",
+              operationId,
+              userId,
+              workspaceId: episodeContext.workspaceId,
+              workpieceId: episodeContext.episodeId,
+              requestFingerprint: planFingerprint,
+              model: customerResearchModel,
+              expectedModelSelection: customerResearchModelSelection ?? undefined,
+              credentialFunding: "forge",
+              acceptance: spendingAcceptance,
+              serviceGate: openAiTextGate,
+              deferProviderRequestBinding: true,
+              userGate: {
+                rpc: async (name, payload) => {
+                  const result = await callUserScopedTongsRpc({
+                    accessToken: bearerToken,
+                    fn: name,
+                    payload,
+                  });
+                  return result.ok
+                    ? { data: result.data, error: null }
+                    : { data: null, error: { message: result.error } };
+                },
               },
-            },
-          });
-        } catch (error) {
-          if (error instanceof OpenAiTextQuoteRequiredError) {
-            return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
-              ok: false,
-              error: error.quote.fundingEligible
-                ? `Current verification requires Research with Hearth. Review and accept up to ${CUSTOMER_RESEARCH_CREDITS} Forge Credits before search begins.`
-                : "Not enough Forge Credits are available for this research operation.",
-              code: error.quote.fundingEligible
-                ? "hearth_spending_confirmation_required"
-                : "hearth_insufficient_verified_funds",
-              billing_quote: {
-                quote_id: error.quote.quoteId,
-                operation_id: error.quote.operationId,
-                quote_hash: error.quote.quoteHash,
-                request_fingerprint: error.quote.requestFingerprint,
-                credit_charge: error.quote.customerCreditUnits,
-                failure_terms: error.quote.failureTerms,
-                funding_eligible: error.quote.fundingEligible,
-                funding_label: error.quote.fundingLabel,
-                model_display_name: "Hearth Research",
-                model_tradeoff_summary: "Current sources with bounded evidence synthesis.",
-                expires_at: error.quote.expiresAt,
-              },
-              ...buildBillingSnapshot(lane),
             });
+          } catch (error) {
+            if (error instanceof OpenAiTextQuoteRequiredError) {
+              return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
+                ok: false,
+                error: error.quote.fundingEligible
+                  ? `Current verification requires Research with Hearth. Review and accept up to ${CUSTOMER_RESEARCH_CREDITS} Forge Credits before search begins.`
+                  : "Not enough Forge Credits are available for this research operation.",
+                code: error.quote.fundingEligible
+                  ? "hearth_spending_confirmation_required"
+                  : "hearth_insufficient_verified_funds",
+                billing_quote: {
+                  quote_id: error.quote.quoteId,
+                  operation_id: error.quote.operationId,
+                  quote_hash: error.quote.quoteHash,
+                  request_fingerprint: error.quote.requestFingerprint,
+                  credit_charge: error.quote.customerCreditUnits,
+                  failure_terms: error.quote.failureTerms,
+                  funding_eligible: error.quote.fundingEligible,
+                  funding_label: error.quote.fundingLabel,
+                  model_display_name: "Hearth Research",
+                  model_tradeoff_summary: "Current sources with bounded evidence synthesis.",
+                  expires_at: error.quote.expiresAt,
+                },
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (error instanceof OpenAiTextFundingPreparationError) {
+              return jsonResponse(error.status, {
+                ok: false,
+                error: error.message,
+                code: error.code,
+                ...error.details,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            throw error;
           }
-          if (error instanceof OpenAiTextFundingPreparationError) {
-            return jsonResponse(error.status, {
-              ok: false,
-              error: error.message,
-              code: error.code,
-              ...error.details,
-              ...buildBillingSnapshot(lane),
-            });
-          }
-          throw error;
         }
         if (!paidExecutionHandle) {
           return jsonResponse(503, {
@@ -4980,7 +5021,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           workspaceId: episodeContext.workspaceId,
           workpieceId: episodeContext.episodeId,
           credentialSource: resolvedCredentials.keySource,
-          requestFingerprintPayload: customerResearchPlan,
+          requestFingerprintPayload: customerResearchFingerprintPayload,
         });
         if (settledReplay) {
           const replayResult = settledReplay.result;
@@ -5011,7 +5052,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ...buildBillingSnapshot(lane),
           });
         }
-        model = CUSTOMER_RESEARCH_MODEL;
+        model = customerResearchModel;
         customerResearchDeadlineAt = Date.now() + OWNER_RESEARCH_DEADLINE_MS;
         ownerResearchFetch = createCustomerHearthResearchFetch({
           gate: openAiTextGate,
@@ -5615,6 +5656,42 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : scriptGenerationRequested
             ? "hearth.script_generation"
           : "hearth.chat_completion";
+        let paidModelSelection = customerResearchModelSelection;
+        const freshForgeCustomerRequest = effectiveLane === AI_USAGE_LANE.FORGE
+          && resolvedCredentials.keySource === "forge_managed"
+          && !ownerHearthRequirement
+          && !ownerResearchRequirement
+          && !paidExecutionHandle
+          && !(paidRouteCode === HEARTH_TITLE_ROUTE && titleContractVersion === 1);
+        if (freshForgeCustomerRequest && !paidModelSelection) {
+          if (!openAiTextGate || !userId || !isUuid(episodeContext.workspaceId)) {
+            return admissionFailureResponse({
+              status: 503,
+              error: "AI model selection is unavailable.",
+              code: "model_selection_unavailable",
+            });
+          }
+          try {
+            paidModelSelection = await resolveOpenAiTextModelSelection({
+              routeCode: paidRouteCode,
+              userId,
+              workspaceId: episodeContext.workspaceId,
+              credentialFunding: "forge",
+              serviceGate: openAiTextGate,
+            });
+            model = paidModelSelection.runtimeModelId;
+          } catch (error) {
+            if (error instanceof OpenAiTextFundingPreparationError) {
+              return admissionFailureResponse({
+                status: error.status,
+                error: error.message,
+                code: error.code,
+                extra: error.details,
+              });
+            }
+            throw error;
+          }
+        }
         const paidScopeEligible = ((titleGenerationRequested || tagGenerationRequested || framingPackGenerationRequested || thumbnailDirectionGenerationRequested) && Boolean(approvedTitleScript)
           || !productionAction)
           && !attachmentContext.includeEpisodeAttachments
@@ -5626,7 +5703,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             || paidRouteCode === "hearth.script_generation"
             || (paidRouteCode === "hearth.research_synthesis" && Boolean(researchResult)
               && (Boolean(ownerResearchRequirement) || Boolean(customerResearchPlan) || linkModeRequested)));
-        const paidFingerprintPayload = paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && thumbnailDirectionInput
+        const paidSemanticFingerprintPayload = paidRouteCode === HEARTH_THUMBNAIL_DIRECTION_ROUTE && thumbnailDirectionInput
           ? paidThumbnailDirectionFingerprintPayload({
               userId: userId!, workspaceId: episodeContext.workspaceId!,
               workpieceId: episodeContext.episodeId, operationIntentId: chatActionId,
@@ -5674,7 +5751,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 output_contract: "immutable_script_proposal.v1",
                 browsing_requests: 0,
                 retrieval_requests: 0,
-                model: "gpt-5.6-luna",
+                model,
               }
             : ownerResearchPlan ?? customerResearchPlan ?? {
               schema: "forge.hearth.research-synthesis.paid.v1",
@@ -5694,11 +5771,16 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               supporting_paid_services: [],
               model,
             };
+        const paidFingerprintPayload = paidModelSelection
+          ? bindOpenAiTextModelSelectionToFingerprint({
+              routeCode: paidRouteCode,
+              semanticRequest: paidSemanticFingerprintPayload,
+              selection: paidModelSelection,
+            })
+          : paidSemanticFingerprintPayload;
         const actualRequestFingerprint = paidRouteCode === "hearth.chat_completion"
           ? fingerprintPaidHearthChatRequest(paidFingerprintPayload)
-          : customerResearchPlan
-            ? fingerprintCustomerResearchPlan(customerResearchPlan)
-            : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
+          : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
         if (ownerHearthRequirement || ownerResearchRequirement) {
           if (!ownerExecutionCoordinator || !ownerCostGate || !userId
             || !isUuid(episodeContext.workspaceId)) {
@@ -6117,6 +6199,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 workpieceId: episodeContext.episodeId,
                 requestFingerprint: actualRequestFingerprint,
                 model,
+                expectedModelSelection: paidModelSelection ?? undefined,
                 credentialFunding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
                 acceptance: spendingAcceptance,
                 serviceGate: openAiTextGate,
@@ -6428,8 +6511,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 }
                 try {
                   frozenResearchRequest = await buildBoundedPaidJsonOpenAiRequest({
-                    body: { model: CUSTOMER_RESEARCH_MODEL, messages: completionMessages },
-                    model: CUSTOMER_RESEARCH_MODEL,
+                    body: { model, messages: completionMessages },
+                    model,
                     maximumOutputTokens: customerResearchPlan.maximum_output_tokens,
                     maximumAttempts: 1,
                   });

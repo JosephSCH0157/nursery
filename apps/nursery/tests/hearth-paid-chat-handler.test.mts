@@ -256,6 +256,7 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
         if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
           catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
           model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          customer_selection_key: "99999999-9999-4999-8999-999999999999",
           runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
           display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded test model.",
         }, error: null };
@@ -320,6 +321,7 @@ test("script-preparation readiness reaches ordinary customer chat pricing withou
         if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
           catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
           model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          customer_selection_key: "99999999-9999-4999-8999-999999999999",
           runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
           display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded test model.",
         }, error: null };
@@ -415,6 +417,13 @@ test("research with an inactive customer price is unavailable before retrieval",
             error: null,
           };
         }
+        if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+          catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
+          model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          customer_selection_key: "99999999-9999-4999-8999-999999999999",
+          runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
+          display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded research model.",
+        }, error: null };
         if (name === "create_customer_hearth_chat_quote") {
           return {
             data: null,
@@ -481,6 +490,7 @@ test("insufficient inspected customer research evidence releases the reservation
         catalog_revision_id: "77777777-7777-4777-8777-777777777777",
         catalog_revision: 1,
         model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
         runtime_model_id: "gpt-5.6-luna",
         provider_model_id: "gpt-5.6-luna",
         display_name: "Hearth Research",
@@ -704,6 +714,13 @@ test("settled customer research replay returns its canonical result without new 
           reservation_state: "settled",
         }, error: null };
       }
+      if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+        catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
+        model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
+        runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
+        display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded research model.",
+      }, error: null };
       if (name === "begin_customer_hearth_research_stage") {
         replayedCaptureReads += 1;
         const search = args.p_stage_type === "search";
@@ -932,6 +949,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
         return { data: {
           catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
           model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          customer_selection_key: "99999999-9999-4999-8999-999999999999",
           runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
           display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded test model.",
         }, error: null };
@@ -1324,6 +1342,7 @@ test("script generation prepares the distinct five-credit bounded quote without 
         catalog_revision_id: "13000000-0000-4000-8000-000000000005",
         catalog_revision: 6,
         model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
         runtime_model_id: "gpt-5.6-luna",
         provider_model_id: "gpt-5.6-luna",
         display_name: "GPT-5.6 Luna",

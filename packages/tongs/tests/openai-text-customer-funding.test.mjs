@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  bindOpenAiTextModelSelectionToFingerprint,
+  OPENAI_TEXT_MODEL_BOUND_FINGERPRINT_SCHEMA,
   OpenAiTextFundingPreparationError,
   OpenAiTextQuoteRequiredError,
   resolveOwnerCanaryOpenAiTextFunding,
   resolveOrdinaryOpenAiTextFunding,
 } from "../dist/providers/openai-text-customer-funding.js";
 import { buildBoundedOpenAiProviderRequest } from "../dist/providers/bounded-provider-request.js";
+import { fingerprintOpenAiTextPaidRequest } from "../dist/providers/paid-openai-text-route-execution.js";
 
 const quoteId = "11111111-1111-4111-8111-111111111111";
 const reservationId = "22222222-2222-4222-8222-222222222222";
@@ -273,6 +276,86 @@ test("a requested runtime model that differs from route-scoped resolution fails 
     resolveOrdinaryOpenAiTextFunding(input(service, makeGate(), null, "gpt-5.6-luna")),
     (error) => error instanceof OpenAiTextFundingPreparationError
       && error.code === "model_selection_changed",
+  );
+  assert.equal(service.calls.some((call) => call.name === "create_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
+});
+
+test("fresh request fingerprints bind the full opaque model-selection identity without financial internals", async () => {
+  const selection = {
+    catalogRevisionId: "55555555-5555-4555-8555-555555555555",
+    catalogRevision: 7,
+    modelCatalogEntryId: "66666666-6666-4666-8666-666666666666",
+    customerSelectionKey: "88888888-8888-4888-8888-888888888888",
+    runtimeModelId: "gpt-5.6-terra",
+    providerModelId: "gpt-5.6-terra",
+    displayName: "GPT-5.6 Terra",
+    tradeoffSummary: "Server-selected exact model.",
+  };
+  const first = bindOpenAiTextModelSelectionToFingerprint({
+    routeCode: "hearth.chat_completion",
+    semanticRequest: { request: "Keep the semantics stable." },
+    selection,
+  });
+  const second = bindOpenAiTextModelSelectionToFingerprint({
+    routeCode: "hearth.chat_completion",
+    semanticRequest: { request: "Keep the semantics stable." },
+    selection: {
+      ...selection,
+      customerSelectionKey: "99999999-9999-4999-8999-999999999999",
+    },
+  });
+  assert.equal(first.schema, OPENAI_TEXT_MODEL_BOUND_FINGERPRINT_SCHEMA);
+  assert.notEqual(
+    await fingerprintOpenAiTextPaidRequest(first),
+    await fingerprintOpenAiTextPaidRequest(second),
+  );
+  const serialized = JSON.stringify(first);
+  assert.doesNotMatch(serialized, /provider_cost|markup|price|maximum_customer_charge/);
+  assert.doesNotMatch(serialized, /provider_model_id|tradeoff_summary|display_name/);
+});
+
+test("a funding-time selection identity race fails closed even when the runtime model is unchanged", async () => {
+  const service = makeGate("enforce", "gpt-5.6-terra");
+  const args = input(service, makeGate());
+  args.expectedModelSelection = {
+    catalogRevisionId: "55555555-5555-4555-8555-555555555555",
+    catalogRevision: 7,
+    modelCatalogEntryId: "66666666-6666-4666-8666-666666666666",
+    customerSelectionKey: "99999999-9999-4999-8999-999999999999",
+    runtimeModelId: "gpt-5.6-terra",
+    providerModelId: "gpt-5.6-terra",
+    displayName: "GPT-5.6 Terra",
+    tradeoffSummary: "Previously resolved exact model.",
+  };
+  await assert.rejects(
+    resolveOrdinaryOpenAiTextFunding(args),
+    (error) => error instanceof OpenAiTextFundingPreparationError
+      && error.code === "model_selection_changed",
+  );
+  assert.equal(service.calls.some((call) => call.name === "create_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
+});
+
+test("an unavailable explicit selection stops before quote creation and exposes only sanitized customer copy", async () => {
+  const service = makeGate("enforce", "gpt-5.6-terra");
+  const baseRpc = service.rpc.bind(service);
+  service.rpc = async function rpc(name, args) {
+    if (name === "resolve_openai_text_model_for_funding_quote") {
+      this.calls.push({ name, args });
+      return {
+        data: null,
+        error: { message: "model_selection_unavailable: private catalog binding 123 is stale" },
+      };
+    }
+    return baseRpc(name, args);
+  };
+  await assert.rejects(
+    resolveOrdinaryOpenAiTextFunding(input(service, makeGate())),
+    (error) => error instanceof OpenAiTextFundingPreparationError
+      && error.code === "model_selection_unavailable"
+      && error.message === "Your selected model is no longer available. Select another model in AI Controls."
+      && !error.message.includes("123"),
   );
   assert.equal(service.calls.some((call) => call.name === "create_customer_openai_text_quote"), false);
   assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);

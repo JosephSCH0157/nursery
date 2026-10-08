@@ -291,6 +291,7 @@ test("Create thumbnail directions prepares one two-credit quote and makes no pro
     if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
       catalog_revision_id: "18000000-0000-4000-8000-000000000005", catalog_revision: 12,
       model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+      customer_selection_key: "99999999-9999-4999-8999-999999999999",
       runtime_model_id: HEARTH_THUMBNAIL_DIRECTION_MODEL, provider_model_id: HEARTH_THUMBNAIL_DIRECTION_MODEL,
       display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded three-direction planning.",
     }, error: null };
@@ -311,6 +312,7 @@ test("Create thumbnail directions prepares one two-credit quote and makes no pro
     }, error: null };
     if (name === "bind_bounded_provider_quote_request") {
       assert.equal(args.p_route_code, HEARTH_THUMBNAIL_DIRECTION_ROUTE);
+      assert.equal(args.p_model, HEARTH_THUMBNAIL_DIRECTION_MODEL);
       assert.ok(Number(args.p_bounded_input_tokens) <= 16_000);
       assert.equal(args.p_maximum_output_tokens, 2_048);
       assert.equal(args.p_maximum_attempts, 1);

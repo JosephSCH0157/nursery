@@ -59,6 +59,42 @@ export type OpenAiTextModelSelection = {
   tradeoffSummary: string;
 };
 
+export const OPENAI_TEXT_MODEL_BOUND_FINGERPRINT_SCHEMA =
+  "forge.openai-text.model-bound-request.v2" as const;
+
+/**
+ * Freezes the customer-selected model authority into a fresh paid request's
+ * identity. This contains no rates, prices, cost policies, or provider-only
+ * financial evidence and is never returned as a customer-facing projection.
+ */
+export function bindOpenAiTextModelSelectionToFingerprint(args: {
+  routeCode: OpenAiTextRouteCode;
+  semanticRequest: unknown;
+  selection: OpenAiTextModelSelection;
+}): Record<string, unknown> {
+  return {
+    schema: OPENAI_TEXT_MODEL_BOUND_FINGERPRINT_SCHEMA,
+    route_code: args.routeCode,
+    semantic_request: args.semanticRequest,
+    model_selection: {
+      catalog_revision_id: args.selection.catalogRevisionId,
+      model_catalog_entry_id: args.selection.modelCatalogEntryId,
+      customer_selection_key: args.selection.customerSelectionKey,
+      runtime_model_id: args.selection.runtimeModelId,
+    },
+  };
+}
+
+function sameOpenAiTextModelSelection(
+  expected: OpenAiTextModelSelection,
+  actual: OpenAiTextModelSelection,
+): boolean {
+  return expected.catalogRevisionId === actual.catalogRevisionId
+    && expected.modelCatalogEntryId === actual.modelCatalogEntryId
+    && expected.customerSelectionKey === actual.customerSelectionKey
+    && expected.runtimeModelId === actual.runtimeModelId;
+}
+
 export class OpenAiTextQuoteRequiredError extends Error {
   readonly status = 402;
   readonly code = "openai_text_quote_required";
@@ -306,6 +342,7 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   workpieceId: string;
   requestFingerprint: string;
   model: string;
+  expectedModelSelection?: OpenAiTextModelSelection;
   credentialFunding: "forge" | "byo_customer";
   acceptance?: OpenAiTextSpendingAcceptance | null;
   serviceGate: OpenAiTextGateClient;
@@ -378,13 +415,17 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     p_route_code: args.routeCode,
     p_credential_funding: args.credentialFunding,
   }), !transcriptionRoute);
-  if (!transcriptionRoute && args.model !== selection.runtimeModelId) {
+  if (!transcriptionRoute && (
+    args.model !== selection.runtimeModelId
+    || (args.expectedModelSelection
+      && !sameOpenAiTextModelSelection(args.expectedModelSelection, selection))
+  )) {
     throw new OpenAiTextFundingPreparationError(
       409,
       "model_selection_changed",
       "The selected model changed. Review this operation again.",
       {},
-      `requested model ${args.model} did not match resolved model ${selection.runtimeModelId}`,
+      `the pre-fingerprint model selection did not match the funding-time selection`,
     );
   }
   const modelIdentity = `${selection.catalogRevisionId}:${selection.modelCatalogEntryId}:${selection.providerModelId}`;

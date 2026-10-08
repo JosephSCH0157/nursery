@@ -210,6 +210,7 @@ test("Generate Tags quotes one credit without provider execution; fresh clicks h
         catalog_revision_id: "15000000-0000-4000-8000-000000000005",
         catalog_revision: 8,
         model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
         runtime_model_id: HEARTH_TAG_MODEL, provider_model_id: HEARTH_TAG_MODEL,
         display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded episode tags.",
       }, error: null };
@@ -326,6 +327,7 @@ test("accepted tag quote settles once and exact replay reads the canonical resul
         catalog_revision_id: "15000000-0000-4000-8000-000000000005",
         catalog_revision: 8,
         model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+        customer_selection_key: "99999999-9999-4999-8999-999999999999",
         runtime_model_id: HEARTH_TAG_MODEL, provider_model_id: HEARTH_TAG_MODEL,
         display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded episode tags.",
       }, error: null };
