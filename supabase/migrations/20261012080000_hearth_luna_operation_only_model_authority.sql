@@ -1,5 +1,6 @@
--- Register the already-certified Hearth Luna model in the provider-neutral
--- identity system without publishing it as a Forge-wide preference choice.
+-- Register the already-certified Luna model in the provider-neutral identity
+-- system for its exact ten-operation authority without publishing it as a
+-- Forge-wide preference choice.
 begin;
 
 create temporary table luna_authority_reconciliation_snapshot on commit drop as
@@ -65,8 +66,11 @@ begin
     'hearth.script_generation',
     'hearth.tag_generation',
     'hearth.thumbnail_direction_generation',
-    'hearth.title_generation'
-  ]::text[] then raise exception 'Luna Hearth certification/pricing authority drifted: %',certified_routes; end if;
+    'hearth.title_generation',
+    'motion.broll_interpretation',
+    'visual.narrative_interpretation',
+    'visual.unified_plan'
+  ]::text[] then raise exception 'Luna certification/pricing authority drifted: %',certified_routes; end if;
 
   if exists(
     select 1 from tongs.openai_text_model_route_compatibility
@@ -239,11 +243,13 @@ end $$;
 do $$
 declare
   snapshot luna_authority_reconciliation_snapshot%rowtype;
-  hearth_routes text[]:=array[
+  expected_routes text[]:=array[
     'hearth.chat_completion','hearth.framing_pack_generation','hearth.research_synthesis',
     'hearth.script_generation','hearth.tag_generation','hearth.thumbnail_direction_generation',
-    'hearth.title_generation'
+    'hearth.title_generation','motion.broll_interpretation','visual.narrative_interpretation',
+    'visual.unified_plan'
   ];
+  eligible_routes text[];
   route_code text;
 begin
  select * into snapshot from luna_authority_reconciliation_snapshot;
@@ -255,7 +261,18 @@ begin
    select 1 from tongs.ai_global_model_choice_revisions
    where model_identity_id='40010000-0000-4000-8000-000000000004' and revision=1 and authority_state='operation_only'
  ) then raise exception 'Luna operation-only authority is missing'; end if;
- foreach route_code in array hearth_routes loop
+ select array_agg(distinct compatibility.route_code order by compatibility.route_code)
+ into eligible_routes
+ from tongs.openai_text_model_route_compatibility compatibility
+ where exists(
+   select 1
+   from tongs._eligible_ai_models_for_operation(compatibility.route_code) eligible
+   where eligible.model_identity_id='40010000-0000-4000-8000-000000000004'
+     and eligible.runtime_model_id='gpt-5.6-luna'
+ );
+ if eligible_routes is distinct from expected_routes
+ then raise exception 'Luna provider-neutral operation eligibility drifted: %',eligible_routes; end if;
+ foreach route_code in array expected_routes loop
    if (select count(*) from tongs._eligible_ai_models_for_operation(route_code)e
        where e.model_identity_id='40010000-0000-4000-8000-000000000004' and e.runtime_model_id='gpt-5.6-luna')<>1
    then raise exception 'Luna eligibility missing for %',route_code; end if;

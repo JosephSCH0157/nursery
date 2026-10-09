@@ -29,7 +29,8 @@ declare
   routes text[]:=array[
     'hearth.chat_completion','hearth.framing_pack_generation','hearth.research_synthesis',
     'hearth.script_generation','hearth.tag_generation','hearth.thumbnail_direction_generation',
-    'hearth.title_generation'
+    'hearth.title_generation','motion.broll_interpretation','visual.narrative_interpretation',
+    'visual.unified_plan'
   ];
 begin
  if jsonb_array_length(choices->'choices')<>3
@@ -71,7 +72,8 @@ declare
   routes text[]:=array[
     'hearth.chat_completion','hearth.framing_pack_generation','hearth.research_synthesis',
     'hearth.script_generation','hearth.tag_generation','hearth.thumbnail_direction_generation',
-    'hearth.title_generation'
+    'hearth.title_generation','motion.broll_interpretation','visual.narrative_interpretation',
+    'visual.unified_plan'
   ];
 begin
  foreach route_code in array routes loop
@@ -109,7 +111,15 @@ end $$;
 
 reset role;
 do $$
-declare snapshot luna_test_financial_snapshot%rowtype;
+declare
+ snapshot luna_test_financial_snapshot%rowtype;
+ expected_routes text[]:=array[
+   'hearth.chat_completion','hearth.framing_pack_generation','hearth.research_synthesis',
+   'hearth.script_generation','hearth.tag_generation','hearth.thumbnail_direction_generation',
+   'hearth.title_generation','motion.broll_interpretation','visual.narrative_interpretation',
+   'visual.unified_plan'
+ ];
+ eligible_routes text[];
 begin
  select * into snapshot from luna_test_financial_snapshot;
  if (select count(*) from tongs.ai_global_model_choice_revisions choice
@@ -119,6 +129,24 @@ begin
  if (select count(*) from tongs._eligible_ai_models_for_operation('hammer.transcript_cleanup'))<>3
    or exists(select 1 from tongs._eligible_ai_models_for_operation('hammer.transcript_cleanup') where runtime_model_id='gpt-5.6-luna')
  then raise exception 'Hammer authority expanded'; end if;
+ select array_agg(distinct compatibility.route_code order by compatibility.route_code)
+ into eligible_routes
+ from tongs.openai_text_model_route_compatibility compatibility
+ where exists(
+   select 1
+   from tongs._eligible_ai_models_for_operation(compatibility.route_code) eligible
+   where eligible.model_identity_id='40010000-0000-4000-8000-000000000004'
+     and eligible.runtime_model_id='gpt-5.6-luna'
+ );
+ if eligible_routes is distinct from expected_routes
+ then raise exception 'Luna eligible operation set is not exactly ten: %',eligible_routes; end if;
+ if (select mode from tongs.openai_text_rollout_revisions
+     where route_code='hammer.transcript_cleanup' order by revision desc limit 1)<>'halt_new'
+   or exists(
+     select 1 from tongs.customer_paid_execution_scope_authorizations
+     where route_code='hammer.transcript_cleanup'
+   )
+ then raise exception 'Hammer spending boundary changed'; end if;
  if snapshot.provider_rate_count<>(select count(*) from tongs.openai_text_provider_rate_revisions)
    or snapshot.catalog_revision_count<>(select count(*) from tongs.openai_text_model_catalog_revisions)
    or snapshot.catalog_entry_count<>(select count(*) from tongs.openai_text_model_catalog_entries)
@@ -141,6 +169,14 @@ begin
    select 1 from pg_class where oid='tongs.ai_global_model_choice_revisions'::regclass
      and relrowsecurity and relforcerowsecurity
  ) then raise exception 'global-choice RLS is not enabled and forced'; end if;
+ begin
+  update tongs.ai_global_model_choice_revisions
+  set reason=reason
+  where model_identity_id='40010000-0000-4000-8000-000000000004';
+  raise exception 'global-choice authority became mutable';
+ exception when sqlstate '55000' then
+  if sqlerrm<>'accounting records are append-only' then raise; end if;
+ end;
 end $$;
 
 rollback;

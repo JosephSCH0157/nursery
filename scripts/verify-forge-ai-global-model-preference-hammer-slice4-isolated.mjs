@@ -50,6 +50,14 @@ function psql(sql, label) {
   check(result, label);
   return result.stdout.trim();
 }
+function psqlExpectFailure(sql, label, expectedMessage) {
+  const result = docker(["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database], sql);
+  if (result.status === 0) throw new Error(`${label} unexpectedly succeeded`);
+  const output = `${result.stderr || ""}\n${result.stdout || ""}`;
+  if (!output.includes(expectedMessage)) {
+    throw new Error(`${label} failed for an unexpected reason:\n${output}`);
+  }
+}
 
 const connectedBaselineFixture = String.raw`
 alter table tongs.private_pricing_revisions
@@ -146,7 +154,10 @@ insert into tongs.openai_text_route_policies(
  ('hearth.title_generation','hearth','chat_completions',12000,512,1,true,true,false,'inactive','Isolated retained authority fixture.'),
  ('hearth.tag_generation','hearth','chat_completions',12000,256,1,true,true,false,'inactive','Isolated retained authority fixture.'),
  ('hearth.framing_pack_generation','hearth','chat_completions',12000,2048,1,true,true,false,'inactive','Isolated retained authority fixture.'),
- ('hearth.thumbnail_direction_generation','hearth','chat_completions',16000,2048,1,true,true,false,'inactive','Isolated retained authority fixture.')
+ ('hearth.thumbnail_direction_generation','hearth','chat_completions',16000,2048,1,true,true,false,'inactive','Isolated retained authority fixture.'),
+ ('motion.broll_interpretation','visual_motion','responses',4096,1024,1,true,true,false,'inactive','Isolated retained authority fixture.'),
+ ('visual.narrative_interpretation','visual_motion','responses',4096,1024,1,true,true,false,'inactive','Isolated retained authority fixture.'),
+ ('visual.unified_plan','visual_motion','responses',32000,6144,1,true,true,false,'inactive','Isolated retained authority fixture.')
 on conflict(route_code) do nothing;
 
 insert into tongs.openai_text_cost_policy_revisions(
@@ -164,7 +175,10 @@ from (values
  ('14000000-0000-4000-8000-000000000001'::uuid,'hearth.title_generation','openai-text:hearth-title-generation:test-luna-v1',12000,512,3015,0,3015,'active'),
  ('15000000-0000-4000-8000-000000000001'::uuid,'hearth.tag_generation','openai-text:hearth-tag-generation:test-luna-v1',12000,256,2708,0,2708,'active'),
  ('16000000-0000-4000-8000-000000000001'::uuid,'hearth.framing_pack_generation','openai-text:hearth-framing-pack-generation:test-luna-v1',12000,2048,4858,0,4858,'active'),
- ('18000000-0000-4000-8000-000000000001'::uuid,'hearth.thumbnail_direction_generation','openai-text:hearth-thumbnail-direction-generation:test-luna-v1',16000,2048,5658,0,5658,'active')
+ ('18000000-0000-4000-8000-000000000001'::uuid,'hearth.thumbnail_direction_generation','openai-text:hearth-thumbnail-direction-generation:test-luna-v1',16000,2048,5658,0,5658,'active'),
+ ('19720000-0000-4000-8000-000000000001'::uuid,'motion.broll_interpretation','openai-text:motion-broll-interpretation:test-luna-v1',4096,1024,2049,0,2049,'active'),
+ ('19000000-0000-4000-8000-000000000001'::uuid,'visual.narrative_interpretation','openai-text:visual-narrative-interpretation:test-luna-v1',4096,1024,2049,0,2049,'active'),
+ ('17000000-0000-4000-8000-000000000001'::uuid,'visual.unified_plan','openai-text:visual-unified-plan:test-luna-v1',32000,6144,13773,0,13773,'active')
 ) value(id,route_code,policy_code,input_max,output_max,direct_ceiling,supporting_ceiling,full_ceiling,lifecycle)
 on conflict do nothing;
 
@@ -178,7 +192,10 @@ begin
   ('40081000-0000-4000-8000-000000000104'::uuid,'40081000-0000-4000-8000-000000000204'::uuid,'40081000-0000-4000-8000-000000000304'::uuid,'14000000-0000-4000-8000-000000000001'::uuid,'hearth.title_generation',3015,5000,1,4010),
   ('40081000-0000-4000-8000-000000000105'::uuid,'40081000-0000-4000-8000-000000000205'::uuid,'40081000-0000-4000-8000-000000000305'::uuid,'15000000-0000-4000-8000-000000000001'::uuid,'hearth.tag_generation',2708,5000,1,3602),
   ('40081000-0000-4000-8000-000000000106'::uuid,'40081000-0000-4000-8000-000000000206'::uuid,'40081000-0000-4000-8000-000000000306'::uuid,'16000000-0000-4000-8000-000000000001'::uuid,'hearth.framing_pack_generation',4858,10000,2,6462),
-  ('40081000-0000-4000-8000-000000000107'::uuid,'40081000-0000-4000-8000-000000000207'::uuid,'40081000-0000-4000-8000-000000000307'::uuid,'18000000-0000-4000-8000-000000000001'::uuid,'hearth.thumbnail_direction_generation',5658,10000,2,7526)
+  ('40081000-0000-4000-8000-000000000107'::uuid,'40081000-0000-4000-8000-000000000207'::uuid,'40081000-0000-4000-8000-000000000307'::uuid,'18000000-0000-4000-8000-000000000001'::uuid,'hearth.thumbnail_direction_generation',5658,10000,2,7526),
+  ('19720000-0000-4000-8000-000000000005'::uuid,'19720000-0000-4000-8000-000000000006'::uuid,'19720000-0000-4000-8000-000000000007'::uuid,'19720000-0000-4000-8000-000000000001'::uuid,'motion.broll_interpretation',2049,5000,1,2726),
+  ('19000000-0000-4000-8000-000000000002'::uuid,'19000000-0000-4000-8000-000000000003'::uuid,'19000000-0000-4000-8000-000000000004'::uuid,'19000000-0000-4000-8000-000000000001'::uuid,'visual.narrative_interpretation',2049,5000,1,2726),
+  ('17000000-0000-4000-8000-000000000002'::uuid,'17000000-0000-4000-8000-000000000003'::uuid,'17000000-0000-4000-8000-000000000004'::uuid,'17000000-0000-4000-8000-000000000001'::uuid,'visual.unified_plan',13773,20000,4,18319)
  ) value(policy_id,pricing_id,publication_id,cost_id,route_code,full_ceiling,customer_price,credits,unrounded)
  loop
   v_sku:=lower('openai-text:'||authority.route_code||':gpt-5.6-luna:'||authority.cost_id::text);
@@ -236,8 +253,50 @@ from (values
  ('hearth.script_generation',32000,8000,'13000000-0000-4000-8000-000000000001'::uuid),
  ('hearth.tag_generation',12000,256,'15000000-0000-4000-8000-000000000001'::uuid),
  ('hearth.thumbnail_direction_generation',16000,2048,'18000000-0000-4000-8000-000000000001'::uuid),
- ('hearth.title_generation',12000,512,'14000000-0000-4000-8000-000000000001'::uuid)
+ ('hearth.title_generation',12000,512,'14000000-0000-4000-8000-000000000001'::uuid),
+ ('motion.broll_interpretation',4096,1024,'19720000-0000-4000-8000-000000000001'::uuid),
+ ('visual.narrative_interpretation',4096,1024,'19000000-0000-4000-8000-000000000001'::uuid),
+ ('visual.unified_plan',32000,6144,'17000000-0000-4000-8000-000000000001'::uuid)
 ) value(route_code,input_max,output_max,cost_id);
+`;
+
+const unexpectedLunaOperationFixture = String.raw`
+begin;
+insert into tongs.private_pricing_policies(
+ id,policy_code,scope_kind,provider,sku,created_by
+) values(
+ '40081000-0000-4000-8000-000000000901','isolated-unexpected-luna-operation',
+ 'sku','openai','openai-text:hammer.transcript_cleanup:gpt-5.6-luna:40010000-0000-4000-8000-000000000301',
+ '40000000-0000-4000-8000-000000000099'
+);
+insert into tongs.private_pricing_revisions(
+ id,policy_id,revision,previous_revision_id,lifecycle_state,currency,markup_basis_points,
+ full_cost_ceiling_micros,failure_cost_ceiling_micros,customer_price_ceiling_micros,
+ billable_failure_ceiling_micros,customer_credit_units,billable_failure_classes,
+ free_failure_classes,included_quantity,retention_policy,change_reason,content_hash,actor_id,
+ unrounded_customer_price_micros,rounding_adjustment_micros,settled_customer_price_micros
+) values(
+ '40081000-0000-4000-8000-000000000902','40081000-0000-4000-8000-000000000901',1,null,
+ 'review_ready','USD',3300,169728,0,230000,0,46,'[]','["provider_failure","forge_failure"]',
+ '{}','{}','Negative preflight fixture only.',
+ encode(extensions.digest(convert_to('isolated-unexpected-luna-operation','utf8'),'sha256'),'hex'),
+ '40000000-0000-4000-8000-000000000099',225739,4261,230000
+);
+insert into tongs.private_pricing_publications(
+ id,policy_id,pricing_revision_id,publication_revision,action,reason,actor_id
+) values(
+ '40081000-0000-4000-8000-000000000903','40081000-0000-4000-8000-000000000901',
+ '40081000-0000-4000-8000-000000000902',1,'published','Negative exact-set preflight fixture.',
+ '40000000-0000-4000-8000-000000000099'
+);
+insert into tongs.openai_text_model_route_compatibility(
+ id,catalog_entry_id,route_code,compatibility_status,maximum_input_tokens,maximum_output_tokens,
+ maximum_attempts,supporting_cost_coverage,cost_policy_revision_id,evidence_json
+) values(
+ '40081000-0000-4000-8000-000000000904','bc743a0f-58d7-51c5-8de1-075ed253ac9d',
+ 'hammer.transcript_cleanup','generation_verified',128000,16384,1,'complete',
+ '40010000-0000-4000-8000-000000000301','{"negative_preflight_fixture":true}'
+);
 `;
 
 try {
@@ -264,14 +323,20 @@ try {
   psql(readFileSync("supabase/migrations/20261012020000_forge_ai_global_model_preference_and_hammer_authority.sql", "utf8"), "Slice 4 migration");
   psql(readFileSync("supabase/tests/forge_ai_global_model_preference_hammer_slice4.sql", "utf8"), "Slice 4 SQL/RLS proof");
   psql(lunaAuthorityFixture, "retained Luna authority fixture");
-  psql(readFileSync("supabase/migrations/20261012080000_hearth_luna_operation_only_model_authority.sql", "utf8"), "Luna operation-only authority migration");
+  const lunaMigration = readFileSync("supabase/migrations/20261012080000_hearth_luna_operation_only_model_authority.sql", "utf8");
+  psqlExpectFailure(
+    `${unexpectedLunaOperationFixture}\n${lunaMigration}`,
+    "Luna unexpected-operation preflight",
+    "Luna certification/pricing authority drifted:",
+  );
+  psql(lunaMigration, "Luna operation-only authority migration");
   psql(readFileSync("supabase/tests/hearth_luna_operation_only_model_authority.sql", "utf8"), "Luna operation-only SQL/RLS proof");
   const summary = psql(String.raw`
     select jsonb_build_object(
       'global_models',(select count(*) from tongs.ai_model_identities),
       'globally_selectable_models',(select count(*) from tongs.ai_global_model_choice_revisions where authority_state='selectable'),
       'luna_operation_only',(select count(*) from tongs.ai_global_model_choice_revisions where model_identity_id='40010000-0000-4000-8000-000000000004' and authority_state='operation_only'),
-      'luna_hearth_operations',(select count(*) from tongs.openai_text_model_route_compatibility compatibility join tongs.openai_text_catalog_ai_model_bindings binding on binding.catalog_entry_id=compatibility.catalog_entry_id where binding.model_identity_id='40010000-0000-4000-8000-000000000004' and compatibility.route_code like 'hearth.%'),
+      'luna_eligible_operations',(select count(distinct compatibility.route_code) from tongs.openai_text_model_route_compatibility compatibility where exists(select 1 from tongs._eligible_ai_models_for_operation(compatibility.route_code) eligible where eligible.model_identity_id='40010000-0000-4000-8000-000000000004')),
       'hammer_eligible_models',(select count(*) from tongs._eligible_ai_models_for_operation('hammer.transcript_cleanup')),
       'hammer_latest_rollout',(select mode from tongs.openai_text_rollout_revisions where route_code='hammer.transcript_cleanup' order by revision desc limit 1),
       'hammer_execution_scopes',(select count(*) from tongs.customer_paid_execution_scope_authorizations where route_code='hammer.transcript_cleanup'),
