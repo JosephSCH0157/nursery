@@ -19,15 +19,19 @@ test("Hearth speech action obtains customer acceptance and reaches coordination 
   assert.match(server, /persist_openai_transcription_result/);
 });
 
-test("Anvil chunk action binds the source revision and has no enforced retry/transcode fallback", () => {
+test("Anvil chunk action binds stable owner-cost authority before one provider submission", () => {
   const client = source("apps/anvil/src/speech/engines/whisper-bridge.ts");
   const server = source("apps/nursery/server/anvil/create-anvil-whisper-handler.ts");
   assert.match(client, /source_asset_revision/);
-  assert.match(client, /requestCustomerSpendingAcceptance\(quote\)/);
-  assert.match(server, /routeCode: "anvil\.realtime_transcription"/);
-  assert.match(server, /maximumDurationSeconds: Number\.isFinite\(durationMs\)/);
-  assert.match(server, /This ASR provider has no active coordinated cost policy/);
-  assert.match(server, /persist_openai_transcription_result/);
+  assert.match(client, /operation_created_at/);
+  assert.doesNotMatch(client, /spending_acceptance/);
+  assert.match(server, /establishOpenAiOwnerCostOperation/);
+  assert.match(server, /authorizeOpenAiOwnerCostAttempt/);
+  const authorization = server.indexOf("const ownsSubmission = await authorizeOpenAiOwnerCostAttempt");
+  const providerSubmission = server.indexOf('fetch("https://api.openai.com/v1/audio/transcriptions"');
+  assert.ok(authorization >= 0 && providerSubmission > authorization);
+  assert.match(server, /owner_cost_submission_replay/);
+  assert.match(server, /submission_unknown/);
 });
 
 test("Hammer interactive prep blocks unpriced transcode and persists before settlement", () => {
