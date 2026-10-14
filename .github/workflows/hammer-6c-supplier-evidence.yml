@@ -1,0 +1,46 @@
+name: Hammer 6C supplier evidence (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hammer-6c-supplier-evidence
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: openai-billing-evidence
+    env:
+      OPENAI_RECONCILIATION_ADMIN_KEY: ${{ secrets.OPENAI_RECONCILIATION_ADMIN_KEY }}
+      OPENAI_RECONCILIATION_PROJECT_ID: ${{ secrets.OPENAI_RECONCILIATION_PROJECT_ID }}
+      HAMMER_SUPPLIER_EVIDENCE_DIR: ${{ runner.temp }}/hammer-6c-supplier-evidence
+    steps:
+      - name: Check out the reviewed main revision
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Configure Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20.20.0
+
+      - name: Collect fixed-window OpenAI Usage and Costs evidence
+        run: node scripts/collect-hammer-canary-supplier-evidence.mjs
+
+      - name: Publish redacted run summary
+        shell: bash
+        run: cat "$HAMMER_SUPPLIER_EVIDENCE_DIR/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload protected evidence artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hammer-6c-supplier-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/hammer-6c-supplier-evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
