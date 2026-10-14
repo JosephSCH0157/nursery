@@ -20,6 +20,12 @@ import { openAiProviderHeaders } from "../../../../packages/tongs/src/providers/
 
 type JsonObject = Record<string, unknown>;
 
+type RealizedSupportingCost = {
+  amountMicros: number;
+  authoritative: boolean;
+  evidence: JsonObject;
+};
+
 export class PaidJsonOpenAiRouteError extends Error {
   readonly state: "failed_released" | "submission_unknown" | "duplicate_in_progress";
   constructor(state: PaidJsonOpenAiRouteError["state"]) {
@@ -94,6 +100,27 @@ export function buildBoundedPaidJsonOpenAiRequest(args: {
   });
 }
 
+export async function resolveVerifiedZeroSupportingCost(args: {
+  gate: OpenAiTextGateClient;
+  routeCode: Exclude<OpenAiTextRouteCode, "hearth.chat_completion">;
+  reservationId: string;
+  credentialFunding: string;
+}): Promise<RealizedSupportingCost | undefined> {
+  if (args.routeCode !== "hammer.transcript_cleanup" || args.credentialFunding !== "forge") {
+    return undefined;
+  }
+  const resolved = await args.gate.rpc("resolve_openai_text_verified_zero_supporting_cost", {
+    p_reservation_id: args.reservationId,
+  });
+  if (resolved.error) return undefined;
+  const row = asObject(resolved.data);
+  const evidence = asObject(row.evidence);
+  if (row.authoritative !== true || row.amount_micros !== 0 || Object.keys(evidence).length === 0) {
+    return undefined;
+  }
+  return { amountMicros: 0, authoritative: true, evidence };
+}
+
 export async function executePaidJsonOpenAiRoute<
   TValidated extends Record<string, unknown>,
   TCanonical extends Record<string, unknown> = TValidated,
@@ -119,11 +146,7 @@ export async function executePaidJsonOpenAiRoute<
    * routes whose existing adapter still reports its accepted supporting
    * ceiling as the provisional realized amount.
    */
-  realizedSupportingCost?: {
-    amountMicros: number;
-    authoritative: boolean;
-    evidence: JsonObject;
-  };
+  realizedSupportingCost?: RealizedSupportingCost;
   /** Private validation evidence; the raw response is never returned to customers. */
   validationEvidence?: {
     contractRevision: string;
@@ -168,6 +191,7 @@ export async function executePaidJsonOpenAiRoute<
   let rawProviderResponseText = "";
   let providerRequestId: string | null = null;
   let providerModel = "";
+  let realizedSupportingCost = args.realizedSupportingCost;
   const providerUrl = args.providerUrl ?? "https://api.openai.com/v1/chat/completions";
   const outcome = await executePaidOpenAiTextRoute<JsonObject, TCanonical>({
     gate: args.gate,
@@ -180,6 +204,14 @@ export async function executePaidJsonOpenAiRoute<
     callerClass: args.callerClass,
     requestFingerprintPayload: args.requestFingerprintPayload,
     prepareBoundedRequest: async (context) => {
+      if (!realizedSupportingCost) {
+        realizedSupportingCost = await resolveVerifiedZeroSupportingCost({
+          gate: args.gate,
+          routeCode: args.routeCode,
+          reservationId: args.handle.reservationId,
+          credentialFunding: context.credentialFunding,
+        });
+      }
       if (args.frozenRequest) {
         if (args.frozenRequest.model !== context.model
           || args.frozenRequest.maximumOutputTokens !== context.maximumOutputUnits
@@ -272,10 +304,10 @@ export async function executePaidJsonOpenAiRoute<
                 )
             : 0,
         supplierCostAuthoritative: false,
-        supportingCostMicros: args.realizedSupportingCost?.amountMicros
+        supportingCostMicros: realizedSupportingCost?.amountMicros
           ?? context.supportingCostCeilingMicros,
-        supportingCostAuthoritative: args.realizedSupportingCost?.authoritative ?? false,
-        supportingCostEvidence: args.realizedSupportingCost?.evidence ?? {
+        supportingCostAuthoritative: realizedSupportingCost?.authoritative ?? false,
+        supportingCostEvidence: realizedSupportingCost?.evidence ?? {
           allocation_kind: "accepted_fixed_supporting_allocation",
           component: "bounded_validation_and_tongs_persistence",
           evidence_status: "estimated",

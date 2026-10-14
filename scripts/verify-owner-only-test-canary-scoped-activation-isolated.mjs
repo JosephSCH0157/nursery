@@ -36,6 +36,12 @@ insert into tongs.openai_text_cost_policy_revisions(
 ) values('40010000-0000-4000-8000-000000000301','hammer.transcript_cleanup',1,'slice6c1-mini',
  '[{"attempt":1,"rate_revision_id":"6b100000-0000-4000-8000-000000000080","runtime_model":"gpt-5.4-mini","provider_model_id":"gpt-5.4-mini-2026-03-17","input_max":128000,"output_max":16384}]',
  128000,16384,1,169728,0,169728,'complete','active','Slice 6C.1 exact Mini policy');
+insert into tongs.openai_text_supporting_cost_inventory(
+ id,route_code,cost_policy_revision_id,component_code,disposition,evidence_status,notes
+) values
+ ('6c8b0000-0000-4000-8000-000000000001','hammer.transcript_cleanup','40010000-0000-4000-8000-000000000301','provider_attempt','attributable_metered','verified','The single provider attempt is the only metered supplier cost.'),
+ ('6c8b0000-0000-4000-8000-000000000002','hammer.transcript_cleanup','40010000-0000-4000-8000-000000000301','validation_persistence','platform_overhead','verified','Validation and canonical persistence have no verified attributable variable allocation.'),
+ ('6c8b0000-0000-4000-8000-000000000003','hammer.transcript_cleanup','40010000-0000-4000-8000-000000000301','hosting_storage_egress','platform_overhead','verified','Fixed hosting, database, and ordinary evidence retention are plan-funded overhead.');
 insert into tongs.openai_text_provider_rate_revisions(
  id,provider,runtime_model_alias,provider_model_id,revision,input_micros_per_million_tokens,
  cached_input_micros_per_million_tokens,output_micros_per_million_tokens,maximum_context_tokens,
@@ -107,6 +113,7 @@ try {
   psqlFile(resolve(root, "supabase/migrations/20261012050000_owner_only_test_canary_scoped_activation.sql"), "/tmp/forge-slice6c1-migration.sql", "Slice 6C.1 migration");
   psqlFile(resolve(root, "supabase/migrations/20261012060000_scoped_owner_canary_execution_context_activation.sql"), "/tmp/forge-slice6c4-execution-context.sql", "Slice 6C.4 execution-context migration");
   psqlFile(resolve(root, "supabase/migrations/20261012070000_return_paid_funding_environment.sql"), "/tmp/forge-slice6c5-funding-environment.sql", "Slice 6C.5 funding-environment migration");
+  psqlFile(resolve(root, "supabase/migrations/20261012075000_hammer_canary_eligibility_verified_zero_support.sql"), "/tmp/forge-slice6c8b-migration.sql", "Slice 6C.8B migration");
 
   const authority = JSON.parse(psql(String.raw`
     select jsonb_build_object(
