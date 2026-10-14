@@ -19,7 +19,6 @@ jobs:
     env:
       OPENAI_RECONCILIATION_ADMIN_KEY: ${{ secrets.OPENAI_RECONCILIATION_ADMIN_KEY }}
       OPENAI_RECONCILIATION_PROJECT_ID: ${{ secrets.OPENAI_RECONCILIATION_PROJECT_ID }}
-      HAMMER_SUPPLIER_EVIDENCE_DIR: ${{ runner.temp }}/hammer-6c-supplier-evidence
     steps:
       - name: Check out the reviewed main revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -30,10 +29,14 @@ jobs:
           node-version: 20.20.0
 
       - name: Collect fixed-window OpenAI Usage and Costs evidence
+        env:
+          HAMMER_SUPPLIER_EVIDENCE_DIR: ${{ runner.temp }}/hammer-6c-supplier-evidence
         run: node scripts/collect-hammer-canary-supplier-evidence.mjs
 
       - name: Publish redacted run summary
         shell: bash
+        env:
+          HAMMER_SUPPLIER_EVIDENCE_DIR: ${{ runner.temp }}/hammer-6c-supplier-evidence
         run: cat "$HAMMER_SUPPLIER_EVIDENCE_DIR/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload protected evidence artifact
