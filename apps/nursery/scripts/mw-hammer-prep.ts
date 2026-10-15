@@ -2382,6 +2382,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             throw error;
           }
         }
+        if (options.requirePaidExecutionAuthority && !shortsPaidHandle) {
+          sendJson(res, 423, { ok: false, error: {
+            code: "paid_execution_halted",
+            message: "Shorts discovery AI is currently unavailable.",
+          } });
+          return;
+        }
         const result = await executeHammerShortsDiscovery({
           ...shortsBody,
           paid_execution: shortsPaidHandle,

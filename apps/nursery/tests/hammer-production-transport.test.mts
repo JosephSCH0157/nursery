@@ -138,6 +138,41 @@ function installSupabaseFixtureFetch(): { restore(): void; providerCalls(): numb
   };
 }
 
+function installNullFundingShortsFixtureFetch(): { restore(): void; domainCalls(): string[] } {
+  const originalFetch = globalThis.fetch;
+  const domainCallNames: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith("/auth/v1/user")) {
+      return Response.json({ id: USER_ID });
+    }
+    if (url.includes("/rest/v1/workspaces?id=eq.")) {
+      return Response.json([{ org_id: ORG_ID }]);
+    }
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
+      return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.includes("/rest/v1/rpc/")) {
+      const name = url.slice(url.lastIndexOf("/") + 1);
+      domainCallNames.push(name);
+      if (name === "reserve_hammer_shorts_discovery") {
+        return Response.json({ id: "99999999-9999-4999-8999-999999999999" });
+      }
+      if (name === "fail_hammer_shorts_discovery") {
+        return Response.json({ id: "99999999-9999-4999-8999-999999999999", state: "failed" });
+      }
+    }
+    if (url.includes("/rest/v1/ai_usage_events")) {
+      return new Response(null, { status: 201 });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  return {
+    restore: () => { globalThis.fetch = originalFetch; },
+    domainCalls: () => [...domainCallNames],
+  };
+}
+
 test("production routing exposes only Hammer JSON routes and leaves media prep and Quench halted", async () => {
   assert.deepEqual(hammerPaidConfig.path, [...HAMMER_PRODUCTION_TEXT_ROUTES]);
   assert.deepEqual(unavailableConfig.path, [
@@ -235,6 +270,46 @@ test("production Hammer transport preserves operation identity and halt authorit
         { operationId: shortsBody.operation_id, fingerprint: shortsIdentity.operationFingerprint },
       ],
     );
+  } finally {
+    fixtureFetch.restore();
+  }
+});
+
+test("production Shorts fails closed when required funding resolves without a paid handle", async () => {
+  const fixtureFetch = installNullFundingShortsFixtureFetch();
+  let providerCalls = 0;
+  const handler = createNetlifyHammerFunction({
+    runtimeConfig: runtimeConfig({
+      supabaseUrl: "https://fixture.supabase.co",
+      supabaseServiceRoleKey: "fixture-service-key",
+      supabaseRpcKey: "fixture-anon-key",
+    }),
+    openAiTextGate: {
+      rpc: async (name: string) => {
+        if (name === "read_openai_execution_requirement") {
+          return { data: { mode: "inactive" }, error: null };
+        }
+        if (name === "read_existing_openai_text_funding_handle") {
+          return { data: null, error: null };
+        }
+        return { data: null, error: { message: `unexpected RPC: ${name}` } };
+      },
+    },
+    openAiProviderFetch: async () => {
+      providerCalls += 1;
+      throw new Error("provider execution must remain halted");
+    },
+  });
+  try {
+    const response = await handler(request(HAMMER_PRODUCTION_TEXT_ROUTES[1], shortsBody), {
+      deploy: { context: "production" },
+    });
+    const payload = await response.json();
+    assert.equal(providerCalls, 0);
+    assert.deepEqual(fixtureFetch.domainCalls(), []);
+    assert.equal(response.status, 423);
+    assert.equal(payload.error.code, "paid_execution_halted");
+    assert.deepEqual(Object.keys(payload.error).sort(), ["code", "message"]);
   } finally {
     fixtureFetch.restore();
   }
