@@ -2,6 +2,7 @@
 param(
   [switch]$ResumeCertifiedBase,
   [switch]$SkipLinkedFingerprint,
+  [switch]$CertifyHearthHistoricalBoundaryOnly,
   [string]$SupabaseWorkdir,
   [string]$ProjectId = 'nursery'
 )
@@ -29,7 +30,11 @@ $certificationPath = Join-Path $repoRoot 'supabase/tests/mid_september_migration
 $framingCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_framing_pack_generation.sql'
 $visualPlanCertificationPath = Join-Path $repoRoot 'supabase/tests/visual_unified_plan_test_product.sql'
 $thumbnailDirectionCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_thumbnail_direction_generation.sql'
+$hearthHistoricalFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_20261011860000_hearth_historical_domain_prerequisites.sql'
+$hearthHistoricalCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_remaining_owner_authority.sql'
 $exclusionManifestPath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_replay_exclusions.json'
+$historicalFundingSelectorSourcePath = Join-Path $sourceMigrationsDir '20261011140000_tongs_unified_financial_environment.sql'
+$historicalFundingSelectorSourceSha256 = '4334055af650823d1aa2a5df928f4bc80b208f29f77e1dfe0e96e42f8e77b052'
 
 $heldMigrationNames = @(
   '20260916110806_tongs_forge_credit_economy.sql',
@@ -98,6 +103,15 @@ $postCheckpointBoundaryName = '20261011710000_reference_visual_source_transition
 $trailingThroughCheckpointNames = @($trailingForwardMigrationNames | Where-Object { [string]::CompareOrdinal($_, $postCheckpointBoundaryName) -le 0 })
 $trailingAfterCheckpointNames = @($trailingForwardMigrationNames | Where-Object { [string]::CompareOrdinal($_, $postCheckpointBoundaryName) -gt 0 })
 $postCheckpointFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_checkpoint_paid_execution_prerequisites.sql'
+$hearthHistoricalFixtureBoundaryName = '20261011860000_owner_hearth_result_fingerprint_authority_fix.sql'
+$hearthHistoricalMigrationName = '20261011870000_grandfather_historical_hearth_authority.sql'
+$ownerAuthorityFixtureBoundaryName = '20261011930000_credential_lifecycle_activation_ordering.sql'
+$trailingThroughHearthFixtureBoundaryNames = @($trailingAfterCheckpointNames | Where-Object { [string]::CompareOrdinal($_, $hearthHistoricalFixtureBoundaryName) -le 0 })
+$trailingThroughOwnerAuthorityBoundaryNames = @($trailingAfterCheckpointNames | Where-Object {
+  [string]::CompareOrdinal($_, $hearthHistoricalMigrationName) -gt 0 -and
+  [string]::CompareOrdinal($_, $ownerAuthorityFixtureBoundaryName) -le 0
+})
+$trailingAfterOwnerAuthorityBoundaryNames = @($trailingAfterCheckpointNames | Where-Object { [string]::CompareOrdinal($_, $ownerAuthorityFixtureBoundaryName) -gt 0 })
 
 function Invoke-CheckedCommand {
   param(
@@ -155,8 +169,43 @@ function Invoke-LocalPsqlScript {
   }
 }
 
+function Invoke-LocalPsqlScriptExpectFailure {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$DatabaseContainer,
+    [Parameter(Mandatory=$true)][string]$ExpectedMessage
+  )
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Local SQL script is missing: $Path"
+  }
+  $output = @(
+    Get-Content -LiteralPath $Path -Raw |
+      & docker exec -i $DatabaseContainer psql --no-psqlrc --set ON_ERROR_STOP=1 --username postgres --dbname postgres 2>&1
+  )
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -eq 0 -or ($output -join "`n") -notlike "*$ExpectedMessage*") {
+    throw "Local SQL negative check did not fail closed with the expected message (exit $exitCode)."
+  }
+}
+
+function Assert-HistoricalFundingSelectorSourceBytes {
+  if (-not (Test-Path -LiteralPath $historicalFundingSelectorSourcePath -PathType Leaf)) {
+    throw "Historical funding-selector source is missing: $historicalFundingSelectorSourcePath"
+  }
+  $actualSha256 = (Get-FileHash -LiteralPath $historicalFundingSelectorSourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sourceText = [System.IO.File]::ReadAllText($historicalFundingSelectorSourcePath)
+  $crlfCount = [regex]::Matches($sourceText,"`r`n").Count
+  $bareLfCount = [regex]::Matches($sourceText,"(?<!`r)`n").Count
+  $bareCrCount = [regex]::Matches($sourceText,"`r(?!`n)").Count
+  if ($actualSha256 -ne $historicalFundingSelectorSourceSha256 -or
+      $crlfCount -ne 0 -or $bareLfCount -ne 1595 -or $bareCrCount -ne 0) {
+    throw "Historical funding-selector source bytes drifted; expected sha256=$historicalFundingSelectorSourceSha256 with LF-only newlines (1595 LF), actual sha256=$actualSha256, CRLF=$crlfCount, LF=$bareLfCount, CR=$bareCrCount. Restore the committed migration bytes before replay; normalization is intentionally not automatic."
+  }
+}
+
 Push-Location $repoRoot
 try {
+  Assert-HistoricalFundingSelectorSourceBytes
   Invoke-CheckedCommand -Program 'docker' -Arguments @('info','--format','{{.ServerVersion}}') | Out-Null
 
   # CLI warnings about optional stopped services are written to stderr even
@@ -194,6 +243,8 @@ try {
       -not (Test-Path -LiteralPath $realizedLossCleanupPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $customerCanaryFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $postCheckpointFixturePath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $hearthHistoricalFixturePath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $hearthHistoricalCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $certificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $framingCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $visualPlanCertificationPath -PathType Leaf) -or
@@ -482,12 +533,131 @@ select json_build_object(
       }
     }
 
-    Write-Host 'Applying the remaining forward migrations through current head...'
-    foreach ($name in $trailingAfterCheckpointNames) {
+    Write-Host 'Applying forward migrations through the Hearth historical-fixture boundary...'
+    foreach ($name in $trailingThroughHearthFixtureBoundaryNames) {
       $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
       $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
-        throw "Post-checkpoint migration is not staged: $name"
+        throw "Pre-Hearth historical migration is not staged: $name"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+
+    $guardedHearthHistoricalPath = Join-Path $holdDirectory 'guarded-hearth-historical-domain-prerequisites.sql'
+    [System.IO.File]::WriteAllText(
+      $guardedHearthHistoricalPath,
+      "set forge.local_historical_replay = 'hearth-historical-domain-v1';`n" +
+        (Get-Content -LiteralPath $hearthHistoricalFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Injecting synthetic, disposable-only Hearth historical domain prerequisites...'
+    try {
+      Invoke-LocalPsqlScript -Path $guardedHearthHistoricalPath -DatabaseContainer $databaseContainer
+    }
+    finally {
+      if (Test-Path -LiteralPath $guardedHearthHistoricalPath -PathType Leaf) {
+        Remove-Item -LiteralPath $guardedHearthHistoricalPath
+      }
+    }
+
+    $hearthHistoricalHeldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $hearthHistoricalMigrationName))
+    $hearthHistoricalRestoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $hearthHistoricalMigrationName))
+    if (-not (Test-Path -LiteralPath $hearthHistoricalHeldPath -PathType Leaf) -or
+        (Test-Path -LiteralPath $hearthHistoricalRestoredPath)) {
+      throw 'The historical Hearth authority migration is not staged at its exact boundary.'
+    }
+    Move-Item -LiteralPath $hearthHistoricalHeldPath -Destination $hearthHistoricalRestoredPath
+    Write-Host 'Applying the unchanged historical Hearth authority migration...'
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+    Write-Host 'Running historical Hearth authority assertions...'
+    Write-Host 'Confirming a missing replay marker cannot select disposable expectations...'
+    Invoke-LocalPsqlScriptExpectFailure `
+      -Path $hearthHistoricalCertificationPath `
+      -DatabaseContainer $databaseContainer `
+      -ExpectedMessage 'existing customer authority counts changed for production historical mode'
+
+    $wrongMarkerHearthHistoricalCertificationPath = Join-Path $holdDirectory 'wrong-marker-hearth-historical-authority-certification.sql'
+    [System.IO.File]::WriteAllText(
+      $wrongMarkerHearthHistoricalCertificationPath,
+      "set forge.local_historical_replay = 'wrong-marker';`n" +
+        (Get-Content -LiteralPath $hearthHistoricalCertificationPath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Confirming an incorrect replay marker cannot select disposable expectations...'
+    try {
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $wrongMarkerHearthHistoricalCertificationPath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'existing customer authority counts changed for production historical mode'
+    }
+    finally {
+      if (Test-Path -LiteralPath $wrongMarkerHearthHistoricalCertificationPath -PathType Leaf) {
+        Remove-Item -LiteralPath $wrongMarkerHearthHistoricalCertificationPath
+      }
+    }
+
+    $guardedHearthHistoricalCertificationPath = Join-Path $holdDirectory 'guarded-hearth-historical-authority-certification.sql'
+    [System.IO.File]::WriteAllText(
+      $guardedHearthHistoricalCertificationPath,
+      "set forge.local_historical_replay = 'hearth-historical-domain-v1';`n" +
+        (Get-Content -LiteralPath $hearthHistoricalCertificationPath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    try {
+      Invoke-LocalPsqlScript -Path $guardedHearthHistoricalCertificationPath -DatabaseContainer $databaseContainer
+    }
+    finally {
+      if (Test-Path -LiteralPath $guardedHearthHistoricalCertificationPath -PathType Leaf) {
+        Remove-Item -LiteralPath $guardedHearthHistoricalCertificationPath
+      }
+    }
+
+    Write-Host 'Applying through the next independent owner-authority boundary...'
+    foreach ($name in $trailingThroughOwnerAuthorityBoundaryNames) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
+        throw "Post-Hearth historical migration is not staged: $name"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+
+    $ownerBoundary = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'latest',(select max(version) from supabase_migrations.schema_migrations),
+  'enabled_owner_principals',(select count(*) from tongs.owner_testing_principals where status='enabled'),
+  'next_migration','$($trailingAfterOwnerAuthorityBoundaryNames[0])'
+) as boundary;
+"@
+    $ownerBoundaryState = $ownerBoundary.rows[0].boundary
+    if ([string]$ownerBoundaryState.latest -ne '20261011930000' -or
+        $ownerBoundaryState.enabled_owner_principals -ne 0 -or
+        [string]$ownerBoundaryState.next_migration -ne '20261011940000_canonical_account_owner_authority.sql') {
+      throw "Owner-authority replay boundary changed: $($ownerBoundaryState | ConvertTo-Json -Compress)"
+    }
+    Write-Host 'Confirmed independent replay blocker: 20261011940000 requires the absent historical owner principal.'
+    if ($CertifyHearthHistoricalBoundaryOnly) {
+      Write-Host 'Hearth historical replay boundary certification passed.'
+      return
+    }
+
+    Write-Host 'Applying the remaining forward migrations through current head...'
+    foreach ($name in $trailingAfterOwnerAuthorityBoundaryNames) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
+        throw "Post-owner-authority migration is not staged: $name"
       }
       Move-Item -LiteralPath $heldPath -Destination $restoredPath
     }

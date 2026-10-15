@@ -3,6 +3,7 @@
 
 # Remote-applied Sept. 16–17 migration SQL is historical evidence. Keep its
 # mixed line endings byte-for-byte; Git text normalization changes the bytes.
+supabase/migrations/20261011140000_tongs_unified_financial_environment.sql -text
 supabase/migrations/20260916110806_tongs_forge_credit_economy.sql -text
 supabase/migrations/20260916113132_tongs_standard_customer_luna_catalog.sql -text
 supabase/migrations/20260916113500_tongs_settled_customer_price_quote.sql -text
