@@ -3,6 +3,7 @@ param(
   [switch]$ResumeCertifiedBase,
   [switch]$SkipLinkedFingerprint,
   [switch]$CertifyHearthHistoricalBoundaryOnly,
+  [switch]$CertifyOwnerAuthorityBoundaryOnly,
   [string]$SupabaseWorkdir,
   [string]$ProjectId = 'nursery'
 )
@@ -32,6 +33,9 @@ $visualPlanCertificationPath = Join-Path $repoRoot 'supabase/tests/visual_unifie
 $thumbnailDirectionCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_thumbnail_direction_generation.sql'
 $hearthHistoricalFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_20261011860000_hearth_historical_domain_prerequisites.sql'
 $hearthHistoricalCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_remaining_owner_authority.sql'
+$ownerPrincipalFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_20261011930000_owner_principal_prerequisite.sql'
+$accountAuthorityCertificationPath = Join-Path $repoRoot 'supabase/tests/account_authority_classifications.sql'
+$transitionOwnerAuthorityCertificationPath = Join-Path $repoRoot 'supabase/tests/transition_owner_authority.sql'
 $exclusionManifestPath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_replay_exclusions.json'
 $historicalFundingSelectorSourcePath = Join-Path $sourceMigrationsDir '20261011140000_tongs_unified_financial_environment.sql'
 $historicalFundingSelectorSourceSha256 = '4334055af650823d1aa2a5df928f4bc80b208f29f77e1dfe0e96e42f8e77b052'
@@ -106,12 +110,25 @@ $postCheckpointFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_c
 $hearthHistoricalFixtureBoundaryName = '20261011860000_owner_hearth_result_fingerprint_authority_fix.sql'
 $hearthHistoricalMigrationName = '20261011870000_grandfather_historical_hearth_authority.sql'
 $ownerAuthorityFixtureBoundaryName = '20261011930000_credential_lifecycle_activation_ordering.sql'
+$canonicalOwnerAuthorityMigrationName = '20261011940000_canonical_account_owner_authority.sql'
+$transitionOwnerAuthorityBoundaryName = '20261011960000_transition_owner_authority_service_role_gate.sql'
+$ownerPersistenceBoundaryName = '20261011980000_owner_unified_visual_plan_captured_failure_recovery.sql'
 $trailingThroughHearthFixtureBoundaryNames = @($trailingAfterCheckpointNames | Where-Object { [string]::CompareOrdinal($_, $hearthHistoricalFixtureBoundaryName) -le 0 })
 $trailingThroughOwnerAuthorityBoundaryNames = @($trailingAfterCheckpointNames | Where-Object {
   [string]::CompareOrdinal($_, $hearthHistoricalMigrationName) -gt 0 -and
   [string]::CompareOrdinal($_, $ownerAuthorityFixtureBoundaryName) -le 0
 })
 $trailingAfterOwnerAuthorityBoundaryNames = @($trailingAfterCheckpointNames | Where-Object { [string]::CompareOrdinal($_, $ownerAuthorityFixtureBoundaryName) -gt 0 })
+$canonicalOwnerAuthorityMigrationNames = @($trailingAfterOwnerAuthorityBoundaryNames | Where-Object { [string]::CompareOrdinal($_, $canonicalOwnerAuthorityMigrationName) -le 0 })
+$transitionOwnerAuthorityMigrationNames = @($trailingAfterOwnerAuthorityBoundaryNames | Where-Object {
+  [string]::CompareOrdinal($_, $canonicalOwnerAuthorityMigrationName) -gt 0 -and
+  [string]::CompareOrdinal($_, $transitionOwnerAuthorityBoundaryName) -le 0
+})
+$ownerPersistenceMigrationNames = @($trailingAfterOwnerAuthorityBoundaryNames | Where-Object {
+  [string]::CompareOrdinal($_, $transitionOwnerAuthorityBoundaryName) -gt 0 -and
+  [string]::CompareOrdinal($_, $ownerPersistenceBoundaryName) -le 0
+})
+$trailingAfterOwnerPersistenceBoundaryNames = @($trailingAfterOwnerAuthorityBoundaryNames | Where-Object { [string]::CompareOrdinal($_, $ownerPersistenceBoundaryName) -gt 0 })
 
 function Invoke-CheckedCommand {
   param(
@@ -122,6 +139,21 @@ function Invoke-CheckedCommand {
   if ($LASTEXITCODE -ne 0) {
     throw "$Program failed with exit code $LASTEXITCODE"
   }
+}
+
+function Test-DisposableReplayTargetIdentity {
+  param(
+    [Parameter(Mandatory=$true)][string]$DatabaseScheme,
+    [Parameter(Mandatory=$true)][string]$DatabaseHost,
+    [Parameter(Mandatory=$true)][string]$ContainerName,
+    [Parameter(Mandatory=$true)][string]$ExpectedContainerName,
+    [Parameter(Mandatory=$true)][string]$ContainerProjectLabel,
+    [Parameter(Mandatory=$true)][string]$ExpectedProjectId
+  )
+  return $DatabaseScheme -in @('postgres','postgresql') -and
+    $DatabaseHost -in @('127.0.0.1','localhost','::1') -and
+    $ContainerName -eq $ExpectedContainerName -and
+    $ContainerProjectLabel -eq $ExpectedProjectId
 }
 
 function Invoke-SupabaseJsonQuery {
@@ -223,10 +255,6 @@ try {
   }
   $status = $statusRaw | ConvertFrom-Json
   $databaseUri = [uri]$status.DB_URL
-  if ($databaseUri.Scheme -notin @('postgres','postgresql') -or
-      $databaseUri.Host -notin @('127.0.0.1','localhost','::1')) {
-    throw "Refusing historical fixture: Supabase DB_URL is not loopback-local ($($databaseUri.Host))."
-  }
   $expectedDatabaseContainer = "supabase_db_$ProjectId"
   $databaseContainers = @(
     & docker ps --filter "label=com.supabase.cli.project=$ProjectId" --filter 'name=supabase_db_' --format '{{.Names}}'
@@ -236,6 +264,31 @@ try {
     throw "Refusing historical fixture: expected exactly the disposable database container $expectedDatabaseContainer."
   }
   $databaseContainer = $databaseContainers[0]
+  $containerProjectLabel = (& docker inspect --format '{{ index .Config.Labels "com.supabase.cli.project" }}' $databaseContainer) -join ''
+  if ($LASTEXITCODE -ne 0 -or -not (Test-DisposableReplayTargetIdentity `
+      -DatabaseScheme $databaseUri.Scheme `
+      -DatabaseHost $databaseUri.Host `
+      -ContainerName $databaseContainer `
+      -ExpectedContainerName $expectedDatabaseContainer `
+      -ContainerProjectLabel $containerProjectLabel `
+      -ExpectedProjectId $ProjectId)) {
+    throw "Refusing historical fixture: local database target identity is invalid (host=$($databaseUri.Host), container=$databaseContainer, project=$containerProjectLabel)."
+  }
+  $wrongHostAccepted = Test-DisposableReplayTargetIdentity `
+    -DatabaseScheme $databaseUri.Scheme -DatabaseHost 'db.production.invalid' `
+    -ContainerName $databaseContainer -ExpectedContainerName $expectedDatabaseContainer `
+    -ContainerProjectLabel $containerProjectLabel -ExpectedProjectId $ProjectId
+  $wrongContainerAccepted = Test-DisposableReplayTargetIdentity `
+    -DatabaseScheme $databaseUri.Scheme -DatabaseHost $databaseUri.Host `
+    -ContainerName 'supabase_db_wrong' -ExpectedContainerName $expectedDatabaseContainer `
+    -ContainerProjectLabel $containerProjectLabel -ExpectedProjectId $ProjectId
+  $wrongProjectAccepted = Test-DisposableReplayTargetIdentity `
+    -DatabaseScheme $databaseUri.Scheme -DatabaseHost $databaseUri.Host `
+    -ContainerName $databaseContainer -ExpectedContainerName $expectedDatabaseContainer `
+    -ContainerProjectLabel 'wrong-project' -ExpectedProjectId $ProjectId
+  if ($wrongHostAccepted -or $wrongContainerAccepted -or $wrongProjectAccepted) {
+    throw 'Disposable replay target guard accepted a wrong host, container, or project identity.'
+  }
 
   if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $generatedIdentityFixturePath -PathType Leaf) -or
@@ -245,6 +298,9 @@ try {
       -not (Test-Path -LiteralPath $postCheckpointFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $hearthHistoricalFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $hearthHistoricalCertificationPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $ownerPrincipalFixturePath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $accountAuthorityCertificationPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $transitionOwnerAuthorityCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $certificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $framingCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $visualPlanCertificationPath -PathType Leaf) -or
@@ -637,23 +693,208 @@ select json_build_object(
 select json_build_object(
   'latest',(select max(version) from supabase_migrations.schema_migrations),
   'enabled_owner_principals',(select count(*) from tongs.owner_testing_principals where status='enabled'),
+  'owner_principal_events',(select count(*) from tongs.owner_testing_principal_events),
+  'canonical_authority_absent',(to_regclass('tongs.account_authority_classifications') is null
+    and to_regclass('tongs.account_authority_classification_events') is null),
   'next_migration','$($trailingAfterOwnerAuthorityBoundaryNames[0])'
 ) as boundary;
 "@
     $ownerBoundaryState = $ownerBoundary.rows[0].boundary
     if ([string]$ownerBoundaryState.latest -ne '20261011930000' -or
         $ownerBoundaryState.enabled_owner_principals -ne 0 -or
+        $ownerBoundaryState.owner_principal_events -ne 0 -or
+        -not $ownerBoundaryState.canonical_authority_absent -or
         [string]$ownerBoundaryState.next_migration -ne '20261011940000_canonical_account_owner_authority.sql') {
       throw "Owner-authority replay boundary changed: $($ownerBoundaryState | ConvertTo-Json -Compress)"
     }
-    Write-Host 'Confirmed independent replay blocker: 20261011940000 requires the absent historical owner principal.'
     if ($CertifyHearthHistoricalBoundaryOnly) {
       Write-Host 'Hearth historical replay boundary certification passed.'
       return
     }
 
+    Write-Host 'Confirming a missing owner-principal replay marker fails closed...'
+    Invoke-LocalPsqlScriptExpectFailure `
+      -Path $ownerPrincipalFixturePath `
+      -DatabaseContainer $databaseContainer `
+      -ExpectedMessage 'local owner-principal replay guard is missing'
+
+    $wrongMarkerOwnerPrincipalFixturePath = Join-Path $holdDirectory 'wrong-marker-owner-principal-prerequisite.sql'
+    [System.IO.File]::WriteAllText(
+      $wrongMarkerOwnerPrincipalFixturePath,
+      "set forge.local_historical_replay = 'wrong-marker';`n" +
+        (Get-Content -LiteralPath $ownerPrincipalFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Confirming an incorrect owner-principal replay marker fails closed...'
+    try {
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $wrongMarkerOwnerPrincipalFixturePath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'local owner-principal replay guard is missing'
+    }
+    finally {
+      if (Test-Path -LiteralPath $wrongMarkerOwnerPrincipalFixturePath -PathType Leaf) {
+        Remove-Item -LiteralPath $wrongMarkerOwnerPrincipalFixturePath
+      }
+    }
+
+    $guardedOwnerPrincipalFixturePath = Join-Path $holdDirectory 'guarded-owner-principal-prerequisite.sql'
+    [System.IO.File]::WriteAllText(
+      $guardedOwnerPrincipalFixturePath,
+      "set forge.local_historical_replay = 'owner-principal-historical-v1';`n" +
+        (Get-Content -LiteralPath $ownerPrincipalFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Injecting the synthetic disposable-only owner principal prerequisite...'
+    try {
+      Invoke-LocalPsqlScript -Path $guardedOwnerPrincipalFixturePath -DatabaseContainer $databaseContainer
+      Write-Host 'Confirming pre-existing principal records fail closed...'
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $guardedOwnerPrincipalFixturePath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'local owner-principal replay requires zero legacy principal records'
+    }
+    finally {
+      if (Test-Path -LiteralPath $guardedOwnerPrincipalFixturePath -PathType Leaf) {
+        Remove-Item -LiteralPath $guardedOwnerPrincipalFixturePath
+      }
+    }
+
+    if ($canonicalOwnerAuthorityMigrationNames.Count -ne 1 -or
+        $canonicalOwnerAuthorityMigrationNames[0] -ne $canonicalOwnerAuthorityMigrationName) {
+      throw 'Canonical owner-authority migration boundary changed.'
+    }
+    foreach ($name in $canonicalOwnerAuthorityMigrationNames) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
+        throw "Canonical owner-authority migration is not staged: $name"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Write-Host 'Applying the unchanged canonical owner-authority migration...'
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+
+    $postCanonicalBoundaryFixturePath = Join-Path $holdDirectory 'post-canonical-owner-principal-prerequisite.sql'
+    [System.IO.File]::WriteAllText(
+      $postCanonicalBoundaryFixturePath,
+      "set forge.local_historical_replay = 'owner-principal-historical-v1';`n" +
+        (Get-Content -LiteralPath $ownerPrincipalFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Confirming the applied migration boundary rejects fixture reuse...'
+    try {
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $postCanonicalBoundaryFixturePath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'local owner-principal replay requires the exact 20261011930000 boundary'
+    }
+    finally {
+      if (Test-Path -LiteralPath $postCanonicalBoundaryFixturePath -PathType Leaf) {
+        Remove-Item -LiteralPath $postCanonicalBoundaryFixturePath
+      }
+    }
+
+    $canonicalOwnerState = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'legacy_principals',(select count(*) from tongs.owner_testing_principals
+    where user_id='fe000000-0000-4000-8000-000000000001' and status='enabled' and revision=1),
+  'legacy_events',(select count(*) from tongs.owner_testing_principal_events
+    where id='fe130000-0000-4000-8000-000000000001'
+      and user_id='fe000000-0000-4000-8000-000000000001' and status='enabled' and revision=1),
+  'canonical_owners',(select count(*) from tongs.account_authority_classifications
+    where user_id='fe000000-0000-4000-8000-000000000001' and account_class='owner' and revision=1),
+  'canonical_events',(select count(*) from tongs.account_authority_classification_events
+    where user_id='fe000000-0000-4000-8000-000000000001' and account_class='owner' and revision=1
+      and evidence->>'legacy_event_id'='fe130000-0000-4000-8000-000000000001'
+      and evidence->>'migration_source'='20261011940000_canonical_account_owner_authority')
+) as authority;
+"@
+    $canonicalOwner = $canonicalOwnerState.rows[0].authority
+    if ($canonicalOwner.legacy_principals -ne 1 -or $canonicalOwner.legacy_events -ne 1 -or
+        $canonicalOwner.canonical_owners -ne 1 -or $canonicalOwner.canonical_events -ne 1) {
+      throw "Canonical owner backfill is not exact: $($canonicalOwner | ConvertTo-Json -Compress)"
+    }
+    Write-Host 'Running canonical account-authority assertions...'
+    Invoke-LocalPsqlScript -Path $accountAuthorityCertificationPath -DatabaseContainer $databaseContainer
+
+    if ($transitionOwnerAuthorityMigrationNames.Count -ne 2 -or
+        $transitionOwnerAuthorityMigrationNames[-1] -ne $transitionOwnerAuthorityBoundaryName) {
+      throw 'Dual-read owner-authority migration boundary changed.'
+    }
+    Write-Host 'Applying the unchanged dual-read owner-authority migrations...'
+    foreach ($name in $transitionOwnerAuthorityMigrationNames) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
+        throw "Transition owner-authority migration is not staged: $name"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+    Write-Host 'Running dual-read transition owner-authority assertions...'
+    Invoke-LocalPsqlScript -Path $transitionOwnerAuthorityCertificationPath -DatabaseContainer $databaseContainer
+
+    $dualReadOwnerState = Invoke-SupabaseJsonQuery -Target local -Sql @"
+with role_set as (
+  select set_config('request.jwt.claim.role','service_role',false)
+)
+select tongs.resolve_transition_owner_authority('fe000000-0000-4000-8000-000000000001') as authority
+from role_set;
+"@
+    $dualReadOwner = $dualReadOwnerState.rows[0].authority
+    if (-not $dualReadOwner.eligible -or $dualReadOwner.state -ne 'eligible' -or
+        $dualReadOwner.authority_mode -ne 'canonical_legacy_dual_read' -or
+        -not $dualReadOwner.same_user -or $dualReadOwner.account_authority_revision -ne 1 -or
+        $dualReadOwner.legacy_principal_revision -ne 1) {
+      throw "Synthetic dual-read owner agreement failed: $($dualReadOwner | ConvertTo-Json -Compress)"
+    }
+
+    if ($ownerPersistenceMigrationNames.Count -ne 2 -or
+        $ownerPersistenceMigrationNames[-1] -ne $ownerPersistenceBoundaryName) {
+      throw 'Owner-persistence migration boundary changed.'
+    }
+    Write-Host 'Applying through the owner-persistence replay boundary...'
+    foreach ($name in $ownerPersistenceMigrationNames) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
+        throw "Owner-persistence migration is not staged: $name"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+    $ownerPersistenceBoundary = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'latest',(select max(version) from supabase_migrations.schema_migrations),
+  'legacy_principals',(select count(*) from tongs.owner_testing_principals where status='enabled'),
+  'canonical_owners',(select count(*) from tongs.account_authority_classifications where account_class='owner'),
+  'next_migration','$($trailingAfterOwnerPersistenceBoundaryNames[0])'
+) as boundary;
+"@
+    $ownerPersistenceState = $ownerPersistenceBoundary.rows[0].boundary
+    if ([string]$ownerPersistenceState.latest -ne '20261011980000' -or
+        $ownerPersistenceState.legacy_principals -ne 1 -or
+        $ownerPersistenceState.canonical_owners -ne 1 -or
+        [string]$ownerPersistenceState.next_migration -ne '20261012000000_allow_zero_beat_unified_broll_plan.sql') {
+      throw "Owner-persistence replay boundary changed: $($ownerPersistenceState | ConvertTo-Json -Compress)"
+    }
+    if ($CertifyOwnerAuthorityBoundaryOnly) {
+      Write-Host 'Owner-principal replay boundary certification passed through 20261011980000.'
+      return
+    }
+
     Write-Host 'Applying the remaining forward migrations through current head...'
-    foreach ($name in $trailingAfterOwnerAuthorityBoundaryNames) {
+    foreach ($name in $trailingAfterOwnerPersistenceBoundaryNames) {
       $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $name))
       $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $name))
       if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or (Test-Path -LiteralPath $restoredPath)) {
