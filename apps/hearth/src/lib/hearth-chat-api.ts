@@ -737,30 +737,66 @@ function parseCustomerFundingPayload(payload: unknown, fallbackLane: HearthAiLan
     return { billingMode: fallbackLane, tokenBalance: null };
   }
   const funding = payload as Record<string, unknown>;
-  if (funding.contract_version !== "forge.customer-funding.v2") {
+  if (funding.contract_version !== "forge.customer-funding.v2"
+    && funding.contract_version !== "forge.customer-funding.v4") {
+    return { billingMode: fallbackLane, tokenBalance: null };
+  }
+  if (funding.contract_version === "forge.customer-funding.v4"
+    && funding.credit_contract !== "forge.credit-economy.v1") {
     return { billingMode: fallbackLane, tokenBalance: null };
   }
   const active = funding.active_spendable && typeof funding.active_spendable === "object"
+    && !Array.isArray(funding.active_spendable)
     ? funding.active_spendable as Record<string, unknown>
-    : {};
+    : null;
+  if (!active) return { billingMode: fallbackLane, tokenBalance: null };
   const purchased = active.purchased && typeof active.purchased === "object"
+    && !Array.isArray(active.purchased)
     ? active.purchased as Record<string, unknown>
-    : {};
+    : null;
   const allowances = active.allowances && typeof active.allowances === "object"
+    && !Array.isArray(active.allowances)
     ? active.allowances as Record<string, unknown>
-    : {};
-  const purchasedUnits = typeof purchased.available_credit_units === "number"
-    ? purchased.available_credit_units
-    : Number(purchased.available_credit_units ?? 0);
-  const allowanceUnits = typeof allowances.available_entitlement_units === "number"
-    ? allowances.available_entitlement_units
-    : Number(allowances.available_entitlement_units ?? 0);
+    : null;
+  if (!purchased || !allowances) return { billingMode: fallbackLane, tokenBalance: null };
+
+  const readAvailableUnits = (value: unknown): number | null => {
+    const units = typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value)
+        ? Number(value)
+        : Number.NaN;
+    return Number.isSafeInteger(units) && units >= 0 ? units : null;
+  };
+  const purchasedUnits = readAvailableUnits(purchased.available_credit_units);
+  const allowanceUnits = readAvailableUnits(allowances.available_entitlement_units);
+  if (purchasedUnits === null || allowanceUnits === null) {
+    return { billingMode: fallbackLane, tokenBalance: null };
+  }
+
+  let tokenBalance = purchasedUnits + allowanceUnits;
+  if (funding.contract_version === "forge.customer-funding.v4") {
+    const betaGrants = active.beta_grants && typeof active.beta_grants === "object"
+      && !Array.isArray(active.beta_grants)
+      ? active.beta_grants as Record<string, unknown>
+      : null;
+    const betaUnits = readAvailableUnits(betaGrants?.available_credit_units);
+    if (!betaGrants || betaUnits === null
+      || typeof purchased.provider_execution_eligible !== "boolean"
+      || typeof allowances.provider_execution_eligible !== "boolean"
+      || typeof betaGrants.provider_execution_eligible !== "boolean") {
+      return { billingMode: fallbackLane, tokenBalance: null };
+    }
+    tokenBalance = (purchased.provider_execution_eligible ? purchasedUnits : 0)
+      + (allowances.provider_execution_eligible ? allowanceUnits : 0)
+      + (betaGrants.provider_execution_eligible ? betaUnits : 0);
+  }
+  if (!Number.isSafeInteger(tokenBalance)) {
+    return { billingMode: fallbackLane, tokenBalance: null };
+  }
   return {
     billingMode: "forge",
-    tokenBalance: Number.isSafeInteger(purchasedUnits) && purchasedUnits >= 0
-      && Number.isSafeInteger(allowanceUnits) && allowanceUnits >= 0
-      ? purchasedUnits + allowanceUnits
-      : null,
+    tokenBalance,
   };
 }
 

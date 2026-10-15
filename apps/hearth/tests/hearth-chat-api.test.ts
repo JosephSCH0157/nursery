@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { validateScriptTags } from "@forge/shared/script-tags";
-import { coalesceScriptTextIntoOps, requestHearthChatReply, resolveForgeUserAccessToken, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
+import { coalesceScriptTextIntoOps, refreshMyAiCredits, requestHearthChatReply, resolveForgeUserAccessToken, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
 import {
   isHearthAiCreditAdmissionDepleted,
   parseHearthAiStatusResponse,
@@ -29,6 +30,150 @@ function assertMaxSpeakerSpokenLines(script: string, maxLines: number): void {
     if (insideSpeaker && trimmed && !/^\[(?:beat|pause|reflective pause)\]$/i.test(trimmed)) count += 1;
   }
 }
+
+function installCustomerFundingRefreshHarness(payload: unknown) {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as { window?: unknown }).window;
+  const requests: Array<{ url: string; init?: RequestInit }> = [];
+  const jwtHeader = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const jwtPayload = Buffer.from(JSON.stringify({
+    sub: "55555555-5555-4555-8555-555555555555",
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  })).toString("base64url");
+  const storage = new Map<string, string>([["forge-auth", `${jwtHeader}.${jwtPayload}.sig`]]);
+  (globalThis as { window?: unknown }).window = {
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+      removeItem: (key: string) => void storage.delete(key),
+      clear: () => void storage.clear(),
+      key: (index: number) => Array.from(storage.keys())[index] ?? null,
+      get length() { return storage.size; },
+    },
+    __forgeSupabaseUrl: "https://supabase.example.test",
+    __forgeSupabaseAnonKey: "anon-test-key",
+  };
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    requests.push({ url, init });
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  return {
+    requests,
+    restore: () => {
+      globalThis.fetch = originalFetch;
+      (globalThis as { window?: unknown }).window = originalWindow;
+    },
+  };
+}
+
+function customerFundingV4(betaEligible = true): Record<string, unknown> {
+  return {
+    contract_version: "forge.customer-funding.v4",
+    credit_contract: "forge.credit-economy.v1",
+    active_environment: "test",
+    active_spendable: {
+      purchased: { available_credit_units: 11, provider_execution_eligible: true },
+      allowances: { available_entitlement_units: 7, provider_execution_eligible: true },
+      beta_grants: { available_credit_units: 5, provider_execution_eligible: betaEligible },
+    },
+  };
+}
+
+async function refreshFundingPayload(payload: unknown) {
+  const harness = installCustomerFundingRefreshHarness(payload);
+  try {
+    return { result: await refreshMyAiCredits(), requests: harness.requests };
+  } finally {
+    harness.restore();
+  }
+}
+
+test("customer funding v4 projects authoritative active spendable credits", async () => {
+  const { result, requests } = await refreshFundingPayload(customerFundingV4());
+  assert.equal(result.ok, true);
+  assert.equal(result.runtime.billingMode, "forge");
+  assert.equal(result.runtime.tokenBalance, 23);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, "https://supabase.example.test/rest/v1/rpc/read_my_customer_funding");
+  assert.equal(requests[0]?.init?.method, "POST");
+  assert.equal(requests[0]?.init?.body, "{}");
+});
+
+test("customer funding v4 includes beta credits only when canonical authority marks them eligible", async () => {
+  const { result } = await refreshFundingPayload(customerFundingV4(false));
+  assert.equal(result.ok, true);
+  assert.equal(result.runtime.tokenBalance, 18);
+});
+
+test("customer funding v2 projection remains compatible", async () => {
+  const { result } = await refreshFundingPayload({
+    contract_version: "forge.customer-funding.v2",
+    active_spendable: {
+      purchased: { available_credit_units: "11" },
+      allowances: { available_entitlement_units: "7" },
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.runtime.tokenBalance, 18);
+});
+
+test("customer funding contracts fail closed on unknown, malformed, or missing authority", async () => {
+  const invalidPayloads: unknown[] = [
+    { ...customerFundingV4(), contract_version: "forge.customer-funding.v5" },
+    { ...customerFundingV4(), credit_contract: "forge.credit-economy.unknown" },
+    { ...customerFundingV4(), active_spendable: null },
+    {
+      ...customerFundingV4(),
+      active_spendable: {
+        purchased: { available_credit_units: -1 },
+        allowances: { available_entitlement_units: 7 },
+        beta_grants: { available_credit_units: 5, provider_execution_eligible: true },
+      },
+    },
+    {
+      ...customerFundingV4(),
+      active_spendable: {
+        purchased: { available_credit_units: 11, provider_execution_eligible: true },
+        allowances: { available_entitlement_units: 7, provider_execution_eligible: true },
+        beta_grants: { available_credit_units: 5 },
+      },
+    },
+    {
+      ...customerFundingV4(),
+      active_spendable: {
+        purchased: { available_credit_units: 11 },
+        allowances: { available_entitlement_units: 7, provider_execution_eligible: true },
+        beta_grants: { available_credit_units: 5, provider_execution_eligible: true },
+      },
+    },
+    {
+      contract_version: "forge.customer-funding.v2",
+      active_spendable: {
+        purchased: {},
+        allowances: { available_entitlement_units: 7 },
+      },
+    },
+  ];
+  for (const payload of invalidPayloads) {
+    const { result } = await refreshFundingPayload(payload);
+    assert.equal(result.ok, true);
+    assert.equal(result.runtime.billingMode, "forge");
+    assert.equal(result.runtime.tokenBalance, null);
+  }
+});
+
+test("chat completion and script repair consume the refreshed authoritative projection", () => {
+  const chatRuntime = readFileSync(new URL("../src/hooks/useChatWorkspace.ts", import.meta.url), "utf8");
+  const scriptRepair = readFileSync(new URL("../src/hooks/useHearthScriptRepairActions.ts", import.meta.url), "utf8");
+  for (const source of [chatRuntime, scriptRepair]) {
+    assert.match(source, /const refreshedCredits = await args\.refreshMyAiCredits\(\)/);
+    assert.match(source, /args\.setAiTokenBalance\(refreshedCredits\.runtime\.tokenBalance\)/);
+  }
+});
 
 test("resolveScriptTextFromChatPayload promotes canonical assistant text into script text", () => {
   const ops: HearthOp[] = [];
