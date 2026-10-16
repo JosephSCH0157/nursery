@@ -1,50 +1,59 @@
-import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const container = process.env.SUPABASE_DB_CONTAINER || "supabase_db_nursery";
-const database = `forge_customer_funding_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
-const migrations = [
-  "20260910120000_tongs_accounting_foundation.sql",
-  "20260911120000_tongs_private_pricing_reservations_shadow.sql",
-  "20260912120000_tongs_owner_budget_reservations_shadow.sql",
-  "20260915120000_tongs_runway_paid_execution_boundary.sql",
-  "20260916120000_tongs_runway_owner_pilot_activation.sql",
-  "20260917120000_tongs_pricing_customer_interface.sql",
-  "20260918120000_tongs_failure_relief_openai_text_shadow.sql",
-  "20261005120000_tongs_customer_funding_read_model.sql",
-];
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const replayScript = resolve(root, "scripts/certify-mid-september-migration-replay.ps1");
+const alignmentMigration = resolve(root, "supabase/migrations/20261015090533_align_customer_funding_v4_authority.sql");
+const fundingRegression = resolve(root, "supabase/tests/customer_funding_flow.sql");
+const alignmentMigrationSha256 = "4ddb04a9eeba6b203f75f01df40a6d0f8dca9a5f6389b987514063d34a97b057";
+const fundingRegressionSha256 = "d318b914ba960530e905c502f30ef886a59ea20f5ac913f6445f5aadfd7f4028";
+const completionMarker = "FORGE_CUSTOMER_FUNDING_V4_REGRESSION_PASSED";
 
-function docker(args, input) {
-  return spawnSync("docker", args, { input, encoding: "utf8", maxBuffer: 40 * 1024 * 1024 });
-}
-function check(result, label) {
-  if (result.status !== 0) throw new Error(`${label} failed:\n${result.stderr || result.stdout}`);
-}
-function psql(sql, label) {
-  const result = docker(["exec", "-i", container, "psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database], sql);
-  check(result, label);
+export function assertReviewedArtifact(path, expectedSha256, label) {
+  if (!existsSync(path)) throw new Error(`${label} is missing: ${path}`);
+  const actualSha256 = createHash("sha256").update(readFileSync(path)).digest("hex");
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(`${label} differs from the reviewed artifact; expected sha256=${expectedSha256}, actual sha256=${actualSha256}`);
+  }
 }
 
-try {
-  check(docker(["exec", container, "createdb", "-U", "postgres", database]), "create isolated database");
-  const baseline = readFileSync("supabase/tests/billing_isolated_baseline.sql", "utf8")
-    .replace(/^create role anon nologin;\r?\n/m, "")
-    .replace(/^create role authenticated nologin;\r?\n/m, "")
-    .replace(/^create role service_role nologin bypassrls;\r?\n/m, "");
-  psql(baseline, "baseline");
-  psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid compatibility");
-  for (const migration of migrations) psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
-  psql(readFileSync("supabase/tests/customer_funding_flow.sql", "utf8"), "customer funding proof");
+export function assertCanonicalReplayResult(result) {
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`canonical customer-funding replay failed with exit ${result.status}`);
+  }
+  if (typeof result.stdout !== "string" || !result.stdout.includes(completionMarker)) {
+    throw new Error("canonical replay returned success without executing the customer-funding v4 regression");
+  }
+}
+
+export function runCustomerFundingCertification() {
+  assertReviewedArtifact(alignmentMigration, alignmentMigrationSha256, "customer-funding v4 alignment migration");
+  assertReviewedArtifact(fundingRegression, fundingRegressionSha256, "customer-funding v4 regression");
+  if (!existsSync(replayScript)) throw new Error(`canonical replay script is missing: ${replayScript}`);
+
+  const result = spawnSync(
+    process.platform === "win32" ? "pwsh.exe" : "pwsh",
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-File", replayScript, "-SkipLinkedFingerprint"],
+    { cwd: root, encoding: "utf8", maxBuffer: 100 * 1024 * 1024 },
+  );
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  assertCanonicalReplayResult(result);
+
   console.log(JSON.stringify({
     isolated_database: true,
-    signed_deposit_replay_idempotent: "passed",
-    abandoned_checkout_no_funding: "passed",
-    live_test_legacy_reservation_separation: "passed",
-    refund_blocks_reversed_funding: "passed",
-    customer_self_only_read: "passed",
-    reservation_does_not_recognize_revenue: "passed",
+    canonical_phased_replay: "passed",
+    customer_funding_contract: "forge.customer-funding.v4",
+    customer_funding_regression: "passed",
+    transactional_rollback: "passed",
+    linked_comparison: "skipped",
   }));
-} finally {
-  docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);
+}
+
+if (resolve(process.argv[1] ?? "") === resolve(fileURLToPath(import.meta.url))) {
+  runCustomerFundingCertification();
 }

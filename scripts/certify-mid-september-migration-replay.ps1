@@ -31,6 +31,11 @@ $certificationPath = Join-Path $repoRoot 'supabase/tests/mid_september_migration
 $framingCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_framing_pack_generation.sql'
 $visualPlanCertificationPath = Join-Path $repoRoot 'supabase/tests/visual_unified_plan_test_product.sql'
 $thumbnailDirectionCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_thumbnail_direction_generation.sql'
+$customerFundingCertificationPath = Join-Path $repoRoot 'supabase/tests/customer_funding_flow.sql'
+$customerFundingCertificationSha256 = 'd318b914ba960530e905c502f30ef886a59ea20f5ac913f6445f5aadfd7f4028'
+$customerFundingAlignmentMigrationPath = Join-Path $sourceMigrationsDir '20261015090533_align_customer_funding_v4_authority.sql'
+$customerFundingAlignmentMigrationSha256 = '4ddb04a9eeba6b203f75f01df40a6d0f8dca9a5f6389b987514063d34a97b057'
+$customerFundingV4FunctionSha256 = '3bcab056a448a45bc7b075e31f6af1cc41809e66de2d725f4e5412aadec8f783'
 $hearthHistoricalFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_20261011860000_hearth_historical_domain_prerequisites.sql'
 $hearthHistoricalCertificationPath = Join-Path $repoRoot 'supabase/tests/hearth_remaining_owner_authority.sql'
 $ownerPrincipalFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_20261011930000_owner_principal_prerequisite.sql'
@@ -230,6 +235,21 @@ function Invoke-LocalPsqlScriptExpectFailure {
   }
 }
 
+function Assert-ReviewedReplayArtifact {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$ExpectedSha256,
+    [Parameter(Mandatory=$true)][string]$Label
+  )
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "$Label is missing: $Path"
+  }
+  $actualSha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actualSha256 -ne $ExpectedSha256) {
+    throw "$Label differs from the reviewed artifact; expected sha256=$ExpectedSha256, actual sha256=$actualSha256"
+  }
+}
+
 function Assert-HistoricalFundingSelectorSourceBytes {
   if (-not (Test-Path -LiteralPath $historicalFundingSelectorSourcePath -PathType Leaf)) {
     throw "Historical funding-selector source is missing: $historicalFundingSelectorSourcePath"
@@ -414,6 +434,14 @@ try {
   Assert-HistoricalRunwayQuoteSourceBytes -Path $historicalRunwayQuoteSourcePath
   Test-HistoricalRunwayQuoteSourceNegativePreflights
   Assert-HistoricalFundingSelectorSourceBytes
+  Assert-ReviewedReplayArtifact `
+    -Path $customerFundingAlignmentMigrationPath `
+    -ExpectedSha256 $customerFundingAlignmentMigrationSha256 `
+    -Label 'Customer-funding v4 alignment migration'
+  Assert-ReviewedReplayArtifact `
+    -Path $customerFundingCertificationPath `
+    -ExpectedSha256 $customerFundingCertificationSha256 `
+    -Label 'Customer-funding v4 regression'
   Invoke-CheckedCommand -Program 'docker' -Arguments @('info','--format','{{.ServerVersion}}') | Out-Null
 
   # CLI warnings about optional stopped services are written to stderr even
@@ -482,6 +510,7 @@ try {
       -not (Test-Path -LiteralPath $framingCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $visualPlanCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $thumbnailDirectionCertificationPath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $customerFundingCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $exclusionManifestPath -PathType Leaf)) {
     throw 'Historical fixture or certification SQL is missing.'
   }
@@ -1276,6 +1305,42 @@ select json_build_object(
   Invoke-LocalPsqlScript -Path $visualPlanCertificationPath -DatabaseContainer $databaseContainer
   Write-Host 'Running Thumbnail Directions database assertions...'
   Invoke-LocalPsqlScript -Path $thumbnailDirectionCertificationPath -DatabaseContainer $databaseContainer
+
+  $customerFundingAuthority = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'alignment_migration_count',(select count(*) from supabase_migrations.schema_migrations where version='20261015090533'),
+  'contract_version',(select tongs.read_my_customer_funding()->>'contract_version'
+    from (select set_config('request.jwt.claim.role','authenticated',false),
+                 set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000001',false)) claims),
+  'function_sha256',encode(extensions.digest(pg_get_functiondef('tongs.read_my_customer_funding()'::regprocedure),'sha256'),'hex')
+) as authority;
+"@
+  $customerFundingAuthorityState = $customerFundingAuthority.rows[0].authority
+  if ($customerFundingAuthorityState.alignment_migration_count -ne 1 -or
+      [string]$customerFundingAuthorityState.contract_version -ne 'forge.customer-funding.v4' -or
+      [string]$customerFundingAuthorityState.function_sha256 -ne $customerFundingV4FunctionSha256) {
+    throw "Customer-funding v4 authority is incomplete after canonical replay: $($customerFundingAuthorityState | ConvertTo-Json -Compress)"
+  }
+  Write-Host 'Running customer-funding v4 database assertions...'
+  Invoke-LocalPsqlScript -Path $customerFundingCertificationPath -DatabaseContainer $databaseContainer
+  $customerFundingRollback = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'fixture_users',(select count(*) from auth.users where id::text like 'cf400000-%'),
+  'fixture_quotes',(select count(*) from tongs.customer_spending_quotes where id::text like 'cf400000-%'),
+  'fixture_deposits',(select count(*) from tongs.customer_deposits where id::text like 'cf400000-%'),
+  'fixture_reservations',(select count(*) from tongs.funding_reservations where id::text like 'cf400000-%'),
+  'fixture_journal_events',(select count(*) from tongs.accounting_journal_events where id::text like 'cf400000-%')
+) as rollback;
+"@
+  $customerFundingRollbackState = $customerFundingRollback.rows[0].rollback
+  if ($customerFundingRollbackState.fixture_users -ne 0 -or
+      $customerFundingRollbackState.fixture_quotes -ne 0 -or
+      $customerFundingRollbackState.fixture_deposits -ne 0 -or
+      $customerFundingRollbackState.fixture_reservations -ne 0 -or
+      $customerFundingRollbackState.fixture_journal_events -ne 0) {
+    throw "Customer-funding v4 regression did not roll back cleanly: $($customerFundingRollbackState | ConvertTo-Json -Compress)"
+  }
+  Write-Output 'FORGE_CUSTOMER_FUNDING_V4_REGRESSION_PASSED'
 
   $fingerprintSql = (Get-Content -LiteralPath $certificationPath -Raw) -replace '(?s)^do \$\$.*?end \$\$;\s*',''
   if ($SkipLinkedFingerprint) {
