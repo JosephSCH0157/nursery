@@ -12,6 +12,7 @@ declare
   thumbnail_direction_finalize_definition text;
   tag_evidence_definition text;
   generic_evidence_definition text;
+  thumbnail_direction_pricing tongs.private_pricing_revisions%rowtype;
 begin
   if not exists (
     select 1 from tongs.openai_text_route_policies
@@ -65,6 +66,57 @@ begin
       and compatibility.cost_policy_revision_id='18000000-0000-4000-8000-000000000001'
   ) then raise exception 'Thumbnail Directions Luna catalog compatibility proof failed'; end if;
 
+  if (select count(*) from tongs._eligible_ai_models_for_operation(
+      'hearth.thumbnail_direction_generation'))<>1
+    or not exists (
+      select 1 from tongs._eligible_ai_models_for_operation(
+        'hearth.thumbnail_direction_generation') eligible
+      where eligible.runtime_model_id='gpt-5.6-luna'
+        and eligible.provider_model_id='gpt-5.6-luna'
+        and eligible.cost_policy_revision_id='18000000-0000-4000-8000-000000000001'
+    )
+    or exists (
+      select 1 from tongs._eligible_ai_models_for_operation(
+        'hearth.thumbnail_direction_generation') eligible
+      where eligible.runtime_model_id<>'gpt-5.6-luna'
+         or eligible.provider_model_id<>'gpt-5.6-luna'
+         or eligible.cost_policy_revision_id<>'18000000-0000-4000-8000-000000000001'
+    )
+    or exists (
+      select 1 from tongs._eligible_ai_models_for_operation(
+        'hearth.thumbnail_direction_generation') eligible
+      where 'gpt-ineligible-for-thumbnail-directions' in
+        (eligible.runtime_model_id,eligible.provider_model_id)
+    )
+    or exists (
+      select 1 from tongs._eligible_ai_models_for_operation(
+        'hearth.unknown_operation')
+    )
+  then raise exception 'Thumbnail Directions generic operation/model eligibility is not exact'; end if;
+
+  if not exists (
+    select 1
+    from tongs.openai_text_rollout_revisions rollout
+    where rollout.route_code='hearth.thumbnail_direction_generation'
+      and rollout.revision=1 and rollout.mode='enforce'
+      and rollout.funding_scope='forge'
+      and rollout.cost_policy_revision_id='18000000-0000-4000-8000-000000000001'
+      and not exists (
+        select 1 from tongs.openai_text_rollout_revisions later
+        where later.route_code=rollout.route_code and later.revision>rollout.revision
+      )
+  ) then raise exception 'Thumbnail Directions current rollout authority changed'; end if;
+
+  select * into thumbnail_direction_pricing
+  from tongs._published_pricing_revision(
+    'openai',
+    'openai-text:hearth.thumbnail_direction_generation:gpt-5.6-luna:18000000-0000-4000-8000-000000000001'
+  );
+  if thumbnail_direction_pricing.id is distinct from '18000000-0000-4000-8000-000000000003'::uuid
+    or thumbnail_direction_pricing.customer_credit_units is distinct from 2
+    or thumbnail_direction_pricing.full_cost_ceiling_micros is distinct from 5658
+  then raise exception 'Thumbnail Directions exact published SKU price is unavailable'; end if;
+
   if not exists (
     select 1 from tongs.openai_text_failure_loss_policy_revisions
     where route_code='hearth.thumbnail_direction_generation' and environment='test'
@@ -74,7 +126,13 @@ begin
 
   if (select count(*) from tongs.customer_paid_execution_scope_authorizations
       where route_code='hearth.thumbnail_direction_generation' and financial_environment='test'
-        and authorization_kind='normal_customer' and status='active')<>1
+        and authorization_kind='normal_customer' and status='active'
+        and provider='openai' and model_or_sku='gpt-5.6-luna'
+        and pricing_revision_id='18000000-0000-4000-8000-000000000003'
+        and cost_policy_revision_id='18000000-0000-4000-8000-000000000001'
+        and maximum_customer_charge_micros=10000
+        and maximum_wholesale_exposure_micros=5658
+        and maximum_concurrency=1)<>1
   then raise exception 'Thumbnail Directions must have exactly one Test scope'; end if;
   if exists(select 1 from tongs.customer_paid_execution_scope_authorizations
       where route_code='hearth.thumbnail_direction_generation' and financial_environment='live'
@@ -169,9 +227,43 @@ begin
   select pg_get_functiondef(
     'tongs.persist_openai_text_paid_result(uuid,text,text,uuid,uuid,uuid,text,text,text,text,bigint,bigint,text,jsonb)'::regprocedure
   ) into paid_result_definition;
-  if position('hearth.thumbnail_direction_generation' in quote_definition)=0
-    or position('hearth.thumbnail_direction_generation' in paid_result_definition)=0
-  then raise exception 'generic paid route allow-list not extended'; end if;
+  if has_function_privilege('public',
+      'tongs.create_customer_openai_text_quote(uuid,uuid,text,text,uuid,text,text,text,text,timestamptz)',
+      'execute')
+    or has_function_privilege('anon',
+      'tongs.create_customer_openai_text_quote(uuid,uuid,text,text,uuid,text,text,text,text,timestamptz)',
+      'execute')
+    or has_function_privilege('authenticated',
+      'tongs.create_customer_openai_text_quote(uuid,uuid,text,text,uuid,text,text,text,text,timestamptz)',
+      'execute')
+    or not has_function_privilege('service_role',
+      'tongs.create_customer_openai_text_quote(uuid,uuid,text,text,uuid,text,text,text,text,timestamptz)',
+      'execute')
+  then raise exception 'generic paid quote authority privileges changed'; end if;
+  if position('perform tongs._require_pricing_service_role()' in lower(quote_definition))=0
+    or position('length(btrim(coalesce(p_model,'''')))<2' in
+      lower(replace(quote_definition,' ','')))=0
+    or position('tongs._openai_rollout_for_funding(p_route_code,p_credential_funding)' in
+      lower(replace(quote_definition,' ','')))=0
+    or position('v_rollout.mode<>''enforce''' in lower(replace(quote_definition,' ','')))=0
+    or position('tongs._eligible_ai_models_for_operation(p_route_code)' in
+      lower(replace(quote_definition,' ','')))=0
+    or position('btrim(p_model)in(e.runtime_model_id,e.provider_model_id)' in
+      lower(replace(quote_definition,' ','')))=0
+    or position('pricing_not_configured: exact eligible model required' in
+      lower(quote_definition))=0
+    or position('v_rollout.cost_policy_revision_id is not null' in
+      lower(quote_definition))=0
+    or position('openai route is bound to a different cost revision' in
+      lower(quote_definition))=0
+    or position('tongs._published_pricing_revision(''openai'',v_sku)' in
+      lower(replace(quote_definition,' ','')))=0
+    or position('published exact route price required' in lower(quote_definition))=0
+    or position('tongs._select_customer_funding_for_quote(p_quote_id)' in
+      lower(replace(quote_definition,' ','')))=0
+  then raise exception 'generic paid quote authority no longer fails closed'; end if;
+  if position('hearth.thumbnail_direction_generation' in paid_result_definition)=0
+  then raise exception 'Thumbnail Directions paid-result persistence boundary changed'; end if;
 
   select pg_get_functiondef(
     'tongs.record_hearth_tag_validation_failure_evidence(text,uuid,text,text,bigint,bigint,text,text,text)'::regprocedure
