@@ -107,6 +107,8 @@ $postCheckpointBoundaryName = '20261011710000_reference_visual_source_transition
 $trailingThroughCheckpointNames = @($trailingForwardMigrationNames | Where-Object { [string]::CompareOrdinal($_, $postCheckpointBoundaryName) -le 0 })
 $trailingAfterCheckpointNames = @($trailingForwardMigrationNames | Where-Object { [string]::CompareOrdinal($_, $postCheckpointBoundaryName) -gt 0 })
 $postCheckpointFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_checkpoint_paid_execution_prerequisites.sql'
+$coordinatedCutoverFixturePath = Join-Path $repoRoot 'supabase/tests/fixtures/post_20261011470000_coordinated_cutover_rollout_prerequisites.sql'
+$coordinatedCutoverFixtureBoundaryName = '20261011470000_reassert_standard_customer_aggregate_admission.sql'
 $hearthHistoricalFixtureBoundaryName = '20261011860000_owner_hearth_result_fingerprint_authority_fix.sql'
 $hearthHistoricalMigrationName = '20261011870000_grandfather_historical_hearth_authority.sql'
 $ownerAuthorityFixtureBoundaryName = '20261011930000_credential_lifecycle_activation_ordering.sql'
@@ -296,6 +298,7 @@ try {
       -not (Test-Path -LiteralPath $realizedLossCleanupPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $customerCanaryFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $postCheckpointFixturePath -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $coordinatedCutoverFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $hearthHistoricalFixturePath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $hearthHistoricalCertificationPath -PathType Leaf) -or
       -not (Test-Path -LiteralPath $ownerPrincipalFixturePath -PathType Leaf) -or
@@ -472,13 +475,180 @@ select json_build_object(
       }
     }
 
-    Write-Host 'Applying the historical slice through operator-controlled failure loss...'
-    for ($index = 1; $index -le 23; $index++) {
+    if ($heldMigrationNames[13] -ne '20260916132017_tongs_credit_pack_availability_caller_role.sql' -or
+        $heldMigrationNames[14] -ne '20260916154851_standard_customer_hearth_research.sql' -or
+        $heldMigrationNames[-1] -ne $coordinatedCutoverFixtureBoundaryName) {
+      throw 'Coordinated-cutover historical replay boundary changed.'
+    }
+    Write-Host 'Applying the historical slice and reassertions through the coordinated-cutover boundary...'
+    foreach ($index in @(1..13) + @(32..33)) {
       $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $heldMigrationNames[$index]))
       $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $heldMigrationNames[$index]))
       if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or
           (Test-Path -LiteralPath $restoredPath)) {
         throw "Historical pre-correction migration is not staged: $($heldMigrationNames[$index])"
+      }
+      Move-Item -LiteralPath $heldPath -Destination $restoredPath
+    }
+    Invoke-CheckedCommand -Program 'npx' -Arguments @(
+      'supabase','migration','up','--local','--include-all',
+      '--workdir',$projectWorkdir
+    )
+
+    $coordinatedCutoverBoundary = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'latest',(select max(version) from supabase_migrations.schema_migrations),
+  'expected_revision_one_routes',(
+    select count(*) from tongs.openai_text_rollout_revisions
+    where revision=1 and mode='inactive' and funding_scope='all'
+      and cost_policy_revision_id is null and route_code<>'hearth.chat_completion'
+  ),
+  'later_expected_route_revisions',(
+    select count(*) from tongs.openai_text_rollout_revisions
+    where route_code in (
+      'anvil.realtime_transcription','hammer.transcript_cleanup','hammer.transcript_prep',
+      'hammer.transcript_regeneration','hearth.research_synthesis','hearth.speech_transcription',
+      'motion.broll_interpretation','quench.metadata','shorts.discovery',
+      'visual.narrative_interpretation','visual.unified_plan'
+    ) and revision>1
+  )
+) as boundary;
+"@
+    $coordinatedCutoverBoundaryState = $coordinatedCutoverBoundary.rows[0].boundary
+    if ([string]$coordinatedCutoverBoundaryState.latest -ne '20261011470000' -or
+        $coordinatedCutoverBoundaryState.expected_revision_one_routes -ne 11 -or
+        $coordinatedCutoverBoundaryState.later_expected_route_revisions -ne 0) {
+      throw "Coordinated-cutover replay boundary changed: $($coordinatedCutoverBoundaryState | ConvertTo-Json -Compress)"
+    }
+
+    Write-Host 'Confirming a missing coordinated-cutover replay marker fails closed...'
+    Invoke-LocalPsqlScriptExpectFailure `
+      -Path $coordinatedCutoverFixturePath `
+      -DatabaseContainer $databaseContainer `
+      -ExpectedMessage 'local coordinated-cutover replay guard is missing'
+
+    $wrongMarkerCoordinatedCutoverPath = Join-Path $holdDirectory 'wrong-marker-coordinated-cutover.sql'
+    [System.IO.File]::WriteAllText(
+      $wrongMarkerCoordinatedCutoverPath,
+      "set forge.local_historical_replay = 'wrong-marker';`n" +
+        (Get-Content -LiteralPath $coordinatedCutoverFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    try {
+      Write-Host 'Confirming an incorrect coordinated-cutover replay marker fails closed...'
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $wrongMarkerCoordinatedCutoverPath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'local coordinated-cutover replay guard is missing'
+    }
+    finally {
+      if (Test-Path -LiteralPath $wrongMarkerCoordinatedCutoverPath -PathType Leaf) {
+        Remove-Item -LiteralPath $wrongMarkerCoordinatedCutoverPath
+      }
+    }
+
+    $wrongDatabaseCoordinatedCutoverPath = Join-Path $holdDirectory 'wrong-database-coordinated-cutover.sql'
+    [System.IO.File]::WriteAllText(
+      $wrongDatabaseCoordinatedCutoverPath,
+      "set forge.local_historical_replay = 'coordinated-cutover-rollouts-v1';`n" +
+        ((Get-Content -LiteralPath $coordinatedCutoverFixturePath -Raw) -replace
+          "current_database\(\) <> 'postgres'","current_database() <> 'wrong_database'"),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    try {
+      Write-Host 'Confirming an incorrect coordinated-cutover database identity fails closed...'
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $wrongDatabaseCoordinatedCutoverPath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'coordinated-cutover replay requires database postgres'
+    }
+    finally {
+      if (Test-Path -LiteralPath $wrongDatabaseCoordinatedCutoverPath -PathType Leaf) {
+        Remove-Item -LiteralPath $wrongDatabaseCoordinatedCutoverPath
+      }
+    }
+
+    $wrongBoundaryCoordinatedCutoverPath = Join-Path $holdDirectory 'wrong-boundary-coordinated-cutover.sql'
+    [System.IO.File]::WriteAllText(
+      $wrongBoundaryCoordinatedCutoverPath,
+      "set forge.local_historical_replay = 'coordinated-cutover-rollouts-v1';`n" +
+        ((Get-Content -LiteralPath $coordinatedCutoverFixturePath -Raw) -replace '20261011470000','20261011460000'),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    try {
+      Write-Host 'Confirming an incorrect coordinated-cutover migration boundary fails closed...'
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $wrongBoundaryCoordinatedCutoverPath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'local coordinated-cutover replay requires the exact 20261011460000 boundary'
+    }
+    finally {
+      if (Test-Path -LiteralPath $wrongBoundaryCoordinatedCutoverPath -PathType Leaf) {
+        Remove-Item -LiteralPath $wrongBoundaryCoordinatedCutoverPath
+      }
+    }
+
+    $wrongOperatorCoordinatedCutoverPath = Join-Path $holdDirectory 'wrong-operator-coordinated-cutover.sql'
+    [System.IO.File]::WriteAllText(
+      $wrongOperatorCoordinatedCutoverPath,
+      "set forge.local_historical_replay = 'coordinated-cutover-rollouts-v1';`n" +
+        ((Get-Content -LiteralPath $coordinatedCutoverFixturePath -Raw) -replace
+          'fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000099'),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    try {
+      Write-Host 'Confirming an unexpected coordinated-cutover operator identity fails closed...'
+      Invoke-LocalPsqlScriptExpectFailure `
+        -Path $wrongOperatorCoordinatedCutoverPath `
+        -DatabaseContainer $databaseContainer `
+        -ExpectedMessage 'local coordinated-cutover replay requires the exact synthetic operator identity'
+    }
+    finally {
+      if (Test-Path -LiteralPath $wrongOperatorCoordinatedCutoverPath -PathType Leaf) {
+        Remove-Item -LiteralPath $wrongOperatorCoordinatedCutoverPath
+      }
+    }
+
+    $guardedCoordinatedCutoverPath = Join-Path $holdDirectory 'guarded-coordinated-cutover.sql'
+    [System.IO.File]::WriteAllText(
+      $guardedCoordinatedCutoverPath,
+      "set forge.local_historical_replay = 'coordinated-cutover-rollouts-v1';`n" +
+        (Get-Content -LiteralPath $coordinatedCutoverFixturePath -Raw),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host 'Injecting the guarded coordinated-cutover rollout prerequisites...'
+    try {
+      Invoke-LocalPsqlScript -Path $guardedCoordinatedCutoverPath -DatabaseContainer $databaseContainer
+    }
+    finally {
+      if (Test-Path -LiteralPath $guardedCoordinatedCutoverPath -PathType Leaf) {
+        Remove-Item -LiteralPath $guardedCoordinatedCutoverPath
+      }
+    }
+
+    $coordinatedCutoverState = Invoke-SupabaseJsonQuery -Target local -Sql @"
+select json_build_object(
+  'revision_one_count',(select count(*) from tongs.openai_text_rollout_revisions where revision=1 and route_code<>'hearth.chat_completion'),
+  'revision_two_halt_count',(select count(*) from tongs.openai_text_rollout_revisions where revision=2 and mode='halt_new' and funding_scope='forge' and cost_policy_revision_id is null),
+  'hammer_mode',(select mode from tongs.openai_text_rollout_revisions where route_code='hammer.transcript_cleanup' order by revision desc limit 1),
+  'hammer_scopes',(select count(*) from tongs.customer_paid_execution_scope_authorizations where route_code='hammer.transcript_cleanup')
+) as authority;
+"@
+    $coordinatedCutoverAuthority = $coordinatedCutoverState.rows[0].authority
+    if ($coordinatedCutoverAuthority.revision_one_count -ne 11 -or
+        $coordinatedCutoverAuthority.revision_two_halt_count -ne 11 -or
+        $coordinatedCutoverAuthority.hammer_mode -ne 'halt_new' -or
+        $coordinatedCutoverAuthority.hammer_scopes -ne 0) {
+      throw "Coordinated-cutover rollout authority changed: $($coordinatedCutoverAuthority | ConvertTo-Json -Compress)"
+    }
+
+    Write-Host 'Applying the remaining historical slice through operator-controlled failure loss...'
+    for ($index = 14; $index -le 23; $index++) {
+      $heldPath = [System.IO.Path]::GetFullPath((Join-Path $holdDirectory $heldMigrationNames[$index]))
+      $restoredPath = [System.IO.Path]::GetFullPath((Join-Path $migrationsDir $heldMigrationNames[$index]))
+      if (-not (Test-Path -LiteralPath $heldPath -PathType Leaf) -or
+          (Test-Path -LiteralPath $restoredPath)) {
+        throw "Historical post-cutover migration is not staged: $($heldMigrationNames[$index])"
       }
       Move-Item -LiteralPath $heldPath -Destination $restoredPath
     }

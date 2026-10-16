@@ -34,23 +34,25 @@ begin
     raise exception 'post-checkpoint fixture requires the exact 20261011710000 boundary'
       using errcode='P0001';
   end if;
-  if exists (select 1 from tongs.openai_text_rollout_revisions
-      where route_code='motion.broll_interpretation' and revision>=2)
-     or exists (select 1 from tongs.runway_execution_rollout_revisions where revision>=2)
+  if not exists (
+       select 1 from tongs.openai_text_rollout_revisions
+       where route_code='motion.broll_interpretation' and revision=2
+         and mode='halt_new' and funding_scope='forge'
+         and cost_policy_revision_id is null
+         and reason='Synthetic historical replay of the approved 2026-09-12 coordinated OpenAI cutover; not production authority.'
+     )
+     or exists (select 1 from tongs.openai_text_rollout_revisions
+       where route_code='motion.broll_interpretation' and revision>2)
+  then
+    raise exception 'post-checkpoint fixture requires the coordinated-cutover motion revision 2'
+      using errcode='P0001';
+  end if;
+  if exists (select 1 from tongs.runway_execution_rollout_revisions where revision>=2)
      or exists (select 1 from tongs.private_pricing_policies
       where scope_kind='sku' and lower(provider)='runway' and lower(sku)='gen4.5:5s:1280:720') then
     raise exception 'post-checkpoint prerequisites already exist' using errcode='23505';
   end if;
 end $$;
-
--- 20261011720000 guard: motion.broll_interpretation revision 2, halt_new, funding_scope forge.
-insert into tongs.openai_text_rollout_revisions(
-  route_code,revision,mode,cost_policy_revision_id,reason,actor_id,funding_scope
-) values (
-  'motion.broll_interpretation',2,'halt_new',null,
-  'Local-only replay prerequisite for 20261011720000 historical Forge motion-B-roll halt.',
-  null,'forge'
-);
 
 -- 20261011730000 guard: the existing Runway paid-execution boundary must be enforced.
 insert into tongs.runway_execution_rollout_revisions(revision,mode,reason,actor_id)
