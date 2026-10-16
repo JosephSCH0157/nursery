@@ -43,6 +43,10 @@ $historicalReconciliationSourcePath = Join-Path $sourceMigrationsDir '2026100312
 $historicalReconciliationSourceSha256 = '9c07e382772c3e2b9ee63b14a677496b1ee07d08022c02a9672a42cc0c16e0ea'
 $historicalReconciliationSourceLength = 47053
 $historicalReconciliationSourceLfCount = 549
+$historicalRunwayQuoteSourcePath = Join-Path $sourceMigrationsDir '20261011740000_runway_customer_quote_expiry_replay.sql'
+$historicalRunwayQuoteSourceSha256 = '478fc574c90b829ea47bab7da0bd34c5901c8690bfe689d313bca81b688e7354'
+$historicalRunwayQuoteSourceLength = 16185
+$historicalRunwayQuoteSourceLfCount = 221
 
 $heldMigrationNames = @(
   '20260916110806_tongs_forge_credit_economy.sql',
@@ -322,10 +326,93 @@ function Test-HistoricalReconciliationSourceNegativePreflights {
   }
 }
 
+function Assert-HistoricalRunwayQuoteSourceBytes {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path
+  )
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Historical Runway quote source is missing: $Path"
+  }
+  $sourceBytes = [System.IO.File]::ReadAllBytes($Path)
+  $actualSha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sourceText = [System.Text.Encoding]::UTF8.GetString($sourceBytes)
+  $crlfCount = [regex]::Matches($sourceText,"`r`n").Count
+  $bareLfCount = [regex]::Matches($sourceText,"(?<!`r)`n").Count
+  $bareCrCount = [regex]::Matches($sourceText,"`r(?!`n)").Count
+  if ($actualSha256 -ne $historicalRunwayQuoteSourceSha256 -or
+      $sourceBytes.Length -ne $historicalRunwayQuoteSourceLength -or
+      $crlfCount -ne 0 -or
+      $bareLfCount -ne $historicalRunwayQuoteSourceLfCount -or
+      $bareCrCount -ne 0) {
+    throw "Historical Runway quote source bytes drifted; expected sha256=$historicalRunwayQuoteSourceSha256, length=$historicalRunwayQuoteSourceLength, LF=$historicalRunwayQuoteSourceLfCount, CRLF=0, CR=0; actual sha256=$actualSha256, length=$($sourceBytes.Length), LF=$bareLfCount, CRLF=$crlfCount, CR=$bareCrCount. Restore the exact committed migration bytes before replay; normalization is intentionally not automatic."
+  }
+}
+
+function Assert-HistoricalRunwayQuoteNegativePreflight {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$Label,
+    [Parameter(Mandatory=$true)][string]$ExpectedMessage
+  )
+  try {
+    Assert-HistoricalRunwayQuoteSourceBytes -Path $Path
+  }
+  catch {
+    if ($_.Exception.Message -like "*$ExpectedMessage*") {
+      Write-Host "Historical Runway quote byte preflight rejected $Label as expected."
+      return
+    }
+    throw
+  }
+  throw "Historical Runway quote byte preflight unexpectedly accepted $Label."
+}
+
+function Test-HistoricalRunwayQuoteSourceNegativePreflights {
+  $sourceBytes = [System.IO.File]::ReadAllBytes($historicalRunwayQuoteSourcePath)
+  $sourceText = [System.Text.Encoding]::UTF8.GetString($sourceBytes)
+  $crlfPath = [System.IO.Path]::GetTempFileName()
+  $mixedPath = [System.IO.Path]::GetTempFileName()
+  $semanticPath = [System.IO.Path]::GetTempFileName()
+  $missingPath = "$semanticPath.missing"
+  try {
+    [System.IO.File]::WriteAllText(
+      $crlfPath,
+      $sourceText.Replace("`n","`r`n"),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    $firstLf = $sourceText.IndexOf("`n",[System.StringComparison]::Ordinal)
+    if ($firstLf -lt 0) {
+      throw 'Historical Runway quote source contains no LF for the mixed-newline negative proof.'
+    }
+    [System.IO.File]::WriteAllText(
+      $mixedPath,
+      $sourceText.Substring(0,$firstLf) + "`r`n" + $sourceText.Substring($firstLf + 1),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    $semanticBytes = [byte[]]$sourceBytes.Clone()
+    $semanticBytes[0] = if ($semanticBytes[0] -eq 98) { 99 } else { 98 }
+    [System.IO.File]::WriteAllBytes($semanticPath,$semanticBytes)
+
+    Assert-HistoricalRunwayQuoteNegativePreflight -Path $crlfPath -Label 'CRLF-converted input' -ExpectedMessage 'Historical Runway quote source bytes drifted'
+    Assert-HistoricalRunwayQuoteNegativePreflight -Path $mixedPath -Label 'mixed-newline input' -ExpectedMessage 'Historical Runway quote source bytes drifted'
+    Assert-HistoricalRunwayQuoteNegativePreflight -Path $semanticPath -Label 'one-byte semantic mutation' -ExpectedMessage 'Historical Runway quote source bytes drifted'
+    Assert-HistoricalRunwayQuoteNegativePreflight -Path $missingPath -Label 'missing source input' -ExpectedMessage 'Historical Runway quote source is missing'
+  }
+  finally {
+    foreach ($temporaryPath in @($crlfPath,$mixedPath,$semanticPath)) {
+      if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+        Remove-Item -LiteralPath $temporaryPath
+      }
+    }
+  }
+}
+
 Push-Location $repoRoot
 try {
   Assert-HistoricalReconciliationSourceBytes -Path $historicalReconciliationSourcePath
   Test-HistoricalReconciliationSourceNegativePreflights
+  Assert-HistoricalRunwayQuoteSourceBytes -Path $historicalRunwayQuoteSourcePath
+  Test-HistoricalRunwayQuoteSourceNegativePreflights
   Assert-HistoricalFundingSelectorSourceBytes
   Invoke-CheckedCommand -Program 'docker' -Arguments @('info','--format','{{.ServerVersion}}') | Out-Null
 
