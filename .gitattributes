@@ -1,6 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# This historical function source is patched later by an exact multiline
+# pg_get_functiondef match. Preserve the committed LF bytes on every checkout.
+supabase/migrations/20261003120000_tongs_openai_cost_reconciliation_connection.sql -text
+
 # Remote-applied Sept. 16–17 migration SQL is historical evidence. Keep its
 # mixed line endings byte-for-byte; Git text normalization changes the bytes.
 supabase/migrations/20261011140000_tongs_unified_financial_environment.sql -text

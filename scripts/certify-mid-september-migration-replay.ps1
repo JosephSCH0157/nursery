@@ -39,6 +39,10 @@ $transitionOwnerAuthorityCertificationPath = Join-Path $repoRoot 'supabase/tests
 $exclusionManifestPath = Join-Path $repoRoot 'supabase/tests/fixtures/mid_september_replay_exclusions.json'
 $historicalFundingSelectorSourcePath = Join-Path $sourceMigrationsDir '20261011140000_tongs_unified_financial_environment.sql'
 $historicalFundingSelectorSourceSha256 = '4334055af650823d1aa2a5df928f4bc80b208f29f77e1dfe0e96e42f8e77b052'
+$historicalReconciliationSourcePath = Join-Path $sourceMigrationsDir '20261003120000_tongs_openai_cost_reconciliation_connection.sql'
+$historicalReconciliationSourceSha256 = '9c07e382772c3e2b9ee63b14a677496b1ee07d08022c02a9672a42cc0c16e0ea'
+$historicalReconciliationSourceLength = 47053
+$historicalReconciliationSourceLfCount = 549
 
 $heldMigrationNames = @(
   '20260916110806_tongs_forge_credit_economy.sql',
@@ -237,8 +241,91 @@ function Assert-HistoricalFundingSelectorSourceBytes {
   }
 }
 
+function Assert-HistoricalReconciliationSourceBytes {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path
+  )
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Historical reconciliation source is missing: $Path"
+  }
+  $sourceBytes = [System.IO.File]::ReadAllBytes($Path)
+  $actualSha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sourceText = [System.Text.Encoding]::UTF8.GetString($sourceBytes)
+  $crlfCount = [regex]::Matches($sourceText,"`r`n").Count
+  $bareLfCount = [regex]::Matches($sourceText,"(?<!`r)`n").Count
+  $bareCrCount = [regex]::Matches($sourceText,"`r(?!`n)").Count
+  if ($actualSha256 -ne $historicalReconciliationSourceSha256 -or
+      $sourceBytes.Length -ne $historicalReconciliationSourceLength -or
+      $crlfCount -ne 0 -or
+      $bareLfCount -ne $historicalReconciliationSourceLfCount -or
+      $bareCrCount -ne 0) {
+    throw "Historical reconciliation source bytes drifted; expected sha256=$historicalReconciliationSourceSha256, length=$historicalReconciliationSourceLength, LF=$historicalReconciliationSourceLfCount, CRLF=0, CR=0; actual sha256=$actualSha256, length=$($sourceBytes.Length), LF=$bareLfCount, CRLF=$crlfCount, CR=$bareCrCount. Restore the exact committed migration bytes before replay; normalization is intentionally not automatic."
+  }
+}
+
+function Assert-HistoricalReconciliationNegativePreflight {
+  param(
+    [Parameter(Mandatory=$true)][string]$Path,
+    [Parameter(Mandatory=$true)][string]$Label,
+    [Parameter(Mandatory=$true)][string]$ExpectedMessage
+  )
+  try {
+    Assert-HistoricalReconciliationSourceBytes -Path $Path
+  }
+  catch {
+    if ($_.Exception.Message -like "*$ExpectedMessage*") {
+      Write-Host "Historical reconciliation byte preflight rejected $Label as expected."
+      return
+    }
+    throw
+  }
+  throw "Historical reconciliation byte preflight unexpectedly accepted $Label."
+}
+
+function Test-HistoricalReconciliationSourceNegativePreflights {
+  $sourceBytes = [System.IO.File]::ReadAllBytes($historicalReconciliationSourcePath)
+  $sourceText = [System.Text.Encoding]::UTF8.GetString($sourceBytes)
+  $crlfPath = [System.IO.Path]::GetTempFileName()
+  $mixedPath = [System.IO.Path]::GetTempFileName()
+  $semanticPath = [System.IO.Path]::GetTempFileName()
+  $missingPath = "$semanticPath.missing"
+  try {
+    [System.IO.File]::WriteAllText(
+      $crlfPath,
+      $sourceText.Replace("`n","`r`n"),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    $firstLf = $sourceText.IndexOf("`n",[System.StringComparison]::Ordinal)
+    if ($firstLf -lt 0) {
+      throw 'Historical reconciliation source contains no LF for the mixed-newline negative proof.'
+    }
+    [System.IO.File]::WriteAllText(
+      $mixedPath,
+      $sourceText.Substring(0,$firstLf) + "`r`n" + $sourceText.Substring($firstLf + 1),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+    $semanticBytes = [byte[]]$sourceBytes.Clone()
+    $semanticBytes[0] = if ($semanticBytes[0] -eq 98) { 99 } else { 98 }
+    [System.IO.File]::WriteAllBytes($semanticPath,$semanticBytes)
+
+    Assert-HistoricalReconciliationNegativePreflight -Path $crlfPath -Label 'CRLF-converted input' -ExpectedMessage 'Historical reconciliation source bytes drifted'
+    Assert-HistoricalReconciliationNegativePreflight -Path $mixedPath -Label 'mixed-newline input' -ExpectedMessage 'Historical reconciliation source bytes drifted'
+    Assert-HistoricalReconciliationNegativePreflight -Path $semanticPath -Label 'one-byte semantic mutation' -ExpectedMessage 'Historical reconciliation source bytes drifted'
+    Assert-HistoricalReconciliationNegativePreflight -Path $missingPath -Label 'missing source input' -ExpectedMessage 'Historical reconciliation source is missing'
+  }
+  finally {
+    foreach ($temporaryPath in @($crlfPath,$mixedPath,$semanticPath)) {
+      if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+        Remove-Item -LiteralPath $temporaryPath
+      }
+    }
+  }
+}
+
 Push-Location $repoRoot
 try {
+  Assert-HistoricalReconciliationSourceBytes -Path $historicalReconciliationSourcePath
+  Test-HistoricalReconciliationSourceNegativePreflights
   Assert-HistoricalFundingSelectorSourceBytes
   Invoke-CheckedCommand -Program 'docker' -Arguments @('info','--format','{{.ServerVersion}}') | Out-Null
 
