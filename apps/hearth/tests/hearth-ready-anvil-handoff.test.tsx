@@ -21,9 +21,9 @@ const ready = {
 };
 function deferred() { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; }
 
-for (const scenario of ["unchanged-repeat", "edited-draft", "canonical-advance", "not-ready", "denied",
-  "wrong-workspace", "corrupt-hash", "missing-approval", "hydration-race", "workspace-race", "saving", "missing-draft"]) {
-  test(`Start Recording: ${scenario}; never republishes or manufactures authority`, async () => {
+for (const scenario of ["unchanged-repeat", "existing-approved-without-ready", "edited-draft", "canonical-advance", "unapproved",
+  "stale-approval", "denied", "wrong-workspace", "corrupt-hash", "missing-approval", "hydration-race", "workspace-race", "saving", "missing-draft"]) {
+  test(`Start Recording: ${scenario}; reconciles only through authorized Tongs authority`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost/?tongs_api_token=test-token" });
     const navigation: string[] = [], errors: Array<string | null> = [], requests: string[] = [];
     let flushed = 0;
@@ -39,20 +39,37 @@ for (const scenario of ["unchanged-repeat", "edited-draft", "canonical-advance",
     const originalFetch = globalThis.fetch, entered = deferred(), release = deferred();
     const racing = scenario.endsWith("-race");
     globalThis.fetch = (async (url, init) => {
-      assert.equal(init?.method, "GET", "handoff must have no write boundary");
-      assert.equal(init?.cache, "no-store");
       requests.push(String(url));
+      if (String(url).endsWith("recording-readiness")) {
+        assert.equal(init?.method, "POST");
+        const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        assert.deepEqual(requestBody, { workspace_id: workspaceId });
+        const failure = scenario === "unapproved"
+          ? { outcome: "not_found", reason: "current_approval_not_found" }
+          : scenario === "stale-approval"
+            ? { outcome: "stale", reason: "approved_script_is_not_current" }
+            : scenario === "denied"
+              ? { outcome: "denied", reason: "editor_required" }
+              : scenario === "wrong-workspace"
+                ? { outcome: "not_found", reason: "active_episode_membership_invalid" }
+                : null;
+        return new Response(JSON.stringify({ ok: true, data: failure
+          ? { ...failure, ready: null }
+          : { outcome: scenario === "existing-approved-without-ready" ? "saved" : "duplicate", reason: null, ready: { transition_id: ready.ready_transition_id } } }), { status: 200 });
+      }
       if (String(url).endsWith("production-script")) {
+        assert.equal(init?.method, "GET");
+        assert.equal(init?.cache, "no-store");
         entered.resolve();
         if (racing) await release.promise;
-        const status = scenario === "not-ready" ? 409 : scenario === "denied" ? 403 : 200;
         const data = { ...ready,
-          ...(scenario === "wrong-workspace" ? { workspace_id: workpieceId } : {}),
           ...(scenario === "corrupt-hash" ? { script_content_hash: "0".repeat(64) } : {}),
           ...(scenario === "missing-approval" ? { script_approval_id: null } : {}),
         };
-        return new Response(JSON.stringify({ ok: status === 200, data }), { status });
+        return new Response(JSON.stringify({ ok: true, data }), { status: 200 });
       }
+      assert.equal(init?.method, "GET");
+      assert.equal(init?.cache, "no-store");
       assert.match(String(url), /read-file\?path=script%2Fscript.md$/);
       return new Response(JSON.stringify({ ok: true, data: text,
         file_row: { revision: scenario === "canonical-advance" ? 3 : 2, hash_value: hash } }));
@@ -83,7 +100,10 @@ for (const scenario of ["unchanged-repeat", "edited-draft", "canonical-advance",
       if (scenario === "unchanged-repeat") {
         await act(async () => { await open(); });
         assert.equal(navigation.length, 2); assert.equal(flushed, 2);
-        assert.equal(requests.length, 4); assert.equal(errors.at(-1), null);
+        assert.equal(requests.length, 6); assert.equal(errors.at(-1), null);
+      } else if (scenario === "existing-approved-without-ready") {
+        assert.equal(navigation.length, 1); assert.equal(flushed, 1);
+        assert.equal(requests.length, 3); assert.equal(errors.at(-1), null);
       } else {
         assert.equal(navigation.length, 0); assert.equal(flushed, 0);
         if (!racing) assert.ok(errors.at(-1));

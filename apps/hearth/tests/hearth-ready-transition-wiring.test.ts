@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { webcrypto } from "node:crypto";
 import { commitHearthPrimaryScript } from "../src/lib/hearth-script-repo";
-import { commitPublishedScriptApprovalAuthority, markApprovedScriptReady } from "../src/lib/hearth-script-approval-authority";
+import { commitPublishedScriptApprovalAuthority, reconcileApprovedScriptRecordingReadiness } from "../src/lib/hearth-script-approval-authority";
 
 const WORKPIECE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -64,7 +64,7 @@ test("byte-identical working-document commit is a no-op and preserves its canoni
   } finally { globalThis.fetch = originalFetch; restoreWindow(); }
 });
 
-test("approval and explicit Ready are separate without editorial-preflight authority", async () => {
+test("approval returns recording-ready authority without a second client transition", async () => {
   const originalFetch = globalThis.fetch;
   const restoreWindow = installWindow();
   const originalCrypto = globalThis.crypto;
@@ -76,26 +76,56 @@ test("approval and explicit Ready are separate without editorial-preflight autho
     requests.push({ url, body });
     if (url.includes("read-file")) return response({ ok: true, file_row: { revision: 4, hash_value: scriptHash } });
     if (url.endsWith("/script-approval") && (init?.method ?? "GET") === "GET") return response({ ok: true, data: { current_revision: 0, current_approval: null } });
-    if (url.endsWith("/script-approval")) return response({ ok: true, data: { disposition: "committed", approval: { id: APPROVAL_ID, approval_revision: 1, source_file_revision: 4, script_content_hash: scriptHash } } });
+    if (url.endsWith("/script-approval")) return response({ ok: true, data: { disposition: "committed", approval: { id: APPROVAL_ID, approval_revision: 1, source_file_revision: 4, script_content_hash: scriptHash }, recording_readiness: { state: "ready", basis: "current_script_approval", ready: { transition_id: TRANSITION_ID } } } });
     return response({ ok: true, data: { outcome: "saved", ready: { transition_id: TRANSITION_ID } } });
   }) as typeof fetch;
   try {
     const result = await commitPublishedScriptApprovalAuthority({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, creatorVersion: 1, scriptText: VALID_SCRIPT, isCurrent: () => true });
     assert.equal(result.ok, true);
     assert.equal(requests.some((entry) => entry.url.endsWith("/ready-transition")), false);
-    if (!result.ok) return;
-    const readyResult = await markApprovedScriptReady({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID, authority: result.authority });
-    assert.equal(readyResult.ok, true);
-    const ready = requests.find((entry) => entry.url.endsWith("/ready-transition"));
-    assert.equal(ready?.body.script_approval_id, APPROVAL_ID);
-    assert.equal("preflight_report_id" in (ready?.body ?? {}), false);
-    assert.deepEqual(ready?.body.publish_evidence, { transition: "hearth.approved-script.ready.v4", script_approval_id: APPROVAL_ID, script_approval_revision: 1, script_approval_hash: scriptHash });
+    assert.equal(requests.some((entry) => entry.url.endsWith("/recording-readiness")), false);
   } finally {
     globalThis.fetch = originalFetch;
     restoreWindow();
     Object.defineProperty(globalThis, "crypto", { configurable: true, value: originalCrypto });
   }
 });
+
+test("Brad regression: an existing current approval safely acquires its missing Ready receipt", async () => {
+  const originalFetch = globalThis.fetch;
+  const restoreWindow = installWindow();
+  const outcomes = ["saved", "duplicate"];
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+    requests.push({ url, body });
+    const outcome = outcomes.shift() ?? "duplicate";
+    return response({ ok: true, data: { outcome, reason: null, basis: "current_script_approval", ready: { transition_id: TRANSITION_ID } } });
+  }) as typeof fetch;
+  try {
+    const first = await reconcileApprovedScriptRecordingReadiness({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID });
+    const retry = await reconcileApprovedScriptRecordingReadiness({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID });
+    assert.deepEqual(first, { ok: true, readyTransitionId: TRANSITION_ID });
+    assert.deepEqual(retry, { ok: true, readyTransitionId: TRANSITION_ID });
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every((entry) => entry.url.endsWith("/recording-readiness")));
+    assert.ok(requests.every((entry) => entry.body.workspace_id === WORKSPACE_ID));
+    assert.ok(requests.every((entry) => !("script_approval_id" in entry.body)));
+  } finally { globalThis.fetch = originalFetch; restoreWindow(); }
+});
+
+for (const reason of ["current_approval_not_found", "approved_script_is_not_current", "active_episode_membership_invalid"] as const) {
+  test(`recording-readiness reconciliation fails closed for ${reason}`, async () => {
+    const originalFetch = globalThis.fetch;
+    const restoreWindow = installWindow();
+    globalThis.fetch = (async () => response({ ok: true, data: { outcome: reason === "approved_script_is_not_current" ? "stale" : "not_found", reason, ready: null } })) as typeof fetch;
+    try {
+      const result = await reconcileApprovedScriptRecordingReadiness({ workpieceId: WORKPIECE_ID, workspaceId: WORKSPACE_ID });
+      assert.equal(result.ok, false);
+    } finally { globalThis.fetch = originalFetch; restoreWindow(); }
+  });
+}
 
 test("approval CAS rejects source bytes different from the creator-visible draft", async () => {
   const originalFetch = globalThis.fetch; const originalCrypto = globalThis.crypto; const restoreWindow = installWindow();

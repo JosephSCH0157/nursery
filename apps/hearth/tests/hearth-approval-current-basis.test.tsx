@@ -39,7 +39,6 @@ for (const change of ["hydrated-body", "draft-identity", "workspace"]) {
       mirrorApprovedScript: async () => { throw new Error("Must not mirror a stale approval"); },
       graduateLinkedSpark: () => null, setScriptApprovalState: no, writeScriptApprovalRecoveryEvidence: no,
       updateStyleProfileFromReadyCheckpoint: async () => ({ ok: true }), appendApprovalMarker: no, refreshReadyScripts: no,
-      approvedScriptVersion: null, approvedAt: null,
     };
     let latest!: ReturnType<typeof useApprovalFlow>;
     function Harness({ value }: { value: Args }) { latest = useApprovalFlow(value); return null; }

@@ -125,8 +125,10 @@ Hearth always operates within a single active Episode context.
   - evergreen
   - or other priority signals
 
-Ready is reversible editorial candidacy. It is not approval, scheduling, locking, recording,
-or publish readiness. The Ready list is advisory.
+Ready for recording is derived from the current canonical approved script. Approval of the
+exact production-valid script is the only creative gate; thumbnails, images, B-roll,
+reference material, claims checks, and other review artifacts are non-blocking. Ready is
+not scheduling, locking, recording, or publish readiness. The Ready list is advisory.
 It does NOT start, schedule, or control recording.
 
 ---

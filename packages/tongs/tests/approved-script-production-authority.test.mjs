@@ -5,6 +5,8 @@ import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const migration = fs.readFileSync(path.join(root, "supabase/migrations/20260827150000_tongs_approved_script_production_authority.sql"), "utf8");
+const recordingReadinessMigration = fs.readFileSync(path.join(root, "supabase/migrations/20261018120000_tongs_approved_script_recording_readiness.sql"), "utf8");
+const creatorReadinessMigration = fs.readFileSync(path.join(root, "supabase/migrations/20260917225047_tongs_hearth_creator_readiness_authority.sql"), "utf8");
 const api = fs.readFileSync(path.join(root, "packages/tongs/src/workpiece-commit-api.ts"), "utf8");
 
 test("approval creation freezes an exact source revision/hash through one server transaction", () => {
@@ -23,6 +25,44 @@ test("Ready and capture consume explicit approval identity", () => {
   assert.match(migration, /script_approval_id,script_approval_revision,script_approval_hash/);
   assert.match(api, /getReadyProductionScript/);
   assert.match(api, /ready_approval_mismatch/);
+});
+
+test("current script approval atomically creates or reuses the matching Ready receipt", () => {
+  const wrapper = recordingReadinessMigration.match(
+    /create or replace function tongs\.approve_canonical_script_v4[\s\S]*?\$function\$;/i,
+  )?.[0] ?? "";
+  assert.match(wrapper, /approve_canonical_script_v4_commit_only/i);
+  assert.match(wrapper, /v_approval_id := \(v_approval->>'id'\)::uuid/i);
+  assert.match(wrapper, /hearth_transition_approved_script_ready_v4\([\s\S]*?v_approval_id/i);
+  assert.match(wrapper, /not in \('saved','duplicate'\)/i);
+  assert.match(wrapper, /'state','ready'/i);
+  assert.doesNotMatch(wrapper, /thumbnail|broll|reference|preflight|review/i);
+});
+
+test("existing approved scripts reconcile through current scoped authority without caller-selected identity", () => {
+  const reconciliation = recordingReadinessMigration.match(
+    /create or replace function tongs\.reconcile_current_approved_script_ready_v1[\s\S]*?\$function\$;/i,
+  )?.[0] ?? "";
+  assert.match(reconciliation, /auth\.uid\(\)/i);
+  assert.match(reconciliation, /has_workspace_role\(p_workspace_id,'editor'\)/i);
+  assert.match(reconciliation, /e\.id=p_workpiece_id[\s\S]*?e\.workspace_id=p_workspace_id/i);
+  assert.match(reconciliation, /s\.current_approval_id/i);
+  assert.match(reconciliation, /hearth_transition_approved_script_ready_v4/i);
+  assert.match(reconciliation, /'hearth-approved-ready-v4:' \|\| p_workpiece_id::text \|\| ':' \|\| v_approval\.id::text/i);
+  assert.doesNotMatch(reconciliation, /p_script_approval_id|p_script_hash|p_script_revision/i);
+});
+
+test("script changes and authorization failures remain fail-closed", () => {
+  const transition = creatorReadinessMigration.match(
+    /create or replace function tongs\.hearth_transition_approved_script_ready_v4[\s\S]*?\$function\$;/i,
+  )?.[0] ?? "";
+  assert.match(transition, /has_workspace_role\(p_workspace_id,'editor'\)/i);
+  assert.match(transition, /current_approval_id=a\.id/i);
+  assert.match(transition, /v_file\.revision<>v_approval\.source_file_revision/i);
+  assert.match(transition, /v_file\.hash_value[\s\S]*?v_approval\.script_content_hash/i);
+  assert.match(transition, /approved_script_is_not_current/i);
+  assert.match(recordingReadinessMigration, /revoke all on function tongs\.reconcile_current_approved_script_ready_v1[\s\S]*?from public,anon/i);
+  assert.match(recordingReadinessMigration, /grant execute on function tongs\.reconcile_current_approved_script_ready_v1[\s\S]*?to authenticated,service_role/i);
 });
 
 test("historical capture enrichment narrowly suspends and restores immutability", () => {

@@ -402,6 +402,7 @@ function mockService() {
     getCanonicalScriptApproval: [],
     commitCanonicalScriptApproval: [],
     transitionHearthScriptReady: [],
+    reconcileHearthApprovedScriptReady: [],
     getCanonicalHearthResearchArtifact: [],
     commitCanonicalHearthResearchArtifact: [],
     getCurrentHearthEditorialPreflight: [],
@@ -583,6 +584,14 @@ function mockService() {
       calls.transitionHearthScriptReady.push({ workpieceId, input });
       return {
         outcome: "saved",
+        reason: null,
+        ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
+      };
+    },
+    async reconcileHearthApprovedScriptReady(workpieceId, workspaceId, options) {
+      calls.reconcileHearthApprovedScriptReady.push({ workpieceId, workspaceId, options });
+      return {
+        outcome: "duplicate",
         reason: null,
         ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
       };
@@ -4242,6 +4251,31 @@ test("POST /tongs/workpieces/:id/ready-transition forwards explicit approval aut
   assert.equal(calls.transitionHearthScriptReady[0].input.script_approval_id, "77777777-7777-4777-8777-777777777777");
   assert.equal("preflight_report_id" in calls.transitionHearthScriptReady[0].input, false);
   assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
+});
+
+test("POST /tongs/workpieces/:id/recording-readiness reconciles an existing approval through user authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "test-token");
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/recording-readiness",
+    {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "x-forge-user-authorization": "Bearer user-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }),
+    },
+  ));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.data.outcome, "duplicate");
+  assert.deepEqual(calls.reconcileHearthApprovedScriptReady, [{
+    workpieceId: "11111111-1111-4111-8111-111111111111",
+    workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    options: { userAccessToken: "user-token" },
+  }]);
 });
 
 test("script approval rejects an invalid API token as 401 before creator authority", async () => {

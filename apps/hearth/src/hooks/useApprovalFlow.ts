@@ -37,18 +37,13 @@ type UseApprovalFlowArgs = {
   updateStyleProfileFromReadyCheckpoint: (args: { workspaceId: string | null; scriptText: string }) => Promise<StyleUpdateResult>;
   appendApprovalMarker: (args: { draftId: string; content: string }) => void;
   refreshReadyScripts: () => Promise<void> | void;
-  approvedScriptVersion: number | null;
-  approvedAt: number | null;
 };
 
 export function useApprovalFlow(args: UseApprovalFlowArgs): {
   isApprovingScript: boolean;
-  isMarkingReady: boolean;
   onApproveScript: (options?: { draftOverride?: Draft }) => Promise<boolean>;
-  onMarkReady: () => Promise<boolean>;
 } {
   const [isApprovingScript, setIsApprovingScript] = useState(false);
-  const [isMarkingReady, setIsMarkingReady] = useState(false);
   const latestArgs = useRef(args);
   latestArgs.current = args;
 
@@ -119,6 +114,20 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
       const milestone = await args.commitCanonicalApprovalRevision({ episodeId, draft: approvedReplacement.draft, approvalNote: `script_version_approved:v${nextVersion}` });
       if (!milestone.ok) args.setApprovalPersistenceStatus({ cloud: "ok", local: "failed", localMessage: "Approval is canonical, but revision history did not update." });
 
+      // Tongs atomically derives recording readiness from this approval. The
+      // remaining work is downstream bookkeeping, not another readiness gate.
+      const graduatedSparkId = await args.graduateLinkedSpark(episodeId);
+      const styleUpdate = await args.updateStyleProfileFromReadyCheckpoint({ workspaceId: args.workspaceId, scriptText: approvedReplacement.draft.body });
+      const styleAlignmentMarker = styleUpdate.ok && !styleUpdate.skipped
+        ? `style_alignment: updated (scripts_analyzed: ${styleUpdate.profile?.scriptsAnalyzedCount ?? 0})`
+        : styleUpdate.ok && styleUpdate.reason === "paused" ? "style_alignment: paused" : null;
+      const { buildApprovalMarkerLines } = await import("../lib/hearth-approval-marker");
+      args.appendApprovalMarker({
+        draftId: approvedReplacement.draft.id,
+        content: buildApprovalMarkerLines({ version: nextVersion, approvedAt, graduatedSparkId, styleAlignmentMarker }).join("\n"),
+      });
+      await args.refreshReadyScripts();
+
       args.setApprovalPersistenceStatus({ cloud: "ok", local: "failed", localMessage: "Local mirror sync pending." });
       void args.mirrorApprovedScript({ workspaceId: args.workspaceId, workpieceId: episodeId, scriptText: normalizedText }).then((mirror) => {
         if (mirror.ok) args.setApprovalPersistenceStatus({ cloud: "ok", local: "ok", localPath: mirror.relativePath });
@@ -128,47 +137,5 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
     } finally { setIsApprovingScript(false); }
   }, [args, isApprovingScript]);
 
-  const onMarkReady = useCallback(async () => {
-    if (isMarkingReady || args.isSaving || args.isAiProcessing) return false;
-    const episodeId = args.workpieceId?.trim();
-    if (!episodeId || !args.workspaceId || !args.activeDraft) {
-      args.setError("Ready requires the current approved script.");
-      return false;
-    }
-    const readyDraft = args.activeDraft;
-    const operation = args.operationAuthority.begin("ready");
-    const isReadyCurrent = () => {
-      const current = latestArgs.current;
-      return args.operationAuthority.isCurrent(operation)
-        && current.workspaceId === args.workspaceId
-        && current.workpieceId === args.workpieceId
-        && current.activeDraft?.id === readyDraft.id
-        && current.activeDraft.body === readyDraft.body;
-    };
-    setIsMarkingReady(true);
-    try {
-      const { hashCanonicalHearthApprovalText, markApprovedScriptReady, readPublishedScriptApprovalAuthority } = await import("../lib/hearth-script-approval-authority");
-      const draftHash = await hashCanonicalHearthApprovalText(readyDraft.body);
-      const authority = await readPublishedScriptApprovalAuthority(episodeId);
-      if (!isReadyCurrent()) return false;
-      if (!authority || authority.contentHash !== draftHash) {
-        args.setError("The current approval does not match the working script bytes. Approve the current draft again.");
-        return false;
-      }
-      const ready = await markApprovedScriptReady({ workpieceId: episodeId, workspaceId: args.workspaceId, authority });
-      if (!isReadyCurrent()) return false;
-      if (!ready.ok) { args.setError(ready.error); return false; }
-      const graduatedSparkId = await args.graduateLinkedSpark(episodeId);
-      const styleUpdate = await args.updateStyleProfileFromReadyCheckpoint({ workspaceId: args.workspaceId, scriptText: args.activeDraft.body });
-      const styleAlignmentMarker = styleUpdate.ok && !styleUpdate.skipped
-        ? `style_alignment: updated (scripts_analyzed: ${styleUpdate.profile?.scriptsAnalyzedCount ?? 0})`
-        : styleUpdate.ok && styleUpdate.reason === "paused" ? "style_alignment: paused" : null;
-      const { buildApprovalMarkerLines } = await import("../lib/hearth-approval-marker");
-      args.appendApprovalMarker({ draftId: args.activeDraft.id, content: buildApprovalMarkerLines({ version: args.approvedScriptVersion ?? 1, approvedAt: args.approvedAt ?? Date.now(), graduatedSparkId, styleAlignmentMarker }).join("\n") });
-      await args.refreshReadyScripts();
-      return true;
-    } finally { setIsMarkingReady(false); }
-  }, [args, isMarkingReady]);
-
-  return { isApprovingScript, isMarkingReady, onApproveScript, onMarkReady };
+  return { isApprovingScript, onApproveScript };
 }

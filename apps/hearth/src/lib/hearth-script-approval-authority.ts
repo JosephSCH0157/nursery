@@ -132,3 +132,32 @@ export async function markApprovedScriptReady(args: {
   if (!readyResponse.ok || (readyOutcome !== "saved" && readyOutcome !== "duplicate") || !readyTransitionId) return { ok: false, error: "The approved script could not enter Ready because its exact canonical revision is no longer current." };
   return { ok: true, readyTransitionId };
 }
+
+export async function reconcileApprovedScriptRecordingReadiness(args: {
+  workpieceId: string;
+  workspaceId: string;
+}): Promise<{ ok: true; readyTransitionId: string } | { ok: false; error: string }> {
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/recording-readiness`,
+    { method: "POST", json: { workspace_id: args.workspaceId } },
+  );
+  const body = await json(response);
+  const data = record(body) && body.ok === true && record(body.data) ? body.data : null;
+  const ready = data && record(data.ready) ? data.ready : null;
+  const outcome = typeof data?.outcome === "string" ? data.outcome : "";
+  const reason = typeof data?.reason === "string" ? data.reason : "";
+  const readyTransitionId = typeof ready?.transition_id === "string" ? ready.transition_id : "";
+  if (response.ok && (outcome === "saved" || outcome === "duplicate") && readyTransitionId) {
+    return { ok: true, readyTransitionId };
+  }
+  if (reason === "editor_required") {
+    return { ok: false, error: "Editor access is required before starting a recording." };
+  }
+  if (reason === "active_episode_membership_invalid") {
+    return { ok: false, error: "This episode is unavailable for recording in the active workspace." };
+  }
+  return {
+    ok: false,
+    error: "The working script is not the current approved script. Approve this exact script before starting recording.",
+  };
+}

@@ -38,8 +38,6 @@ type HearthDraftScriptHeaderProps = {
   preflightAuthority: HearthPreflightAuthority | null;
   preflightError: string | null;
   isReviewingPreflight: boolean;
-  onMarkReady: () => void | Promise<unknown>;
-  isMarkingReady: boolean;
   hasScript: boolean;
   isAiProcessing: boolean;
   isApprovingScript: boolean;
@@ -109,8 +107,6 @@ export default function HearthDraftScriptHeader({
   preflightAuthority,
   preflightError,
   isReviewingPreflight,
-  onMarkReady,
-  isMarkingReady,
   hasScript,
   isAiProcessing,
   isApprovingScript,
@@ -232,13 +228,6 @@ export default function HearthDraftScriptHeader({
           disabled={!activeDraft || !hasScript || isSaving || isAiProcessing || isApprovingScript || approvalBlocked}
         >
           {isApprovingScript ? "Approving..." : "Approve Script"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void onMarkReady()}
-          disabled={!hasApprovedScript || isMarkingReady}
-        >
-          {isMarkingReady ? "Marking Ready..." : "Mark Ready"}
         </button>
         <label className="hs-tone-control">
           <span>Tone</span>

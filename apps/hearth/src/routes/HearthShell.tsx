@@ -2335,6 +2335,12 @@ export default function HearthShell({
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const draftChangedSinceApproval = Boolean(
+    hasApprovedScript
+    && activeDraft
+    && scriptApprovalState.approvedAt
+    && activeDraft.updatedAt > scriptApprovalState.approvedAt,
+  );
   const releasePreparationWorkspace = useHearthReleasePreparationWorkspaceState({
     workpieceId,
     hasApprovedScript,
@@ -3795,6 +3801,13 @@ export default function HearthShell({
           : "Restore this episode before it can return to Ready.",
       };
     }
+    if (draftChangedSinceApproval) {
+      return {
+        tone: "pending" as const,
+        label: "Approval Required",
+        detail: "The script changed after approval. Approve this exact revision before opening it in Anvil.",
+      };
+    }
     if (activeReadyScript) {
       return {
         tone: "ready" as const,
@@ -3805,22 +3818,23 @@ export default function HearthShell({
     if (hasApprovedScript && approvedScriptVersion) {
       return {
         tone: "pending" as const,
-        label: "Script Approved",
+        label: "Ready Syncing",
         detail: scriptApprovalState.approvedAt
-          ? `Script v${approvedScriptVersion} approved ${formatRelativeUpdatedAt(scriptApprovalState.approvedAt)}, but it has not entered the canonical Ready queue.`
-          : `Script v${approvedScriptVersion} approved, but it has not entered the canonical Ready queue.`,
+          ? `Script v${approvedScriptVersion} was approved ${formatRelativeUpdatedAt(scriptApprovalState.approvedAt)}. Refreshing its recording-ready projection.`
+          : `Script v${approvedScriptVersion} is approved. Refreshing its recording-ready projection.`,
       };
     }
     return {
       tone: "pending" as const,
       label: "Not Ready",
-      detail: "Approve the exact production-valid script, then explicitly Mark Ready.",
+      detail: "Approve the exact production-valid script to make it ready for Anvil.",
     };
   }, [
     activeReadyScript,
     activeWorkpiece?.archiveReason,
     activeWorkpieceIsArchived,
     approvedScriptVersion,
+    draftChangedSinceApproval,
     hasApprovedScript,
     resolveReadyAttribution,
     scriptApprovalState.approvedAt,
@@ -3835,13 +3849,13 @@ export default function HearthShell({
       phase: "script",
       displayStatus: activeWorkpieceIsArchived
         ? "draft"
-        : activeReadyScript
+        : activeReadyScript && !draftChangedSinceApproval
         ? "ready"
         : hasApprovedScript
         ? "scripted"
         : "draft",
     } satisfies EpisodeWorkspaceReadModel;
-  }, [activeReadyScript, activeWorkpiece?.title, activeWorkpieceIsArchived, hasApprovedScript, workpieceId]);
+  }, [activeReadyScript, activeWorkpiece?.title, activeWorkpieceIsArchived, draftChangedSinceApproval, hasApprovedScript, workpieceId]);
 
   useEffect(() => {
     onEpisodeReadModelChange?.(episodeWorkspaceReadModel);
@@ -4226,9 +4240,7 @@ export default function HearthShell({
   }, [preflightAuthority, workpieceId, workspaceId]);
   const {
     isApprovingScript,
-    isMarkingReady,
     onApproveScript,
-    onMarkReady,
   } = useHearthScriptApprovalFlow({
     operationAuthority,
     activeDraft,
@@ -4261,8 +4273,6 @@ export default function HearthShell({
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
-    approvedScriptVersion,
-    approvedAt: scriptApprovalState.approvedAt,
   });
   approveScriptActionRef.current = onApproveScript;
   useHearthBrollCoreCommands({
@@ -7096,8 +7106,6 @@ export default function HearthShell({
             preflightAuthority={preflightAuthority}
             preflightError={preflightError}
             isReviewingPreflight={isReviewingPreflight}
-            onMarkReady={onMarkReady}
-            isMarkingReady={isMarkingReady}
             hasScript={hasScript}
             isAiProcessing={isAiProcessing}
             isApprovingScript={isApprovingScript}
@@ -7140,7 +7148,7 @@ export default function HearthShell({
             approvedScriptVersion={approvedScriptVersion}
             productionScriptStatus={!hasApprovedScript
               ? "Working Draft"
-              : activeDraft && scriptApprovalState.approvedAt && activeDraft.updatedAt > scriptApprovalState.approvedAt
+              : draftChangedSinceApproval
                 ? "Draft Changed Since Approval"
                 : "Approved for Production"}
             isVisualScriptMode={isVisualScriptMode}

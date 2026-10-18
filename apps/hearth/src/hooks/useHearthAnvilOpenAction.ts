@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import type { Draft } from "../domain/draft";
 import { resolveTongsRequestApiToken, tongsFetch } from "../lib/tongs-fetch";
 import { canonicalHearthApprovalText } from "../lib/hearth-script-approval";
+import { reconcileApprovedScriptRecordingReadiness } from "../lib/hearth-script-approval-authority";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 
 type UseHearthAnvilOpenActionArgs = {
@@ -16,7 +17,7 @@ type UseHearthAnvilOpenActionArgs = {
   operationAuthority: HearthOperationAuthority;
 };
 
-const REVIEW_REQUIRED = "The script is not the current approved Ready script. Approve it and Mark Ready deliberately before starting recording.";
+const REVIEW_REQUIRED = "The working script is not the current approved script. Approve this exact script before starting recording.";
 function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -81,6 +82,15 @@ export function useHearthAnvilOpenAction(args: UseHearthAnvilOpenActionArgs) {
       && latest.current.activeDraft?.id === args.activeDraft?.id
       && canonicalHearthApprovalText(latest.current.activeDraft?.body ?? "") === scriptText;
     args.setError(null);
+    const reconciliation = await reconcileApprovedScriptRecordingReadiness({
+      workspaceId: workspace,
+      workpieceId: workpiece,
+    });
+    if (!isCurrent()) return;
+    if (!reconciliation.ok) {
+      args.setError(reconciliation.error);
+      return;
+    }
     const ready = await verifyHearthReadyHandoff({ workspaceId: workspace, workpieceId: workpiece, scriptText, isCurrent });
     if (!isCurrent()) return;
     if (!ready) {

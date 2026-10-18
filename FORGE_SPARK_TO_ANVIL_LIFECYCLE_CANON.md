@@ -47,11 +47,14 @@ The durable production unit is the workpiece. Sparks are intake state, not the f
 
 ### Ready
 
-- Ready is a reversible editorial state.
-- Ready is not approval.
-- Ready is not a lock.
-- Ready is not terminal.
-- A workpiece marked ready must be able to return to editing.
+- Ready for Anvil is derived from the current canonical approved script.
+- Approving a production-valid script makes that exact immutable revision ready
+  for recording; there is no second manual readiness decision.
+- Thumbnails, images, reference material, B-roll, claims checks, and other
+  editorial review artifacts are optional and never block recording readiness.
+- Ready is not a lock, schedule, recording, or publish-readiness declaration.
+- Editing remains reversible. When the canonical script bytes change, the new
+  revision is not ready until it is approved; the prior approval remains history.
 
 ### Recorded
 
@@ -67,7 +70,9 @@ Canonical editorial script states are:
 - `ready`
 - `scheduled`
 
-These states are reversible before recording. A workpiece may move from ready back into edit without losing its identity.
+These states are reversible before recording. A workpiece may move from ready
+back into edit without losing its identity; the edited revision becomes ready
+again when that exact script is approved.
 
 ## Ownership And Persistence
 
@@ -92,6 +97,9 @@ These states are reversible before recording. A workpiece may move from ready ba
 
 - Anvil opens a workpiece context.
 - Script handoff is workpiece-scoped, not Spark-scoped and not draft-row-scoped.
+- The only creative readiness prerequisite is a current canonical script
+  approval. Optional visual, reference, B-roll, thumbnail, and review work may
+  continue before or after recording.
 
 ## Cleanup Rules
 

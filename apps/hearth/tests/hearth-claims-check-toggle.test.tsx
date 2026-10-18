@@ -33,7 +33,7 @@ test("Check claims toggles its saved panel without deleting review state", async
     onApproveScript: no, onReviewForRecording: () => { checks++; },
     onCompletePreflightReview: no, onHandlePreflightFinding: no,
     preflightAuthority: authority, preflightError: null, isReviewingPreflight: false,
-    onMarkReady: no, isMarkingReady: false, hasScript: true, isAiProcessing: false,
+    hasScript: true, isAiProcessing: false,
     isApprovingScript: false, approvalBlocked: false, activeTonePreset: "plain",
     onChangeTonePreset: no, tonePresetOptions: [], statusText: "", wordCount: 2, charCount: 8,
     aiAutosaveWarning: null, onRetryAiAutosave: no, editingPeersCount: 0, viewingPeersCount: 0,
@@ -58,6 +58,11 @@ test("Check claims toggles its saved panel without deleting review state", async
   };
   try {
     await act(async () => { root.render(createElement(HearthDraftScriptHeader, props)); });
+    assert.equal(
+      Array.from(dom.window.document.querySelectorAll("button")).some((button) => button.textContent?.includes("Mark Ready")),
+      false,
+      "approval is the only user-facing recording-readiness decision",
+    );
     assert.equal(panel(), null, "a saved check starts hidden");
     assert.equal(checkButton().getAttribute("aria-expanded"), "false");
 

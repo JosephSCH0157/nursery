@@ -3229,6 +3229,11 @@ export type TongsCommitApiService = {
     workpieceId: string,
     input: HearthReadyTransitionRequest,
   ): Promise<HearthReadyTransitionResult>;
+  reconcileHearthApprovedScriptReady(
+    workpieceId: string,
+    workspaceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthReadyTransitionResult>;
   getReadyProductionScript(
     workpieceId: string,
     options?: { userAccessToken?: string | null },
@@ -16822,6 +16827,80 @@ export class TongsCommitService {
     return data as HearthReadyTransitionResult;
   }
 
+  async reconcileHearthApprovedScriptReady(
+    workpieceId: string,
+    workspaceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HearthReadyTransitionResult> {
+    const accessToken = normalizeNonEmptyString(
+      options?.userAccessToken,
+      "user_access_token",
+    );
+    if (!this.userClientFactory) {
+      throw new HttpError(
+        503,
+        "approved_script_readiness_migration_required",
+        "Approved-script recording readiness is unavailable; migration 20261018120000 is required.",
+      );
+    }
+    const rpcClient = this.userClientFactory(accessToken).schema(
+      "tongs",
+    ) as unknown as {
+      rpc: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{
+        data: unknown;
+        error: { code?: string; message: string } | null;
+      }>;
+    };
+    const { data, error } = await rpcClient.rpc(
+      "reconcile_current_approved_script_ready_v1",
+      {
+        p_workspace_id: workspaceId,
+        p_workpiece_id: workpieceId,
+      },
+    );
+    if (error) {
+      const missing =
+        error.code === "PGRST202" ||
+        /reconcile_current_approved_script_ready_v1/i.test(error.message);
+      throw new HttpError(
+        missing ? 503 : 502,
+        missing
+          ? "approved_script_readiness_migration_required"
+          : "approved_script_readiness_reconciliation_failed",
+        missing
+          ? "Approved-script recording readiness is unavailable; migration 20261018120000 is required."
+          : "Approved-script recording readiness reconciliation failed.",
+        { reason: error.message },
+      );
+    }
+    if (!isRecord(data) || typeof data.outcome !== "string") {
+      throw new HttpError(
+        502,
+        "approved_script_readiness_reconciliation_malformed",
+        "Approved-script recording readiness reconciliation returned a malformed result.",
+      );
+    }
+    const outcomes = new Set([
+      "saved",
+      "duplicate",
+      "stale",
+      "conflict",
+      "denied",
+      "not_found",
+    ]);
+    if (!outcomes.has(data.outcome)) {
+      throw new HttpError(
+        502,
+        "approved_script_readiness_reconciliation_ambiguous",
+        "Approved-script recording readiness reconciliation returned an ambiguous result.",
+      );
+    }
+    return data as HearthReadyTransitionResult;
+  }
+
   async getReadyProductionScript(
     workpieceId: string,
     options?: { userAccessToken?: string | null },
@@ -16851,7 +16930,7 @@ export class TongsCommitService {
       throw new HttpError(
         409,
         "approved_ready_script_required",
-        "Approve and publish this script to Ready before opening it in Anvil.",
+        "Approve the current script before opening it in Anvil.",
       );
     const approvalId = readStringField(readyResult.data, "script_approval_id");
     const transitionId = readStringField(readyResult.data, "transition_id");
@@ -16859,7 +16938,7 @@ export class TongsCommitService {
       throw new HttpError(
         409,
         "approved_ready_script_required",
-        "This legacy Ready entry has no verified script approval. Approve and publish it again.",
+        "This legacy Ready entry has no verified script approval. Approve the current script again.",
       );
     const approvalResult = await tongs
       .from("script_approval_revisions")
@@ -26208,6 +26287,20 @@ export class TongsCommitService {
         "Tongs could not commit canonical script approval.",
         { reason: result.error?.message },
       );
+    if (
+      (result.data.disposition === "committed" ||
+        result.data.disposition === "no_change") &&
+      (!isRecord(result.data.recording_readiness) ||
+        result.data.recording_readiness.state !== "ready" ||
+        !isRecord(result.data.recording_readiness.ready) ||
+        !readStringField(result.data.recording_readiness.ready, "transition_id"))
+    ) {
+      throw new HttpError(
+        503,
+        "approved_script_readiness_migration_required",
+        "Canonical approval did not produce recording-readiness evidence; migration 20261018120000 is required.",
+      );
+    }
     return result.data;
   }
 
@@ -37846,6 +37939,28 @@ export function createTongsCommitApiHandlerWithService(
         const result = await service.transitionHearthScriptReady(
           workpieceId,
           input,
+        );
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 4 &&
+        parts[0] === "tongs" &&
+        parts[1] === "workpieces" &&
+        parts[3] === "recording-readiness"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(
+          decodeURIComponent(parts[2]),
+          "workpiece_id",
+        );
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const workspaceId = normalizeUuid(body.workspace_id, "workspace_id");
+        const result = await service.reconcileHearthApprovedScriptReady(
+          workpieceId,
+          workspaceId,
+          { userAccessToken },
         );
         return jsonResponse(200, { ok: true, data: result });
       }

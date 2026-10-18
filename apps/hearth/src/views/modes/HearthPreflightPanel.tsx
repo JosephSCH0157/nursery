@@ -14,7 +14,7 @@ export default function HearthPreflightPanel(props: {
           ? `Advisory results are stale: ${authority.staleReasons.join(", ") || "the script or evidence changed"}. Run the check again if you want updated suggestions.`
           : authority.reviewed
             ? "Optional review notes were saved for these exact script and evidence bytes."
-            : "These editorial and factual suggestions are advisory. They never block Approve Script or Mark Ready."}
+            : "These editorial and factual suggestions are advisory. They never block script approval or recording readiness."}
       </div>
       {authority.findings.length ? (
         <ul className="hs-script-validation-issues">

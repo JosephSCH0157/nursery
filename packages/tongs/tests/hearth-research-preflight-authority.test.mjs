@@ -42,7 +42,7 @@ test("canonical Hearth research is immutable, normalized, workpiece-scoped autho
   assert.match(sql, /has_workspace_role\(workspace_id,'viewer'\)/i);
 });
 
-test("preflight, acknowledgements, approval, and Ready retain separate durable receipts", async () => {
+test("preflight, acknowledgements, approval, and derived Ready retain distinct durable receipts", async () => {
   const sql = await readFile(migrationUrl, "utf8");
   assert.match(sql, /create table tongs\.hearth_editorial_preflight_reports/i);
   assert.match(sql, /create table tongs\.hearth_editorial_preflight_findings/i);
