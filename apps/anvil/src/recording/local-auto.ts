@@ -245,6 +245,20 @@ import {
     } catch {}
   }
 
+  type RecordingDestinationState = 'not_configured' | 'not_attempted' | 'succeeded' | 'failed' | 'skipped';
+
+  function emitRecordingDestinationStatus(detail: {
+    fileName: string;
+    cloudUpload: { state: RecordingDestinationState; path: string | null; errorCode: string | null; errorMessage: string | null };
+    canonicalCompletion: { state: RecordingDestinationState; completionId: string | null; errorCode: string | null; errorMessage: string | null };
+    configuredFolder: { state: RecordingDestinationState; configuredPath: string | null; handleAvailable: boolean; errorCode: string | null; errorMessage: string | null };
+    browserDownload: { state: RecordingDestinationState; fileName: string | null; errorCode: string | null; errorMessage: string | null };
+  }): void {
+    try {
+      window.dispatchEvent(new CustomEvent('tp:recording:destination-status', { detail }));
+    } catch {}
+  }
+
   type RecordedArtifactAudioProbe = {
     hasAudioStream: boolean;
     audioDurationSec: number | null;
@@ -856,6 +870,7 @@ import {
       } catch {}
 
       const strategy = selectBestRecordingStrategy({ mode: recordingMode });
+      const speechMode = (window as any).__tpStore?.get?.('scrollMode') ?? null;
       const captureSessionId = beginRecordingCaptureSession();
       const captureTarget = await ensureRecordingCaptureTarget();
       if (!captureTarget.ok) {
@@ -877,6 +892,7 @@ import {
           captureSessionId,
           recordingStartedAtMs: recordingStartedAtMs,
           strategy,
+          speechMode,
         }).catch((error) => {
           try { console.warn('[auto-rec] transcript start failed', error); } catch {}
         });
@@ -894,6 +910,7 @@ import {
         captureSessionId,
         recordingStartedAtMs: recordingStartedAtMs,
         strategy,
+        speechMode,
       }).catch((error) => {
         try { console.warn('[auto-rec] transcript start failed', error); } catch {}
       });
@@ -993,14 +1010,63 @@ import {
     let commitResultOk: Extract<RecordingCommitResult, { ok: true }> | null = null;
     let acceptedCompletionId: string | null = null;
     let canonicalAttempted = false;
+    let canonicalUploadSucceeded = false;
+    let canonicalCompletionAttempted = false;
     let canonicalErrorCode: string | null = null;
     let canonicalErrorMessage: string | null = null;
     let localMirrorExpected = false;
     let localMirrorAttempted = false;
     let localMirrorSucceeded = false;
+    let localMirrorHandleAvailable = false;
+    let localMirrorConfiguredPath: string | null = null;
+    let localMirrorErrorCode: string | null = null;
+    let localMirrorErrorMessage: string | null = null;
     let downloadFallbackAttempted = false;
     let downloadFallbackSucceeded = false;
     let downloadFallbackSkippedReason: string | null = null;
+    let downloadFallbackErrorMessage: string | null = null;
+    const emitDestinationStatus = (): void => {
+      emitRecordingDestinationStatus({
+        fileName: name,
+        cloudUpload: {
+          state: canonicalUploadSucceeded ? 'succeeded' : canonicalAttempted ? 'failed' : 'not_attempted',
+          path: commitResultOk?.path ?? null,
+          errorCode: canonicalUploadSucceeded ? null : canonicalErrorCode,
+          errorMessage: canonicalUploadSucceeded ? null : canonicalErrorMessage,
+        },
+        canonicalCompletion: {
+          state: committed ? 'succeeded' : canonicalCompletionAttempted ? 'failed' : 'not_attempted',
+          completionId: acceptedCompletionId,
+          errorCode: committed ? null : canonicalErrorCode,
+          errorMessage: committed ? null : canonicalErrorMessage,
+        },
+        configuredFolder: {
+          state: !localMirrorExpected
+            ? 'not_configured'
+            : localMirrorSucceeded
+              ? 'succeeded'
+              : localMirrorAttempted
+                ? 'failed'
+                : 'not_attempted',
+          configuredPath: localMirrorConfiguredPath,
+          handleAvailable: localMirrorHandleAvailable,
+          errorCode: localMirrorErrorCode,
+          errorMessage: localMirrorErrorMessage,
+        },
+        browserDownload: {
+          state: downloadFallbackSucceeded
+            ? 'succeeded'
+            : downloadFallbackAttempted
+              ? 'failed'
+              : downloadFallbackSkippedReason
+                ? 'skipped'
+                : 'not_attempted',
+          fileName: downloadFallbackAttempted ? name : null,
+          errorCode: downloadFallbackAttempted && !downloadFallbackSucceeded ? 'browser_download_failed' : downloadFallbackSkippedReason,
+          errorMessage: downloadFallbackErrorMessage,
+        },
+      });
+    };
     const presentCanonicalTakeDecision = async (): Promise<void> => {
       if (!commitResultOk || !acceptedCompletionId) return;
       hideRecordingFinalizeIndicator();
@@ -1110,6 +1176,8 @@ import {
           const commitResultSuccess = readCommitResultSuccess(commitResult);
           if (commitResultSuccess) {
             commitResultOk = commitResultSuccess;
+            canonicalUploadSucceeded = true;
+            canonicalCompletionAttempted = true;
             const completion = await transitionRecordingCompleted({
               commit: commitResultSuccess,
               durationMs: typeof opts.durationMs === 'number' ? opts.durationMs : null,
@@ -1166,7 +1234,9 @@ import {
           const configuredPath = managed
             ? (typeof hint === 'string' && hint.trim() ? hint.trim() : 'managed:recordings')
             : (dir && typeof (dir as any).name === 'string' ? String((dir as any).name).trim() : null);
+          localMirrorConfiguredPath = configuredPath || null;
           localMirrorExpected = managed || !!configuredPath || !!dir;
+          localMirrorHandleAvailable = !!dir && typeof dir.getFileHandle === 'function';
           const safetyEnabled = !!dir;
           emitLocalSafetyCopyStatus({
             enabled: safetyEnabled,
@@ -1190,6 +1260,7 @@ import {
             downloadFallbackSkippedReason,
           });
           if (dir && typeof dir.getFileHandle === 'function') {
+            let folderWriteStage: 'permission' | 'file' | 'writable' | 'write' | 'close' = 'permission';
             try {
               localMirrorAttempted = true;
               try {
@@ -1207,11 +1278,17 @@ import {
                 try { console.warn('[core-recorder] directory permission not granted; using download fallback', permErr); } catch {}
                 throw permErr;
               }
+              folderWriteStage = 'file';
               const fh = await dir.getFileHandle(name, { create: true });
+              folderWriteStage = 'writable';
               const w = await fh.createWritable();
+              folderWriteStage = 'write';
               await w.write(localWritePayload);
+              folderWriteStage = 'close';
               await w.close();
               localMirrorSucceeded = true;
+              localMirrorErrorCode = null;
+              localMirrorErrorMessage = null;
               emitLocalSafetyCopyStatus({
                 enabled: true,
                 configuredPath: configuredPath || null,
@@ -1236,6 +1313,7 @@ import {
               try {
                 console.log('[core-recorder] saved file mirror', name);
               } catch {}
+              emitDestinationStatus();
               if (commitResultOk && acceptedCompletionId) {
                 await presentCanonicalTakeDecision();
               }
@@ -1262,6 +1340,15 @@ import {
               }
               return true;
             } catch (err) {
+              const folderErrorCodes = {
+                permission: 'directory_permission_not_granted',
+                file: 'directory_file_creation_failed',
+                writable: 'directory_writable_open_failed',
+                write: 'directory_write_failed',
+                close: 'directory_close_failed',
+              } as const;
+              localMirrorErrorCode = folderErrorCodes[folderWriteStage];
+              localMirrorErrorMessage = String((err as any)?.message || err || 'configured_folder_write_failed');
               emitLocalSafetyCopyStatus({
                 enabled: true,
                 configuredPath: configuredPath || null,
@@ -1269,8 +1356,8 @@ import {
                 success: false,
                 bytesWritten: 0,
                 finalPath: null,
-                errorCode: 'local_safety_copy_write_failed',
-                errorMessage: String((err as any)?.message || err || 'local_safety_copy_failed'),
+                errorCode: localMirrorErrorCode,
+                errorMessage: localMirrorErrorMessage,
                 safeToLeave: false,
                 localCopySecured: false,
                 localMirrorExpected,
@@ -1285,12 +1372,12 @@ import {
               });
               if (committed) {
                 showRecorderToast(
-                  'Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.',
+                  `Recording was saved to Forge, but the configured folder copy failed (${localMirrorErrorCode}).`,
                   'warning',
                 );
               } else {
                 showRecorderToast(
-                  'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+                  `Configured folder copy failed (${localMirrorErrorCode}). Keep this screen open until the browser download finishes.`,
                   'error',
                 );
               }
@@ -1298,6 +1385,10 @@ import {
             }
           } else {
             localMirrorAttempted = localMirrorExpected;
+            localMirrorErrorCode = localMirrorExpected ? 'missing_directory_handle' : null;
+            localMirrorErrorMessage = localMirrorExpected
+              ? `The configured recording folder is not linked for ${window.location.origin}.`
+              : null;
             try {
               const managed = !!(window as any).__tpRecDir?.isManaged?.();
               const hint = (window as any).__tpRecDir?.managedHint?.();
@@ -1313,8 +1404,8 @@ import {
               success: false,
               bytesWritten: 0,
               finalPath: null,
-              errorCode: 'missing_directory_handle',
-              errorMessage: 'Recording folder handle is unavailable.',
+              errorCode: localMirrorErrorCode,
+              errorMessage: localMirrorErrorMessage,
               safeToLeave: false,
               localCopySecured: false,
               localMirrorExpected,
@@ -1330,12 +1421,12 @@ import {
             if (localMirrorExpected) {
               if (committed) {
                 showRecorderToast(
-                  'Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.',
+                    `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
                   'warning',
                 );
               } else {
                 showRecorderToast(
-                  'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+                    `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
                   'error',
                 );
               }
@@ -1368,6 +1459,7 @@ import {
               downloadFallbackSkippedReason,
             });
           }
+          emitDestinationStatus();
           if (commitResultOk && acceptedCompletionId) {
             await presentCanonicalTakeDecision();
           }
@@ -1394,7 +1486,9 @@ import {
             } catch {}
           }, 2000);
           downloadFallbackSucceeded = true;
-        } catch {}
+        } catch (error) {
+          downloadFallbackErrorMessage = String((error as any)?.message || error || 'browser_download_failed');
+        }
         emitUploadFallbackAudit({
           saveIdentity: opts.saveIdentity ?? null,
           originalName: name,
@@ -1414,10 +1508,18 @@ import {
           downloadFallbackSucceeded,
           downloadFallbackSkippedReason,
         });
-        showRecorderToast(
-          'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
-          'error',
-        );
+        if (downloadFallbackSucceeded) {
+          showRecorderToast(
+            `Browser download succeeded for "${name}". Canonical completion${localMirrorExpected ? ' and the configured folder copy' : ''} did not succeed.`,
+            'warning',
+          );
+        } else {
+          showRecorderToast(
+            'Canonical completion and browser download both failed. Do not leave this screen.',
+            'error',
+          );
+        }
+        emitDestinationStatus();
         return false;
       } finally {
         hideRecordingFinalizeIndicator();

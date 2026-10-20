@@ -42,6 +42,39 @@ test("Tongs derives video and poster metadata from actual media bytes",async()=>
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 
+test("Tongs accepts seekable WebM with required VP9 and Opus streams",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"forge-webm-seekable-"));
+  try{
+    const path=join(dir,"seekable.webm");
+    await run("ffmpeg",["-v","error","-f","lavfi","-i","color=c=blue:s=320x180:d=1","-f","lavfi","-i","sine=frequency=440:duration=1","-shortest","-c:v","libvpx-vp9","-c:a","libopus","-y",path]);
+    const video=await inspectBrollMedia(new Uint8Array(await readFile(path)),"video");
+    assert.equal(video.mimeType,"video/webm");
+    assert.equal(video.width,320);assert.equal(video.height,180);
+    assert.equal(video.hasVideoStream,true);assert.equal(video.hasAudioStream,true);
+    assert.ok((video.durationMs??0)>=900);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test("Tongs derives MediaRecorder-style WebM duration from streamed packet timestamps",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"forge-webm-live-"));
+  try{
+    const path=join(dir,"mediarecorder-live.webm");
+    await run("ffmpeg",["-v","error","-f","lavfi","-i","color=c=green:s=320x180:d=1","-f","lavfi","-i","sine=frequency=880:duration=1","-shortest","-c:v","libvpx-vp9","-c:a","libopus","-f","webm","-live","1","-y",path]);
+    const video=await inspectBrollMedia(new Uint8Array(await readFile(path)),"video");
+    assert.equal(video.mimeType,"video/webm");
+    assert.equal(video.width,320);assert.equal(video.height,180);
+    assert.equal(video.hasVideoStream,true);assert.equal(video.hasAudioStream,true);
+    assert.ok((video.durationMs??0)>=900);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test("Tongs rejects unreadable WebM even when its signature bytes are present",async()=>{
+  await assert.rejects(
+    ()=>inspectBrollMedia(new Uint8Array([0x1a,0x45,0xdf,0xa3,0x00,0x00]),"video"),
+    /invalid data|end of file|ebml|failed/i,
+  );
+});
+
 test("Reference-image inspection accepts genuine WebP bytes",async()=>{
   const bytes=new Uint8Array(await sharp({create:{width:1200,height:675,channels:3,background:"#6b4423"}}).webp().toBuffer());
   const image=await inspectBrollMedia(bytes,"poster");

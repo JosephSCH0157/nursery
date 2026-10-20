@@ -38,6 +38,7 @@ describe('RecordingTranscriptController', () => {
       captureSessionId: 'capture-1',
       recordingStartedAtMs: Date.now() - 1_250,
       strategy,
+      speechMode: 'asr',
     });
     window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
       detail: { text: 'hello there general kenobi', final: true, isFinal: true },
@@ -83,6 +84,7 @@ describe('RecordingTranscriptController', () => {
       captureSessionId: 'capture-2',
       recordingStartedAtMs: Date.now() - 1_500,
       strategy,
+      speechMode: 'asr',
     });
     window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
       detail: { text: 'partial fragment', final: false, isFinal: false },
@@ -124,6 +126,7 @@ describe('RecordingTranscriptController', () => {
       captureSessionId: 'capture-debug',
       recordingStartedAtMs: Date.now() - 1_250,
       strategy,
+      speechMode: 'asr',
     });
     window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
       detail: { text: 'debug transcript', final: true, isFinal: true },
@@ -165,6 +168,7 @@ describe('RecordingTranscriptController', () => {
       captureSessionId: 'capture-asr2',
       recordingStartedAtMs: Date.now() - 1_200,
       strategy,
+      speechMode: 'asr',
     });
     window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
       detail: {
@@ -176,5 +180,86 @@ describe('RecordingTranscriptController', () => {
     }));
     const finalResult = await controller.stopSession({ mediaDurationMs: 2_000 });
     expect(finalResult.finalArtifact).toBeNull();
+  });
+
+  test.each(['timed', 'wpm', 'step', 'off', null])(
+    'mode %s does not start or stop any speech backend and finishes without an ASR warning',
+    async (speechMode) => {
+      const startSpeech = jest.fn(async () => {
+        throw new Error('paid-capable speech startup must not run');
+      });
+      const stopSpeech = jest.fn();
+      const controller = new RecordingTranscriptController({
+        ensureCaptureTarget: async () => ({
+          ok: true as const,
+          workspaceId: 'workspace-isolation',
+          workpieceId: 'workpiece-isolation',
+          createdCradle: false,
+          plannerRecordingSessionId: null,
+          captureSessionId: 'capture-isolation',
+        }),
+        commitJsonArtifact: async () => {
+          throw new Error('non-ASR mode must not persist transcript artifacts');
+        },
+        startSpeech,
+        stopSpeech,
+        localStorage: { setItem: jest.fn() },
+      });
+      const strategy = selectBestRecordingStrategy({
+        mode: 'audio',
+        mediaRecorderCtor: { isTypeSupported: () => true },
+      });
+
+      const started = await controller.startSession({
+        captureSessionId: 'capture-isolation',
+        recordingStartedAtMs: Date.now() - 500,
+        strategy,
+        speechMode,
+      });
+      const finalized = await controller.stopSession({ mediaDurationMs: 1_000 });
+
+      expect(startSpeech).not.toHaveBeenCalled();
+      expect(stopSpeech).not.toHaveBeenCalled();
+      expect(started.status).toBe('ready');
+      expect(started.degradedReason).toBeNull();
+      expect(finalized.status).toBe('ready');
+      expect(finalized.degradedReason).toBeNull();
+      expect(finalized.segmentCount).toBe(0);
+    },
+  );
+
+  test.each(['asr', 'hybrid'])('mode %s starts only its explicitly selected speech behavior', async (speechMode) => {
+    const startSpeech = jest.fn(async () => true);
+    const stopSpeech = jest.fn();
+    const controller = new RecordingTranscriptController({
+      ensureCaptureTarget: async () => ({
+        ok: true as const,
+        workspaceId: 'workspace-selected',
+        workpieceId: 'workpiece-selected',
+        createdCradle: false,
+        plannerRecordingSessionId: null,
+        captureSessionId: 'capture-selected',
+      }),
+      commitJsonArtifact: async () => ({ ok: true as const }),
+      startSpeech,
+      stopSpeech,
+      localStorage: { setItem: jest.fn() },
+    });
+    const strategy = selectBestRecordingStrategy({
+      mode: 'audio',
+      mediaRecorderCtor: { isTypeSupported: () => true },
+    });
+
+    await controller.startSession({
+      captureSessionId: 'capture-selected',
+      recordingStartedAtMs: Date.now() - 500,
+      strategy,
+      speechMode,
+    });
+    await controller.stopSession({ mediaDurationMs: 1_000 });
+
+    expect(startSpeech).toHaveBeenCalledTimes(1);
+    expect(startSpeech).toHaveBeenCalledWith({ reason: 'recording-transcript', mode: speechMode });
+    expect(stopSpeech).toHaveBeenCalledWith('recording-stop');
   });
 });

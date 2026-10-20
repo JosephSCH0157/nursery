@@ -1,5 +1,7 @@
 const mockCommitRecordingBytesToTongs = jest.fn();
 const mockShowRecordingDecisionDialog = jest.fn(async (..._args: unknown[]) => {});
+const mockStartSpeechBackendForSession = jest.fn(async (_info?: { reason?: string; mode?: string }) => true);
+const mockStopSpeechBackendForSession = jest.fn((_reason?: string) => {});
 
 jest.mock('../../src/forge/workpiece-commit', () => ({
   beginRecordingCaptureSession: jest.fn(() => 'cap-test-1'),
@@ -21,8 +23,8 @@ jest.mock('../../src/forge/workpiece-commit', () => ({
 }));
 
 jest.mock('../../src/features/speech-loader', () => ({
-  startSpeechBackendForSession: jest.fn(async () => {}),
-  stopSpeechBackendForSession: jest.fn(async () => {}),
+  startSpeechBackendForSession: (info?: { reason?: string; mode?: string }) => mockStartSpeechBackendForSession(info),
+  stopSpeechBackendForSession: (reason?: string) => mockStopSpeechBackendForSession(reason),
 }));
 
 jest.mock('../../src/forge/workpiece-context', () => ({ resolveActiveWorkpieceId: jest.fn(() => null) }));
@@ -186,6 +188,8 @@ describe('local-auto recorder safety guards', () => {
     delete (window as any).toast;
     delete (window as any).AudioContext;
     delete (window as any).webkitAudioContext;
+    delete (URL as any).createObjectURL;
+    delete (URL as any).revokeObjectURL;
     jest.restoreAllMocks();
   });
 
@@ -203,6 +207,33 @@ describe('local-auto recorder safety guards', () => {
       'Recording cannot start because the recorder has no active audio track. ASR may still hear the mic, but the recording would be silent.',
       { type: 'error' },
     );
+  });
+
+  test.each(['timed', 'wpm', 'step', 'off'])(
+    'recording in %s mode does not enter the paid-capable speech boundary',
+    async (mode) => {
+      ((window as any).__tpStore.get as jest.Mock).mockImplementation((key: string) => key === 'scrollMode' ? mode : null);
+
+      await (window as any).__tpAutoRecord.start();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockStartSpeechBackendForSession).not.toHaveBeenCalled();
+      await (window as any).__tpAutoRecord.stop();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(mockStopSpeechBackendForSession).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each(['asr', 'hybrid'])('recording in %s mode preserves the selected speech behavior', async (mode) => {
+    ((window as any).__tpStore.get as jest.Mock).mockImplementation((key: string) => key === 'scrollMode' ? mode : null);
+
+    await (window as any).__tpAutoRecord.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockStartSpeechBackendForSession).toHaveBeenCalledWith({ reason: 'recording-transcript', mode });
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockStopSpeechBackendForSession).toHaveBeenCalledWith('recording-stop');
   });
 
   test('emits unsafe status when configured local safety copy write fails', async () => {
@@ -251,12 +282,14 @@ describe('local-auto recorder safety guards', () => {
       attempted: true,
       success: false,
       safeToLeave: false,
+      errorCode: 'directory_write_failed',
     }));
     expect(String((attemptedFailure as any)?.errorMessage || '').length).toBeGreaterThan(0);
 
-    const warningMessage =
-      'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.';
-    expect((window as any).toast).toHaveBeenCalledWith(warningMessage, { type: 'error' });
+    expect((window as any).toast).toHaveBeenCalledWith(
+      'Configured folder copy failed (directory_write_failed). Keep this screen open until the browser download finishes.',
+      { type: 'error' },
+    );
 
     expect(fallbackEvents.length).toBeGreaterThan(0);
     const lastFallback = fallbackEvents[fallbackEvents.length - 1] || {};
@@ -267,11 +300,15 @@ describe('local-auto recorder safety guards', () => {
   test('reports local mirror failure when canonical succeeds but recording folder handle is unavailable', async () => {
     const localSafetyEvents: Array<Record<string, unknown>> = [];
     const fallbackEvents: Array<Record<string, unknown>> = [];
+    const destinationEvents: Array<Record<string, any>> = [];
     window.addEventListener('tp:recording:local-safety-copy', (ev: Event) => {
       localSafetyEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
     });
     window.addEventListener('tp:recording:upload-fallback', (ev: Event) => {
       fallbackEvents.push(((ev as CustomEvent).detail || {}) as Record<string, unknown>);
+    });
+    window.addEventListener('tp:recording:destination-status', (ev: Event) => {
+      destinationEvents.push(((ev as CustomEvent).detail || {}) as Record<string, any>);
     });
 
     mockCommitRecordingBytesToTongs.mockResolvedValueOnce({
@@ -310,7 +347,7 @@ describe('local-auto recorder safety guards', () => {
     expect(String((missingHandleFailure as any)?.errorMessage || '').length).toBeGreaterThan(0);
 
     expect((window as any).toast).toHaveBeenCalledWith(
-      'Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.',
+      `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
       { type: 'warning' },
     );
 
@@ -324,6 +361,19 @@ describe('local-auto recorder safety guards', () => {
       downloadFallbackAttempted: false,
       downloadFallbackSkippedReason: 'canonical_commit_succeeded',
       safeToLeave: true,
+    }));
+    expect(destinationEvents[destinationEvents.length - 1]).toEqual(expect.objectContaining({
+      cloudUpload: expect.objectContaining({ state: 'succeeded' }),
+      canonicalCompletion: expect.objectContaining({ state: 'succeeded' }),
+      configuredFolder: expect.objectContaining({
+        state: 'failed',
+        handleAvailable: false,
+        errorCode: 'missing_directory_handle',
+      }),
+      browserDownload: expect.objectContaining({
+        state: 'skipped',
+        errorCode: 'canonical_commit_succeeded',
+      }),
     }));
   });
 
@@ -366,7 +416,7 @@ describe('local-auto recorder safety guards', () => {
     }));
 
     expect((window as any).toast).toHaveBeenCalledWith(
-      'Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.',
+      `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
       { type: 'error' },
     );
 
@@ -374,6 +424,43 @@ describe('local-auto recorder safety guards', () => {
     const lastFallback = fallbackEvents[fallbackEvents.length - 1] || {};
     expect(lastFallback.safeToLeave).toBe(false);
     expect(lastFallback.canonicalSucceeded).toBe(false);
+  });
+
+  test('reports browser download success separately from cloud, completion, and configured-folder outcomes', async () => {
+    const destinationEvents: Array<Record<string, any>> = [];
+    window.addEventListener('tp:recording:destination-status', (ev: Event) => {
+      destinationEvents.push(((ev as CustomEvent).detail || {}) as Record<string, any>);
+    });
+    mockCommitRecordingBytesToTongs.mockResolvedValueOnce({
+      ok: false,
+      reason: 'commit_failed',
+      errorMessage: 'canonical upload failed',
+    });
+    (window as any).__tpRecDir = {
+      init: jest.fn(async () => {}),
+      get: jest.fn(() => null),
+      isManaged: jest.fn(() => false),
+      managedHint: jest.fn(() => null),
+    };
+    (URL as any).createObjectURL = jest.fn(() => 'blob:test-recording');
+    (URL as any).revokeObjectURL = jest.fn();
+    jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const result = destinationEvents[destinationEvents.length - 1];
+    expect(result).toEqual(expect.objectContaining({
+      cloudUpload: expect.objectContaining({ state: 'failed' }),
+      canonicalCompletion: expect.objectContaining({ state: 'not_attempted' }),
+      configuredFolder: expect.objectContaining({ state: 'not_configured' }),
+      browserDownload: expect.objectContaining({ state: 'succeeded' }),
+    }));
+    expect((window as any).toast).toHaveBeenCalledWith(
+      expect.stringContaining('Browser download succeeded'),
+      { type: 'warning' },
+    );
   });
 
   test('blocks keep flow when finalized artifact verifies as no-audio stream', async () => {

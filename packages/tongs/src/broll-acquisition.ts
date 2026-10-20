@@ -8,6 +8,8 @@ import sharp from "sharp";
 
 const MAX_BROLL_BYTES = 250 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 30_000;
+const MAX_FFPROBE_DIAGNOSTIC_BYTES = 64 * 1024;
+const MAX_FFPROBE_LINE_BYTES = 8 * 1024;
 
 export type FetchedExternalMedia = {
   bytes: Uint8Array;
@@ -59,9 +61,89 @@ async function run(command: string, args: string[]): Promise<string> {
     const child = spawn(command, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     const stdout: Buffer[] = []; const stderr: Buffer[] = [];
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
+    let stderrBytes = 0;
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBytes >= MAX_FFPROBE_DIAGNOSTIC_BYTES) return;
+      const remaining = MAX_FFPROBE_DIAGNOSTIC_BYTES - stderrBytes;
+      const bounded = chunk.subarray(0, remaining);
+      stderr.push(bounded);
+      stderrBytes += bounded.length;
+    });
     child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolve(Buffer.concat(stdout).toString("utf8")) : reject(new Error(Buffer.concat(stderr).toString("utf8") || `${command} failed`)));
+    child.once("close", (code) => {
+      const errorText = Buffer.concat(stderr).toString("utf8").trim();
+      if (code === 0 && !errorText) resolve(Buffer.concat(stdout).toString("utf8"));
+      else reject(new Error(errorText || `${command} failed`));
+    });
+  });
+}
+
+async function derivePacketDurationMs(path: string): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const child = spawn("ffprobe", [
+      "-v", "error",
+      "-show_entries", "packet=pts_time,dts_time,duration_time",
+      "-of", "compact=p=0:nk=0",
+      path,
+    ], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let carry = "";
+    let packetCount = 0;
+    let maxEndSeconds = 0;
+    let stderrText = "";
+    let streamError: Error | null = null;
+
+    const inspectLine = (rawLine: string): void => {
+      const line = rawLine.trim();
+      if (!line) return;
+      if (Buffer.byteLength(line, "utf8") > MAX_FFPROBE_LINE_BYTES) {
+        streamError = new Error("ffprobe_packet_line_too_large");
+        child.kill();
+        return;
+      }
+      const fields = new Map<string, string>();
+      for (const field of line.split("|")) {
+        const separator = field.indexOf("=");
+        if (separator <= 0) continue;
+        fields.set(field.slice(0, separator), field.slice(separator + 1));
+      }
+      const pts = Number(fields.get("pts_time"));
+      const dts = Number(fields.get("dts_time"));
+      const duration = Number(fields.get("duration_time"));
+      const start = Number.isFinite(pts) ? pts : dts;
+      if (!Number.isFinite(start) || start < 0) return;
+      const packetDuration = Number.isFinite(duration) && duration >= 0 ? duration : 0;
+      const end = start + packetDuration;
+      if (!Number.isFinite(end) || end < 0) return;
+      packetCount += 1;
+      maxEndSeconds = Math.max(maxEndSeconds, end);
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      carry += chunk;
+      if (Buffer.byteLength(carry, "utf8") > MAX_FFPROBE_LINE_BYTES && !carry.includes("\n")) {
+        streamError = new Error("ffprobe_packet_line_too_large");
+        child.kill();
+        return;
+      }
+      const lines = carry.split(/\r?\n/);
+      carry = lines.pop() ?? "";
+      for (const line of lines) inspectLine(line);
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      if (stderrText.length >= MAX_FFPROBE_DIAGNOSTIC_BYTES) return;
+      stderrText += chunk.slice(0, MAX_FFPROBE_DIAGNOSTIC_BYTES - stderrText.length);
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (carry) inspectLine(carry);
+      const diagnostic = stderrText.trim();
+      if (streamError) reject(streamError);
+      else if (code !== 0 || diagnostic) reject(new Error(diagnostic || "ffprobe packet scan failed"));
+      else if (packetCount === 0 || !Number.isFinite(maxEndSeconds) || maxEndSeconds <= 0) reject(new Error("ffprobe_packet_duration_invalid"));
+      else resolve(Math.round(maxEndSeconds * 1000));
+    });
   });
 }
 
@@ -95,15 +177,20 @@ export async function inspectBrollMedia(bytes: Uint8Array, expected: "video" | "
     const videoStream = streams.find((stream) => stream.codec_type === "video");
     const hasAudioStream = streams.some((stream) => stream.codec_type === "audio");
     const hasVideoStream = Boolean(videoStream);
-    const duration = Number(parsed.format?.duration ?? 0);
-    if (!Number.isFinite(duration) || duration <= 0
+    const containerDurationSeconds = Number(parsed.format?.duration ?? 0);
+    const durationMs = Number.isFinite(containerDurationSeconds) && containerDurationSeconds > 0
+      ? Math.round(containerDurationSeconds * 1000)
+      : effectiveMime === "video/webm"
+        ? await derivePacketDurationMs(path)
+        : 0;
+    if (!Number.isFinite(durationMs) || durationMs <= 0
       || (expected === "audio" && !hasAudioStream)
       || (expected === "video" && (!hasVideoStream || !videoStream?.width || !videoStream.height))) {
       throw new Error("broll_timed_media_metadata_invalid");
     }
     return {
       bytes, mimeType: effectiveMime, width: videoStream?.width ?? 0, height: videoStream?.height ?? 0,
-      durationMs: Math.round(duration * 1000), hasAudioStream, hasVideoStream,
+      durationMs, hasAudioStream, hasVideoStream,
     };
   });
 }

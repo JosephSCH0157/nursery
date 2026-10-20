@@ -35,6 +35,13 @@ export type RecordingTranscriptPersistenceMode =
   | "disabled"
   | "live_noncanonical_asr_debug";
 
+export type RecordingSpeechMode = "asr" | "hybrid";
+
+export function normalizeRecordingSpeechMode(value: unknown): RecordingSpeechMode | null {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return mode === "asr" || mode === "hybrid" ? mode : null;
+}
+
 export type RecordingTranscriptArtifact = {
   schema_version: 1;
   transcript_id: string;
@@ -151,6 +158,7 @@ type ActiveTranscriptSession = {
   eventCount: number;
   lastPersistedAtMs: number;
   finalized: boolean;
+  speechMode: RecordingSpeechMode | null;
 };
 
 function readText(value: unknown): string | null {
@@ -484,10 +492,12 @@ export class RecordingTranscriptController {
     captureSessionId: string;
     recordingStartedAtMs: number;
     strategy: RecordingCaptureStrategy;
+    speechMode?: unknown;
   }): Promise<RecordingTranscriptStartResult> {
     await this.disposeSession();
 
     const target = await this.deps.ensureCaptureTarget();
+    const speechMode = normalizeRecordingSpeechMode(args.speechMode);
     const livePath = this.persistenceMode === "live_noncanonical_asr_debug"
       ? `${DEBUG_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`
       : `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
@@ -501,7 +511,7 @@ export class RecordingTranscriptController {
       startedAtIso: new Date(args.recordingStartedAtMs).toISOString(),
       livePath,
       finalPath,
-      status: "starting",
+      status: speechMode ? "starting" : "ready",
       degradedReason: null,
       target,
       segments: [],
@@ -513,14 +523,26 @@ export class RecordingTranscriptController {
       eventCount: 0,
       lastPersistedAtMs: 0,
       finalized: false,
+      speechMode,
     };
     this.emitState();
+
+    if (!speechMode) {
+      return {
+        captureSessionId: args.captureSessionId,
+        workpieceId: target.ok ? target.workpieceId : null,
+        status: "ready",
+        degradedReason: null,
+        livePath: null,
+      };
+    }
+
     window.addEventListener("tp:speech:transcript", this.transcriptListener as EventListener);
     void this.persistSnapshot(true);
 
     const started = await this.deps.startSpeech({
       reason: "recording-transcript",
-      mode: "asr",
+      mode: speechMode,
     }).catch(() => false);
 
     const session = this.session;
@@ -566,6 +588,29 @@ export class RecordingTranscriptController {
         captureSessionId: "",
         workpieceId: null,
         status: "idle",
+        degradedReason: null,
+        livePath: null,
+        finalPath: null,
+        finalArtifact: null,
+        segmentCount: 0,
+      };
+    }
+
+    if (!session.speechMode) {
+      session.finalized = true;
+      session.status = "ready";
+      session.degradedReason = null;
+      emitTranscriptDiag("anvil:transcript:finalize_skipped_reason", {
+        capture_session_id: session.captureSessionId,
+        workpiece_id: session.target?.ok ? session.target.workpieceId : null,
+        reason: "speech_mode_not_selected",
+        segment_count: 0,
+      });
+      this.emitState();
+      return {
+        captureSessionId: session.captureSessionId,
+        workpieceId: session.target?.ok ? session.target.workpieceId : null,
+        status: "ready",
         degradedReason: null,
         livePath: null,
         finalPath: null,
