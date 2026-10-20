@@ -10,6 +10,7 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
     pick: () => Promise<DirHandle | null>;
     supported: () => boolean;
     isManaged: () => boolean;
+    localPersistenceExpected: () => boolean;
     managedHint: () => string | null;
   };
 
@@ -95,6 +96,7 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
 
   let _dir: DirHandle = null;
   let _managedByNursery = false;
+  let _localPersistenceExpected = false;
   let _managedHint: string | null = null;
 
   async function syncManagedRecordingDir(): Promise<boolean> {
@@ -102,11 +104,13 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
       const managed = await getNurseryManagedDirectory('recordings');
       if (!managed.managed) {
         _managedByNursery = false;
+        _localPersistenceExpected = false;
         _managedHint = null;
         _dir = null;
         return false;
       }
       _managedByNursery = true;
+      _localPersistenceExpected = managed.localPersistenceExpected;
       _managedHint = managed.hint ?? null;
       _dir = managed.handle ?? null;
       return true;
@@ -167,6 +171,7 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
     pick: pickRecordingDir,
     supported: hasFsApi,
     isManaged: () => _managedByNursery,
+    localPersistenceExpected: () => _localPersistenceExpected,
     managedHint: () => _managedHint,
   };
 

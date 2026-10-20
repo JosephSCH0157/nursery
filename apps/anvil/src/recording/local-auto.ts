@@ -1230,12 +1230,17 @@ import {
           } catch {}
           const dir = (window as any).__tpRecDir?.get?.() || null;
           const managed = !!(window as any).__tpRecDir?.isManaged?.();
+          const managedLocalPersistenceExpected = managed
+            ? (typeof (window as any).__tpRecDir?.localPersistenceExpected === 'function'
+                ? !!(window as any).__tpRecDir.localPersistenceExpected()
+                : true)
+            : false;
           const hint = (window as any).__tpRecDir?.managedHint?.();
-          const configuredPath = managed
+          const configuredPath = managed && managedLocalPersistenceExpected
             ? (typeof hint === 'string' && hint.trim() ? hint.trim() : 'managed:recordings')
             : (dir && typeof (dir as any).name === 'string' ? String((dir as any).name).trim() : null);
           localMirrorConfiguredPath = configuredPath || null;
-          localMirrorExpected = managed || !!configuredPath || !!dir;
+          localMirrorExpected = managedLocalPersistenceExpected || !!configuredPath || !!dir;
           localMirrorHandleAvailable = !!dir && typeof dir.getFileHandle === 'function';
           const safetyEnabled = !!dir;
           emitLocalSafetyCopyStatus({

@@ -377,6 +377,81 @@ describe('local-auto recorder safety guards', () => {
     }));
   });
 
+  test('reports denied configured-folder permission without misrepresenting canonical cloud success', async () => {
+    const destinationEvents: Array<Record<string, any>> = [];
+    window.addEventListener('tp:recording:destination-status', (ev: Event) => {
+      destinationEvents.push(((ev as CustomEvent).detail || {}) as Record<string, any>);
+    });
+    const inaccessibleDir = {
+      name: 'ConfiguredRecordings',
+      queryPermission: jest.fn(async () => 'denied'),
+      requestPermission: jest.fn(async () => 'denied'),
+      getFileHandle: jest.fn(),
+    };
+    (window as any).__tpRecDir = {
+      init: jest.fn(async () => {}),
+      get: jest.fn(() => inaccessibleDir),
+      isManaged: jest.fn(() => true),
+      localPersistenceExpected: jest.fn(() => true),
+      managedHint: jest.fn(() => 'ConfiguredRecordings'),
+    };
+
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(destinationEvents[destinationEvents.length - 1]).toEqual(expect.objectContaining({
+      cloudUpload: expect.objectContaining({ state: 'succeeded' }),
+      canonicalCompletion: expect.objectContaining({ state: 'succeeded' }),
+      configuredFolder: expect.objectContaining({
+        state: 'failed',
+        handleAvailable: true,
+        errorCode: 'directory_permission_not_granted',
+      }),
+      browserDownload: expect.objectContaining({
+        state: 'skipped',
+        errorCode: 'canonical_commit_succeeded',
+      }),
+    }));
+    expect(inaccessibleDir.getFileHandle).not.toHaveBeenCalled();
+    expect((window as any).toast).toHaveBeenCalledWith(
+      'Recording was saved to Forge, but the configured folder copy failed (directory_permission_not_granted).',
+      { type: 'warning' },
+    );
+  });
+
+  test('does not report a configured-folder failure when the managed cloud mirror is disabled', async () => {
+    const destinationEvents: Array<Record<string, any>> = [];
+    window.addEventListener('tp:recording:destination-status', (ev: Event) => {
+      destinationEvents.push(((ev as CustomEvent).detail || {}) as Record<string, any>);
+    });
+    (window as any).__tpRecDir = {
+      init: jest.fn(async () => {}),
+      get: jest.fn(() => null),
+      isManaged: jest.fn(() => true),
+      localPersistenceExpected: jest.fn(() => false),
+      managedHint: jest.fn(() => null),
+    };
+
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(destinationEvents[destinationEvents.length - 1]).toEqual(expect.objectContaining({
+      cloudUpload: expect.objectContaining({ state: 'succeeded' }),
+      canonicalCompletion: expect.objectContaining({ state: 'succeeded' }),
+      configuredFolder: expect.objectContaining({
+        state: 'not_configured',
+        handleAvailable: false,
+        errorCode: null,
+      }),
+    }));
+    expect((window as any).toast).not.toHaveBeenCalledWith(
+      expect.stringContaining('configured folder'),
+      expect.anything(),
+    );
+  });
+
   test('keeps stronger unsafe warning when canonical fails and recording folder handle is unavailable', async () => {
     const localSafetyEvents: Array<Record<string, unknown>> = [];
     const fallbackEvents: Array<Record<string, unknown>> = [];

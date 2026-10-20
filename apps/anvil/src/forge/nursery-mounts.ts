@@ -22,6 +22,7 @@ type RegistryShape = {
 
 export type NurseryManagedDirectory = {
   managed: boolean;
+  localPersistenceExpected: boolean;
   role: ManagedRole;
   workspaceId: string | null;
   vaultKey?: string;
@@ -73,33 +74,53 @@ function getMountEntry(registry: RegistryShape | null, role: ManagedRole): Mount
   return null;
 }
 
-function buildFallbackVaultKey(workspaceId: string | null, role: ManagedRole): string {
-  return `mount:${workspaceId ?? "default"}:${role}:local`;
+function buildFallbackVaultKey(
+  workspaceId: string | null,
+  role: ManagedRole,
+  side: "local" | "mirror" = "local",
+): string {
+  return `mount:${workspaceId ?? "default"}:${role}:${side}`;
 }
 
 function pickVaultAndHint(
   role: ManagedRole,
   workspaceId: string | null,
   entry: MountEntry | null,
-): { vaultKey: string; hint?: string } {
+): { vaultKey?: string; hint?: string; localPersistenceExpected: boolean } {
   const localVaultKey = readString(entry?.local?.vaultKey);
   const localHint = readString(entry?.local?.hint) ?? undefined;
   const mirrorVaultKey = readString(entry?.mirror?.vaultKey);
   const mirrorHint = readString(entry?.mirror?.hint) ?? undefined;
   const mirrorEnabled = entry?.mirror?.enabled === true;
+  const target = readString(entry?.target);
+
+  // Cloud-canonical recordings use the explicitly configured local mirror.
+  // A stale local binding may coexist with a cloud target after a target change,
+  // so the target and mirror setting must be evaluated before the local binding.
+  if (role === "recordings" && target === "tongs_cloud") {
+    if (!mirrorEnabled) {
+      return { localPersistenceExpected: false };
+    }
+    return {
+      vaultKey: mirrorVaultKey ?? buildFallbackVaultKey(workspaceId, role, "mirror"),
+      hint: mirrorHint,
+      localPersistenceExpected: true,
+    };
+  }
 
   if (localVaultKey) {
-    return { vaultKey: localVaultKey, hint: localHint ?? mirrorHint };
+    return { vaultKey: localVaultKey, hint: localHint ?? mirrorHint, localPersistenceExpected: true };
   }
 
   // Scripts are cloud-canonical in Nursery; when mirrored locally, Anvil reads from mirror.
   if (role === "scripts" && mirrorVaultKey && (mirrorEnabled || !localVaultKey)) {
-    return { vaultKey: mirrorVaultKey, hint: mirrorHint ?? localHint };
+    return { vaultKey: mirrorVaultKey, hint: mirrorHint ?? localHint, localPersistenceExpected: true };
   }
 
   return {
     vaultKey: buildFallbackVaultKey(workspaceId, role),
     hint: localHint ?? mirrorHint,
+    localPersistenceExpected: true,
   };
 }
 
@@ -162,6 +183,7 @@ export async function getNurseryManagedDirectory(role: ManagedRole): Promise<Nur
   if (!registry) {
     return {
       managed: false,
+      localPersistenceExpected: false,
       role,
       workspaceId: null,
       handle: null,
@@ -170,11 +192,12 @@ export async function getNurseryManagedDirectory(role: ManagedRole): Promise<Nur
 
   const workspaceId = getActiveWorkspaceId(registry);
   const entry = getMountEntry(registry, role);
-  const { vaultKey, hint } = pickVaultAndHint(role, workspaceId, entry);
-  const handle = await getHandleFromVault(vaultKey);
+  const { vaultKey, hint, localPersistenceExpected } = pickVaultAndHint(role, workspaceId, entry);
+  const handle = vaultKey ? await getHandleFromVault(vaultKey) : null;
 
   return {
     managed: true,
+    localPersistenceExpected,
     role,
     workspaceId,
     vaultKey,
