@@ -11,8 +11,8 @@ $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
   'AGENTS.md' = Join-Path $repo 'AGENTS.md'
-  'DATABASE_ARCHITECTURE.md' = Join-Path $repo 'DATABASE_ARCHITECTURE.md'
-  'DATABASE_OPERATIONS.md' = Join-Path $repo 'DATABASE_OPERATIONS.md'
+  'docs/database/DATABASE_ARCHITECTURE.md' = Join-Path $repo 'docs/database/DATABASE_ARCHITECTURE.md'
+  'docs/database/DATABASE_OPERATIONS.md' = Join-Path $repo 'docs/database/DATABASE_OPERATIONS.md'
 }
 $contents = @{}
 foreach ($entry in $documents.GetEnumerator()) {
@@ -45,8 +45,11 @@ $agentText = [string]$contents['AGENTS.md']
 foreach ($rule in @('--include-all','migration repair','migration-history','production writes','financially inactive')) {
   if ($agentText -notmatch [regex]::Escape($rule)) { $failures.Add("AGENTS.md omits mandatory rule: $rule") }
 }
+foreach ($path in @('docs/database/DATABASE_ARCHITECTURE.md','docs/database/DATABASE_OPERATIONS.md')) {
+  if ($agentText -notmatch [regex]::Escape($path)) { $failures.Add("AGENTS.md omits canonical database document: $path") }
+}
 
-$architectureText = [string]$contents['DATABASE_ARCHITECTURE.md']
+$architectureText = [string]$contents['docs/database/DATABASE_ARCHITECTURE.md']
 foreach ($reference in @(
   'docs/database/baseline/v1-gate1/historical-migrations.sha256.json',
   'docs/database/baseline/v1-gate3/canonical-baseline-v1.manifest.json',
@@ -54,7 +57,8 @@ foreach ($reference in @(
   'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json',
   'docs/database/baseline/v1-gate2/FINANCIAL_INACTIVE_CONTRACT.md'
 )) {
-  if ($architectureText -notmatch [regex]::Escape($reference)) { $failures.Add("DATABASE_ARCHITECTURE.md omits authority link: $reference") }
+  $documentReference = $reference -replace '^docs/database/',''
+  if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
   if (-not (Test-Path -LiteralPath (Join-Path $repo $reference) -PathType Leaf)) { $failures.Add("Missing linked authority: $reference") }
 }
 foreach ($value in @(
@@ -66,7 +70,7 @@ foreach ($value in @(
   if ($architectureText -notmatch [regex]::Escape($value)) { $failures.Add("DATABASE_ARCHITECTURE.md omits baseline evidence value: $value") }
 }
 
-$operationsText = [string]$contents['DATABASE_OPERATIONS.md']
+$operationsText = [string]$contents['docs/database/DATABASE_OPERATIONS.md']
 $operationsNormalized = $operationsText.Replace(',','')
 foreach ($command in @(
   'invoke-forge-database.ps1',
@@ -80,7 +84,7 @@ foreach ($command in @(
   if ($operationsText -notmatch [regex]::Escape($command)) { $failures.Add("DATABASE_OPERATIONS.md omits supported command: $command") }
 }
 if ($operationsText -notmatch 'Not yet implemented/certified') {
-  $failures.Add('DATABASE_OPERATIONS.md does not label unavailable historical-upgrade execution.')
+  $failures.Add('docs/database/DATABASE_OPERATIONS.md does not label unavailable historical-upgrade execution.')
 }
 foreach ($value in @(
   '15901',
@@ -88,7 +92,32 @@ foreach ($value in @(
   [string]$wrappersContract.environments.linked.requiredVersion,
   [string]$wrappersContract.environments.local.requiredVersion
 )) {
-  if ($operationsNormalized -notmatch [regex]::Escape($value)) { $failures.Add("DATABASE_OPERATIONS.md omits certification evidence value: $value") }
+  if ($operationsNormalized -notmatch [regex]::Escape($value)) { $failures.Add("docs/database/DATABASE_OPERATIONS.md omits certification evidence value: $value") }
+}
+
+foreach ($obsoleteRootDocument in @('DATABASE_ARCHITECTURE.md','DATABASE_OPERATIONS.md')) {
+  if (Test-Path -LiteralPath (Join-Path $repo $obsoleteRootDocument)) {
+    $failures.Add("Obsolete duplicate database document exists at repository root: $obsoleteRootDocument")
+  }
+}
+
+$branchPreflightPath = Join-Path $repo 'docs/database/baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md'
+if (-not (Test-Path -LiteralPath $branchPreflightPath -PathType Leaf)) {
+  $failures.Add('Missing dashboard branch preflight evidence document.')
+}
+else {
+  $branchPreflightText = Get-Content -LiteralPath $branchPreflightPath -Raw
+  $prefixVersions = @($manifest = Get-Content -LiteralPath (Join-Path $repo 'docs/database/baseline/v1-gate1/historical-migrations.sha256.json') -Raw | ConvertFrom-Json; $manifest.migrations | Select-Object -First 411 | ForEach-Object { [string]$_.version })
+  $prefixBytes = [Text.Encoding]::UTF8.GetBytes(($prefixVersions -join "`n"))
+  $prefixDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($prefixBytes)).ToLowerInvariant()
+  foreach ($evidence in @('20260916110806',$prefixDigest,'0.01344','Include data','--dry-run')) {
+    if ($branchPreflightText -notmatch [regex]::Escape($evidence)) { $failures.Add("Dashboard branch preflight omits evidence: $evidence") }
+  }
+  $historicalUpgradePath = Join-Path $repo 'docs/database/baseline/v1-gate4/HISTORICAL_UPGRADE_CERTIFICATION.md'
+  $historicalUpgradeText = Get-Content -LiteralPath $historicalUpgradePath -Raw
+  if ($historicalUpgradeText -notmatch [regex]::Escape($prefixDigest)) {
+    $failures.Add('Historical upgrade certification records the wrong 411-version digest.')
+  }
 }
 
 $result = [ordered]@{
