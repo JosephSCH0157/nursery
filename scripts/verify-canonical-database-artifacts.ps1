@@ -8,6 +8,8 @@ $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath($RepositoryRoot)
 $failures = [System.Collections.Generic.List[string]]::new()
 
+& (Join-Path $PSScriptRoot 'verify-database-documentation-contract.ps1') -RepositoryRoot $repo | Out-Null
+
 function Assert-FileHash([string]$RelativePath,[string]$ExpectedSha256) {
   $path = Join-Path $repo $RelativePath
   if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
