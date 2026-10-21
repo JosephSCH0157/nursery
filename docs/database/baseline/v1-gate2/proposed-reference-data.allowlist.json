@@ -1,0 +1,97 @@
+{
+  "schema": "forge.baseline-reference-data-allowlist.v2-proposal",
+  "status": "owner-approval-required-not-executable",
+  "defaultDisposition": "exclude",
+  "recordCount": 7,
+  "sourceArtifacts": {
+    "supabase/migrations/20260718160000_tongs_quench_release_decisions.sql": "7610353c837294ebd3db4ab01738a8bb6cf76bbcf6b3b17ec26e11bb1fac887e",
+    "supabase/migrations/20260904130000_tongs_quench_podcast_host_boundary.sql": "425fea2288241dfd0cf909959dea373161927a47cd807480b03844e10e42d4eb",
+    "supabase/migrations/20260904150000_tongs_quench_manual_handoff_authority.sql": "68c1220bbf3cee77e9857331647dafdf2ecb03b42c4ae3b076b21adb0fcd8000"
+  },
+  "records": [
+    {
+      "table": "tongs.quench_destination_scopes",
+      "primaryKey": { "id": "81000000-0000-4000-8000-000000000001" },
+      "contract": { "scope_key": "system:youtube:intent-only", "platform": "youtube", "adapter_id": "forge.youtube", "execution_context": "intent_only", "state": "active", "current_capability_revision_id": "82000000-0000-4000-8000-000000000001" },
+      "source": ["supabase/migrations/20260718160000_tongs_quench_release_decisions.sql:227"],
+      "dependency": "System YouTube release-intent scope selected by Quench release decisions.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Global read-only scope; existing RLS permits authenticated reads and no client mutation.",
+      "financialActivation": "none; intent-only and does not submit to a provider",
+      "recordlessAlternative": "No current deterministic runtime initializer; absence removes the system destination."
+    },
+    {
+      "table": "tongs.quench_destination_scopes",
+      "primaryKey": { "id": "81000000-0000-4000-8000-000000000002" },
+      "contract": { "scope_key": "system:podcast-host:intent-only", "platform": "podcast_host", "adapter_id": "forge.transistor", "execution_context": "intent_only", "state": "active", "current_capability_revision_id": "82000000-0000-4000-8000-000000000003" },
+      "source": ["supabase/migrations/20260718160000_tongs_quench_release_decisions.sql:227", "supabase/migrations/20260904130000_tongs_quench_podcast_host_boundary.sql:8"],
+      "dependency": "System podcast-host release-intent scope; the later migration intentionally transforms the original RSS placeholder.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Global read-only scope; existing RLS permits authenticated reads and no client mutation.",
+      "financialActivation": "none; intent-only",
+      "recordlessAlternative": "No current deterministic runtime initializer; absence removes the system destination."
+    },
+    {
+      "table": "tongs.quench_destination_scopes",
+      "primaryKey": { "id": "81000000-0000-4000-8000-000000000003" },
+      "contract": { "scope_key": "system:rumble:manual-handoff", "platform": "rumble", "adapter_id": "forge.rumble.manual", "execution_context": "manual_handoff", "state": "active", "current_capability_revision_id": "82000000-0000-4000-8000-000000000004" },
+      "source": ["supabase/migrations/20260904150000_tongs_quench_manual_handoff_authority.sql:11"],
+      "dependency": "System Rumble manual-handoff destination.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Global read-only scope; execution remains human-controlled.",
+      "financialActivation": "none; manual handoff has no provider credential or API execution",
+      "recordlessAlternative": "No current deterministic runtime initializer; absence removes the system destination."
+    },
+    {
+      "table": "tongs.quench_destination_capability_revisions",
+      "primaryKey": { "id": "82000000-0000-4000-8000-000000000001" },
+      "contract": { "destination_scope_id": "81000000-0000-4000-8000-000000000001", "revision": 1, "contract_version": "forge.quench-destination-capabilities.v1", "adapter_version": "stub-v1", "capabilities_json": { "supports_experiment_intent": true, "supports_thumbnail_selection": true, "supports_thumbnail_rotation": false, "supports_schedule": true, "supports_premiere": true, "supports_video": true, "supports_audio_only": false }, "content_hash": "derive as SHA-256 of PostgreSQL jsonb text exactly as the cited migration" },
+      "source": ["supabase/migrations/20260718160000_tongs_quench_release_decisions.sql:230"],
+      "dependency": "Immutable capability revision for the YouTube intent-only scope.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Read-only through destination-scope RLS.",
+      "financialActivation": "none",
+      "recordlessAlternative": "No; release-decision commits require the current capability revision."
+    },
+    {
+      "table": "tongs.quench_destination_capability_revisions",
+      "primaryKey": { "id": "82000000-0000-4000-8000-000000000002" },
+      "contract": { "destination_scope_id": "81000000-0000-4000-8000-000000000002", "revision": 1, "contract_version": "forge.quench-destination-capabilities.v1", "adapter_version": "stub-v1", "capabilities_json": { "supports_experiment_intent": true, "supports_thumbnail_selection": true, "supports_thumbnail_rotation": false, "supports_schedule": true, "supports_premiere": false, "supports_video": false, "supports_audio_only": true }, "content_hash": "derive as SHA-256 of PostgreSQL jsonb text exactly as the cited migration" },
+      "source": ["supabase/migrations/20260718160000_tongs_quench_release_decisions.sql:230"],
+      "dependency": "Preserved immutable predecessor for the podcast-host scope; not the current revision.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Read-only through destination-scope RLS.",
+      "financialActivation": "none",
+      "recordlessAlternative": "Could be omitted only by discarding retained revision history, which is outside Gate 2."
+    },
+    {
+      "table": "tongs.quench_destination_capability_revisions",
+      "primaryKey": { "id": "82000000-0000-4000-8000-000000000003" },
+      "contract": { "destination_scope_id": "81000000-0000-4000-8000-000000000002", "revision": 2, "contract_version": "forge.quench-destination-capabilities.v1", "adapter_version": "1.0.0", "capabilities_json": { "provider": "transistor", "audio_upload": true, "episode_draft_create": true, "episode_publish": true, "episode_schedule": true, "supports_experiment_intent": false, "supports_thumbnail_selection": false, "supports_thumbnail_rotation": false, "supports_schedule": true, "supports_premiere": false, "supports_video": false, "supports_audio_only": true, "host_owns_rss": true, "host_owns_directory_distribution": true, "forge_rss_hosting": false, "direct_spotify_upload": false, "idempotent_episode_create": false }, "content_hash": "derive as SHA-256 of PostgreSQL jsonb text exactly as the cited migration" },
+      "source": ["supabase/migrations/20260904130000_tongs_quench_podcast_host_boundary.sql:26"],
+      "dependency": "Current immutable Transistor capability revision for podcast-host intent.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Read-only through destination-scope RLS.",
+      "financialActivation": "none",
+      "recordlessAlternative": "No; release-decision commits require the current capability revision."
+    },
+    {
+      "table": "tongs.quench_destination_capability_revisions",
+      "primaryKey": { "id": "82000000-0000-4000-8000-000000000004" },
+      "contract": { "destination_scope_id": "81000000-0000-4000-8000-000000000003", "revision": 1, "contract_version": "forge.quench-manual-destination-capabilities.v1", "adapter_version": "1.0.0", "capabilities_json": { "provider": "rumble", "release_profiles": ["video_episode"], "manual_video_upload": true, "manual_metadata_entry": true, "manual_thumbnail_upload": true, "manual_visibility_selection": true, "manual_schedule_intent": true, "creator_decides_channel": true, "creator_decides_licensing": true, "creator_decides_monetization": true, "creator_decides_syndication": true, "creator_decides_premiere": true, "api_authentication": false, "api_video_upload": false, "api_status_read": false, "api_delete": false, "idempotent_create": false, "safe_automatic_retry": false, "allowed_result_hosts": ["rumble.com", "www.rumble.com"] }, "content_hash": "derive as SHA-256 of PostgreSQL jsonb text exactly as the cited migration" },
+      "source": ["supabase/migrations/20260904150000_tongs_quench_manual_handoff_authority.sql:13"],
+      "dependency": "Current immutable capability revision for manual Rumble handoff.",
+      "immutable": true,
+      "environmentSpecific": false,
+      "security": "Read-only through destination-scope RLS.",
+      "financialActivation": "none",
+      "recordlessAlternative": "No; manual-handoff preparation requires the capability revision."
+    }
+  ]
+}
