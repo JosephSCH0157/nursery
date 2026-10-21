@@ -11,7 +11,9 @@ The accepted Gate 2 oracle remains unchanged. It intentionally captured both the
 
 Production capture: 15,901 entries, contract SHA-256 `de7ae3443829d6b693f8a86853ae7aaba9f84150f6ccb368aed766bad95117f0`.
 
-The disposable 0.5.7 diagnostic replay also produced 15,901 entries. Its only difference from the normalized production contract was `extension|wrappers`. All application-owned entries matched exactly. This diagnostic is not certification and is not authority to accept the extension change.
+Gate 3B approved one additional, explicit compatibility comparison: hosted production remains recorded at `wrappers` 0.5.6 while the pinned CLI 2.84.2 disposable image is required to report 0.5.7. The comparator still checks every identity and hash entry independently; only `extension|wrappers` may differ, and its name, schema, relocatability, version, target environment, and production fingerprint must match `wrappers-extension-compatibility.json`. Unknown versions and every other extension difference fail closed.
+
+This exception is safe for Forge because the hosted catalog and repository inventory contain no foreign wrapper, foreign server, foreign table, user mapping, or application dependency on a `wrappers` routine or type. It does not authorize a hosted extension upgrade or future `wrappers` versions.
 
 ## Dropped column ordinals
 

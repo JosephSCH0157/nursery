@@ -6,7 +6,7 @@ Gate 3 produced an immutable baseline candidate and disposable certification too
 
 - Workdir: `database/canonical-baseline-v1`
 - Version: `20261021020814`
-- Migration SHA-256: `353c74356937c049cbce9a18b7e01c4d328cfe84b45a149701b81f62f9526e57`
+- Migration SHA-256: `73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e`
 - Source schema-dump SHA-256: `3dcccc455ac03caa8610143d23eaeb061a2e3f49c8818c4d1d2ce687e55f3368`
 - Required CLI: exactly 2.84.2
 - Data: exactly three approved Quench scopes and four approved immutable capability revisions; every other `public` and `tongs` table starts empty.
@@ -28,7 +28,7 @@ Disposable certification gates:
 ./scripts/certify-canonical-baseline-v1.ps1 -DefaultPrivilegeMode restrictive
 ```
 
-Both currently fail closed on the documented `wrappers` image incompatibility. Do not interpret the successful 0.5.7 diagnostic as certification.
+Both pass with the Gate 3B wrappers compatibility contract: production remains recorded at 0.5.6, the pinned local image must report 0.5.7, and all other catalog/security entries remain exact. This is local fresh-install certification only; hosted-upgrade certification and integration remain blocked.
 
 ## Files
 
@@ -37,5 +37,6 @@ Both currently fail closed on the documented `wrappers` image incompatibility. D
 - `ENVIRONMENT_NORMALIZATION.md`: exact normalization boundary and why it is necessary.
 - `TRANSITION_DESIGN.md`: historical marker transition and shared-tail rules.
 - `CERTIFICATION_RESULTS.md`: passing, failing, and blocked evidence.
+- `wrappers-extension-compatibility.json`: the sole allowed environment-specific extension difference and its artifact provenance.
 
 The existing Slice A candidate is incorporated without discarding its migrations or tests. The baseline represents the post-Slice-A contract; existing hosted projects still receive Slice A through their historical lineage and never apply this baseline.

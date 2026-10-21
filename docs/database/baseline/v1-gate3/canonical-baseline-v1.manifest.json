@@ -5,8 +5,8 @@
   "baselineVersion": "20261021020814",
   "baselineMigration": {
     "path": "database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql",
-    "sha256": "353c74356937c049cbce9a18b7e01c4d328cfe84b45a149701b81f62f9526e57",
-    "bytes": 5004010
+    "sha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "bytes": 5004452
   },
   "provenance": {
     "schemaDumpSha256": "3dcccc455ac03caa8610143d23eaeb061a2e3f49c8818c4d1d2ce687e55f3368",
@@ -22,6 +22,7 @@
     "allOtherApplicationRows": 0
   },
   "sharedTailMinimumVersion": "20261022000000",
-  "certificationStatus": "blocked",
-  "blockingReason": "Supabase CLI 2.84.2 selects postgres image 17.6.1.095, which provides wrappers 0.5.7 only; the approved production contract requires wrappers 0.5.6."
+  "certificationStatus": "certified-local-with-approved-environmental-normalization",
+  "approvedEnvironmentalDifference": "Hosted production records wrappers 0.5.6; Supabase CLI 2.84.2 postgres 17.6.1.095 records wrappers 0.5.7. Every other one of the 15,901 normalized catalog entries must match exactly.",
+  "remainingBlocker": "Disposable hosted-upgrade certification has no approved no-customer-data mechanism."
 }

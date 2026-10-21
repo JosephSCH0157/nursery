@@ -1,14 +1,16 @@
 -- Forge canonical baseline v1.
 -- Generated from the approved post-Slice-A production catalog using Supabase CLI 2.84.2.
 -- This migration is for fresh baseline-lineage databases only.
--- Normalize CLI-local extension defaults to the approved production contract.
+-- Install the environment-provided wrappers version. Supabase ignores explicit
+-- extension version pins starting 2026-08-05; the assertion below accepts only
+-- the separately reviewed 0.5.6 hosted or 0.5.7 CLI certification contracts.
 -- The CLI migrator uses the extended query protocol. The wrappers installer is
 -- invoked as dynamic utility SQL so its pgrx script runs on the server path used
 -- by normal hosted execution as well as psql.
 do $extension_install$
 begin
   if not exists (select 1 from pg_extension where extname='wrappers') then
-    execute 'create extension wrappers with schema extensions version ''0.5.6''';
+    execute 'create extension wrappers with schema extensions';
   end if;
 end
 $extension_install$;
@@ -84752,12 +84754,21 @@ begin
     select 1 from (values
       ('hypopg','1.4.1'),('index_advisor','0.2.0'),('pg_stat_statements','1.11'),
       ('pgcrypto','1.3'),('plpgsql','1.0'),('supabase_vault','0.3.1'),
-      ('uuid-ossp','1.1'),('wrappers','0.5.6')
+      ('uuid-ossp','1.1')
     ) expected(name,version)
     left join pg_extension e on e.extname=expected.name and e.extversion=expected.version
     where e.oid is null
   ) then
     raise exception 'Required baseline extension or version is missing';
+  end if;
+  if not exists (
+    select 1 from pg_extension
+    where extname='wrappers'
+      and extnamespace='extensions'::regnamespace
+      and extrelocatable
+      and extversion in ('0.5.6','0.5.7')
+  ) then
+    raise exception 'Unapproved wrappers extension contract; expected 0.5.6 or 0.5.7 in extensions schema';
   end if;
 end
 $baseline_assertions$;

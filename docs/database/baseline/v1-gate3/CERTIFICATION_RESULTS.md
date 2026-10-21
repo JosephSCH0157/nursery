@@ -1,36 +1,32 @@
-# Gate 3 certification results
+# Gate 3B certification results
 
-Status: **blocked; not ready for integration or deployment**.
+Status: **local fresh-install certification passed; integration and hosted-upgrade certification remain blocked**.
 
-## Passed evidence
+## Compatibility decision
+
+The only approved environmental difference is `extension|wrappers`:
+
+- Hosted production, captured read-only on 2026-10-21: `wrappers` 0.5.6 in `extensions`.
+- Supabase CLI 2.84.2 disposable PostgreSQL image `17.6.1.095`: `wrappers` 0.5.7 in `extensions`.
+- All other 15,900 normalized catalog/security entries match exactly.
+- Any version other than 0.5.6 for the linked oracle or 0.5.7 for this pinned local environment fails certification.
+
+Forge has no foreign data wrappers, foreign servers, foreign tables, user mappings, or application dependency on a `wrappers` routine/type. Repository migrations and application source do not invoke the extension. The 0.5.7 release changes affect FDWs that Forge has not configured, so the change cannot alter a Forge execution path. The compatibility contract is recorded in `wrappers-extension-compatibility.json`.
+
+## Passing evidence
 
 - Historical manifest: 414/414 files match; aggregate SHA-256 `66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40`.
-- Linked post-Slice-A recapture: 15,924 entries and contract SHA-256 `817f42cfe0f57d2961b52a72b58a5273c3cc1e2bf306e3a527e6bc58bdbcbfbe`.
-- Quench evidence: three scopes and four revisions match the approved source migrations and content hashes; all are global intent/manual-handoff metadata with no credential, customer, billing, activation, or external-account state.
-- Baseline lineage static guard: passed with one reserved-range migration and no historical or shared-tail files.
-- Noncanonical diagnostic replay: completed using the same baseline with only the unavailable `wrappers` version changed from 0.5.6 to 0.5.7 outside the repository.
-- Diagnostic normalized catalog comparison: 15,900 of 15,901 entries match; the sole mismatch is `extension|wrappers`.
-- Slice A relation/function/trigger fingerprint test: passed.
-- Slice A authentication, profile, workspace, pairing, Anvil profile, subscription, billing, workpiece isolation, function execution, and Data API grant test: passed with synthetic data and transaction rollback.
-- Baseline lineage, seven-record allowlist, zero-other-row state, cross-schema Storage policies, signup bootstrap, zero-credit behavior, paid-RPC ACL, and Quench discovery test: passed with synthetic data and transaction rollback.
+- Linked schema dump: SHA-256 `3dcccc455ac03caa8610143d23eaeb061a2e3f49c8818c4d1d2ce687e55f3368`, unchanged from Gate 3.
+- Baseline migration: SHA-256 `73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e`.
+- Permissive default-privilege replay: passed.
+- Restrictive default-privilege replay: passed. The harness restarts only its disposable PostgREST container after applying the baseline because that lane deliberately starts without the configured `tongs` schema.
+- Normalized catalog: 15,901 entries; local hash `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`; 15,900 strict matches plus the one approved wrappers difference.
+- Slice A catalog, ACL, RLS, policy, function-execution, trigger, authentication, profile, workspace, pairing, Anvil profile, subscription, billing, and workpiece-isolation tests: passed in both lanes.
+- HTTP Data API: anonymous `public.workspaces` access denied; two synthetic signups each received only their own profile/workspace; three global Quench scopes remained discoverable; passed in both lanes.
+- Baseline lineage, seven-record allowlist, zero-other-row state, Storage policies, signup bootstrap, zero-credit behavior, paid-RPC ACL, Quench discovery, Stripe/OpenAI/Runway fail-closed behavior: passed in both lanes.
 - Financial static contract suite: 32 passed, 0 failed.
-- No production or hosted write, migration-history change, deployment, customer-data copy, financial activation, or external provider call occurred.
+- No production/hosted write, migration-history change, deployment, customer-data copy, financial activation, or external provider call occurred.
 
-## Blocking failure
+## Remaining blocker
 
-Both permissive and restrictive certification entrypoints fail at statement zero of the immutable baseline:
-
-`ERROR: extension "wrappers" has no installation script nor update path for version "0.5.6"`
-
-Supabase CLI 2.84.2 selects `public.ecr.aws/supabase/postgres:17.6.1.095` for PostgreSQL 17. That image exposes only `wrappers` 0.5.7. The approved production fingerprint contains 0.5.6, and CLI configuration exposes only the PostgreSQL major version, not an image override. The baseline intentionally fails closed instead of silently upgrading the extension.
-
-Because the exact baseline cannot complete, the following remain blocked rather than passed: canonical permissive replay, canonical restrictive replay, exact catalog parity, Data API testing against the exact extension contract, and full baseline certification.
-
-## Owner decision required
-
-Choose and separately approve one supported certification contract:
-
-1. Pin a supported Supabase CLI/database image combination that contains `wrappers` 0.5.6, while retaining CLI 2.84.2 only if that combination is demonstrably supported; or
-2. Approve `wrappers` 0.5.7 as an explicit, reviewed environmental normalization and update the production/application contract oracle accordingly.
-
-Do not change the baseline assertion, production extension, or CLI pin without that decision.
+The no-customer-data hosted-upgrade capsule remains unresolved. No supported disposable hosted upgrade mechanism has been approved, so this result does not authorize Slice A integration, merge, deployment, or a hosted migration.

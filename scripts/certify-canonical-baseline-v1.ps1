@@ -78,6 +78,14 @@ $restrictive_defaults$
   }
 
   & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
+  Invoke-Supabase @('db','query','--local','--workdir',$workdir,'--agent=no',"notify pgrst, 'reload schema';")
+  if ($DefaultPrivilegeMode -eq 'restrictive') {
+    # This lane intentionally starts PostgREST before the tongs schema exists.
+    # Restart only the disposable lane's REST container after applying the
+    # baseline so certification does not depend on PostgREST reconnect backoff.
+    & docker restart "supabase_rest_$projectId" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to restart the disposable PostgREST container.' }
+  }
 
   $container = "supabase_db_$projectId"
   foreach ($test in @(
@@ -93,10 +101,13 @@ $restrictive_defaults$
     if ($LASTEXITCODE -ne 0) { throw "Database test failed: $test" }
   }
 
+  & (Join-Path $repo 'scripts/test-canonical-baseline-v1-data-api.ps1') -Workdir $workdir
+  if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
+
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
   Push-Location $workdir
   try {
-    & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-gate3/canonical-application-catalog-fingerprint.json') -RepositoryRoot $repo | Out-Null
+    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-gate3/canonical-application-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
   }
   finally { Pop-Location }
 
@@ -104,6 +115,9 @@ $restrictive_defaults$
     ok = $true
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
+    catalogObjectCount = $catalogResult.objectCount
+    catalogContractSha256 = $catalogResult.contractSha256
+    approvedEnvironmentalDifferences = @($catalogResult.approvedEnvironmentalDifferences)
     workdir = $workdir
     projectId = $projectId
   } | ConvertTo-Json -Compress

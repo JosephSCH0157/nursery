@@ -6,6 +6,7 @@ param(
   [Parameter(Mandatory)]
   [string]$OutputPath,
   [string]$ExpectedPath,
+  [string]$ExtensionCompatibilityPath,
   [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
@@ -32,6 +33,7 @@ try {
   if ($rows.Count -eq 0) { throw 'Catalog query returned no objects.' }
 
   $seen = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+  $canonicalByKey = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
   $entryList = [System.Collections.Generic.List[object]]::new()
   foreach ($row in ($rows | Sort-Object category,identity,canonical)) {
     $key = '{0}|{1}' -f $row.category,$row.identity
@@ -42,6 +44,7 @@ try {
       continue
     }
     $seen[$key] = $hash
+    $canonicalByKey[$key] = [string]$row.canonical
     $entryList.Add([pscustomobject][ordered]@{ category=[string]$row.category; identity=[string]$row.identity; sha256=$hash })
   }
   $entries = @($entryList)
@@ -64,17 +67,72 @@ try {
   }
   $result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resolvedOutput -Encoding utf8
 
+  $approvedEnvironmentalDifferences = [System.Collections.Generic.List[string]]::new()
   if ($ExpectedPath) {
     $expected = Get-Content -LiteralPath ([IO.Path]::GetFullPath($ExpectedPath)) -Raw | ConvertFrom-Json
     $differences = [System.Collections.Generic.List[string]]::new()
     if ($expected.schema -ne $result.schema) { $differences.Add('schema') }
     if ($expected.querySha256 -ne $result.querySha256) { $differences.Add('query_sha256') }
     if ($expected.objectCount -ne $result.objectCount) { $differences.Add('object_count') }
-    if ($expected.contractSha256 -ne $result.contractSha256) { $differences.Add('contract_sha256') }
+
+    $expectedByKey = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+    $expectedLines = [System.Collections.Generic.List[string]]::new()
+    foreach ($entry in $expected.entries) {
+      $expectedByKey['{0}|{1}' -f $entry.category,$entry.identity] = [string]$entry.sha256
+      $expectedLines.Add(('{0}|{1}|{2}' -f $entry.category,$entry.identity,$entry.sha256))
+    }
+    $expectedBytes = [Text.Encoding]::UTF8.GetBytes(($expectedLines -join "`n"))
+    $recomputedExpectedHash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($expectedBytes)).ToLowerInvariant()
+    if ($recomputedExpectedHash -ne $expected.contractSha256) { $differences.Add('expected_contract_integrity') }
+    foreach ($key in $expectedByKey.Keys) {
+      if (-not $seen.ContainsKey($key)) { $differences.Add("missing:$key"); continue }
+      if ($expectedByKey[$key] -eq $seen[$key]) { continue }
+
+      $accepted = $false
+      if ($key -eq 'extension|wrappers' -and $ExtensionCompatibilityPath) {
+        $compatibility = Get-Content -LiteralPath ([IO.Path]::GetFullPath($ExtensionCompatibilityPath)) -Raw | ConvertFrom-Json
+        $environment = $compatibility.environments.$Target
+        $actualExtension = $canonicalByKey[$key] | ConvertFrom-Json
+        if (-not $environment) { throw "No wrappers compatibility environment is approved for target $Target." }
+        if ($compatibility.schema -ne 'forge.wrappers-extension-compatibility.v1' -or
+            $compatibility.extension -ne 'wrappers' -or
+            $compatibility.schemaName -ne 'extensions' -or
+            $compatibility.relocatable -ne $true -or
+            $compatibility.rejectAllOtherVersions -ne $true) {
+          throw 'The wrappers compatibility contract is incomplete or invalid.'
+        }
+        if ([string]$expectedByKey[$key] -ne [string]$compatibility.productionFingerprintSha256) {
+          throw 'The production wrappers fingerprint no longer matches the approved compatibility contract.'
+        }
+        $accepted = (
+          $actualExtension.name -eq $compatibility.extension -and
+          $actualExtension.schema -eq $compatibility.schemaName -and
+          $actualExtension.relocatable -eq $compatibility.relocatable -and
+          $actualExtension.version -eq $environment.requiredVersion
+        )
+        if ($accepted) {
+          $approvedEnvironmentalDifferences.Add("extension|wrappers:$($environment.recordedOrigin):$($actualExtension.version)")
+        }
+      }
+      if (-not $accepted) { $differences.Add("hash:$key") }
+    }
+    foreach ($key in $seen.Keys) {
+      if (-not $expectedByKey.ContainsKey($key)) { $differences.Add("unexpected:$key") }
+    }
+    if ($expected.contractSha256 -ne $result.contractSha256 -and $approvedEnvironmentalDifferences.Count -eq 0) {
+      $differences.Add('contract_sha256')
+    }
     if ($differences.Count -gt 0) { throw "Catalog fingerprint mismatch: $($differences -join ', ')." }
   }
 
-  [pscustomobject]@{ ok=$true; target=$Target; objectCount=$entries.Count; contractSha256=$contractHash; output=$resolvedOutput } | ConvertTo-Json -Compress
+  [pscustomobject]@{
+    ok=$true
+    target=$Target
+    objectCount=$entries.Count
+    contractSha256=$contractHash
+    approvedEnvironmentalDifferences=@($approvedEnvironmentalDifferences)
+    output=$resolvedOutput
+  } | ConvertTo-Json -Compress
 }
 finally {
   if (Test-Path -LiteralPath $temporaryCsv) { Remove-Item -LiteralPath $temporaryCsv -Force }
