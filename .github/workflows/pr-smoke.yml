@@ -75,13 +75,54 @@ jobs:
         with:
           version: 2.84.2
       - run: pnpm install --frozen-lockfile
-      - name: Start disposable local Supabase
-        run: supabase start
+      - name: Assemble and start certified baseline database
+        shell: pwsh
+        run: |
+          $workdir = Join-Path $env:RUNNER_TEMP 'forge-barstock-baseline'
+          ./scripts/new-forge-database-workdir.ps1 -OutputPath $workdir -ProjectId nursery -ApiPort 54321 -Lineage baseline
+          "FORGE_BARSTOCK_SUPABASE_WORKDIR=$workdir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          ./scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir $workdir
       - name: Run Barstock production gate
         run: pnpm gate:barstock-release
       - name: Stop disposable local Supabase
         if: always()
-        run: supabase stop --no-backup
+        shell: pwsh
+        run: |
+          if ($env:FORGE_BARSTOCK_SUPABASE_WORKDIR) {
+            ./scripts/invoke-forge-database.ps1 -Lineage baseline -Action Stop -Workdir $env:FORGE_BARSTOCK_SUPABASE_WORKDIR
+          }
+
+  forge-database-lineage-gate:
+    name: database:lineage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.84.2
+      - name: Verify frozen database artifacts and lineage rejection
+        shell: pwsh
+        run: |
+          ./scripts/verify-canonical-database-artifacts.ps1
+          ./scripts/verify-forge-database-entrypoints.ps1
+          ./scripts/test-supabase-lineage-guard.ps1
+      - name: Certify fresh baseline and shared tail
+        shell: pwsh
+        run: ./scripts/invoke-forge-database.ps1 -Lineage baseline -Action CertifyFresh
+      - name: Verify financial contracts remain fail closed
+        run: >-
+          node --test
+          packages/tongs/tests/restricted-beta-financial-policy-migration.test.mjs
+          packages/tongs/tests/paid-execution-funding-environment-contract.test.mjs
+          packages/tongs/tests/openai-failure-loss-environment-isolation.test.mjs
+          packages/tongs/tests/openai-failure-loss-operator-control.test.mjs
+          packages/tongs/tests/runway-paid-execution-boundary-migration.test.mjs
+          packages/tongs/tests/customer-funding-payment-contract.test.mjs
+          packages/tongs/tests/standard-customer-financial-certification-migrations.test.mjs
 
   nursery-media-gate:
     name: nursery:media
@@ -131,21 +172,14 @@ jobs:
           import fs from 'node:fs';
           import path from 'node:path';
           import { randomBytes } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
           const id = `forge-he3-browser-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
           const workdir = path.join(process.env.RUNNER_TEMP, id);
-          fs.mkdirSync(workdir); // Refuse reuse of another run's directory.
-          const configDir = path.join(workdir, 'supabase');
-          fs.mkdirSync(configDir);
-          // Only schema/configuration inputs, not another application checkout.
-          for (const name of ['migrations', 'templates']) fs.cpSync(path.join('supabase', name), path.join(configDir, name), { recursive: true });
-          const canonical = fs.readFileSync('supabase/config.toml', 'utf8').split('[functions.')[0];
-          if (/^project_id\s*=|^\[db\]/m.test(canonical)) throw new Error('Review changed canonical Supabase configuration before adapting it.');
-          const config = `project_id = "${id}"\n` + canonical
-            .replace('[api]', '[api]\nport = 58621')
-            .replace('site_url = "https://podcastersforge.com"', 'site_url = "http://127.0.0.1:5173"')
-            .replace(/additional_redirect_urls = \[[\s\S]*?\]/, 'additional_redirect_urls = ["http://127.0.0.1:5173/auth/callback"]')
-            + '\n[db]\nport = 58622\nshadow_port = 58620\nmajor_version = 17\n[db.seed]\nenabled = false\n[studio]\nport = 58623\n[inbucket]\nport = 58624\n[analytics]\nenabled = false\n';
-          fs.writeFileSync(path.join(configDir, 'config.toml'), config);
+          execFileSync('pwsh', [
+            '-NoProfile', '-File', 'scripts/new-forge-database-workdir.ps1',
+            '-OutputPath', workdir, '-ProjectId', id, '-ApiPort', '58621',
+            '-SiteUrl', 'http://127.0.0.1:5173', '-Lineage', 'baseline'
+          ], { stdio: ['ignore', 'ignore', 'inherit'] });
           const password = `Fixture-Aa1!${randomBytes(24).toString('hex')}`;
           const tongsToken = randomBytes(32).toString('hex');
           console.log(`::add-mask::${password}`);
@@ -165,24 +199,16 @@ jobs:
           NODE
       - name: Verify credential-safe startup diagnostics
         run: pnpm --filter nursery exec tsx --test tests/browser-supabase-diagnostics.test.mts
-      - name: Start disposable Supabase and apply repository migrations
+      - name: Start certified baseline Supabase
         run: |
           umask 077
           # CLI startup prints local keys: retain its output privately, never echo it.
-          if supabase start --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" --exclude studio,postgres-meta,edge-runtime,logflare,vector,supavisor,imgproxy > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
+          if pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
             echo 'Disposable Supabase startup succeeded.'
           else
             status=$?
             echo "Disposable Supabase startup failed (exit $status). Credential-safe diagnostic follows:"
-            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" supabase/migrations
-            exit "$status"
-          fi
-          if supabase migration up --local --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-migrations.log" 2>&1; then
-            echo 'Disposable Supabase migration runner succeeded.'
-          else
-            status=$?
-            echo "Disposable Supabase migration runner failed (exit $status). Credential-safe diagnostic follows:"
-            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-migrations.log" supabase/migrations
+            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" "$FORGE_BROWSER_SUPABASE_WORKDIR/supabase/migrations"
             exit "$status"
           fi
       - name: Configure disposable credentials without logging values
@@ -218,7 +244,8 @@ jobs:
       - run: pnpm gate:browser
       - name: Stop job-owned disposable Supabase
         if: always() && env.FORGE_BROWSER_SUPABASE_WORKDIR != ''
-        run: supabase stop --no-backup --workdir "$FORGE_BROWSER_SUPABASE_WORKDIR"
+        shell: pwsh
+        run: ./scripts/invoke-forge-database.ps1 -Lineage baseline -Action Stop -Workdir $env:FORGE_BROWSER_SUPABASE_WORKDIR
 
   hammer-production-gates:
     name: hammer:production
@@ -564,7 +591,7 @@ jobs:
       - name: Setup Supabase CLI
         uses: supabase/setup-cli@v1
         with:
-          version: 2.72.7
+          version: 2.84.2
 
       - name: Validate smoke:team secrets
         run: |

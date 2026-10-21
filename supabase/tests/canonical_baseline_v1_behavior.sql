@@ -31,6 +31,12 @@ select pg_temp.assert_true(
 );
 
 select pg_temp.assert_true(
+  (select array_agg(version order by version) = array['20261021020814','20261022000000']::text[]
+   from supabase_migrations.schema_migrations),
+  'baseline and shared-tail migration chronology is incomplete'
+);
+
+select pg_temp.assert_true(
   (select array_agg(id order by id) = array[
     '81000000-0000-4000-8000-000000000001'::uuid,
     '81000000-0000-4000-8000-000000000002'::uuid,

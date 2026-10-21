@@ -6,6 +6,7 @@ $root = [IO.Path]::GetFullPath($RepositoryRoot)
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("forge-lineage-test-{0}" -f [guid]::NewGuid().ToString('N'))
 $historicalWorkdir = Join-Path $temporaryRoot 'historical'
 $baselineWorkdir = Join-Path $temporaryRoot 'baseline'
+$rejectionWorkdir = Join-Path $temporaryRoot 'rejection'
 $projectId = 'forge-lineage-' + [guid]::NewGuid().ToString('N').Substring(0,12)
 $basePort = Get-Random -Minimum 59100 -Maximum 59600
 
@@ -42,6 +43,7 @@ New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
 try {
   Write-TestProject $historicalWorkdir ($projectId + '-h') $basePort
   Write-TestProject $baselineWorkdir ($projectId + '-b') ($basePort + 10)
+  Write-TestProject $rejectionWorkdir ($projectId + '-r') ($basePort + 20)
 
   & supabase migration new synthetic_history --workdir $historicalWorkdir | Out-Null
   $historicalMigration = Get-ChildItem (Join-Path $historicalWorkdir 'supabase/migrations') -Filter '*.sql' | Select-Object -First 1
@@ -65,6 +67,13 @@ insert into forge_meta.database_lineage values(true,'baseline-v1');
   $configuration = [ordered]@{ schema='forge.database-lineage-contract.v1';requiredSupabaseCliVersion='2.84.2';historical=[ordered]@{lineage='historical-v1';rootWorkdir=$historicalWorkdir;manifestPath=$manifestPath;cutoffVersion=$historicalVersion};baseline=[ordered]@{lineage='baseline-v1';reservedStartVersion=$baselineVersion;reservedEndVersion=$baselineVersion;workdirMarkerFilename='.forge-database-lineage.json'};sharedTail=[ordered]@{canonicalMigrationsDirectory=(Join-Path $temporaryRoot 'canonical-tail');minimumVersion='99999999999999'};databaseMarker=[ordered]@{schema='forge_meta';table='database_lineage';singletonKey=$true} }
   New-Item -ItemType Directory -Path (Join-Path $temporaryRoot 'canonical-tail') | Out-Null
   $configurationPath=Join-Path $temporaryRoot 'lineage.json'; $configuration|ConvertTo-Json -Depth 6|Set-Content $configurationPath -Encoding utf8
+  $wrongCliConfiguration = $configuration | ConvertTo-Json -Depth 6 | ConvertFrom-Json
+  $wrongCliConfiguration.requiredSupabaseCliVersion = '0.0.0'
+  $wrongCliConfigurationPath = Join-Path $temporaryRoot 'wrong-cli-lineage.json'
+  $wrongCliConfiguration | ConvertTo-Json -Depth 6 | Set-Content $wrongCliConfigurationPath -Encoding utf8
+
+  Expect-Failure { & (Join-Path $root 'scripts/verify-supabase-lineage.ps1') -Lineage historical -Workdir $historicalWorkdir -DatabaseTarget none -Mode preflight -ConfigurationPath $wrongCliConfigurationPath -RepositoryRoot $temporaryRoot } 'Supabase CLI 0.0.0 is required'
+  Expect-Failure { & (Join-Path $root 'scripts/verify-supabase-lineage.ps1') -Lineage historical -Workdir $historicalWorkdir -DatabaseTarget none -Mode bootstrap -ConfigurationPath $configurationPath -RepositoryRoot $temporaryRoot } 'Historical root bootstrap is prohibited'
 
   & supabase start --workdir $historicalWorkdir --exclude studio,postgres-meta,edge-runtime,logflare,vector,supavisor,imgproxy --yes | Out-Null
   & (Join-Path $root 'scripts/verify-supabase-lineage.ps1') -Lineage historical -Workdir $historicalWorkdir -DatabaseTarget local -Mode upgrade -ConfigurationPath $configurationPath -RepositoryRoot $temporaryRoot | Out-Null
@@ -77,10 +86,15 @@ insert into forge_meta.database_lineage values(true,'baseline-v1');
   Expect-Failure { & (Join-Path $root 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $historicalWorkdir -DatabaseTarget none -Mode bootstrap -ConfigurationPath $configurationPath -RepositoryRoot $temporaryRoot } 'marker|Historical migration'
   & supabase stop --workdir $baselineWorkdir --no-backup --yes | Out-Null
 
-  [pscustomobject]@{ok=$true;historicalPass=$true;baselinePass=$true;wrongLineageRejected=$true;rootBootstrapRejected=$true} | ConvertTo-Json -Compress
+  Copy-Item -LiteralPath (Join-Path $root 'supabase/migrations/20261022000000_establish_database_lineage.sql') -Destination (Join-Path $rejectionWorkdir 'supabase/migrations')
+  $rejectionOutput = (& supabase start --workdir $rejectionWorkdir --exclude studio,postgres-meta,edge-runtime,logflare,vector,supavisor,imgproxy --yes 2>&1 | Out-String)
+  if ($LASTEXITCODE -eq 0) { throw 'Shared-tail migration unexpectedly bootstrapped a database without an approved lineage.' }
+  if ($rejectionOutput -notmatch 'Historical lineage qualification failed') { throw "Unexpected shared-tail rejection: $rejectionOutput" }
+
+  [pscustomobject]@{ok=$true;historicalPass=$true;baselinePass=$true;wrongLineageRejected=$true;rootBootstrapRejected=$true;wrongCliRejected=$true;unqualifiedTailRejected=$true} | ConvertTo-Json -Compress
 }
 finally {
-  foreach ($workdir in @($historicalWorkdir,$baselineWorkdir)) {
+  foreach ($workdir in @($historicalWorkdir,$baselineWorkdir,$rejectionWorkdir)) {
     if (Test-Path (Join-Path $workdir 'supabase/config.toml')) { & supabase stop --workdir $workdir --no-backup --yes 2>$null | Out-Null }
   }
   if (Test-Path $temporaryRoot) { Remove-Item -LiteralPath $temporaryRoot -Recurse -Force }

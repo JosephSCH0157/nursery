@@ -26,6 +26,11 @@ function Copy-BaselineMigrations {
   foreach ($migration in (Get-ChildItem -LiteralPath (Join-Path $sourceWorkdir 'supabase/migrations') -Filter '*.sql' -File)) {
     Copy-Item -LiteralPath $migration.FullName -Destination (Join-Path $workdir 'supabase/migrations')
   }
+  foreach ($migration in (Get-ChildItem -LiteralPath (Join-Path $repo 'supabase/migrations') -Filter '*.sql' -File | Sort-Object Name)) {
+    if ($migration.BaseName -match '^(?<version>\d{8,14})_' -and $Matches.version -ge '20261022000000') {
+      Copy-Item -LiteralPath $migration.FullName -Destination (Join-Path $workdir 'supabase/migrations')
+    }
+  }
 }
 
 try {
@@ -33,6 +38,7 @@ try {
   if ($actualCliVersion -ne $requiredCliVersion) {
     throw "Supabase CLI $requiredCliVersion is required; found $actualCliVersion."
   }
+  & (Join-Path $repo 'scripts/verify-canonical-database-artifacts.ps1') -RepositoryRoot $repo | Out-Null
   & docker info *> $null
   if ($LASTEXITCODE -ne 0) {
     throw 'Docker Desktop is unavailable. Start it manually; this script will not start or repair it.'

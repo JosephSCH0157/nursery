@@ -58,13 +58,15 @@
     "gate:browser": "pnpm --filter nursery browser:prepare && node scripts/verify-browser-gate-env.mjs && pnpm --filter nursery verify:playwright:auth && pnpm --filter nursery test:playwright:login-password && pnpm --filter nursery test:playwright:adaptive-style && pnpm --filter nursery test:playwright:org-sharing && pnpm --filter nursery test:playwright:surgical && pnpm --filter nursery test:playwright:hammer-triad-lock && pnpm --filter nursery test:playwright:hammer-visual-authority-feedback && pnpm --filter nursery test:playwright:barstock-reconciliation && pnpm --filter nursery test:playwright:hearth-phase4 && pnpm --filter nursery test:playwright:hearth-phase5-slice1",
     "gate:nursery": "pnpm gate:fast && pnpm build && pnpm gate:integration && pnpm gate:media && pnpm gate:browser",
     "certify:db:anvil-release": "node scripts/certify-anvil-migration-chain.mjs",
+    "certify:db:canonical-baseline": "pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action CertifyFresh",
+    "verify:db:historical-integrity": "pwsh -NoProfile -File scripts/verify-canonical-database-artifacts.ps1",
     "gate:anvil-release": "node scripts/run-anvil-release-gate.mjs",
     "gate:barstock-release": "pnpm --filter @nursery/bar-stock lint && pnpm --filter @nursery/bar-stock typecheck && pnpm --filter @nursery/bar-stock test && pnpm --filter @nursery/bar-stock build && pnpm --filter @nursery/bar-stock test:db && pnpm --filter @nursery/bar-stock test:db:repository",
     "gate:hearth-research-release": "node scripts/check-hearth-research-readiness.mjs",
     "gate:hearth-research-live": "node scripts/check-hearth-research-readiness.mjs",
     "gate:hearth-research-offline": "pnpm --filter nursery exec tsx --test tests/hearth-research-hygiene.test.mts tests/hearth-ai-runtime.test.mts && pnpm --dir apps/hearth exec tsx tests/hearth-chat-workpiece-isolation.test.ts && pnpm --dir apps/hearth exec tsx --test tests/hearth-stabilization-blockers.test.tsx && pnpm --dir apps/hearth exec tsx tests/hearth-shell-phase-2-identity-navigation.test.ts && pnpm --filter nursery test:playwright:hearth-research",
     "gate:thumbnail-mvp": "node scripts/run-thumbnail-mvp-gate.mjs",
-    "supabase:types": "supabase gen types typescript --project-id wtvdjndyxegudufrompx --schema public > apps/nursery/src/lib/supabase/database.types.ts",
+    "supabase:types": "pwsh -NoProfile -File scripts/generate-forge-database-types.ps1 -Lineage baseline",
     "gate": "pnpm check",
     "check": "pnpm smoke && pnpm lint && pnpm types",
     "smoke:core": "pnpm --filter @forge/ui-mobile test:contract && node scripts/smoke.mjs",
@@ -78,7 +80,7 @@
   "devDependencies": {
     "dotenv": "^16.6.1",
     "graphemer": "1.4.0",
-    "supabase": "^2.84.4",
+    "supabase": "2.84.2",
     "typescript": "^5.9.3"
   },
   "volta": {

@@ -3,15 +3,20 @@ param(
   [Parameter(Mandatory)][ValidateSet('historical','baseline')][string]$Lineage,
   [Parameter(Mandatory)][string]$Workdir,
   [Parameter(Mandatory)][ValidateSet('none','local','linked')][string]$DatabaseTarget,
-  [ValidateSet('upgrade','bootstrap')][string]$Mode = 'upgrade',
+  [ValidateSet('upgrade','bootstrap','preflight')][string]$Mode = 'upgrade',
   [string]$ConfigurationPath,
   [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = 'Stop'
+$usingCanonicalConfiguration = -not $ConfigurationPath
 if (-not $ConfigurationPath) { $ConfigurationPath = Join-Path $RepositoryRoot 'docs/database/baseline/v1-gate2/lineage-contract.json' }
 $configuration = Get-Content -LiteralPath ([IO.Path]::GetFullPath($ConfigurationPath)) -Raw | ConvertFrom-Json
 if ($configuration.schema -ne 'forge.database-lineage-contract.v1') { throw 'Unsupported lineage configuration schema.' }
+
+if ($usingCanonicalConfiguration) {
+  & (Join-Path $PSScriptRoot 'verify-canonical-database-artifacts.ps1') -RepositoryRoot $RepositoryRoot | Out-Null
+}
 
 $actualCli = (& supabase --version 2>$null | Select-Object -First 1).Trim()
 if ($actualCli -ne $configuration.requiredSupabaseCliVersion) { throw "Supabase CLI $($configuration.requiredSupabaseCliVersion) is required; found $actualCli." }
@@ -124,7 +129,23 @@ if ($DatabaseTarget -ne 'none') {
     if ($databaseVersions.Count -ne 0) { throw 'Fresh baseline bootstrap requires empty migration history.' }
     $databaseState = 'empty-baseline-bootstrap'
   } else {
-    if ($Lineage -eq 'historical') {
+    if ($Mode -eq 'preflight') {
+      $orderedWorkdirVersions = @($workdirMigrations.Keys)
+      if ($databaseVersions.Count -gt $orderedWorkdirVersions.Count) { throw 'Database migration history is longer than the selected lineage.' }
+      for ($index = 0; $index -lt $databaseVersions.Count; $index++) {
+        if ($databaseVersions[$index] -ne $orderedWorkdirVersions[$index]) {
+          throw "Database migration history is not a chronological prefix at position $index."
+        }
+      }
+      if ($Lineage -eq 'historical' -and -not $markerExists -and @($databaseVersions | Where-Object { $_ -ge $tailMinimum }).Count -gt 0) {
+        throw 'Historical database has shared-tail versions but no lineage marker.'
+      }
+      if ($Lineage -eq 'baseline' -and (-not $markerExists -or -not $hasBaseline)) {
+        throw 'Baseline preflight requires its installed baseline marker and epoch.'
+      }
+      $databaseState = "$Lineage-preflight"
+    }
+    elseif ($Lineage -eq 'historical') {
       $missing = @($manifest.migrations | Where-Object { $_.version -notin $databaseVersions })
       if ($missing.Count -gt 0) { throw "Historical database is missing $($missing.Count) manifest versions." }
       if (-not $markerExists -and @($databaseVersions | Where-Object { $_ -ge $tailMinimum }).Count -gt 0) { throw 'Historical database has shared-tail versions but no lineage marker.' }
