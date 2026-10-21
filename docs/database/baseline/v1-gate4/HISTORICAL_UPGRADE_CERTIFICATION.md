@@ -15,7 +15,7 @@ Gate 4 completed classes 2 and 3. Class 1 remains unexecuted, so hosted upgrade 
 - A local schema-only database cannot be called a genuine historical upgrade unless its history is obtained through a supported mechanism. Synthesizing `supabase_migrations.schema_migrations`, using `migration repair`, or using `--include-all` is prohibited.
 - Transaction rollback can validate self-contained SQL, but it does not reproduce CLI migration bookkeeping or prove the complete upgrade and therefore is supplementary evidence only.
 - The linked `migration list` plus `db push --dry-run` is useful read-only preflight. It is not execution evidence.
-- Supabase dashboard branches are the only identified candidate that starts from the base project's migration history while excluding production data by default. This feature is public alpha and no branch was created during Gate 4. GitHub-integrated branches instead build from repository migrations and would follow the known-broken historical replay path.
+- Supabase dashboard branches are the only identified candidate that starts from the base project's migration history while excluding production data by default. Read-only preflight now predicts that sequential branch replay will fail at the backdated September credit-economy migration because its required lived-in Luna pricing state is absent from earlier stored migration statements. The exact proposed diagnostic, cost, and teardown rules are in [DASHBOARD_BRANCH_PREFLIGHT.md](DASHBOARD_BRANCH_PREFLIGHT.md). No branch was created.
 
 ## Evidence required before a production migration approval
 
@@ -32,7 +32,7 @@ If the platform cannot supply this mechanism, the residual risk remains: local b
 
 ## Production preflight observed at Gate 4
 
-The read-only hosted history contained 411 versions from `20260131120000` through `20261018120000`, with digest `e60976f5c3ddc853b75552dc1cbcf1b06320b5a937e24a7b567c4d361982e863`. It was a valid chronological prefix of the frozen 414-file manifest and had no `forge_meta` marker. Supabase CLI 2.84.2 dry-run discovered exactly:
+The read-only hosted history contained 411 versions from `20260131120000` through `20261018120000`, with version-only digest `e60976a860ddaa0518ed84ed9feb4d335a040778035b7b07e47fc2fd06693ae3`. It was a valid chronological prefix of the frozen 414-file manifest and had no `forge_meta` marker. Supabase CLI 2.84.2 dry-run discovered exactly:
 
 1. `20261020171517_public_schema_foundation.sql`
 2. `20261020171519_public_schema_reconciliation.sql`

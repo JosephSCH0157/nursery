@@ -72,8 +72,9 @@ Agent instructions must follow the canonical lifecycle defined in `FORGE_SPARK_T
 
 ## Database Migration and Certification Policy (Canonical)
 
-`DATABASE_ARCHITECTURE.md` defines why Forge has two permanent database
-lineages; `DATABASE_OPERATIONS.md` is the only supported operating runbook.
+`docs/database/DATABASE_ARCHITECTURE.md` defines why Forge has two permanent
+database lineages; `docs/database/DATABASE_OPERATIONS.md` is the only supported
+operating runbook.
 
 - Historical lineage `historical-v1` (H) is the immutable 414-migration audit
   and upgrade record through `20261020171522`. Never amend, renumber, delete, or

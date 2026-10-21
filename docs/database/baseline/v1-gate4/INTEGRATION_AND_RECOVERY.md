@@ -22,7 +22,7 @@ The fresh baseline is disposable: on failure, stop it without backup and recreat
 ## Residual risks
 
 - Genuine historical upgrade execution has not yet been certified.
-- Supabase dashboard branching is public alpha, so its suitability must be confirmed at the time of certification.
+- Supabase dashboard branching is public alpha. Read-only preflight predicts that a data-less branch will fail when it chronologically replays the backdated September credit-economy migration; see `DASHBOARD_BRANCH_PREFLIGHT.md`.
 - The approved local/hosted `wrappers` version difference remains environmental and narrowly allowlisted; any new version is a hard failure.
 - Older diagnostic scripts still describe staged historical replay. They remain unsupported and must not be mistaken for approved developer, CI, or deployment entrypoints.
 - The marker migration's historical qualification is intentionally exact. Any hosted migration added before it requires a reviewed new tail ordering/qualification decision rather than bypassing the guard.

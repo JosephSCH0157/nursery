@@ -102,6 +102,8 @@ Record its lineage result, hosted history range/digest, migration list, and dry-
 
 **Not yet implemented/certified:** genuine H upgrade execution. It requires an owner-authorized, supported, data-less branch/restoration derived from the hosted migration history. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run are not substitutes. No repository command currently creates that hosted environment or applies the pending migrations there.
 
+Read-only investigation predicts that a dashboard branch will fail while replaying the backdated September credit-economy migration because its lived-in Luna pricing prerequisite is not in earlier stored migration statements. The owner-approval procedure, cost, and mandatory teardown conditions are documented in [DASHBOARD_BRANCH_PREFLIGHT.md](baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md). Do not create that branch under this runbook without separate authorization.
+
 ## 7. Reset a local development database
 
 Only an assembled, running B1 workdir may be reset:
