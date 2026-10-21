@@ -1,0 +1,27 @@
+{
+  "schema": "forge.canonical-baseline-manifest.v1",
+  "lineage": "baseline-v1",
+  "requiredSupabaseCliVersion": "2.84.2",
+  "baselineVersion": "20261021020814",
+  "baselineMigration": {
+    "path": "database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql",
+    "sha256": "353c74356937c049cbce9a18b7e01c4d328cfe84b45a149701b81f62f9526e57",
+    "bytes": 5004010
+  },
+  "provenance": {
+    "schemaDumpSha256": "3dcccc455ac03caa8610143d23eaeb061a2e3f49c8818c4d1d2ce687e55f3368",
+    "postSliceAContractSha256": "817f42cfe0f57d2961b52a72b58a5273c3cc1e2bf306e3a527e6bc58bdbcbfbe",
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "applicationContractSha256": "de7ae3443829d6b693f8a86853ae7aaba9f84150f6ccb368aed766bad95117f0",
+    "referenceAllowlistSha256": "2f0c5d3099cab91539c1fd5cca96e0e7387a44c7f0d96763a5ec89cb26ed6e96"
+  },
+  "referenceData": {
+    "includedRows": 7,
+    "destinationScopes": 3,
+    "capabilityRevisions": 4,
+    "allOtherApplicationRows": 0
+  },
+  "sharedTailMinimumVersion": "20261022000000",
+  "certificationStatus": "blocked",
+  "blockingReason": "Supabase CLI 2.84.2 selects postgres image 17.6.1.095, which provides wrappers 0.5.7 only; the approved production contract requires wrappers 0.5.6."
+}

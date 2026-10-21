@@ -1,0 +1,7 @@
+{
+  "schema": "forge.database-workdir-lineage.v1",
+  "lineage": "baseline-v1",
+  "baselineEpochStart": "20261021000000",
+  "baselineEpochEnd": "20261021235959",
+  "sharedTailMinimumVersion": "20261022000000"
+}

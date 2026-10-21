@@ -44,6 +44,16 @@ supabase/migrations/20260917024621_hearth_script_paid_result_persistence_boundar
 supabase/migrations/20260917094105_hearth_script_proposal_lifecycle.sql -text
 supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sql -text
 
+# Canonical baseline v1 is byte-hashed certification evidence. Keep the same
+# LF bytes in Git and Windows working trees.
+database/canonical-baseline-v1/** text eol=lf
+docs/database/baseline/v1-gate3/** text eol=lf
+scripts/build-canonical-baseline-v1.ps1 text eol=lf
+scripts/capture-canonical-baseline-v1-catalog.ps1 text eol=lf
+scripts/certify-canonical-baseline-v1.ps1 text eol=lf
+supabase/tests/canonical_baseline_v1_behavior.sql text eol=lf
+supabase/tests/catalog/canonical_baseline_v1_contract_rows.sql text eol=lf
+
 # Generated artifacts/mirrors (do not hand edit)
 apps/anvil/dist/** linguist-generated=true
 apps/nursery/public/anvil/** linguist-generated=true
