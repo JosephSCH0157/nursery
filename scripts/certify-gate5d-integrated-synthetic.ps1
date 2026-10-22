@@ -138,6 +138,27 @@ create table if not exists supabase_migrations.schema_migrations (
 );
 commit;
 '@
+    $readOnlyRole=(Invoke-Psql $container @'
+select jsonb_build_object(
+  'exists',exists(select 1 from pg_roles where rolname='supabase_read_only_user'),
+  'member_pg_read_all_data',pg_has_role('supabase_read_only_user','pg_read_all_data','MEMBER'),
+  'schema_usage',has_schema_privilege('supabase_read_only_user','supabase_migrations','USAGE'),
+  'table_select',has_table_privilege('supabase_read_only_user','supabase_migrations.schema_migrations','SELECT'),
+  'six_columns_select',(select bool_and(has_column_privilege('supabase_read_only_user','supabase_migrations.schema_migrations',column_name,'SELECT')) from unnest(array['version','statements','name','created_by','idempotency_key','rollback']) requested(column_name)),
+  'extensions_usage',has_schema_privilege('supabase_read_only_user','extensions','USAGE'),
+  'digest_execute',has_function_privilege('supabase_read_only_user','extensions.digest(bytea,text)','EXECUTE')
+);
+'@ -Redact)|ConvertFrom-Json
+    if(-not $readOnlyRole.exists -or -not $readOnlyRole.member_pg_read_all_data -or -not $readOnlyRole.schema_usage -or
+       -not $readOnlyRole.table_select -or -not $readOnlyRole.six_columns_select -or -not $readOnlyRole.extensions_usage -or -not $readOnlyRole.digest_execute){
+      throw 'Local Supabase read-only role lacks an expected disposable-fixture privilege.'
+    }
+    $probeSql=Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_read_only_endpoint_probe.sql') -Raw
+    $probeResult=(Invoke-Psql $container "begin transaction read only;`n$probeSql`nrollback;" -Redact)|ConvertFrom-Json
+    if($probeResult.transaction_read_only -ne 'on' -or -not $probeResult.schema_usage -or -not $probeResult.table_select -or
+       -not $probeResult.six_columns_select -or $probeResult.zero_row_projection_count -ne 0 -or -not $probeResult.digest_available){
+      throw 'Dedicated read-only endpoint probe SQL failed against the six-column disposable fixture.'
+    }
 
     if($Lane -eq 'failure-cleanup'){
       $probe=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
@@ -218,8 +239,8 @@ commit;
       pendingVersions=$pending;historyHashes=$after;originalHistoryUnchanged=$true;negativeTests=$negative
       preUpgradeCatalogSha256=$preCatalog.contractSha256;postUpgradeCatalogSha256=$postCatalog.contractSha256
       catalogObjectCount=$postCatalog.objectCount;approvedEnvironmentalDifferences=@($postCatalog.approvedEnvironmentalDifferences)
-      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_historical_v1_behavior','local_data_api')
-      dataApi=$dataApi;financiallyInactive=$true;paidProviderOperations=0;hostedRequests=0
+      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate5d_historical_v1_behavior','local_data_api')
+      dataApi=$dataApi;localReadOnlyRoleExpectedAccess=$true;financiallyInactive=$true;paidProviderOperations=0;hostedRequests=0
     }
   }
   finally {

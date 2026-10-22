@@ -10,6 +10,21 @@
     "requiredFineGrainedPermission": "database_read",
     "requiredTokenPrefix": "sbp_fc"
   },
+  "dedicatedReadOnlyManagementApi": {
+    "origin": "https://api.supabase.com",
+    "pathTemplate": "/v1/projects/{ref}/database/query/read-only",
+    "method": "POST",
+    "executionRole": "supabase_read_only_user",
+    "requestHasReadOnlyProperty": false,
+    "singleSelectRequired": true,
+    "querySha256": "62bdcad7e26bc18b7b308b0e9c9cf876d433114707da7662391ff08e10a7a83c",
+    "requiredFineGrainedPermission": "database_read",
+    "requiredTokenPrefix": "sbp_fc",
+    "documentedSuccessStatus": 201,
+    "documentedResponseSchema": false,
+    "documentedResponseSizeLimit": null,
+    "hostedTableAccessVerified": false
+  },
   "history": {
     "rowCount": 411,
     "minimumVersion": "20260131120000",

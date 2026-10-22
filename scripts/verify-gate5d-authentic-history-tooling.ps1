@@ -36,7 +36,45 @@ foreach ($required in @("read_only=`$true",'FORGE_GATE5D_DATABASE_READ_TOKEN','s
 if ($exporter -match '(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase\s+(login|link|db\s+dump)') {
   throw 'Gate 5D exporter contains an arbitrary-query/endpoint or privileged-CLI fallback.'
 }
+$dedicatedQueryPath = Join-Path $repo 'supabase/tests/catalog/gate5d_authentic_history_export_read_only.sql'
+$dedicatedQuery = Get-Content -LiteralPath $dedicatedQueryPath -Raw
+$dedicatedHash = (Get-FileHash -LiteralPath $dedicatedQueryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$dedicated = $contract.dedicatedReadOnlyManagementApi
+if ($dedicatedHash -cne [string]$dedicated.querySha256 -or
+    $dedicated.origin -cne 'https://api.supabase.com' -or
+    $dedicated.pathTemplate -cne '/v1/projects/{ref}/database/query/read-only' -or
+    $dedicated.method -cne 'POST' -or
+    $dedicated.executionRole -cne 'supabase_read_only_user' -or
+    $dedicated.requiredFineGrainedPermission -cne 'database_read' -or
+    $dedicated.requestHasReadOnlyProperty -ne $false -or
+    $dedicated.documentedSuccessStatus -ne 201 -or
+    $dedicated.hostedTableAccessVerified -ne $false) {
+  throw 'Gate 5D dedicated read-only endpoint contract changed.'
+}
+if (-not $dedicatedQuery.TrimStart().StartsWith('with history as materialized',[StringComparison]::OrdinalIgnoreCase) -or
+    $dedicatedQuery -notmatch 'from\s+supabase_migrations\.schema_migrations' -or
+    ([regex]::Matches($dedicatedQuery,';')).Count -ne 1 -or
+    $dedicatedQuery -match '(?im)^\s*(begin|commit|rollback|set|insert|update|delete|merge|alter|create|drop|truncate|grant|revoke|copy|call|do)\b') {
+  throw 'Gate 5D dedicated export is not the approved single read-only SELECT.'
+}
+$dedicatedExporter = Get-Content -LiteralPath (Join-Path $repo 'scripts/export-gate5d-authentic-history-read-only.ps1') -Raw
+foreach ($required in @('https://api.supabase.com/v1/projects/$ProjectRef/database/query/read-only',
+    'FORGE_GATE5D_DATABASE_READ_TOKEN','sbp_fc','AuthorizeAuthenticExport','supabase_read_only_user',
+    "[ordered]@{ query=`$query; parameters=@() }")) {
+  if (-not $dedicatedExporter.Contains($required,[StringComparison]::Ordinal)) { throw "Dedicated Gate 5D exporter guard is missing: $required" }
+}
+if ($dedicatedExporter -match '(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase\s+(login|link|db\s+dump)' -or
+    $dedicatedExporter -match 'read_only\s*=') {
+  throw 'Dedicated Gate 5D exporter contains an override, generic body flag, or privileged-CLI fallback.'
+}
+$probe = Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_read_only_endpoint_probe.sql') -Raw
+if (($probe -notmatch 'where\s+false') -or
+    ($probe -notmatch 'from\s+supabase_migrations\.schema_migrations') -or
+    ([regex]::Matches($probe,';')).Count -ne 1 -or
+    $probe -match '(?im)^\s*(begin|commit|rollback|set|insert|update|delete|merge|alter|create|drop|truncate|grant|revoke|copy|call|do)\b') {
+  throw 'Gate 5D dedicated endpoint probe is not the approved zero-row SELECT.'
+}
 [pscustomobject]@{
   ok=$true; schema=$manifest.schema; fileCount=@($manifest.files).Count
-  authenticRequestMade=$false
+  dedicatedReadOnly=$true; authenticRequestMade=$false
 } | ConvertTo-Json -Compress

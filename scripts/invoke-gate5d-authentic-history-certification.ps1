@@ -26,11 +26,14 @@ function ConvertFrom-LastJson([object[]]$Output) {
 if ($Mode -eq 'Stage1Synthetic') {
   $tooling = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'test-gate5d-authentic-history-tooling.ps1') -RepositoryRoot $repo)
   if (-not $tooling.ok -or $tooling.authenticRequestMade) { throw 'Gate 5D component tests failed or made an authentic request.' }
+  $dedicatedReadOnly = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'test-gate5d-read-only-endpoint-adapter.ps1') -RepositoryRoot $repo)
+  if (-not $dedicatedReadOnly.ok -or $dedicatedReadOnly.hostedRequestMade) { throw 'Gate 5D dedicated read-only adapter tests failed or made a hosted request.' }
   $integrated = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'certify-gate5d-integrated-synthetic.ps1') -RepositoryRoot $repo)
   if (-not $integrated.ok -or $integrated.authenticRequestMade -or @($integrated.lanes).Count -ne 2) { throw 'Integrated Gate 5D synthetic certification failed.' }
   [pscustomobject]@{
     ok=$true; schema='forge.gate5d-stage1b-certification.v1'; syntheticOnly=$true
-    authenticRequestMade=$false; cliVersion=$actualCli; tooling=$tooling; integrated=$integrated
+    authenticRequestMade=$false; cliVersion=$actualCli; tooling=$tooling
+    dedicatedReadOnly=$dedicatedReadOnly; integrated=$integrated
   } | ConvertTo-Json -Depth 8 -Compress
   exit 0
 }

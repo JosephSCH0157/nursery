@@ -1,11 +1,12 @@
 # Gate 5D authentic-history certification tooling
 
-Status: **Stage 1B integrated synthetic certification passed; authentic hosted export not performed or authorized**.
+Status: **Stage 1B integrated synthetic certification and Stage 1C dedicated-endpoint mock assessment passed; hosted probe and authentic export not performed or authorized**.
 
 Gate 5D adds a fail-closed exporter, DPAPI capsule contract, disposable-target restorer, and certification coordinator. The approved evidence contract is [`authentic-history-contract.json`](authentic-history-contract.json). No customer rows, financial rows, credentials, or hosted writes are part of this tooling.
 
 `tooling.sha256.json` freezes the Stage 1 executable/query hashes. Verify it with `./scripts/verify-gate5d-authentic-history-tooling.ps1`; any change requires fresh review and a deliberately updated manifest.
 The non-sensitive integrated result is recorded in [`STAGE_1B_RESULTS.md`](STAGE_1B_RESULTS.md).
+The dedicated read-only endpoint decision package is [`STAGE_1C_READ_ONLY_ENDPOINT_ASSESSMENT.md`](STAGE_1C_READ_ONLY_ENDPOINT_ASSESSMENT.md).
 
 ## Exact hosted request and permission boundary
 
@@ -22,6 +23,8 @@ Content-Type: application/json
 The token must be scoped to one project with exactly `database_read`. The SQL begins `BEGIN TRANSACTION READ ONLY`, schema-qualifies `supabase_migrations.schema_migrations`, selects only `version`, `statements`, `name`, `created_by`, `idempotency_key`, and `rollback`, and returns one aggregate envelope. The response must match the Gate 5C count, range, seven hashes, and frozen 411-version prefix before encryption.
 
 Supabase does not document a token-introspection endpoint. The exporter therefore requires a scoped-token prefix (`sbp_fc`), never a classic PAT or database credential; a current local attestation bound to the token and project-reference SHA-256 values and listing only `database_read` for exactly one project; absence of broader Supabase/database credentials; and `-AuthorizeAuthenticExport`. The attestation proves only that the locally supplied token bytes, project reference, allowlist, declared permission, and review time match the reviewed file. It does **not** independently prove Supabase-side scopes, resource restrictions, token revocation state, or the reviewing account's authority. The owner must verify those facts in Supabase immediately before Stage 2; otherwise export remains blocked.
+
+Stage 1C adds a separate, opt-in adapter for `POST /v1/projects/{ref}/database/query/read-only`. The generic adapter and query above remain frozen and unchanged. The dedicated adapter sends only `query` and `parameters`, executes one source-controlled SELECT, and expects Supabase's documented `supabase_read_only_user` identity. Its actual hosted response shape, history-table access, and full response capacity remain unverified until an owner-authorized non-confidential probe. Do not treat the dedicated adapter's presence as permission to call it.
 
 ## Confidentiality and redaction
 
