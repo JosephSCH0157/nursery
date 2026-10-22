@@ -54,6 +54,16 @@ scripts/certify-canonical-baseline-v1.ps1 text eol=lf
 supabase/tests/canonical_baseline_v1_behavior.sql text eol=lf
 supabase/tests/catalog/canonical_baseline_v1_contract_rows.sql text eol=lf
 
+# Gate 5B pre-Slice-A fixture is byte-hashed certification evidence. Keep its
+# generated SQL, manifest, tooling, tests, and retained results stable on Windows.
+database/historical-pre-slice-a-v1/** text eol=lf
+docs/database/baseline/v1-gate5b/** text eol=lf
+scripts/build-pre-slice-a-fixture.ps1 text eol=lf
+scripts/certify-pre-slice-a-fixture.ps1 text eol=lf
+scripts/verify-pre-slice-a-fixture.ps1 text eol=lf
+supabase/tests/catalog/pre_slice_a_reference_contract.sql text eol=lf
+supabase/tests/pre_slice_a_fixture_behavior.sql text eol=lf
+
 # Generated artifacts/mirrors (do not hand edit)
 apps/anvil/dist/** linguist-generated=true
 apps/nursery/public/anvil/** linguist-generated=true
