@@ -1,10 +1,11 @@
 # Gate 5D authentic-history certification tooling
 
-Status: **Stage 1 synthetic certification passed; authentic hosted export not performed or authorized**.
+Status: **Stage 1B integrated synthetic certification passed; authentic hosted export not performed or authorized**.
 
 Gate 5D adds a fail-closed exporter, DPAPI capsule contract, disposable-target restorer, and certification coordinator. The approved evidence contract is [`authentic-history-contract.json`](authentic-history-contract.json). No customer rows, financial rows, credentials, or hosted writes are part of this tooling.
 
 `tooling.sha256.json` freezes the Stage 1 executable/query hashes. Verify it with `./scripts/verify-gate5d-authentic-history-tooling.ps1`; any change requires fresh review and a deliberately updated manifest.
+The non-sensitive integrated result is recorded in [`STAGE_1B_RESULTS.md`](STAGE_1B_RESULTS.md).
 
 ## Exact hosted request and permission boundary
 
@@ -20,7 +21,7 @@ Content-Type: application/json
 
 The token must be scoped to one project with exactly `database_read`. The SQL begins `BEGIN TRANSACTION READ ONLY`, schema-qualifies `supabase_migrations.schema_migrations`, selects only `version`, `statements`, `name`, `created_by`, `idempotency_key`, and `rollback`, and returns one aggregate envelope. The response must match the Gate 5C count, range, seven hashes, and frozen 411-version prefix before encryption.
 
-Supabase does not document a token-introspection endpoint. The exporter therefore requires a scoped-token prefix (`sbp_fc`), never a classic PAT or database credential; a current local attestation bound to the token and project-reference SHA-256 values and listing only `database_read` for exactly one project; absence of broader Supabase/database credentials; and `-AuthorizeAuthenticExport`. The attestation is a procedural control based on the dashboard token review, not API introspection. If the owner cannot verify that detail view, export remains blocked.
+Supabase does not document a token-introspection endpoint. The exporter therefore requires a scoped-token prefix (`sbp_fc`), never a classic PAT or database credential; a current local attestation bound to the token and project-reference SHA-256 values and listing only `database_read` for exactly one project; absence of broader Supabase/database credentials; and `-AuthorizeAuthenticExport`. The attestation proves only that the locally supplied token bytes, project reference, allowlist, declared permission, and review time match the reviewed file. It does **not** independently prove Supabase-side scopes, resource restrictions, token revocation state, or the reviewing account's authority. The owner must verify those facts in Supabase immediately before Stage 2; otherwise export remains blocked.
 
 ## Confidentiality and redaction
 
@@ -36,25 +37,36 @@ Cleanup deletes only a validated task path and verifies absence. This is logical
 
 `scripts/invoke-gate5d-authentic-history-certification.ps1` has two modes:
 
-- `Stage1Synthetic` runs frozen checks, mock exporter/DPAPI tests, the Gate 5A transactional rollback proof, and Gate 5B permissive/restrictive normal-order upgrades. It cannot make a hosted request.
+- `Stage1Synthetic` runs frozen checks, mock exporter/DPAPI tests, and the integrated Gate 5D restorer/orchestrator in permissive and restrictive lanes. It cannot make a hosted request.
 - `Authentic` is gated by `-AuthorizeAuthenticCertification` and consumes only an already prepared task-created disposable fixture target plus the encrypted capsule. It restores 411 rows, requires exactly four normally discovered migrations, applies them with `supabase migration up --local`, and requires 415 rows and `historical-v1`.
 
-Authentic mode is intentionally not an approved operational command yet. Stage 2 must wrap target preparation, both default-privilege lanes, complete application/Data API/financial suites, fingerprint capture, and teardown under one reviewed invocation. Until that gap is closed and tested, authentic execution remains blocked.
+Authentic mode is intentionally not an approved operational command yet. The synthetic one-invocation path now covers target preparation, both default-privilege lanes, application/Data API/financial suites, fingerprint capture, failure cleanup, and teardown. Stage 2 still requires separate owner authorization to transfer the authentic capsule and must use a reviewed authentic wrapper without weakening these controls.
 
-## Stage 1 results
+## Stage 1B results
 
 Executed locally with Supabase CLI `2.84.2` and an already-running Docker engine:
 
 - mock parsing, exact-field/count/range/hash checks, NULL/array/quoting/newline/Unicode fidelity: passed;
 - DPAPI CurrentUser round-trip, current-user+SYSTEM ACL, ciphertext-only disk scan: passed;
-- malformed/extra/count, duplicate/missing version, corrupt/interrupted capsule: rejected;
-- classic token and attested extra `database_write`: rejected before network access;
+- malformed/extra/count, duplicate/incomplete version, corrupted ciphertext, mismatched digest, and interrupted restoration: rejected with zero committed history rows;
+- classic token, attested extra `database_write`, wrong project identity, and stale attestation: rejected before network access;
 - failure-message redaction and cleanup: passed;
-- Gate 5A 411-row transaction, rollback, corruption, missing/unknown version, exact four-pending discovery: passed;
-- Gate 5B permissive and restrictive lanes: 415 rows, `historical-v1`, normalized catalog SHA-256 `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`, cleanup and Nursery preservation passed;
+- the new restorer independently restored 411 six-column rows and verified all seven hashes before commit in both lanes;
+- normal CLI discovery returned exactly `20261020171517`, `20261020171519`, `20261020171522`, and `20261022000000`; both lanes finished with 415 rows and `historical-v1`;
+- permissive and restrictive lanes passed catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, pairing, subscription/billing, Quench, Data API, and financial-inactivity checks;
+- both lanes matched normalized catalog SHA-256 `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`; only the approved local `wrappers` 0.5.7 environmental difference was present;
+- explicit failure-path teardown, success teardown, and Nursery container/volume preservation: passed;
 - authentic Management API requests: zero.
 
-The new restorer's real six-column transaction cannot be end-to-end exercised without either the authentic payload or a fully integrated synthetic-contract lane. Parsing, encryption, target guards, and SQL construction are reviewed; transaction/rollback behavior is evidenced by Gate 5A. This remaining Stage 1 gap must close before Stage 2 export authorization.
+Run the complete synthetic workflow with:
+
+```powershell
+./scripts/invoke-gate5d-authentic-history-certification.ps1 `
+  -Mode Stage1Synthetic `
+  -RepositoryRoot D:\nursery\nursery
+```
+
+The remaining limitation is authenticity, not local integration: synthetic records cannot prove that the hosted six-column metadata equals the Gate 5C hashes, and schema-only tests do not exercise production customer or financial rows. Stage 2 remains blocked pending explicit owner authorization and Supabase-side token-scope review.
 
 ## Recovery and stop conditions
 

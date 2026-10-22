@@ -6,6 +6,7 @@
     "pathTemplate": "/v1/projects/{ref}/database/query",
     "method": "POST",
     "readOnlyRequestProperty": true,
+    "querySha256": "7aa193e8154063b155e5f06ee0ebb3f4b38c2e16fcb7746734184d9246347e6f",
     "requiredFineGrainedPermission": "database_read",
     "requiredTokenPrefix": "sbp_fc"
   },

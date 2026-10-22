@@ -101,7 +101,15 @@ try {
   $attestationPath = Join-Path $tempRoot 'scope.json'
   [IO.File]::WriteAllText($attestationPath,($attestation | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
   Expect-Failure { & (Join-Path $repo 'scripts/export-gate5d-authentic-history.ps1') -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'attestation'
-  $checks.Add('legacy-token-and-broad-permission-rejection-without-network')
+  $attestation.permissions=@('database_read')
+  $attestation.projectRefSha256=Get-ForgeGate5DSha256Hex -Bytes ([Text.Encoding]::UTF8.GetBytes(('b'*20)))
+  [IO.File]::WriteAllText($attestationPath,($attestation | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Expect-Failure { & (Join-Path $repo 'scripts/export-gate5d-authentic-history.ps1') -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'attestation'
+  $attestation.projectRefSha256=Get-ForgeGate5DSha256Hex -Bytes ([Text.Encoding]::UTF8.GetBytes(('a'*20)))
+  $attestation.verifiedAtUtc=[DateTimeOffset]::UtcNow.AddDays(-2).ToString('o')
+  [IO.File]::WriteAllText($attestationPath,($attestation | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Expect-Failure { & (Join-Path $repo 'scripts/export-gate5d-authentic-history.ps1') -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'stale'
+  $checks.Add('legacy-token-broad-permission-wrong-project-and-stale-attestation-rejection-without-network')
 
   [IO.File]::WriteAllBytes((Join-Path $tempRoot 'history.dpapi'),[byte[]](1,2,3))
   Expect-Failure { Unprotect-ForgeGate5DCapsule -Directory $tempRoot } 'hash mismatch'

@@ -110,7 +110,7 @@ Gate 5D Stage 1 provides a synthetic-only guardrail run:
   -RepositoryRoot D:\nursery\nursery
 ```
 
-It makes no hosted request. Authentic export/certification is **not operational or authorized** until the owner separately approves Stage 2 and the integrated restorer/teardown gap documented in [Gate 5D](baseline/v1-gate5d/README.md) is closed.
+It makes no hosted request. This command now certifies the new encrypted-capsule restorer end to end with deterministic 411-row six-column synthetic history, the exact four pending migrations, both default-privilege lanes, catalog/security/application/Data API/financial checks, failure rollback, and scoped teardown. Authentic export/certification remains **unauthorized** until the owner separately approves Stage 2. A local token-fingerprint attestation does not independently prove Supabase-side token scopes; see [Gate 5D](baseline/v1-gate5d/README.md).
 
 Read-only investigation predicts that a dashboard branch will fail while replaying the backdated September credit-economy migration because its lived-in Luna pricing prerequisite is not in earlier stored migration statements. The owner-approval procedure, cost, and mandatory teardown conditions are documented in [DASHBOARD_BRANCH_PREFLIGHT.md](baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md). Do not create that branch under this runbook without separate authorization.
 

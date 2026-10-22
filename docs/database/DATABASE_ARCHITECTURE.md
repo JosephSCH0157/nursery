@@ -22,6 +22,8 @@ The machine-readable authority is [lineage-contract.json](baseline/v1-gate2/line
 
 The marker records both frozen contract hashes and the version boundaries. It is owned by `postgres`, has forced RLS, and grants no schema or relation access to `PUBLIC`, `anon`, `authenticated`, or `service_role`. Marker creation, revocation, validation, and insertion are transactional. An existing ambiguous `forge_meta` schema, unknown history, mixed roots, incompatible marker, or unexpected application-role access aborts the migration.
 
+Gate 5D authentic-history certification is deliberately separate from the lineage contract. Its Stage 1B workflow proves, with deterministic synthetic six-column metadata, that the encrypted capsule, transactional restorer, normal four-migration discovery, security/application suites, and scoped cleanup work in both permissive and restrictive default-privilege environments. It does not prove that a local token attestation reflects Supabase-side scopes, that the hosted metadata matches the recorded hashes, or that production customer/financial rows survive an upgrade. Those remain owner-controlled Stage 2 evidence requirements; no hosted request is authorized by the local certification.
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future

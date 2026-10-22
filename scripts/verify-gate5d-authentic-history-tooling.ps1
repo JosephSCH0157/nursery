@@ -13,14 +13,28 @@ foreach ($file in $manifest.files) {
   if ($actual -cne [string]$file.sha256) { throw "Gate 5D tooling hash changed: $($file.path)" }
 }
 $query = Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_authentic_history_export.sql') -Raw
+$contract = Get-Content -LiteralPath (Join-Path $repo 'docs/database/baseline/v1-gate5d/authentic-history-contract.json') -Raw | ConvertFrom-Json
+$queryHash = (Get-FileHash -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_authentic_history_export.sql') -Algorithm SHA256).Hash.ToLowerInvariant()
 if (-not $query.StartsWith('begin transaction read only;', [StringComparison]::OrdinalIgnoreCase) -or
     $query -notmatch "from supabase_migrations\.schema_migrations" -or
     $query -match '(?i)\b(insert|update|delete|merge|alter|create|drop|truncate|grant|revoke|copy)\b') {
   throw 'Gate 5D export SQL is not the approved read-only query.'
 }
+if ($queryHash -cne [string]$contract.managementApi.querySha256 -or
+    (@($contract.history.columns) -join ',') -cne 'version,statements,name,created_by,idempotency_key,rollback' -or
+    $contract.managementApi.origin -cne 'https://api.supabase.com' -or
+    $contract.managementApi.pathTemplate -cne '/v1/projects/{ref}/database/query' -or
+    $contract.managementApi.method -cne 'POST' -or
+    $contract.managementApi.readOnlyRequestProperty -ne $true) {
+  throw 'Gate 5D Management API or exact-query contract changed.'
+}
 $exporter = Get-Content -LiteralPath (Join-Path $repo 'scripts/export-gate5d-authentic-history.ps1') -Raw
-foreach ($required in @("read_only=`$true",'FORGE_GATE5D_DATABASE_READ_TOKEN','sbp_fc','AuthorizeAuthenticExport')) {
+foreach ($required in @("read_only=`$true",'FORGE_GATE5D_DATABASE_READ_TOKEN','sbp_fc','AuthorizeAuthenticExport',
+    'https://api.supabase.com/v1/projects/$ProjectRef/database/query','querySha256','SUPABASE_ACCESS_TOKEN','SUPABASE_DB_PASSWORD')) {
   if (-not $exporter.Contains($required,[StringComparison]::Ordinal)) { throw "Gate 5D exporter guard is missing: $required" }
+}
+if ($exporter -match '(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase\s+(login|link|db\s+dump)') {
+  throw 'Gate 5D exporter contains an arbitrary-query/endpoint or privileged-CLI fallback.'
 }
 [pscustomobject]@{
   ok=$true; schema=$manifest.schema; fileCount=@($manifest.files).Count

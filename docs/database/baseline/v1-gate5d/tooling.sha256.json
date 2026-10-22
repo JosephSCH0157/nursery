@@ -2,11 +2,15 @@
   "schema": "forge.gate5d-tooling-manifest.v1",
   "files": [
     { "path": "scripts/lib/ForgeGate5D.psm1", "sha256": "597646ce3e273371abef9a3898430f8ae7749f6fbdefb61e1b60c34c36ef7283" },
-    { "path": "scripts/export-gate5d-authentic-history.ps1", "sha256": "70807292d5f166777aa545a4670a9a52387843b00a6599fa27a3f2513791fef1" },
-    { "path": "scripts/restore-gate5d-authentic-history.ps1", "sha256": "731712aaa874a0fb69db0419f3f65d8894c3f46220fbaa7ddd5edb3a3d9e7555" },
-    { "path": "scripts/invoke-gate5d-authentic-history-certification.ps1", "sha256": "4794d380f2a6940ed858d87ccc681a399ef91defbb0f1672ac2c05735fe1cf26" },
-    { "path": "scripts/test-gate5d-authentic-history-tooling.ps1", "sha256": "78c2744eaeed2ade53c048cccec6522b2ffe91e2d0b6ad9b4c2e536d6ab81c4b" },
+    { "path": "scripts/export-gate5d-authentic-history.ps1", "sha256": "2ceeecb1d118c6a755f46ab32b52fca7eda93d977284777ded422ae878eaa0ee" },
+    { "path": "scripts/restore-gate5d-authentic-history.ps1", "sha256": "4429ef82396d6950136aff8706802559c98aada44bebac94dd286990a0c0f7bf" },
+    { "path": "scripts/invoke-gate5d-authentic-history-certification.ps1", "sha256": "131415eb0c5bbcd1fef2766eab9347efcc4cbf208a87aff0885d191699f26a55" },
+    { "path": "scripts/test-gate5d-authentic-history-tooling.ps1", "sha256": "8680e6aa697b26c7f2e4db158985a7e2433568fd45cf0bad09f2ae13760853b9" },
+    { "path": "scripts/verify-gate5d-authentic-history-tooling.ps1", "sha256": "9ed905f3f16aee11f92ec22668ee88c044a44e08ddcc1365ba117d3a706372fb" },
+    { "path": "scripts/new-gate5d-synthetic-history-capsule.ps1", "sha256": "4ccfe7c93e93da450e976dcb741ada13b2efcf79cb45d736b2679f4c035f513e" },
+    { "path": "scripts/certify-gate5d-integrated-synthetic.ps1", "sha256": "59090e734d913e787d562e4e621a1a0aa2dc5f697870fe07c1a7dd3d1e74c111" },
     { "path": "supabase/tests/catalog/gate5d_authentic_history_export.sql", "sha256": "7aa193e8154063b155e5f06ee0ebb3f4b38c2e16fcb7746734184d9246347e6f" },
-    { "path": "docs/database/baseline/v1-gate5d/authentic-history-contract.json", "sha256": "ec606660d46697da0d466aed25258cdb37dafb95c436cc8f0a297991a16d5d69" }
+    { "path": "supabase/tests/gate5d_historical_v1_behavior.sql", "sha256": "82c64a79f508f70930e7c66c2bb7a476e86b6eef81581ba3aebd611536d6c404" },
+    { "path": "docs/database/baseline/v1-gate5d/authentic-history-contract.json", "sha256": "446139734295031b85f0676b737c5a146c956e9d364b5372b6bcc268ab5633b0" }
   ]
 }

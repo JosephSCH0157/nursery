@@ -45,6 +45,10 @@ $query = Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5
 if (-not $query.StartsWith('begin transaction read only;', [StringComparison]::OrdinalIgnoreCase)) {
   throw 'The reviewed export query no longer begins with a read-only transaction.'
 }
+$queryHash = Get-ForgeGate5DSha256Hex -Bytes $utf8.GetBytes($query)
+if ($queryHash -cne [string]$contract.managementApi.querySha256) {
+  throw 'The reviewed export SQL text changed.'
+}
 $body = [ordered]@{ query=$query; parameters=@(); read_only=$true } | ConvertTo-Json -Depth 5 -Compress
 $uri = "https://api.supabase.com/v1/projects/$ProjectRef/database/query"
 $handler = [Net.Http.HttpClientHandler]::new()

@@ -5,6 +5,7 @@ param(
   [Parameter(Mandatory)][string]$Workdir,
   [string]$SyntheticContractPath,
   [switch]$SyntheticTest,
+  [ValidateSet('None','AfterInsert')][string]$SyntheticFailureInjection = 'None',
   [string]$RepositoryRoot
 )
 
@@ -19,7 +20,7 @@ $contract = if ($SyntheticTest) {
   }
   Get-Content -LiteralPath $syntheticFull -Raw | ConvertFrom-Json
 } else {
-  if ($SyntheticContractPath) { throw 'Synthetic contract override is forbidden outside synthetic-test mode.' }
+  if ($SyntheticContractPath -or $SyntheticFailureInjection -ne 'None') { throw 'Synthetic overrides are forbidden outside synthetic-test mode.' }
   Get-ForgeGate5DContract -RepositoryRoot $repo
 }
 if ([int]$contract.history.rowCount -ne 411 -or
@@ -100,6 +101,9 @@ try {
     [void]$copy.AppendLine(($encoded -join "`t"))
   }
   $h = $contract.history.hashes
+  $failureSql = if ($SyntheticFailureInjection -eq 'AfterInsert') {
+    "do `$gate5d_interrupted`$ begin raise exception 'synthetic interrupted restoration'; end `$gate5d_interrupted`$;"
+  } else { '' }
   $sql = @"
 begin;
 set local statement_timeout = '120s';
@@ -129,6 +133,7 @@ select
   case when jsonb_typeof(convert_from(decode(rollback_json,'base64'),'UTF8')::jsonb)='null' then null
        else array(select jsonb_array_elements_text(convert_from(decode(rollback_json,'base64'),'UTF8')::jsonb)) end
 from gate5d_history_stage;
+$failureSql
 do `$verify`$
 declare v record;
 begin
@@ -150,6 +155,7 @@ begin
 end `$verify`$;
 commit;
 "@
+  $sql = $sql.Replace("`r`n","`n")
   Invoke-RedactedPsql $sql
   if ([int](Invoke-ScalarPsql 'select count(*) from supabase_migrations.schema_migrations;') -ne [int]$contract.history.rowCount) {
     throw 'Post-commit history count mismatch.'

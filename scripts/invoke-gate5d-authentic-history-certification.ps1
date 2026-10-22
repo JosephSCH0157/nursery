@@ -15,6 +15,7 @@ $actualCli = (& supabase --version 2>$null | Select-Object -First 1).Trim()
 if ($actualCli -ne $requiredCli) { throw "Supabase CLI $requiredCli is required; found $actualCli." }
 & (Join-Path $PSScriptRoot 'verify-canonical-database-artifacts.ps1') -RepositoryRoot $repo | Out-Null
 & (Join-Path $PSScriptRoot 'verify-pre-slice-a-fixture.ps1') -RepositoryRoot $repo | Out-Null
+& (Join-Path $PSScriptRoot 'verify-gate5d-authentic-history-tooling.ps1') -RepositoryRoot $repo | Out-Null
 
 function ConvertFrom-LastJson([object[]]$Output) {
   $line = @($Output | ForEach-Object { [string]$_ } | Where-Object { $_.TrimStart().StartsWith('{') })[-1]
@@ -25,23 +26,11 @@ function ConvertFrom-LastJson([object[]]$Output) {
 if ($Mode -eq 'Stage1Synthetic') {
   $tooling = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'test-gate5d-authentic-history-tooling.ps1') -RepositoryRoot $repo)
   if (-not $tooling.ok -or $tooling.authenticRequestMade) { throw 'Gate 5D component tests failed or made an authentic request.' }
-  $history = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'test-supabase-history-restore-poc.ps1') -RepositoryRoot $repo)
-  if (-not $history.ok) { throw 'Gate 5A transactional history proof failed.' }
-  $lanes = @()
-  foreach ($lane in @('permissive','restrictive')) {
-    $result = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'certify-pre-slice-a-fixture.ps1') -DefaultPrivilegeMode $lane -RepositoryRoot $repo -SyntheticUpgrade)
-    if (-not $result.ok -or $result.postUpgradeHistoryRows -ne 415 -or $result.postUpgradeLineage -ne 'historical-v1') {
-      throw "Gate 5B synthetic upgrade lane failed: $lane"
-    }
-    $lanes += [pscustomobject]@{
-      mode=$lane; historyRows=$result.postUpgradeHistoryRows; lineage=$result.postUpgradeLineage
-      catalogContractSha256=$result.postUpgradeCatalogContractSha256; cleanupVerified=$result.cleanupVerified
-    }
-  }
+  $integrated = ConvertFrom-LastJson @(& (Join-Path $PSScriptRoot 'certify-gate5d-integrated-synthetic.ps1') -RepositoryRoot $repo)
+  if (-not $integrated.ok -or $integrated.authenticRequestMade -or @($integrated.lanes).Count -ne 2) { throw 'Integrated Gate 5D synthetic certification failed.' }
   [pscustomobject]@{
-    ok=$true; schema='forge.gate5d-stage1-certification.v1'; syntheticOnly=$true
-    authenticRequestMade=$false; cliVersion=$actualCli; tooling=$tooling; historyRestore=$history
-    lanes=$lanes
+    ok=$true; schema='forge.gate5d-stage1b-certification.v1'; syntheticOnly=$true
+    authenticRequestMade=$false; cliVersion=$actualCli; tooling=$tooling; integrated=$integrated
   } | ConvertTo-Json -Depth 8 -Compress
   exit 0
 }
