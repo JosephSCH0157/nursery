@@ -102,6 +102,16 @@ Record its lineage result, hosted history range/digest, migration list, and dry-
 
 **Not yet implemented/certified:** genuine H upgrade execution. It requires an owner-authorized, supported, data-less branch/restoration derived from the hosted migration history. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run are not substitutes. No repository command currently creates that hosted environment or applies the pending migrations there.
 
+Gate 5D Stage 1 provides a synthetic-only guardrail run:
+
+```powershell
+./scripts/invoke-gate5d-authentic-history-certification.ps1 `
+  -Mode Stage1Synthetic `
+  -RepositoryRoot D:\nursery\nursery
+```
+
+It makes no hosted request. Authentic export/certification is **not operational or authorized** until the owner separately approves Stage 2 and the integrated restorer/teardown gap documented in [Gate 5D](baseline/v1-gate5d/README.md) is closed.
+
 Read-only investigation predicts that a dashboard branch will fail while replaying the backdated September credit-economy migration because its lived-in Luna pricing prerequisite is not in earlier stored migration statements. The owner-approval procedure, cost, and mandatory teardown conditions are documented in [DASHBOARD_BRANCH_PREFLIGHT.md](baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md). Do not create that branch under this runbook without separate authorization.
 
 ## 7. Reset a local development database

@@ -1,0 +1,12 @@
+{
+  "schema": "forge.gate5d-tooling-manifest.v1",
+  "files": [
+    { "path": "scripts/lib/ForgeGate5D.psm1", "sha256": "597646ce3e273371abef9a3898430f8ae7749f6fbdefb61e1b60c34c36ef7283" },
+    { "path": "scripts/export-gate5d-authentic-history.ps1", "sha256": "70807292d5f166777aa545a4670a9a52387843b00a6599fa27a3f2513791fef1" },
+    { "path": "scripts/restore-gate5d-authentic-history.ps1", "sha256": "731712aaa874a0fb69db0419f3f65d8894c3f46220fbaa7ddd5edb3a3d9e7555" },
+    { "path": "scripts/invoke-gate5d-authentic-history-certification.ps1", "sha256": "4794d380f2a6940ed858d87ccc681a399ef91defbb0f1672ac2c05735fe1cf26" },
+    { "path": "scripts/test-gate5d-authentic-history-tooling.ps1", "sha256": "78c2744eaeed2ade53c048cccec6522b2ffe91e2d0b6ad9b4c2e536d6ab81c4b" },
+    { "path": "supabase/tests/catalog/gate5d_authentic_history_export.sql", "sha256": "7aa193e8154063b155e5f06ee0ebb3f4b38c2e16fcb7746734184d9246347e6f" },
+    { "path": "docs/database/baseline/v1-gate5d/authentic-history-contract.json", "sha256": "ec606660d46697da0d466aed25258cdb37dafb95c436cc8f0a297991a16d5d69" }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "schema": "forge.gate5d-authentic-history-contract.v1",
+  "requiredSupabaseCliVersion": "2.84.2",
+  "managementApi": {
+    "origin": "https://api.supabase.com",
+    "pathTemplate": "/v1/projects/{ref}/database/query",
+    "method": "POST",
+    "readOnlyRequestProperty": true,
+    "requiredFineGrainedPermission": "database_read",
+    "requiredTokenPrefix": "sbp_fc"
+  },
+  "history": {
+    "rowCount": 411,
+    "minimumVersion": "20260131120000",
+    "maximumVersion": "20261018120000",
+    "columns": [
+      "version",
+      "statements",
+      "name",
+      "created_by",
+      "idempotency_key",
+      "rollback"
+    ],
+    "hashes": {
+      "allColumns": "418b37c4f246b3b7a6ce563c200009827e45d7c4530a24b2dab87bb92ba19f2b",
+      "version": "9ff71b75bde4fbe4d06f511d024c84702200b1c4349ad08eecbd3a9022913596",
+      "statements": "9d7d5266435932c63b063e88e13952b6c8b87aa9bcbe177273cf05ce74bf2188",
+      "name": "484557e5492b5ed8ce56f8e1723765294d0aae1f617c227d967a36f99f139995",
+      "createdBy": "31c9e1669925fe2197f48dc53055e3e046f5fa3b50d04d6d0d81d76519200137",
+      "idempotencyKey": "176e76db0eff23ce6d987a17c91bb100ada9ee91724a7f2aaf0971173d5410a9",
+      "rollback": "176e76db0eff23ce6d987a17c91bb100ada9ee91724a7f2aaf0971173d5410a9"
+    }
+  },
+  "pendingVersions": [
+    "20261020171517",
+    "20261020171519",
+    "20261020171522",
+    "20261022000000"
+  ],
+  "postUpgradeHistoryCount": 415,
+  "postUpgradeLineage": "historical-v1"
+}
