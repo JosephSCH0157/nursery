@@ -73,6 +73,9 @@ switch ($Action) {
   }
   'HistoricalPreflight' {
     if ($Lineage -ne 'historical') { throw 'HistoricalPreflight requires historical lineage.' }
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('SUPABASE_DB_PASSWORD', 'Process'))) {
+      throw 'HistoricalPreflight requires SUPABASE_DB_PASSWORD. Passwordless Supabase CLI 2.84.2 creates or rotates a write-capable temporary login role.'
+    }
     $selectedWorkdir = Require-Workdir
     $expectedRoot = [IO.Path]::GetFullPath($repo).TrimEnd([IO.Path]::DirectorySeparatorChar)
     if ($selectedWorkdir.TrimEnd([IO.Path]::DirectorySeparatorChar) -ne $expectedRoot) { throw 'Historical preflight must use the repository root workdir.' }

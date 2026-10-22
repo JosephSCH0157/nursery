@@ -93,6 +93,10 @@ else {
 
 $databaseState = 'not-queried'
 if ($DatabaseTarget -ne 'none') {
+  if ($DatabaseTarget -eq 'linked' -and
+      [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('SUPABASE_DB_PASSWORD', 'Process'))) {
+    throw 'Linked lineage inspection requires SUPABASE_DB_PASSWORD. Passwordless Supabase CLI 2.84.2 provisions a write-capable temporary login role and is not a read-only preflight.'
+  }
   $targetFlag = "--$DatabaseTarget"
   $historySql = 'select version from supabase_migrations.schema_migrations order by version'
   $historyRows = @((& supabase db query $targetFlag --agent=no --output csv --workdir $resolvedWorkdir $historySql 2>$null) | ConvertFrom-Csv)

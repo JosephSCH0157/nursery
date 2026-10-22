@@ -26,7 +26,7 @@ For a running local B1 database, `Start`, `Reset`, and `Types` validate both its
 ./scripts/invoke-forge-database.ps1 -Lineage historical -Action HistoricalPreflight -Workdir (Get-Location)
 ```
 
-This checks that hosted history is a chronological prefix of H, reads the marker if present, lists migrations, and runs `db push --linked --dry-run`. It performs no migration. Never guess a lineage from schema shape alone.
+This checks that hosted history is a chronological prefix of H, reads the marker if present, lists migrations, and runs `db push --linked --dry-run`. It performs no migration. It now requires `SUPABASE_DB_PASSWORD` to already be present in the process environment: passwordless linked commands in Supabase CLI 2.84.2 create or rotate a write-capable temporary login role and are rejected by Forge. Never print, persist, or pass the password on the command line. Never guess a lineage from schema shape alone.
 
 ## 2. Create a migration
 
