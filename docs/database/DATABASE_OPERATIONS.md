@@ -114,6 +114,8 @@ It makes no hosted request. This command now certifies the new encrypted-capsule
 
 Gate 5D Stage 1C provides a separately frozen dedicated read-only endpoint adapter and mock tests. It is not an operational hosted procedure. The generic adapter remains unchanged; neither adapter may be selected for a hosted call until the owner authorizes the non-confidential probe and names the approved Stage 2 endpoint. See [Stage 1C assessment](baseline/v1-gate5d/STAGE_1C_READ_ONLY_ENDPOINT_ASSESSMENT.md).
 
+Gate 5E provides a dedicated zero-row probe runner and masked owner-preparation helper. The runner cannot invoke the full-history exporter and always clears its process token. It remains a separately owner-authorized hosted operation; do not run it merely because local mock certification passes. Use only the exact procedure in [Gate 5E](baseline/v1-gate5e/README.md). Authentic history export remains separately prohibited until Stage 2 authorization.
+
 Read-only investigation predicts that a dashboard branch will fail while replaying the backdated September credit-economy migration because its lived-in Luna pricing prerequisite is not in earlier stored migration statements. The owner-approval procedure, cost, and mandatory teardown conditions are documented in [DASHBOARD_BRANCH_PREFLIGHT.md](baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md). Do not create that branch under this runbook without separate authorization.
 
 ## 7. Reset a local development database

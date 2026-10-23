@@ -67,14 +67,42 @@ if ($dedicatedExporter -match '(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase
     $dedicatedExporter -match 'read_only\s*=') {
   throw 'Dedicated Gate 5D exporter contains an override, generic body flag, or privileged-CLI fallback.'
 }
-$probe = Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_read_only_endpoint_probe.sql') -Raw
-if (($probe -notmatch 'where\s+false') -or
+$probePath = Join-Path $repo 'supabase/tests/catalog/gate5d_read_only_endpoint_probe.sql'
+$probe = Get-Content -LiteralPath $probePath -Raw
+$probeHash = (Get-FileHash -LiteralPath $probePath -Algorithm SHA256).Hash.ToLowerInvariant()
+if (($probeHash -cne 'd9bf4e0257583e7c8ec865bac73d28f4fbd84ee59197e3867f75d844c6b248fb') -or
+    ($probe -notmatch 'where\s+false') -or
     ($probe -notmatch 'from\s+supabase_migrations\.schema_migrations') -or
     ([regex]::Matches($probe,';')).Count -ne 1 -or
     $probe -match '(?im)^\s*(begin|commit|rollback|set|insert|update|delete|merge|alter|create|drop|truncate|grant|revoke|copy|call|do)\b') {
   throw 'Gate 5D dedicated endpoint probe is not the approved zero-row SELECT.'
 }
+$gate5eRunner = Get-Content -LiteralPath (Join-Path $repo 'scripts/invoke-gate5e-read-only-probe.ps1') -Raw
+foreach ($required in @(
+    'https://api.supabase.com/v1/projects/$ProjectRef/database/query/read-only',
+    'd9bf4e0257583e7c8ec865bac73d28f4fbd84ee59197e3867f75d844c6b248fb',
+    'gate5d_read_only_endpoint_probe.sql','FORGE_GATE5D_DATABASE_READ_TOKEN','AuthorizeHostedProbe',
+    'tokenExpiresAtUtc','projectRefSha256Allowlist',"permissions) -join ',') -cne 'database_read'",
+    "SetEnvironmentVariable(`$tokenName, `$null, 'Process')")) {
+  if (-not $gate5eRunner.Contains($required, [StringComparison]::Ordinal)) {
+    throw "Gate 5E runner guard is missing: $required"
+  }
+}
+if ($gate5eRunner -match 'export-gate5d-authentic-history|gate5d_authentic_history_export|(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase\s+(login|link|db\s+dump|migration|db\s+push)') {
+  throw 'Gate 5E runner contains a full-history, override, privileged-CLI, or migration path.'
+}
+$gate5ePreparation = Get-Content -LiteralPath (Join-Path $repo 'scripts/prepare-gate5e-owner-attestation.ps1') -Raw
+foreach ($required in @('-AsSecureString',"SetEnvironmentVariable(`$tokenName, `$plainToken, 'Process')",'tokenExpiresAtUtc',
+    "permissions = @('database_read')",'New-ForgeGate5DRestrictedDirectory','ZeroFreeBSTR')) {
+  if (-not $gate5ePreparation.Contains($required, [StringComparison]::Ordinal)) {
+    throw "Gate 5E owner-preparation guard is missing: $required"
+  }
+}
+if ($gate5ePreparation -match '(?i)param\([^)]*(token|pat|secret)' -or
+    $gate5ePreparation -match 'SetEnvironmentVariable\([^,]+,[^,]+,\s*["''](?:User|Machine)["'']') {
+  throw 'Gate 5E owner preparation accepts a token argument or persists a credential outside process scope.'
+}
 [pscustomobject]@{
   ok=$true; schema=$manifest.schema; fileCount=@($manifest.files).Count
-  dedicatedReadOnly=$true; authenticRequestMade=$false
+  dedicatedReadOnly=$true; gate5eProbe=$true; authenticRequestMade=$false; hostedProbeMade=$false
 } | ConvertTo-Json -Compress
