@@ -24,8 +24,10 @@ test("Hearth uses the customer-safe quote acceptance contract without browser co
   assert.match(authority, /accepted_spending_quote_id/);
   assert.match(authority, /accepted_spending_quote_hash/);
   assert.doesNotMatch(hook, /window\.confirm/);
-  assert.match(panel, /Normal maximum charge/);
-  assert.match(panel, /Billable-failure maximum/);
+  assert.match(panel, /Exact price/);
+  assert.match(panel, /Funding/);
+  assert.match(panel, /Failures/);
+  assert.match(panel, /Runway has not been called and no credits are reserved until you accept/);
   assert.match(panel, /Only funding from the active financial environment can be used/);
   assert.match(panel, /A pending receipt is not a confirmed charge/);
 });
@@ -80,8 +82,8 @@ test("the migration adds no operator identity, markup value, budget, or control 
 });
 
 test("relief correction is append-only, operator-bound, idempotent, and balance-derived", () => {
-  const migration = read("supabase/migrations/20261011360000_customer_operation_relief_corrections.sql");
-  const evidenceRepair = read("supabase/migrations/20261011370000_customer_operation_relief_canonical_binding_evidence.sql");
+  const migration = read("supabase/migrations/20260916184248_customer_operation_relief_corrections.sql");
+  const evidenceRepair = read("supabase/migrations/20260916184526_customer_operation_relief_canonical_binding_evidence.sql");
   assert.match(migration, /create table tongs\.customer_operation_relief_corrections/);
   assert.match(migration, /trg_customer_operation_relief_corrections_append_only/);
   assert.match(migration, /_reject_accounting_mutation/);
