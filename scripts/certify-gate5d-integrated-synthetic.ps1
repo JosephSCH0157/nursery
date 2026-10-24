@@ -1,5 +1,10 @@
 [CmdletBinding()]
-param([string]$RepositoryRoot)
+param(
+  [string]$RepositoryRoot,
+  [ValidateSet('GeneratedPerLane','SharedSynthetic','ExternalAuthentic')][string]$HistoryMode='GeneratedPerLane',
+  [string]$ExternalCapsuleDirectory,
+  [switch]$AuthorizeExternalAuthenticCapsule
+)
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'lib/ForgeGate5D.psm1') -Force
@@ -10,6 +15,8 @@ $excludedDbOnly='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,pos
 $excludedApi='realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
 $sensitiveNames=@('SUPABASE_ACCESS_TOKEN','FORGE_GATE5D_DATABASE_READ_TOKEN','SUPABASE_DB_PASSWORD','SUPABASE_DB_URL','SUPABASE_SERVICE_ROLE_KEY','DATABASE_URL','DIRECT_URL','STRIPE_SECRET_KEY','STRIPE_WEBHOOK_SECRET','OPENAI_API_KEY','RUNWAY_API_KEY')
 $savedEnvironment=@{}
+$sharedSyntheticRoot=$null
+$sharedSyntheticCapsule=$null
 
 function Get-FreePortBlock {
   foreach($candidate in (60000..64000|Sort-Object{Get-Random})) {
@@ -201,11 +208,25 @@ select jsonb_build_object(
     $negative.interruptedRollback=([int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;') -eq 0)
     if(@($negative.Values|Where-Object{-not $_}).Count){throw 'A negative restore probe left migration history behind.'}
 
-    $valid=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
-    try { $restore=& (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $valid.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $valid.contractPath -RepositoryRoot $repo|ConvertFrom-Json; $syntheticContract=Get-Content -LiteralPath $valid.contractPath -Raw|ConvertFrom-Json } finally { Remove-CapsuleResult $valid }
+    $removeValid=$false
+    if($HistoryMode -eq 'GeneratedPerLane'){
+      $valid=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
+      $removeValid=$true
+      $historyContract=Get-Content -LiteralPath $valid.contractPath -Raw|ConvertFrom-Json
+      try { $restore=& (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $valid.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $valid.contractPath -RepositoryRoot $repo|ConvertFrom-Json } finally { if($removeValid){Remove-CapsuleResult $valid} }
+    } elseif($HistoryMode -eq 'SharedSynthetic') {
+      if(-not $script:sharedSyntheticCapsule){
+        $script:sharedSyntheticCapsule=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $sharedSyntheticRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
+      }
+      $historyContract=Get-Content -LiteralPath $script:sharedSyntheticCapsule.contractPath -Raw|ConvertFrom-Json
+      $restore=& (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $script:sharedSyntheticCapsule.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $script:sharedSyntheticCapsule.contractPath -RepositoryRoot $repo|ConvertFrom-Json
+    } else {
+      $historyContract=Get-ForgeGate5DContract -RepositoryRoot $repo
+      $restore=& (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $ExternalCapsuleDirectory -ProjectId $projectId -Workdir $workdir -RepositoryRoot $repo|ConvertFrom-Json
+    }
     if(-not $restore.ok -or $restore.rowCount -ne 411){throw 'New Gate 5D restorer did not restore 411 rows.'}
-    $before=Get-HistoryHashes $container ([string]$syntheticContract.history.maximumVersion)
-    foreach($name in @('allColumns','version','statements','name','createdBy','idempotencyKey','rollback')){if([string]$before.$name -cne [string]$syntheticContract.history.hashes.$name){throw "Pre-tail history hash mismatch: $name"}}
+    $before=Get-HistoryHashes $container ([string]$historyContract.history.maximumVersion)
+    foreach($name in @('allColumns','version','statements','name','createdBy','idempotencyKey','rollback')){if([string]$before.$name -cne [string]$historyContract.history.hashes.$name){throw "Pre-tail history hash mismatch: $name"}}
 
     Copy-Item -Path (Join-Path $repo 'supabase/migrations/*.sql') -Destination (Join-Path $workdir 'supabase/migrations')
     $lineage=Get-Content -LiteralPath (Join-Path $repo 'docs/database/baseline/v1-gate2/lineage-contract.json') -Raw|ConvertFrom-Json
@@ -220,7 +241,7 @@ select jsonb_build_object(
     $upgrade=(& supabase migration up --local --workdir $workdir --yes --agent=no 2>&1|Out-String);if($LASTEXITCODE -ne 0){throw 'Normal four-migration upgrade failed; output suppressed.'}
     $finalCount=[int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;');$marker=Invoke-Psql $container "select lineage from forge_meta.database_lineage where singleton;"
     if($finalCount -ne 415 -or $marker -ne 'historical-v1'){throw 'Final history count or lineage marker mismatch.'}
-    $after=Get-HistoryHashes $container ([string]$syntheticContract.history.maximumVersion)
+    $after=Get-HistoryHashes $container ([string]$historyContract.history.maximumVersion)
     foreach($name in @('allColumns','version','statements','name','createdBy','idempotencyKey','rollback')){if([string]$after.$name -cne [string]$before.$name){throw "Original history changed after tail: $name"}}
 
     foreach($test in @('supabase/tests/public_slice_a_catalog_parity.sql','supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate5d_historical_v1_behavior.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
@@ -239,7 +260,7 @@ select jsonb_build_object(
       pendingVersions=$pending;historyHashes=$after;originalHistoryUnchanged=$true;negativeTests=$negative
       preUpgradeCatalogSha256=$preCatalog.contractSha256;postUpgradeCatalogSha256=$postCatalog.contractSha256
       catalogObjectCount=$postCatalog.objectCount;approvedEnvironmentalDifferences=@($postCatalog.approvedEnvironmentalDifferences)
-      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate5d_historical_v1_behavior','local_data_api')
+      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate5d_historical_v1_behavior','local_data_api','b1_catalog_fingerprint_comparison')
       dataApi=$dataApi;localReadOnlyRoleExpectedAccess=$true;financiallyInactive=$true;paidProviderOperations=0;hostedRequests=0
     }
   }
@@ -260,6 +281,17 @@ select jsonb_build_object(
 }
 
 try {
+  if($HistoryMode -eq 'ExternalAuthentic'){
+    if(-not $AuthorizeExternalAuthenticCapsule -or -not $ExternalCapsuleDirectory){throw 'External authentic history requires an explicitly authorized encrypted capsule.'}
+    $externalFull=[IO.Path]::GetFullPath($ExternalCapsuleDirectory);$temp=[IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    if(-not $externalFull.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $externalFull) -notlike 'forge-gate5d-read-only-*' -or -not(Test-Path -LiteralPath $externalFull -PathType Container)){
+      throw 'External authentic capsule is outside the approved task-owned temporary location.'
+    }
+  } elseif($ExternalCapsuleDirectory -or $AuthorizeExternalAuthenticCapsule){throw 'External authentic inputs are forbidden for synthetic history modes.'}
+  if($HistoryMode -eq 'SharedSynthetic'){
+    $sharedSyntheticRoot=Join-Path ([IO.Path]::GetTempPath()) "forge-gate5d-shared-$([guid]::NewGuid().ToString('N'))"
+    New-Item -ItemType Directory -Path $sharedSyntheticRoot|Out-Null
+  }
   foreach($name in $sensitiveNames){$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$null,'Process')}
   $cli=(& supabase --version 2>$null|Select-Object -First 1).Trim();if($cli -ne $requiredCli){throw "Supabase CLI $requiredCli is required; found $cli."}
   & docker info *> $null;if($LASTEXITCODE -ne 0){throw 'Docker Desktop is unavailable. Start it manually.'}
@@ -277,9 +309,18 @@ try {
   $nurseryUnchanged=(($nurseryBeforeAll.containers-join ',') -eq ($nurseryAfterAll.containers-join ',') -and ($nurseryBeforeAll.volumes-join ',') -eq ($nurseryAfterAll.volumes-join ','))
   if(-not $nurseryUnchanged -or @($lanes|Where-Object{-not $_.cleanupVerified -or -not $_.nurseryResourcesUnchanged}).Count){throw 'Final isolation verification failed.'}
   [pscustomobject]@{
-    ok=$true;schema='forge.gate5d-stage1b-integrated-synthetic.v1';syntheticOnly=$true;authenticRequestMade=$false
+    ok=$true;schema='forge.gate5f-two-lane-certification.v1';historyMode=$HistoryMode
+    syntheticOnly=($HistoryMode -ne 'ExternalAuthentic');authenticHistory=($HistoryMode -eq 'ExternalAuthentic');authenticRequestMade=$false
     cliVersion=$cli;gitBranch=$branch;gitHead=$head;failureCleanupVerified=$failureCleanup
     nurseryResourcesUnchanged=$nurseryUnchanged;hostingCharges=0;productionMetadataTransferred=$false;lanes=$lanes
   }|ConvertTo-Json -Depth 12 -Compress
 }
-finally { foreach($name in $sensitiveNames){[Environment]::SetEnvironmentVariable($name,$savedEnvironment[$name],'Process')} }
+finally {
+  if($sharedSyntheticCapsule){Remove-CapsuleResult $sharedSyntheticCapsule}
+  if($sharedSyntheticRoot -and (Test-Path -LiteralPath $sharedSyntheticRoot)){
+    $resolved=[IO.Path]::GetFullPath($sharedSyntheticRoot);$temp=[IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    if(-not $resolved.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolved) -notlike 'forge-gate5d-shared-*'){throw 'Unsafe shared synthetic cleanup target.'}
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+  }
+  foreach($name in $sensitiveNames){[Environment]::SetEnvironmentVariable($name,$savedEnvironment[$name],'Process')}
+}

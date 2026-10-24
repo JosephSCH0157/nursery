@@ -1,6 +1,6 @@
 # Gate 5D authentic-history certification tooling
 
-Status: **Stage 1B integrated synthetic certification, Stage 1C dedicated-endpoint assessment, and Gate 5E zero-row runner mock certification passed; hosted probe and authentic export not performed or authorized**.
+Status: **Stage 1B integrated synthetic certification, Stage 1C dedicated-endpoint assessment, Gate 5E live zero-row compatibility, and Gate 5F Stage A local tooling are complete; authentic export has not been performed**.
 
 Gate 5D adds a fail-closed exporter, DPAPI capsule contract, disposable-target restorer, and certification coordinator. The approved evidence contract is [`authentic-history-contract.json`](authentic-history-contract.json). No customer rows, financial rows, credentials, or hosted writes are part of this tooling.
 
@@ -8,6 +8,7 @@ Gate 5D adds a fail-closed exporter, DPAPI capsule contract, disposable-target r
 The non-sensitive integrated result is recorded in [`STAGE_1B_RESULTS.md`](STAGE_1B_RESULTS.md).
 The dedicated read-only endpoint decision package is [`STAGE_1C_READ_ONLY_ENDPOINT_ASSESSMENT.md`](STAGE_1C_READ_ONLY_ENDPOINT_ASSESSMENT.md).
 The separately gated zero-row probe procedure is [`../v1-gate5e/README.md`](../v1-gate5e/README.md).
+The bounded two-lane authentic-history coordinator and its future owner procedure are documented in [`../v1-gate5f/README.md`](../v1-gate5f/README.md).
 
 ## Exact hosted request and permission boundary
 

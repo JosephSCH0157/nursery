@@ -6,6 +6,7 @@ param(
   [switch]$SyntheticTest,
   [string]$SyntheticContractPath,
   [string]$SyntheticResponsePath,
+  [ValidateSet('None','AfterResponseRead')][string]$SyntheticFailureInjection='None',
   [string]$RepositoryRoot
 )
 
@@ -19,9 +20,11 @@ $payload = $null
 $directory = $null
 $token = $null
 $request = $null
+$response = $null
 $client = $null
 $handler = $null
 $hostedRequestMade = $false
+$maximumResponseBytes = 12MB
 
 function Resolve-SyntheticInput([string]$Path,[string]$Label) {
   if (-not $Path) { throw "Synthetic tests require $Label." }
@@ -35,6 +38,54 @@ function Resolve-SyntheticInput([string]$Path,[string]$Label) {
   return $full
 }
 
+function Read-Gate5DAttestation([string]$Path,[string]$ExpectedTokenHash,[string]$ExpectedProjectHash) {
+  $full = [IO.Path]::GetFullPath($Path)
+  $temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+  $parent = Split-Path -Parent $full
+  if (-not $full.StartsWith($temp,[StringComparison]::OrdinalIgnoreCase) -or
+      (Split-Path -Leaf $parent) -notlike 'forge-gate5d-attestation-*' -or
+      (Split-Path -Leaf $full) -cne 'owner-attestation.json' -or
+      -not (Test-Path -LiteralPath $full -PathType Leaf)) {
+    throw 'Gate 5D owner attestation is missing or outside the approved restricted temporary location.'
+  }
+  $acl = Get-Acl -LiteralPath $parent
+  if (-not $acl.AreAccessRulesProtected) { throw 'Gate 5D owner-attestation directory still inherits access rules.' }
+  $allowedSids = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value,'S-1-5-18')
+  foreach ($rule in $acl.Access) {
+    if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow) {
+      $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+      if ($sid -notin $allowedSids) { throw 'Gate 5D owner-attestation directory grants access to an unapproved identity.' }
+    }
+  }
+  try { $attestation = Get-Content -LiteralPath $full -Raw | ConvertFrom-Json }
+  catch { throw 'Gate 5D owner attestation is malformed.' }
+  $expectedFields = @(
+    'permissions','projectRefSha256','projectRefSha256Allowlist','schema',
+    'tokenExpiresAtUtc','tokenSha256','verifiedAtUtc'
+  )
+  $actualFields = @($attestation.psobject.Properties.Name | Sort-Object)
+  if (($actualFields -join ',') -cne (($expectedFields | Sort-Object) -join ',')) {
+    throw 'Gate 5D owner attestation contains missing or unexpected fields.'
+  }
+  if ($attestation.schema -cne 'forge.gate5d-scoped-token-attestation.v1' -or
+      [string]$attestation.tokenSha256 -cne $ExpectedTokenHash -or
+      [string]$attestation.projectRefSha256 -cne $ExpectedProjectHash -or
+      (@($attestation.projectRefSha256Allowlist) -join ',') -cne $ExpectedProjectHash -or
+      (@($attestation.permissions) -join ',') -cne 'database_read') {
+    throw 'Gate 5D owner attestation does not match the one-project database_read credential contract.'
+  }
+  try {
+    $verifiedAt = [DateTimeOffset]::Parse([string]$attestation.verifiedAtUtc)
+    $expiresAt = [DateTimeOffset]::Parse([string]$attestation.tokenExpiresAtUtc)
+  } catch { throw 'Gate 5D owner attestation has an invalid review or expiration time.' }
+  $now = [DateTimeOffset]::UtcNow
+  if (($now - $verifiedAt).TotalHours -gt 24 -or $verifiedAt -gt $now.AddMinutes(5)) {
+    throw 'Gate 5D owner attestation is stale or future-dated.'
+  }
+  if ($expiresAt -le $now) { throw 'Gate 5D scoped token is expired.' }
+  return $attestation
+}
+
 try {
   if ($SyntheticTest) {
     if ($AuthorizeAuthenticExport -or $ScopeAttestationPath) { throw 'Authentic authorization inputs are forbidden in synthetic-test mode.' }
@@ -43,7 +94,7 @@ try {
     $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
     if ($contract.schema -ne 'forge.gate5d-authentic-history-contract.v1') { throw 'Unexpected synthetic Gate 5D contract.' }
   } else {
-    if ($SyntheticContractPath -or $SyntheticResponsePath) { throw 'Synthetic overrides are forbidden outside synthetic-test mode.' }
+    if ($SyntheticContractPath -or $SyntheticResponsePath -or $SyntheticFailureInjection -ne 'None') { throw 'Synthetic overrides are forbidden outside synthetic-test mode.' }
     if (-not $AuthorizeAuthenticExport) { throw 'Authentic export is disabled. A separate owner authorization and -AuthorizeAuthenticExport are required.' }
     if (-not $ScopeAttestationPath) { throw 'Authentic export requires a scoped-token attestation.' }
     $contract = Get-ForgeGate5DContract -RepositoryRoot $repo
@@ -96,31 +147,31 @@ try {
 
     $tokenHash = Get-ForgeGate5DSha256Hex -Bytes $utf8.GetBytes($token)
     $projectHash = Get-ForgeGate5DSha256Hex -Bytes $utf8.GetBytes($ProjectRef)
-    $attestation = Get-Content -LiteralPath $ScopeAttestationPath -Raw | ConvertFrom-Json
-    if ($attestation.schema -ne 'forge.gate5d-scoped-token-attestation.v1' -or
-        [string]$attestation.tokenSha256 -cne $tokenHash -or
-        [string]$attestation.projectRefSha256 -cne $projectHash -or
-        (@($attestation.permissions) -join ',') -cne 'database_read' -or
-        (@($attestation.projectRefSha256Allowlist) -join ',') -cne $projectHash) {
-      throw 'Scoped-token attestation does not prove one-project database_read-only authority.'
-    }
-    $verifiedAt = [DateTimeOffset]::Parse([string]$attestation.verifiedAtUtc)
-    if (([DateTimeOffset]::UtcNow - $verifiedAt).TotalHours -gt 24 -or $verifiedAt -gt [DateTimeOffset]::UtcNow.AddMinutes(5)) {
-      throw 'Scoped-token attestation is stale or future-dated.'
-    }
-
     $handler = [Net.Http.HttpClientHandler]::new()
     $client = [Net.Http.HttpClient]::new($handler)
     $client.Timeout = [TimeSpan]::FromMinutes(2)
+    $client.MaxResponseContentBufferSize = $maximumResponseBytes
     $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Post, $uri)
     $request.Headers.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $token)
     $request.Content = [Net.Http.StringContent]::new($body, $utf8, 'application/json')
+    # Re-read and validate the restricted attestation immediately before the only network request.
+    $null = Read-Gate5DAttestation -Path $ScopeAttestationPath -ExpectedTokenHash $tokenHash -ExpectedProjectHash $projectHash
     $hostedRequestMade = $true
     $response = $client.SendAsync($request).GetAwaiter().GetResult()
     if ([int]$response.StatusCode -ne 201) {
       throw "Dedicated read-only Management API export failed with HTTP $([int]$response.StatusCode); response content is suppressed."
     }
+    if ($response.Content.Headers.ContentLength -and $response.Content.Headers.ContentLength -gt $maximumResponseBytes) {
+      throw 'Dedicated read-only Management API export response exceeded the approved size bound.'
+    }
     $responseText = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+  }
+
+  if ($utf8.GetByteCount($responseText) -gt $maximumResponseBytes) {
+    throw 'Dedicated read-only Management API export response exceeded the approved size bound.'
+  }
+  if ($SyntheticFailureInjection -eq 'AfterResponseRead') {
+    throw 'Synthetic interrupted export after bounded response read.'
   }
 
   $parsed = ConvertFrom-ForgeGate5DResponse -ResponseJson $responseText -Contract $contract
@@ -145,7 +196,10 @@ catch {
 }
 finally {
   if ($payload) { [Array]::Clear($payload,0,$payload.Length) }
+  [Environment]::SetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN',$null,'Process')
+  if ($request -and $request.Headers) { $request.Headers.Authorization = $null }
   $token=$null; $body=$null; $query=$null; $responseText=$null
+  if ($response) { $response.Dispose() }
   if ($request) { $request.Dispose() }
   if ($client) { $client.Dispose() }
   if ($handler) { $handler.Dispose() }

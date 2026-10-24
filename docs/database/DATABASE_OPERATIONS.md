@@ -116,6 +116,16 @@ Gate 5D Stage 1C provides a separately frozen dedicated read-only endpoint adapt
 
 Gate 5E provides a dedicated zero-row probe runner and masked owner-preparation helper. The runner cannot invoke the full-history exporter and always clears its process token. It remains a separately owner-authorized hosted operation; do not run it merely because local mock certification passes. Use only the exact procedure in [Gate 5E](baseline/v1-gate5e/README.md). Authentic history export remains separately prohibited until Stage 2 authorization.
 
+Gate 5F Stage A provides the two-lane coordinator and bounded dedicated-endpoint adapter. The locally authorized synthetic procedure is:
+
+```powershell
+./scripts/invoke-gate5f-authentic-history-certification.ps1 `
+  -Mode StageASynthetic `
+  -RepositoryRoot D:\nursery\nursery
+```
+
+The authentic mode is documented but not authorized by Stage A. It requires a fresh owner-reviewed token and separate authentic-transfer authorization. See [Gate 5F](baseline/v1-gate5f/README.md).
+
 Read-only investigation predicts that a dashboard branch will fail while replaying the backdated September credit-economy migration because its lived-in Luna pricing prerequisite is not in earlier stored migration statements. The owner-approval procedure, cost, and mandatory teardown conditions are documented in [DASHBOARD_BRANCH_PREFLIGHT.md](baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md). Do not create that branch under this runbook without separate authorization.
 
 ## 7. Reset a local development database

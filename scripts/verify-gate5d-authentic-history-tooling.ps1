@@ -60,7 +60,8 @@ if (-not $dedicatedQuery.TrimStart().StartsWith('with history as materialized',[
 $dedicatedExporter = Get-Content -LiteralPath (Join-Path $repo 'scripts/export-gate5d-authentic-history-read-only.ps1') -Raw
 foreach ($required in @('https://api.supabase.com/v1/projects/$ProjectRef/database/query/read-only',
     'FORGE_GATE5D_DATABASE_READ_TOKEN','sbp_fc','AuthorizeAuthenticExport','supabase_read_only_user',
-    "[ordered]@{ query=`$query; parameters=@() }")) {
+    "[ordered]@{ query=`$query; parameters=@() }",'tokenExpiresAtUtc','maximumResponseBytes',
+    'MaxResponseContentBufferSize',"SetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN',`$null,'Process')")) {
   if (-not $dedicatedExporter.Contains($required,[StringComparison]::Ordinal)) { throw "Dedicated Gate 5D exporter guard is missing: $required" }
 }
 if ($dedicatedExporter -match '(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase\s+(login|link|db\s+dump)' -or
@@ -102,7 +103,18 @@ if ($gate5ePreparation -match '(?i)param\([^)]*(token|pat|secret)' -or
     $gate5ePreparation -match 'SetEnvironmentVariable\([^,]+,[^,]+,\s*["''](?:User|Machine)["'']') {
   throw 'Gate 5E owner preparation accepts a token argument or persists a credential outside process scope.'
 }
+$gate5fCoordinator = Get-Content -LiteralPath (Join-Path $repo 'scripts/invoke-gate5f-authentic-history-certification.ps1') -Raw
+foreach($required in @(
+    "[ValidateSet('StageASynthetic','Authentic')]",'AuthorizeAuthenticHistoryTransfer',
+    'export-gate5d-authentic-history-read-only.ps1','HistoryMode ExternalAuthentic',
+    'HistoryMode SharedSynthetic','Remove-ForgeGate5DCapsule',
+    "SetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN',`$null,'Process')")) {
+  if(-not $gate5fCoordinator.Contains($required,[StringComparison]::Ordinal)){throw "Gate 5F coordinator guard is missing: $required"}
+}
+if($gate5fCoordinator -match 'export-gate5d-authentic-history\.ps1|/database/query["'']|(?i)\b(Query|Sql|Endpoint|Uri)Override\b|supabase\s+(login|link|db\s+dump|migration\s+repair|db\s+push\s+--linked)'){
+  throw 'Gate 5F coordinator contains a generic exporter, override, privileged fallback, or hosted migration path.'
+}
 [pscustomobject]@{
   ok=$true; schema=$manifest.schema; fileCount=@($manifest.files).Count
-  dedicatedReadOnly=$true; gate5eProbe=$true; authenticRequestMade=$false; hostedProbeMade=$false
+  dedicatedReadOnly=$true; gate5eProbe=$true; gate5fCoordinator=$true; authenticRequestMade=$false; hostedProbeMade=$false
 } | ConvertTo-Json -Compress
