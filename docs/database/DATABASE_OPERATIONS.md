@@ -228,3 +228,15 @@ For B1, use the supported stop command, discard the disposable workdir, and reco
 For H preflight or future hosted-upgrade failure, leave production unchanged, retain read-only evidence, and stop. Recovery requires a separately owner-approved diagnosis and, when applicable, the platform's supported backup/restoration process. Never apply B1, rewrite H, fabricate a marker, or manipulate migration history as recovery.
 
 If the failure reveals drift in a frozen artifact, unknown `wrappers` version, financial activation, customer data in a fixture, or broadened access, treat it as a hard stop requiring owner review.
+
+## 13. Pull requests and hosted write-capable smoke tests
+
+Ordinary pull-request workflows must remain local and disposable. Verify that boundary with:
+
+```powershell
+node --test scripts/tests/hosted-smoke-authorization.test.mjs
+```
+
+Do not add hosted credentials, service-role keys, management tokens, paid-provider keys, or hosted write tests to `pull_request`, `pull_request_target`, or code checked out from a pull request. Hosted team/Hearth smoke is isolated in `.github/workflows/hosted-nonproduction-smoke.yml`; it is manual, restricted to trusted `main`, and requires the protected `forge-nonproduction-hosted-smoke` environment. A label or typed confirmation is not an authorization boundary.
+
+The hosted workflow is **not operationally authorized** until the owner independently verifies the environment reviewers, main-only deployment policy, nonproduction project ref, environment-scoped secrets, and absence of an automatic production migration path. Exact controls and the external verification checklist are recorded in [Gate 6C PR hosted-write isolation](baseline/v1-gate6c/PR_HOSTED_WRITE_ISOLATION.md).

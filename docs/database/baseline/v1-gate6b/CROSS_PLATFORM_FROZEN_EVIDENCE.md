@@ -28,7 +28,7 @@ The canonical verifier is the front door for the historical manifest, B1, and pr
 
 The existing `.github/workflows/pr-smoke.yml` automatically enables `smoke:team` and `smoke:hearth-phase4` whenever their repository secrets exist. Those jobs receive service-role or access credentials, and their smoke/fixture code creates, updates, and deletes hosted Auth and application records. There is no changed-path exclusion for a database-only PR.
 
-The safe future control is an explicit non-production project allowlist plus an owner-approved opt-in label or protected manual environment for every hosted-write job. Jobs should reject a production project reference, reject missing environment classification, receive no hosted secrets by default, and never infer write authorization merely from secret presence. A database-only PR should run disposable local certification and the no-secret frozen-evidence workflow only. Gate 6B.1 does not modify or enable the hosted smoke workflow; that remains a release blocker requiring separate owner approval.
+Gate 6B.1 did not modify or enable the hosted smoke workflow. Gate 6C subsequently removes these jobs from ordinary PR execution and isolates them behind a manual, protected, trusted-main-only path. See [Gate 6C PR hosted-write isolation](../v1-gate6c/PR_HOSTED_WRITE_ISOLATION.md) for the implemented contract and remaining external owner checks.
 
 ## Regression coverage
 
