@@ -5,7 +5,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { verifyFrozenEvidence, verifyFrozenPathSet } from "./lib/forge-frozen-evidence.mjs";
+import {
+  FROZEN_EVIDENCE_TRUST_ANCHOR_PATH,
+  FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256,
+  verifyFrozenEvidence,
+  verifyFrozenPathSet,
+} from "./lib/forge-frozen-evidence.mjs";
 
 const repositoryRoot = path.resolve(process.argv[2] ?? process.cwd());
 const sha256 = (bytes) => crypto.createHash("sha256").update(bytes).digest("hex");
@@ -16,6 +21,8 @@ const expectFailure = (label, action, pattern) => {
 };
 
 const actual = verifyFrozenEvidence({ repositoryRoot, scope: "historical" });
+assert.equal(actual.trustAnchorSha256, FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256);
+assert.equal(actual.certifiedSourceCommit, "87524f872e76f24de631d1cbf58580674c9df2a9");
 assert.equal(actual.expectedModes["final-crlf-checkout"], 5);
 assert.equal(actual.expectedModes["full-crlf-checkout"], 233);
 assert.equal(actual.expectedModes["git-blob"], 179);
@@ -29,6 +36,7 @@ assert.deepEqual(mixed, [
 ]);
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "forge-frozen-evidence-test-"));
+const publishedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "forge-frozen-evidence-published-test-"));
 try {
   git(temporaryRoot, ["init", "--quiet"]);
   git(temporaryRoot, ["config", "user.name", "Forge certification"]);
@@ -89,6 +97,32 @@ try {
   expectFailure("different branch object", () => verifyFrozenPathSet(options), /differs from certified source/);
   expectFailure("incorrect verified tree", () => verifyFrozenPathSet({ ...options, verifiedTree: source }), /must be the current HEAD/);
 
+  git(publishedRoot, ["init", "--quiet"]);
+  git(publishedRoot, ["config", "user.name", "Forge certification"]);
+  git(publishedRoot, ["config", "user.email", "forge-certification@example.invalid"]);
+  git(publishedRoot, ["fetch", "--quiet", "--depth=1", repositoryRoot, "HEAD"]);
+  git(publishedRoot, ["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
+  const published = verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all", requireExactWorktreeBytes: true });
+  assert.equal(published.fileCount, 451);
+  assert.equal(published.trustAnchorSha256, FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256);
+  assert.throws(
+    () => git(publishedRoot, ["cat-file", "-e", `${published.certifiedSourceCommit}^{commit}`]),
+    "fresh published-history fixture must not contain the local-only certified source commit",
+  );
+
+  fs.appendFileSync(path.join(publishedRoot, ...FROZEN_EVIDENCE_TRUST_ANCHOR_PATH.split("/")), "\n", "utf8");
+  expectFailure("unstaged trust anchor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /trust anchor working bytes differ/);
+  git(publishedRoot, ["restore", "--worktree", FROZEN_EVIDENCE_TRUST_ANCHOR_PATH]);
+  fs.appendFileSync(path.join(publishedRoot, ...FROZEN_EVIDENCE_TRUST_ANCHOR_PATH.split("/")), "\n", "utf8");
+  git(publishedRoot, ["add", FROZEN_EVIDENCE_TRUST_ANCHOR_PATH]);
+  git(publishedRoot, ["commit", "--quiet", "-m", "tamper anchor"]);
+  expectFailure("committed trust anchor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /trust-anchor SHA-256 mismatch/);
+  git(publishedRoot, ["reset", "--hard", "--quiet", "HEAD^"]);
+  fs.rmSync(path.join(publishedRoot, ...FROZEN_EVIDENCE_TRUST_ANCHOR_PATH.split("/")));
+  git(publishedRoot, ["add", FROZEN_EVIDENCE_TRUST_ANCHOR_PATH]);
+  git(publishedRoot, ["commit", "--quiet", "-m", "remove anchor"]);
+  expectFailure("missing trust anchor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /Missing Git object/);
+
   process.stdout.write(`${JSON.stringify({
     ok: true,
     schema: "forge.frozen-git-evidence-test-result.v1",
@@ -104,6 +138,9 @@ try {
       wrongBranchObject: true,
       wrongVerifiedTree: true,
       executionByteIdentity: true,
+      freshPublishedHistory: true,
+      trustAnchorTamper: true,
+      missingTrustAnchor: true,
     },
   })}\n`);
 } finally {
@@ -112,4 +149,9 @@ try {
     throw new Error(`Unsafe temporary cleanup target: ${resolved}`);
   }
   fs.rmSync(resolved, { recursive: true, force: true });
+  const publishedResolved = path.resolve(publishedRoot);
+  if (!publishedResolved.startsWith(path.resolve(os.tmpdir())) || !path.basename(publishedResolved).startsWith("forge-frozen-evidence-published-test-")) {
+    throw new Error(`Unsafe published-history cleanup target: ${publishedResolved}`);
+  }
+  fs.rmSync(publishedResolved, { recursive: true, force: true });
 }

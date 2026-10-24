@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { CERTIFIED_SOURCE_COMMIT, verifyFrozenEvidence } from "./lib/forge-frozen-evidence.mjs";
+import { FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256, verifyFrozenEvidence } from "./lib/forge-frozen-evidence.mjs";
 
 const args = process.argv.slice(2);
 const value = (name, fallback) => {
@@ -12,7 +12,7 @@ try {
     repositoryRoot: value("--repository-root", process.cwd()),
     scope: value("--scope", "all"),
     verifiedTree: value("--verified-tree", "HEAD"),
-    certifiedSourceTree: value("--certified-source-tree", CERTIFIED_SOURCE_COMMIT),
+    trustAnchorSha256: value("--trust-anchor-sha256", FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256),
     requireExactWorktreeBytes: args.includes("--require-exact-worktree-bytes"),
   });
   const output = args.includes("--details") ? result : { ...result, records: undefined };

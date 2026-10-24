@@ -14,7 +14,7 @@ node scripts/materialize-frozen-git-evidence.mjs --scope all
 node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes
 ```
 
-The first command verifies immutable content from the current `HEAD` Git objects against certified source commit `87524f872e76f24de631d1cbf58580674c9df2a9`; it also rejects index, working-content, filter, and protected-path collisions. The materializer writes those already-verified blob bytes to the current isolated worktree. The final command proves execution-byte identity. Do not run the materializer in a checkout containing unresolved protected database edits.
+The first command verifies immutable content from the current `HEAD` Git objects against the self-contained 451-file trust anchor derived from certified source commit `87524f872e76f24de631d1cbf58580674c9df2a9` and tree `85816e221aa31e05f2ce634a5ee785ae00db20f5`. The anchor is [frozen-evidence-trust-anchor.v1.json](baseline/v1-gate6b/frozen-evidence-trust-anchor.v1.json), and its independently pinned SHA-256 is `fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb`. Verification does not fetch or require the unpublished source commit; it rejects a changed or missing anchor, incomplete path membership, object or mode substitution, index or working-content changes, filters, and protected-path collisions. The materializer writes those already-verified blob bytes to the current isolated worktree. The final command proves execution-byte identity. Do not run the materializer in a checkout containing unresolved protected database edits.
 
 ## 1. Identify and validate a lineage
 

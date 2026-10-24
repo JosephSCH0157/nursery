@@ -45,7 +45,9 @@ jobs:
 
   nursery-integration-gate:
     name: nursery:integration
-    runs-on: ubuntu-latest
+    # Playwright 1.58.2 supports Ubuntu 24.04, not the Ubuntu 26 image that
+    # ubuntu-latest resolved to during Gate 6G.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -142,7 +144,8 @@ jobs:
 
   nursery-browser-gate:
     name: nursery:browser
-    runs-on: ubuntu-latest
+    # Keep the disposable browser lane on a Playwright 1.58.2-supported image.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CI: "true"

@@ -4,6 +4,9 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 
 export const CERTIFIED_SOURCE_COMMIT = "87524f872e76f24de631d1cbf58580674c9df2a9";
+export const CERTIFIED_SOURCE_TREE = "85816e221aa31e05f2ce634a5ee785ae00db20f5";
+export const FROZEN_EVIDENCE_TRUST_ANCHOR_PATH = "docs/database/baseline/v1-gate6b/frozen-evidence-trust-anchor.v1.json";
+export const FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256 = "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -81,6 +84,116 @@ function parseJsonBlob(blobs, relativePath, schema) {
   const value = JSON.parse(bytes.toString("utf8"));
   if (schema && value.schema !== schema) throw new Error(`Unexpected schema in ${relativePath}`);
   return value;
+}
+
+function assertCurrentRepository(repositoryRoot, verifiedTree) {
+  const root = path.resolve(repositoryRoot);
+  const actualRoot = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
+  if (actualRoot.toLowerCase() !== root.toLowerCase()) throw new Error(`Repository root mismatch: expected ${root}; found ${actualRoot}`);
+  const head = resolveCommit(root, "HEAD", "HEAD");
+  const verified = resolveCommit(root, verifiedTree, "Verified tree");
+  if (verified !== head) throw new Error(`Verified tree must be the current HEAD: expected ${head}; found ${verified}`);
+  return { root, head };
+}
+
+function validateTrustAnchor(anchor) {
+  if (anchor.schema !== "forge.frozen-evidence-trust-anchor.v1") throw new Error("Frozen evidence trust anchor has an unexpected schema.");
+  if (anchor.repository !== "JosephSCH0157/nursery") throw new Error("Frozen evidence trust anchor has an unexpected repository identity.");
+  if (anchor.certifiedSourceCommit !== CERTIFIED_SOURCE_COMMIT || anchor.certifiedSourceTree !== CERTIFIED_SOURCE_TREE) {
+    throw new Error("Frozen evidence trust anchor has an unexpected certified source identity.");
+  }
+  if (anchor.fileCount !== 451 || !Array.isArray(anchor.files) || anchor.files.length !== anchor.fileCount) {
+    throw new Error("Frozen evidence trust anchor is missing the complete 451-file contract.");
+  }
+  const allowedScopes = new Set(["historical", "canonical", "pre-slice", "gate5d"]);
+  const paths = new Set();
+  let previous = "";
+  for (const item of anchor.files) {
+    const normalized = normalizePath(item.path ?? "");
+    if (!normalized || normalized !== item.path || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
+      throw new Error(`Frozen evidence trust anchor contains an unsafe path: ${item.path}`);
+    }
+    if (paths.has(normalized) || (previous && previous.localeCompare(normalized) >= 0)) {
+      throw new Error(`Frozen evidence trust anchor paths are duplicated or unsorted: ${normalized}`);
+    }
+    if (!/^(100644|100755)$/.test(item.mode) || !/^[0-9a-f]{40}$/.test(item.oid) || !/^[0-9a-f]{64}$/.test(item.blobSha256)) {
+      throw new Error(`Frozen evidence trust anchor has invalid object identity: ${normalized}`);
+    }
+    if (item.expectedSha256 !== null && !/^[0-9a-f]{64}$/.test(item.expectedSha256)) {
+      throw new Error(`Frozen evidence trust anchor has an invalid legacy hash: ${normalized}`);
+    }
+    if (!Array.isArray(item.contracts) || !item.contracts.length || !Array.isArray(item.scopes) || !item.scopes.length || item.scopes.some((scope) => !allowedScopes.has(scope))) {
+      throw new Error(`Frozen evidence trust anchor has an incomplete contract classification: ${normalized}`);
+    }
+    paths.add(normalized);
+    previous = normalized;
+  }
+  const expectedScopeKeys = ["all", "canonical", "gate5d", "historical", "pre-slice"];
+  if (!anchor.protectedRootsByScope || Object.keys(anchor.protectedRootsByScope).sort().join("\n") !== expectedScopeKeys.join("\n")) {
+    throw new Error("Frozen evidence trust anchor has incomplete protected-root scopes.");
+  }
+  const expectedAllRoots = [
+    "database/canonical-baseline-v1",
+    "database/historical-pre-slice-a-v1",
+    "docs/database/baseline/v1-gate3",
+    "docs/database/reconciliation/slice-a/original",
+    "supabase/migrations",
+  ];
+  if (anchor.protectedRootsByScope.all.join("\n") !== expectedAllRoots.join("\n")) {
+    throw new Error("Frozen evidence trust anchor has an unexpected protected-root contract.");
+  }
+  for (const scope of expectedScopeKeys) {
+    const roots = anchor.protectedRootsByScope[scope];
+    if (!Array.isArray(roots) || new Set(roots).size !== roots.length || roots.some((root) => !expectedAllRoots.includes(root))) {
+      throw new Error(`Frozen evidence trust anchor has invalid protected roots for scope: ${scope}`);
+    }
+  }
+  if (!anchor.allowedTrackedPathsByRoot || typeof anchor.allowedTrackedPathsByRoot !== "object") {
+    throw new Error("Frozen evidence trust anchor omits protected-root path membership.");
+  }
+  if (Object.keys(anchor.allowedTrackedPathsByRoot).sort().join("\n") !== [...expectedAllRoots].sort().join("\n")) {
+    throw new Error("Frozen evidence trust anchor has unexpected protected-root membership keys.");
+  }
+  for (const protectedRoot of expectedAllRoots) {
+    const allowed = anchor.allowedTrackedPathsByRoot[protectedRoot];
+    if (!Array.isArray(allowed) || !allowed.length || new Set(allowed).size !== allowed.length) {
+      throw new Error(`Frozen evidence trust anchor has incomplete tracked membership for: ${protectedRoot}`);
+    }
+    const sorted = [...allowed].sort();
+    if (allowed.some((item, index) => item !== sorted[index] || !(item === protectedRoot || item.startsWith(`${protectedRoot}/`)))) {
+      throw new Error(`Frozen evidence trust anchor has invalid tracked membership for: ${protectedRoot}`);
+    }
+  }
+  for (const protectedPath of paths) {
+    const root = expectedAllRoots.find((candidate) => protectedPath === candidate || protectedPath.startsWith(`${candidate}/`));
+    if (root && !anchor.allowedTrackedPathsByRoot[root].includes(protectedPath)) {
+      throw new Error(`Frozen evidence trust anchor omits protected path membership: ${protectedPath}`);
+    }
+  }
+  return anchor;
+}
+
+function checkTrustAnchorCheckout(root, headTree, bytes) {
+  const entry = headTree.get(FROZEN_EVIDENCE_TRUST_ANCHOR_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") throw new Error("Frozen evidence trust anchor is missing or has an unsupported mode.");
+  checkAttributes(root, [FROZEN_EVIDENCE_TRUST_ANCHOR_PATH]);
+  const target = path.join(root, ...FROZEN_EVIDENCE_TRUST_ANCHOR_PATH.split("/"));
+  const workingPath = fs.lstatSync(target);
+  if (!workingPath.isFile() || workingPath.isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Frozen evidence trust anchor working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", FROZEN_EVIDENCE_TRUST_ANCHOR_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) throw new Error("Frozen evidence trust anchor staged content differs from HEAD.");
+}
+
+function loadTrustAnchor(root, head, expectedSha256 = FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256) {
+  if (expectedSha256 !== FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256) throw new Error("Unapproved frozen evidence trust-anchor commitment.");
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [FROZEN_EVIDENCE_TRUST_ANCHOR_PATH]).get(FROZEN_EVIDENCE_TRUST_ANCHOR_PATH);
+  if (!bytes || sha256(bytes) !== expectedSha256) throw new Error("Frozen evidence trust-anchor SHA-256 mismatch.");
+  checkTrustAnchorCheckout(root, headTree, bytes);
+  return validateTrustAnchor(JSON.parse(bytes.toString("utf8")));
 }
 
 function addFile(files, relativePath, expectedSha256, contract) {
@@ -168,17 +281,80 @@ function parseNulList(buffer) {
 }
 
 function assertRepository(repositoryRoot, verifiedTree, certifiedSourceTree) {
-  const root = path.resolve(repositoryRoot);
-  const actualRoot = path.resolve(git(root, ["rev-parse", "--show-toplevel"]).trim());
-  if (actualRoot.toLowerCase() !== root.toLowerCase()) throw new Error(`Repository root mismatch: expected ${root}; found ${actualRoot}`);
-  const head = resolveCommit(root, "HEAD", "HEAD");
-  const verified = resolveCommit(root, verifiedTree, "Verified tree");
-  if (verified !== head) throw new Error(`Verified tree must be the current HEAD: expected ${head}; found ${verified}`);
+  const { root, head } = assertCurrentRepository(repositoryRoot, verifiedTree);
   const source = resolveCommit(root, certifiedSourceTree, "Certified source tree");
   if (source !== CERTIFIED_SOURCE_COMMIT && certifiedSourceTree === CERTIFIED_SOURCE_COMMIT) {
     throw new Error(`Certified source tree resolved unexpectedly: ${source}`);
   }
   return { root, head, source };
+}
+
+function verifyAnchoredFileSet({ root, head, anchor, scope, requireExactWorktreeBytes = false }) {
+  if (!["historical", "canonical", "pre-slice", "gate5d", "all"].includes(scope)) throw new Error(`Unknown frozen-evidence scope: ${scope}`);
+  const files = anchor.files.filter((item) => scope === "all" || item.scopes.includes(scope));
+  if (!files.length) throw new Error(`Frozen evidence trust anchor has no records for scope: ${scope}`);
+  const protectedRoots = anchor.protectedRootsByScope[scope];
+  if (!Array.isArray(protectedRoots)) throw new Error(`Frozen evidence trust anchor omits protected roots for scope: ${scope}`);
+  const headTree = readTree(root, head);
+  for (const item of files) {
+    const current = headTree.get(item.path);
+    if (!current || current.type !== "blob" || current.mode !== item.mode || current.oid !== item.oid) {
+      throw new Error(`Protected Git object differs from pinned trust anchor: ${item.path}`);
+    }
+  }
+  for (const protectedRoot of anchor.protectedRootsByScope.all) {
+    const approved = anchor.allowedTrackedPathsByRoot[protectedRoot];
+    if (!Array.isArray(approved)) throw new Error(`Frozen evidence trust anchor omits tracked paths for protected root: ${protectedRoot}`);
+    const actual = [...headTree.keys()].filter((item) => item === protectedRoot || item.startsWith(`${protectedRoot}/`)).sort();
+    if (actual.length !== approved.length || actual.some((item, index) => item !== approved[index])) {
+      throw new Error(`Tracked path membership differs within protected root: ${protectedRoot}`);
+    }
+  }
+  const paths = files.map((item) => item.path);
+  const blobs = readBlobs(root, head, paths);
+  const records = files.map((item) => {
+    const bytes = blobs.get(item.path);
+    const blobSha256 = sha256(bytes);
+    if (blobSha256 !== item.blobSha256) throw new Error(`Protected blob SHA-256 differs from pinned trust anchor: ${item.path}`);
+    const expectedMode = classifyLegacyExpected(bytes, item.expectedSha256);
+    if (expectedMode !== item.expectedMode || (item.expectedSha256 && expectedMode === "unexplained")) {
+      throw new Error(`Frozen expected hash classification differs from pinned trust anchor: ${item.path}`);
+    }
+    const fullPath = path.join(root, ...item.path.split("/"));
+    const workingPath = fs.lstatSync(fullPath);
+    if (!workingPath.isFile() || workingPath.isSymbolicLink()) throw new Error(`Protected working path is not a regular file: ${item.path}`);
+    return {
+      path: item.path,
+      oid: item.oid,
+      blobSha256,
+      expectedSha256: item.expectedSha256,
+      expectedMode,
+      worktreeSha256: sha256(fs.readFileSync(fullPath)),
+      contracts: item.contracts,
+    };
+  });
+  checkWorktree(root, headTree, files, protectedRoots);
+  const modes = Object.fromEntries([...new Set(records.map((item) => item.expectedMode))].sort().map((mode) => [mode, records.filter((item) => item.expectedMode === mode).length]));
+  const worktreeByteDifferences = records.filter((item) => item.worktreeSha256 !== item.blobSha256).length;
+  if (requireExactWorktreeBytes && worktreeByteDifferences !== 0) {
+    throw new Error(`Protected execution bytes differ from canonical Git blobs for ${worktreeByteDifferences} file(s). Run the frozen-evidence materializer first.`);
+  }
+  return {
+    ok: true,
+    schema: "forge.frozen-git-evidence-result.v1",
+    repositoryRoot: root,
+    verifiedCommit: head,
+    certifiedSourceCommit: anchor.certifiedSourceCommit,
+    certifiedSourceTree: anchor.certifiedSourceTree,
+    trustAnchorPath: FROZEN_EVIDENCE_TRUST_ANCHOR_PATH,
+    trustAnchorSha256: FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256,
+    scope,
+    fileCount: records.length,
+    expectedModes: modes,
+    requireExactWorktreeBytes,
+    worktreeByteDifferences,
+    records,
+  };
 }
 
 function checkAttributes(repositoryRoot, paths) {
@@ -311,12 +487,12 @@ export function verifyFrozenEvidence({
   repositoryRoot,
   scope = "all",
   verifiedTree = "HEAD",
-  certifiedSourceTree = CERTIFIED_SOURCE_COMMIT,
+  trustAnchorSha256 = FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256,
   requireExactWorktreeBytes = false,
 } = {}) {
-  const { root, head, source } = assertRepository(repositoryRoot, verifiedTree, certifiedSourceTree);
-  const { files, protectedRoots } = collectContracts(root, head, source, scope);
-  return verifyFileSet({ root, head, source, files, scope, protectedRoots, requireExactWorktreeBytes });
+  const { root, head } = assertCurrentRepository(repositoryRoot, verifiedTree);
+  const anchor = loadTrustAnchor(root, head, trustAnchorSha256);
+  return verifyAnchoredFileSet({ root, head, anchor, scope, requireExactWorktreeBytes });
 }
 
 export function materializeFrozenEvidence(options = {}) {
