@@ -51,3 +51,25 @@ test("a post-fetch hung transport is bounded and classified submission-unknown",
   );
   assert.ok(Date.now() - startedAt < 1_000);
 });
+
+test("a post-fetch failure preserves only a safe transport code as evidence", async () => {
+  await assert.rejects(
+    executeBoundedOpenAiTextTransport({
+      routeCode: "visual.unified_plan",
+      deadlineMs: 50,
+      execute: async ({ markTransmissionStarted }) => {
+        markTransmissionStarted();
+        throw Object.assign(new Error("sensitive socket detail"), {
+          cause: { code: "ECONNRESET" },
+        });
+      },
+    }),
+    (error) => {
+      assert.ok(error instanceof OpenAiTextTransportFailure);
+      assert.equal(error.ambiguous, true);
+      assert.equal(error.evidence.error_code, "ECONNRESET");
+      assert.equal(error.evidence.transmitted, "unknown");
+      return true;
+    },
+  );
+});
