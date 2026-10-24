@@ -73,6 +73,8 @@ foreach ($value in @(
 $operationsText = [string]$contents['docs/database/DATABASE_OPERATIONS.md']
 $operationsNormalized = $operationsText.Replace(',','')
 foreach ($command in @(
+  'materialize-frozen-git-evidence.mjs',
+  'verify-frozen-git-evidence.mjs',
   'invoke-forge-database.ps1',
   'new-forge-database-workdir.ps1',
   'verify-forge-database-entrypoints.ps1',
@@ -82,6 +84,9 @@ foreach ($command in @(
   'pnpm supabase:types'
 )) {
   if ($operationsText -notmatch [regex]::Escape($command)) { $failures.Add("DATABASE_OPERATIONS.md omits supported command: $command") }
+}
+foreach ($evidence in @('87524f872e76f24de631d1cbf58580674c9df2a9','require-exact-worktree-bytes','Gate 6B.1 cross-platform frozen evidence')) {
+  if ($operationsText -notmatch [regex]::Escape($evidence)) { $failures.Add("DATABASE_OPERATIONS.md omits frozen-evidence contract: $evidence") }
 }
 if ($operationsText -notmatch 'Not yet implemented/certified') {
   $failures.Add('docs/database/DATABASE_OPERATIONS.md does not label unavailable historical-upgrade execution.')

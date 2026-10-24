@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $manifestPath = Join-Path $RepositoryRoot 'docs/database/baseline/v1-gate1/historical-migrations.sha256.json'
 $migrationRoot = Join-Path $RepositoryRoot 'supabase/migrations'
+$canonicalVerifier = Join-Path $RepositoryRoot 'scripts/verify-frozen-git-evidence.mjs'
 
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
   throw "Historical manifest is missing: $manifestPath"
@@ -22,6 +23,13 @@ $expectedVersions = [System.Collections.Generic.HashSet[string]]::new([System.St
 $previousVersion = ''
 $failures = [System.Collections.Generic.List[string]]::new()
 
+$canonicalOutput = (& node $canonicalVerifier --repository-root $RepositoryRoot --scope historical 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { throw $canonicalOutput }
+$canonical = $canonicalOutput | ConvertFrom-Json
+if (-not $canonical.ok -or $canonical.certifiedSourceCommit -ne '87524f872e76f24de631d1cbf58580674c9df2a9') {
+  throw 'Canonical historical Git-object verification did not establish the approved source contract.'
+}
+
 foreach ($entry in $manifest.migrations) {
   if ($entry.version -notmatch '^\d{8,14}$') { $failures.Add("Invalid version: $($entry.version)") }
   if (-not $expectedVersions.Add([string]$entry.version)) { $failures.Add("Duplicate version: $($entry.version)") }
@@ -35,8 +43,6 @@ foreach ($entry in $manifest.migrations) {
     $failures.Add("Missing migration: $($entry.path)")
     continue
   }
-  $actual = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -cne [string]$entry.sha256) { $failures.Add("Hash mismatch: $($entry.path)") }
 }
 
 $cutoff = [string]$manifest.historicalCutoffVersion
@@ -59,8 +65,6 @@ foreach ($amendment in $manifest.approvedHistoricalAmendments) {
       $failures.Add("Missing $property artifact: $($item.path)")
       continue
     }
-    $actual = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actual -cne [string]$item.sha256) { $failures.Add("$property artifact hash mismatch: $($item.path)") }
   }
 }
 
@@ -68,7 +72,11 @@ $result = [ordered]@{
   ok = ($failures.Count -eq 0)
   migrationCount = $manifest.migrations.Count
   cutoff = $cutoff
-  manifestSha256 = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  manifestSha256 = '66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40'
+  canonicalGitCommit = $canonical.verifiedCommit
+  canonicalGitFileCount = $canonical.fileCount
+  legacyExpectedModes = $canonical.expectedModes
+  worktreeByteDifferences = $canonical.worktreeByteDifferences
   failures = @($failures)
 }
 

@@ -26,6 +26,9 @@ $resolvedWorkdir = [IO.Path]::GetFullPath($Workdir).TrimEnd([IO.Path]::Directory
 $migrationsDirectory = Join-Path $resolvedWorkdir 'supabase/migrations'
 if (-not (Test-Path -LiteralPath $migrationsDirectory -PathType Container)) { throw "Wrong workdir: no supabase/migrations at $resolvedWorkdir" }
 
+$canonicalHistoricalRuntime = $false
+$canonicalMigrationHashes = @{}
+
 function Get-Version([IO.FileInfo]$File) {
   if ($File.BaseName -notmatch '^(?<version>\d{8,14})_') { throw "Invalid migration filename: $($File.Name)" }
   return $Matches.version
@@ -42,13 +45,48 @@ function Get-MigrationMap([string]$Directory) {
 
 $workdirMigrations = Get-MigrationMap $migrationsDirectory
 $manifestPath = if ([IO.Path]::IsPathFullyQualified([string]$configuration.historical.manifestPath)) { [string]$configuration.historical.manifestPath } else { Join-Path $repo $configuration.historical.manifestPath }
+$canonicalContractPath = Join-Path $repo 'docs/database/baseline/v1-gate2/lineage-contract.json'
+if (Test-Path -LiteralPath $canonicalContractPath -PathType Leaf) {
+  $canonicalContract = Get-Content -LiteralPath $canonicalContractPath -Raw | ConvertFrom-Json
+  $canonicalManifestPath = [IO.Path]::GetFullPath((Join-Path $repo ([string]$canonicalContract.historical.manifestPath)))
+  $configuredTailPath = if ([IO.Path]::IsPathFullyQualified([string]$configuration.sharedTail.canonicalMigrationsDirectory)) { [string]$configuration.sharedTail.canonicalMigrationsDirectory } else { Join-Path $repo $configuration.sharedTail.canonicalMigrationsDirectory }
+  $canonicalTailPath = [IO.Path]::GetFullPath((Join-Path $repo ([string]$canonicalContract.sharedTail.canonicalMigrationsDirectory)))
+  $canonicalHistoricalRuntime = $Lineage -eq 'historical' -and
+    [IO.Path]::GetFullPath($manifestPath) -eq $canonicalManifestPath -and
+    [IO.Path]::GetFullPath($configuredTailPath) -eq $canonicalTailPath -and
+    [string]$configuration.requiredSupabaseCliVersion -eq [string]$canonicalContract.requiredSupabaseCliVersion -and
+    [string]$configuration.historical.lineage -eq [string]$canonicalContract.historical.lineage -and
+    [string]$configuration.historical.cutoffVersion -eq [string]$canonicalContract.historical.cutoffVersion -and
+    [string]$configuration.baseline.lineage -eq [string]$canonicalContract.baseline.lineage -and
+    [string]$configuration.baseline.reservedStartVersion -eq [string]$canonicalContract.baseline.reservedStartVersion -and
+    [string]$configuration.baseline.reservedEndVersion -eq [string]$canonicalContract.baseline.reservedEndVersion -and
+    [string]$configuration.sharedTail.minimumVersion -eq [string]$canonicalContract.sharedTail.minimumVersion -and
+    [string]$configuration.databaseMarker.schema -eq [string]$canonicalContract.databaseMarker.schema -and
+    [string]$configuration.databaseMarker.table -eq [string]$canonicalContract.databaseMarker.table
+}
+if ($canonicalHistoricalRuntime) {
+  $frozenVerifier = Join-Path $repo 'scripts/verify-frozen-git-evidence.mjs'
+  $frozenArguments = @($frozenVerifier,'--repository-root',$repo,'--scope','historical','--details')
+  if ($resolvedWorkdir -eq $repo) { $frozenArguments += '--require-exact-worktree-bytes' }
+  $frozenOutput = (& node @frozenArguments 2>&1 | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0) { throw $frozenOutput }
+  $frozen = $frozenOutput | ConvertFrom-Json
+  foreach ($record in $frozen.records) {
+    if ([string]$record.path -like 'supabase/migrations/*.sql') {
+      $canonicalMigrationHashes[[string]$record.path] = [string]$record.blobSha256
+    }
+  }
+}
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $historicalVersions = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 foreach ($entry in $manifest.migrations) {
   [void]$historicalVersions.Add([string]$entry.version)
   if ($Lineage -eq 'historical') {
     if (-not $workdirMigrations.Contains([string]$entry.version)) { throw "Historical workdir is missing $($entry.path)." }
-    if ($workdirMigrations[[string]$entry.version].sha256 -ne $entry.sha256) { throw "Unauthorized historical migration modification: $($entry.path)" }
+    $expectedRuntimeSha256 = if ($canonicalHistoricalRuntime) { $canonicalMigrationHashes[[string]$entry.path] } else { [string]$entry.sha256 }
+    if ([string]::IsNullOrWhiteSpace($expectedRuntimeSha256) -or $workdirMigrations[[string]$entry.version].sha256 -ne $expectedRuntimeSha256) {
+      throw "Unauthorized historical migration modification: $($entry.path)"
+    }
   }
 }
 

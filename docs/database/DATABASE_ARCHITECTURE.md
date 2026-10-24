@@ -30,6 +30,8 @@ The marker is an enforcement aid, not permission to rewrite `supabase_migrations
 
 The 414 H files, their preserved Slice A originals, the B1 migration, and the Gate 3B fingerprints are frozen evidence. The two specifically approved historical Slice A amendments are documented artifacts; they are not precedent for more amendments.
 
+Frozen content authority is the exact Git blob at certified source commit `87524f872e76f24de631d1cbf58580674c9df2a9`, matched by path, mode, and object ID in the integration tree. Legacy SHA-256 values are preserved without regeneration even where they recorded historical CRLF or mixed-final-newline checkout bytes. Because Git-object identity alone does not prove which bytes a migration runner will read, certification explicitly materializes verified blob bytes and then requires exact worktree-byte identity. See [Gate 6B.1 cross-platform frozen evidence](baseline/v1-gate6b/CROSS_PLATFORM_FROZEN_EVIDENCE.md).
+
 Future schema changes use one new migration in `supabase/migrations` at version `20261022000000` or later. The B1 assembler copies those files into disposable workdirs and verifies their hashes against the historical root. Creating parallel tail directories or lineage-specific versions would reintroduce divergent database behavior and is prohibited.
 
 Supabase CLI `2.84.2` is part of the contract. Package resolution, CI setup, workdir assembly, validation, catalog capture, and certification all reject a different CLI version.

@@ -6,6 +6,16 @@ The selectable roots are historical lineage `historical-v1`, frozen through `202
 
 Before Docker-dependent work, run `docker info`. If it fails, stop and ask the user to start Docker Desktop; never start, restart, repair, or reconfigure Docker Desktop.
 
+Before any database certification or historical-root migration execution, establish canonical frozen evidence and exact runtime bytes:
+
+```powershell
+node scripts/verify-frozen-git-evidence.mjs --scope all
+node scripts/materialize-frozen-git-evidence.mjs --scope all
+node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes
+```
+
+The first command verifies immutable content from the current `HEAD` Git objects against certified source commit `87524f872e76f24de631d1cbf58580674c9df2a9`; it also rejects index, working-content, filter, and protected-path collisions. The materializer writes those already-verified blob bytes to the current isolated worktree. The final command proves execution-byte identity. Do not run the materializer in a checkout containing unresolved protected database edits.
+
 ## 1. Identify and validate a lineage
 
 Validate the historical repository workdir without querying a database:
@@ -84,6 +94,7 @@ The scripts never start Docker Desktop.
 Run frozen-document/artifact checks first, then both default-privilege lanes:
 
 ```powershell
+node scripts/materialize-frozen-git-evidence.mjs --scope all
 pnpm verify:db:historical-integrity
 pnpm certify:db:canonical-baseline
 ```
@@ -175,6 +186,8 @@ No command in this section deploys anything.
 
 ```powershell
 git status --short
+node scripts/materialize-frozen-git-evidence.mjs --scope all
+node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes
 pnpm verify:db:historical-integrity
 ./scripts/verify-forge-database-entrypoints.ps1
 ./scripts/test-supabase-lineage-guard.ps1
@@ -196,13 +209,15 @@ Retain non-sensitive command output with:
 - H preflight history count, minimum/maximum version, digest, and dry-run order.
 - Test counts and failures/blocks; a blocked hosted-upgrade test is never recorded as passed.
 
-Record the checked-out source identity and migration file hashes with read-only commands:
+Record the checked-out source identity and canonical frozen-object result with read-only commands:
 
 ```powershell
 git branch --show-current
 git rev-parse HEAD
-Get-FileHash -Algorithm SHA256 supabase/migrations/*.sql
+node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes
 ```
+
+Do not substitute `Get-FileHash` over a platform-dependent checkout for the canonical frozen-object verifier. The unchanged legacy manifest hashes remain audit evidence and are classified, not regenerated. The mechanics and affected verifier inventory are in [Gate 6B.1 cross-platform frozen evidence](baseline/v1-gate6b/CROSS_PLATFORM_FROZEN_EVIDENCE.md).
 
 Authoritative artifacts are linked from `DATABASE_ARCHITECTURE.md`; do not copy their large inventories into a new report. Never retain secrets, API keys, credentials, customer rows, transactions, or operational Stripe/provider data as evidence.
 

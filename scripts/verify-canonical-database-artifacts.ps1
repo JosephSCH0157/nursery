@@ -7,26 +7,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = [IO.Path]::GetFullPath($RepositoryRoot)
 $failures = [System.Collections.Generic.List[string]]::new()
+$canonicalVerifier = Join-Path $repo 'scripts/verify-frozen-git-evidence.mjs'
 
 & (Join-Path $PSScriptRoot 'verify-database-documentation-contract.ps1') -RepositoryRoot $repo | Out-Null
 
-function Assert-FileHash([string]$RelativePath,[string]$ExpectedSha256) {
-  $path = Join-Path $repo $RelativePath
-  if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-    $failures.Add("Missing frozen artifact: $RelativePath")
-    return
-  }
-  $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($actual -cne $ExpectedSha256) { $failures.Add("Frozen artifact changed: $RelativePath") }
-}
-
 & (Join-Path $PSScriptRoot 'verify-historical-migration-manifest.ps1') -RepositoryRoot $repo | Out-Null
-
-Assert-FileHash 'docs/database/baseline/v1-gate1/historical-migrations.sha256.json' '66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40'
-Assert-FileHash 'database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql' '73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e'
-Assert-FileHash 'docs/database/baseline/v1-gate3/canonical-baseline-v1.manifest.json' 'f0eaf080270dde1df59a77fb075f8e363d06ad46a67c0b12dcb84220c258f4c3'
-Assert-FileHash 'docs/database/baseline/v1-gate3/canonical-application-catalog-fingerprint.json' 'abeb5876b1acf0b23d6be8594c788e1fe700fe5c1abe44755ea1cf431c2ca3d7'
-Assert-FileHash 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json' '8b82e58a85b835641c42738a51e695b05b4c7871ae922a48dd192dca303defc1'
+$canonicalOutput = (& node $canonicalVerifier --repository-root $repo --scope canonical 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { throw $canonicalOutput }
+$canonical = $canonicalOutput | ConvertFrom-Json
 
 $compatibilityPath = Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json'
 if (Test-Path -LiteralPath $compatibilityPath) {
@@ -59,6 +47,8 @@ $result = [ordered]@{
   historicalMigrationCount = 414
   baselineMigrationSha256 = '73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e'
   wrappersCompatibilitySha256 = '8b82e58a85b835641c42738a51e695b05b4c7871ae922a48dd192dca303defc1'
+  canonicalGitCommit = $canonical.verifiedCommit
+  canonicalGitFileCount = $canonical.fileCount
   failures = @($failures)
 }
 if ($Json) { $result | ConvertTo-Json -Depth 4 } else { $result | ConvertTo-Json -Compress }

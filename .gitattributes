@@ -1,6 +1,29 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 
+# Frozen database evidence and its executable certification inputs are hashed
+# as exact Git blob bytes. Never let platform checkout conversion rewrite them.
+supabase/migrations/** -text
+supabase/tests/** -text
+database/canonical-baseline-v1/** -text
+database/historical-pre-slice-a-v1/** -text
+docs/database/baseline/** -text
+docs/database/reconciliation/slice-a/original/** -text
+scripts/*gate5*.ps1 -text
+scripts/*canonical-baseline*.ps1 -text
+scripts/*pre-slice-a*.ps1 -text
+scripts/verify-historical-migration-manifest.ps1 -text
+scripts/verify-canonical-database-artifacts.ps1 -text
+scripts/lib/ForgeGate5D.psm1 -text
+scripts/lib/forge-frozen-evidence.mjs text eol=lf
+scripts/verify-frozen-git-evidence.mjs text eol=lf
+scripts/materialize-frozen-git-evidence.mjs text eol=lf
+scripts/test-frozen-git-evidence.mjs text eol=lf
+scripts/verify-historical-migration-manifest.ps1 text eol=lf
+scripts/verify-canonical-database-artifacts.ps1 text eol=lf
+scripts/verify-pre-slice-a-fixture.ps1 text eol=lf
+scripts/verify-supabase-lineage.ps1 text eol=lf
+
 # This historical function source is patched later by an exact multiline
 # pg_get_functiondef match. Preserve the committed LF bytes on every checkout.
 supabase/migrations/20261003120000_tongs_openai_cost_reconciliation_connection.sql -text
