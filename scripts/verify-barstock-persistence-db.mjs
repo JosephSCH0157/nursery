@@ -1,6 +1,17 @@
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
-const container = process.env.SUPABASE_DB_CONTAINER ?? "supabase_db_nursery";
+const configuredWorkdir = process.env.FORGE_BARSTOCK_SUPABASE_WORKDIR;
+const configuredContainer = configuredWorkdir
+  ? `supabase_db_${(() => {
+      const config = readFileSync(path.join(configuredWorkdir, "supabase", "config.toml"), "utf8");
+      const match = /^project_id\s*=\s*"([a-zA-Z0-9_-]+)"/m.exec(config);
+      if (!match) throw new Error("Disposable Bar Stock workdir has no valid Supabase project_id");
+      return match[1];
+    })()}`
+  : undefined;
+const container = process.env.SUPABASE_DB_CONTAINER ?? configuredContainer ?? "supabase_db_nursery";
 
 const ids = {
   viewer: "10000000-0000-4000-8000-000000000001",
