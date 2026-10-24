@@ -99,7 +99,7 @@ pnpm verify:db:historical-integrity
 pnpm certify:db:canonical-baseline
 ```
 
-Certification creates disposable databases, executes B1 plus T, runs catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, pairing, subscription/billing, Quench, Data API, and financial-inactivity tests, compares the normalized catalog, and tears the databases down. Success must report 15,901 entries, contract hash `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`, and only the approved hosted `wrappers` 0.5.6 versus local 0.5.7 difference.
+Certification creates disposable databases, executes B1 plus T, runs catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, Bar Stock lifecycle, pairing, subscription/billing, Quench, Data API, and financial-inactivity tests, compares the normalized catalog, and tears the databases down. The current Gate 6H successor must report 15,901 entries, production-normalized contract hash `6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5`, local `wrappers` 0.5.7 hash `dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e`, and only the approved hosted `wrappers` 0.5.6 versus local 0.5.7 difference. The earlier `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f` catalog remains the frozen Gate 5F predecessor, not the current tail target.
 
 ## 6. Test an existing historical-database upgrade
 
@@ -112,6 +112,14 @@ The available read-only preflight is:
 Record its lineage result, hosted history range/digest, migration list, and dry-run order.
 
 Authentic-history H upgrade certification completed under the one-time Gate 5F owner authorization. The dedicated read-only endpoint returned the authentic 411-row six-column history into an encrypted local capsule; both disposable privilege lanes restored it transactionally, discovered exactly four migrations normally, applied them, and reached 415 rows plus `historical-v1` with the original records unchanged. See the [Gate 5F authentic closeout](baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md).
+
+The Gate 6H successor is certified locally, without another hosted export, by restoring the approved deterministic 411-row six-column history in both privilege lanes and applying the five ordered pending versions through `20261024164519`:
+
+```powershell
+pnpm certify:db:gate6h-successor
+```
+
+Success requires 416 rows, `historical-v1`, all seven original-prefix hashes unchanged, catalog equality with B1 at the versioned successor contract, Bar Stock positive/negative/rollback coverage, zero hosted requests and paid operations, and scoped teardown. This is synthetic-history successor certification layered on the prior authentic Gate 5F evidence; it is not a new authentic export or a production-data upgrade test.
 
 **Not yet implemented/certified:** a production hosted-apply command. Gate 5F did not migrate production or exercise production customer/financial rows. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run remain distinct evidence and are not substitutes for the recorded authentic-history run. Every hosted migration still requires backup/PITR verification, read-only production preflight, exact pending-version review, and separate owner authorization.
 

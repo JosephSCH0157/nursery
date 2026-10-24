@@ -10,6 +10,10 @@ $wrappersContract = Get-Content -LiteralPath (Join-Path $repo 'docs/database/bas
 $trustAnchorRelativePath = 'docs/database/baseline/v1-gate6b/frozen-evidence-trust-anchor.v1.json'
 $trustAnchorPath = Join-Path $repo $trustAnchorRelativePath
 $trustAnchorSha256 = 'fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb'
+$successorRelativePath = 'docs/database/baseline/v1-gate6h/successor-contract.v1.json'
+$successorPath = Join-Path $repo $successorRelativePath
+$successorSha256 = 'a424d05912c808467dd13957d0690d3f95a3f11cafe0089bcd7f87712cc8fd32'
+$successor = Get-Content -LiteralPath $successorPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -59,11 +63,18 @@ foreach ($reference in @(
   'docs/database/baseline/v1-gate3/canonical-application-catalog-fingerprint.json',
   'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json',
   'docs/database/baseline/v1-gate2/FINANCIAL_INACTIVE_CONTRACT.md',
-  $trustAnchorRelativePath
+  $trustAnchorRelativePath,
+  $successorRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
   if (-not (Test-Path -LiteralPath (Join-Path $repo $reference) -PathType Leaf)) { $failures.Add("Missing linked authority: $reference") }
+}
+if ((Get-FileHash -LiteralPath $successorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $successorSha256) {
+  $failures.Add('Gate 6H successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($successor.sharedTailAddition.version -ne '20261024164519' -or $successor.historicalSuccessor.finalRows -ne 416) {
+  $failures.Add('Gate 6H successor contract has unexpected chronology.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
@@ -95,6 +106,7 @@ foreach ($command in @(
   'verify-forge-database-entrypoints.ps1',
   'test-supabase-lineage-guard.ps1',
   'pnpm certify:db:canonical-baseline',
+  'pnpm certify:db:gate6h-successor',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {
@@ -116,6 +128,8 @@ if ($operationsText -notmatch 'Not yet implemented/certified') {
 foreach ($value in @(
   '15901',
   '49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f',
+  '6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5',
+  'dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e',
   [string]$wrappersContract.environments.linked.requiredVersion,
   [string]$wrappersContract.environments.local.requiredVersion
 )) {

@@ -49,6 +49,8 @@ $result = [ordered]@{
   wrappersCompatibilitySha256 = '8b82e58a85b835641c42738a51e695b05b4c7871ae922a48dd192dca303defc1'
   canonicalGitCommit = $canonical.verifiedCommit
   canonicalGitFileCount = $canonical.fileCount
+  successorProtectedFileCount = $canonical.successorFileCount
+  gate6hSuccessorContractSha256 = $canonical.successorContractSha256
   failures = @($failures)
 }
 if ($Json) { $result | ConvertTo-Json -Depth 4 } else { $result | ConvertTo-Json -Compress }

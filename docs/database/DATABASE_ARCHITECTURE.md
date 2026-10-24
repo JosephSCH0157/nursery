@@ -24,6 +24,8 @@ The marker records both frozen contract hashes and the version boundaries. It is
 
 Gate 5D/5F authentic-history certification is deliberately separate from the lineage contract. Stage 1B first proved the encrypted capsule, transactional restorer, normal four-migration discovery, security/application suites, and scoped cleanup with deterministic synthetic six-column metadata. The later owner-authorized Gate 5F run used the dedicated read-only endpoint to restore the authentic 411-row hosted history into two disposable local privilege lanes, applied the four normally discovered migrations, and reached 415 rows plus `historical-v1` with the original records unchanged. The non-confidential result is recorded in [AUTHENTIC_CERTIFICATION_CLOSEOUT.md](baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md). This proves authentic-history upgrade compatibility without authorizing a production migration; it does not exercise production customer or financial rows.
 
+Gate 6H adds the shared-tail successor `20261024164519_barstock_project_archive_atomic_graduation.sql`. It does not replace Gate 5F evidence. Gate 5F remains the certified 415-row predecessor; Gate 6H separately certifies a 416-row historical successor and B1 plus the same tail. The versioned successor contract and catalog are [successor-contract.v1.json](baseline/v1-gate6h/successor-contract.v1.json) and [successor-catalog-fingerprint.json](baseline/v1-gate6h/successor-catalog-fingerprint.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future
@@ -59,7 +61,7 @@ The complete empty-state contract is [FINANCIAL_INACTIVE_CONTRACT.md](baseline/v
 
 ## Catalog contract and environmental normalization
 
-The approved application catalog contains 15,901 normalized entries. Its certification contract SHA-256 is `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`; the source-controlled fingerprint artifact is [canonical-application-catalog-fingerprint.json](baseline/v1-gate3/canonical-application-catalog-fingerprint.json).
+The Gate 5F predecessor catalog contains 15,901 normalized entries with certification contract SHA-256 `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`; it remains frozen in [canonical-application-catalog-fingerprint.json](baseline/v1-gate3/canonical-application-catalog-fingerprint.json). The Gate 6H successor still contains 15,901 entries and changes exactly the Bar Stock status constraint, atomicity function, and Project archive trigger. Its production-normalized contract SHA-256 is `6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5`; local certification with approved `wrappers` 0.5.7 reports `dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e`.
 
 Strict equality applies to every catalog and security entry except one explicit environmental compatibility rule: existing hosted infrastructure records `wrappers` 0.5.6, while the Supabase CLI 2.84.2 disposable PostgreSQL image provides compatible 0.5.7. [wrappers-extension-compatibility.json](baseline/v1-gate3/wrappers-extension-compatibility.json) records the evidence and rejects every unlisted version or extension difference. This exception does not authorize a hosted extension upgrade.
 

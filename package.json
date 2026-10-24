@@ -59,6 +59,7 @@
     "gate:nursery": "pnpm gate:fast && pnpm build && pnpm gate:integration && pnpm gate:media && pnpm gate:browser",
     "certify:db:anvil-release": "node scripts/certify-anvil-migration-chain.mjs",
     "certify:db:canonical-baseline": "pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action CertifyFresh",
+    "certify:db:gate6h-successor": "pwsh -NoProfile -File scripts/certify-gate6h-successor.ps1",
     "verify:db:historical-integrity": "pwsh -NoProfile -File scripts/verify-canonical-database-artifacts.ps1",
     "gate:anvil-release": "node scripts/run-anvil-release-gate.mjs",
     "gate:barstock-release": "pnpm --filter @nursery/bar-stock lint && pnpm --filter @nursery/bar-stock typecheck && pnpm --filter @nursery/bar-stock test && pnpm --filter @nursery/bar-stock build && pnpm --filter @nursery/bar-stock test:db && pnpm --filter @nursery/bar-stock test:db:repository",
