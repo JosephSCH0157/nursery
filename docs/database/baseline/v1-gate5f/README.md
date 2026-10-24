@@ -1,6 +1,6 @@
 # Gate 5F authentic historical-upgrade certification
 
-Status: **ACL reconciliation and hardened synthetic certification passed. No authentic export is authorized by this record.**
+Status: **ACL and catalog-output reconciliation plus hardened synthetic certification passed. No authentic export is authorized by this record.**
 
 The current non-confidential result is recorded in [`ACL_RECONCILIATION_RESULTS.md`](ACL_RECONCILIATION_RESULTS.md). The original [`STAGE_A_RESULTS.md`](STAGE_A_RESULTS.md) is retained as superseded execution evidence.
 

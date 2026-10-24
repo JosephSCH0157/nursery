@@ -27,9 +27,44 @@ if (-not (Test-Path -LiteralPath $outputParent -PathType Container)) { throw "Ou
 $temporaryCsv = Join-Path ([IO.Path]::GetTempPath()) ("forge-catalog-{0}.csv" -f [guid]::NewGuid().ToString('N'))
 try {
   $arguments = @('db','query',"--$Target",'--agent=no','--output','csv','--file',$queryPath)
-  & supabase @arguments 2>$null | Set-Content -LiteralPath $temporaryCsv -Encoding utf8
-  if ($LASTEXITCODE -ne 0) { throw "Read-only catalog query failed for target $Target." }
-  $rows = @(Import-Csv -LiteralPath $temporaryCsv)
+  # Capture the CLI's UTF-8 stdout as bytes. Routing native stdout through the
+  # PowerShell pipeline makes decoding depend on [Console]::OutputEncoding and
+  # can corrupt non-ASCII function definitions before they are fingerprinted.
+  $supabaseCommand = (Get-Command supabase -ErrorAction Stop).Source
+  $startInfo = [Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = $supabaseCommand
+  $startInfo.WorkingDirectory = (Get-Location).ProviderPath
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  foreach ($argument in $arguments) { $null = $startInfo.ArgumentList.Add($argument) }
+  $process = [Diagnostics.Process]::new()
+  $process.StartInfo = $startInfo
+  $csvStream = $null
+  try {
+    if (-not $process.Start()) { throw "Read-only catalog query failed for target $Target." }
+    $csvStream = [IO.File]::Create($temporaryCsv)
+    $stdoutCopy = $process.StandardOutput.BaseStream.CopyToAsync($csvStream)
+    $stderrRead = $process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $null = $stdoutCopy.GetAwaiter().GetResult()
+    $null = $stderrRead.GetAwaiter().GetResult()
+    if ($process.ExitCode -ne 0) { throw "Read-only catalog query failed for target $Target." }
+  }
+  finally {
+    if ($csvStream) { $csvStream.Dispose() }
+    $process.Dispose()
+  }
+  $csvBytes = [IO.File]::ReadAllBytes($temporaryCsv)
+  try {
+    $null = [Text.UTF8Encoding]::new($false, $true).GetString($csvBytes)
+  }
+  finally {
+    if ($csvBytes.Length -gt 0) { [Array]::Clear($csvBytes, 0, $csvBytes.Length) }
+  }
+  # Import-Csv preserves quoted multiline function definitions. The strict
+  # UTF-8 decode above validates the exact bytes before Import-Csv reads them.
+  $rows = @(Import-Csv -LiteralPath $temporaryCsv -Encoding utf8)
   if ($rows.Count -eq 0) { throw 'Catalog query returned no objects.' }
 
   $seen = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)

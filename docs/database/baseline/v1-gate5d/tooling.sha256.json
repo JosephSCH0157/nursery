@@ -14,6 +14,7 @@
     { "path": "scripts/verify-gate5d-authentic-history-tooling.ps1", "sha256": "67c96ac4fb1e7ad093daf1ee6c4abe3a4ba47de8d133910fd92795385485d0d0" },
     { "path": "scripts/new-gate5d-synthetic-history-capsule.ps1", "sha256": "4ccfe7c93e93da450e976dcb741ada13b2efcf79cb45d736b2679f4c035f513e" },
     { "path": "scripts/certify-gate5d-integrated-synthetic.ps1", "sha256": "2435b0e6b1e7318bf1e3eaa3001aa645cf4d006da1ac4f6b9349c93bd25c7b8b" },
+    { "path": "scripts/capture-canonical-baseline-v1-catalog.ps1", "sha256": "4e1cce30b99029443a9230548d8371844fdf54ac22ac854254efa6eb8b4a87a7" },
     { "path": "scripts/invoke-gate5f-authentic-history-certification.ps1", "sha256": "9189e16c013d7c9338bdc7f4db536e6bf9e172ededd446c5c6fca0345190c617" },
     { "path": "supabase/tests/catalog/gate5d_authentic_history_export.sql", "sha256": "7aa193e8154063b155e5f06ee0ebb3f4b38c2e16fcb7746734184d9246347e6f" },
     { "path": "supabase/tests/catalog/gate5d_authentic_history_export_read_only.sql", "sha256": "62bdcad7e26bc18b7b308b0e9c9cf876d433114707da7662391ff08e10a7a83c" },
