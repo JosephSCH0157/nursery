@@ -419,8 +419,14 @@ export class OpenAiUnifiedVisualPlanProvider {
     } catch (error) {
       if (error instanceof OpenAiTextBoundaryError || error instanceof OpenAiTextProviderError) throw error;
       if (error instanceof OpenAiTextTransportFailure) {
+        const errorCode = typeof error.evidence.error_code === "string"
+          ? error.evidence.error_code
+          : null;
+        const detail = error.evidence.deadline_expired === true
+          ? "provider deadline expired"
+          : errorCode;
         throw new OpenAiTextProviderError(
-          error.message,
+          `OpenAI could not be reached while generating the Visual Plan${detail ? ` (${detail})` : ""}. The submission is unresolved and was not retried; the last verified plan is unchanged.`,
           error.ambiguous,
           null,
           error.evidence,

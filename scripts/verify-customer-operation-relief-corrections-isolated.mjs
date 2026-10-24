@@ -26,11 +26,11 @@ try {
     "relief-correction current-shape baseline",
   );
   psql(
-    readFileSync("supabase/migrations/20261011360000_customer_operation_relief_corrections.sql", "utf8"),
+    readFileSync("supabase/migrations/20260916184248_customer_operation_relief_corrections.sql", "utf8"),
     "relief-correction migration",
   );
   psql(
-    readFileSync("supabase/migrations/20261011370000_customer_operation_relief_canonical_binding_evidence.sql", "utf8"),
+    readFileSync("supabase/migrations/20260916184526_customer_operation_relief_canonical_binding_evidence.sql", "utf8"),
     "relief-correction canonical binding repair",
   );
   psql(

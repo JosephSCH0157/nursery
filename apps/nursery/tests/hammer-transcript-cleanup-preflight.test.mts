@@ -49,12 +49,60 @@ async function listenServer(handler: http.RequestListener): Promise<{
 
 async function runCase(caseDef: CaseDef): Promise<void> {
   const originalFetch = globalThis.fetch;
-  process.env.OPENAI_API_KEY = "test-openai-key";
-  process.env.TONGS_SUPABASE_URL = "https://example.supabase.co";
-  process.env.TONGS_SUPABASE_ANON_KEY = "test-anon-key";
-
   const calls: Array<{ url: string; body: unknown }> = [];
-  const middleware = createHammerPrepMiddleware();
+  const fundingCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const fundingGate = {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      fundingCalls.push({ name, args });
+      if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+        catalog_revision_id: "66666666-6666-4666-8666-666666666666",
+        catalog_revision: 7,
+        model_catalog_entry_id: "77777777-7777-4777-8777-777777777777",
+        customer_selection_key: "88888888-8888-4888-8888-888888888888",
+        runtime_model_id: "fixture-certified-model",
+        provider_model_id: "fixture-certified-model-v1",
+        display_name: "Fixture Certified Model",
+        tradeoff_summary: "Fixture-only certified choice.",
+      }, error: null };
+      if (name === "resolve_owner_openai_text_canary_eligibility") return { data: {
+        eligible: false,
+        financial_environment: "test",
+        route_code: "hammer.transcript_cleanup",
+        model: "fixture-certified-model",
+      }, error: null };
+      if (name === "read_openai_execution_requirement") return { data: { mode: "halt_new" }, error: null };
+      if (name === "read_existing_openai_text_funding_handle") return { data: null, error: null };
+      return { data: null, error: { message: `unexpected fixture RPC: ${name}` } };
+    },
+  };
+  const middleware = createHammerPrepMiddleware({
+    runtimeConfig: {
+      textApiKey: "test-openai-key",
+      imageApiKey: null,
+      apiKey: "test-openai-key",
+      model: "gpt-5.3",
+      sttModel: "gpt-4o-mini-transcribe",
+      configuredBillingMode: "forge",
+      initialTokenBalance: 0,
+      supabaseUrl: "https://example.supabase.co",
+      supabaseServiceRoleKey: null,
+      supabaseRpcKey: "test-anon-key",
+      sttBucket: "fixture",
+      disableForgeLaneAi: false,
+      disableUserKeys: false,
+      disableExpensiveAiActions: false,
+      disableCdcGeneration: false,
+    },
+    openAiTextGate: fundingGate,
+    diagnosticUserGate: fundingGate,
+    diagnosticUserIdResolver: async (accessToken) => {
+      assert.equal(accessToken, "test-user-access-token");
+      return TEST_USER_ID;
+    },
+    openAiProviderFetch: async () => {
+      throw new Error("provider execution must remain halted");
+    },
+  });
   const server = await listenServer((req, res) => {
     middleware(req, res, (error) => {
       if (error) {
@@ -180,6 +228,16 @@ async function runCase(caseDef: CaseDef): Promise<void> {
 
     const openAiCalls = calls.filter((call) => call.url === "https://api.openai.com/v1/chat/completions");
     assert.equal(openAiCalls.length > 0, caseDef.expectOpenAiCalled, `${caseDef.label}: openai call expectation mismatch`);
+    if (caseDef.decision === "ALLOW") {
+      assert.deepEqual(fundingCalls.map((call) => call.name), [
+        "resolve_openai_text_model_for_funding_quote",
+        "resolve_owner_openai_text_canary_eligibility",
+        "read_openai_execution_requirement",
+        "read_existing_openai_text_funding_handle",
+      ]);
+    } else {
+      assert.equal(fundingCalls.length, 0, `${caseDef.label}: denied policy reached funding`);
+    }
   } finally {
     globalThis.fetch = originalFetch;
     await server.close();

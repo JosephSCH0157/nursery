@@ -234,7 +234,7 @@ test("Source transitions preserve compatible evidence while binding current auth
   assert.match(service, /reference_visual_source_collection_revision_conflict/);
   assert.match(hearthAuthority, /sourceSetRevisionId:str\(sourceSet\?\.id\)/);
   assert.match(hearthAuthority, /rightsSequenceRevision:rightsVersion\?\.revision\?\?0/);
-  assert.match(hearthPanel, /members:\[promoted,\.\.\.supporting\]/);
+  assert.match(hearthPanel, /projectReferenceVisualSourceChoice\(current,promoted,"promote"\)/);
 });
 
 test("new and replaced authority functions are not executable by PUBLIC or anon", () => {

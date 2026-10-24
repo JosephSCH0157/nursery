@@ -3832,7 +3832,31 @@ function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
     committedEntries = entries;
     return { disposition: "committed" };
   };
-  service.readCurrentImageMapPrompt = async () => ({ prompt_revision: promptRevision });
+  service.readCurrentImageMapPrompt = async () => {
+    const state = await service.readWorkpieceImageMapState(workpieceId, workspaceId);
+    const entries = committedEntries ?? state.episodePackage.image_map.entries;
+    const index = entries.findIndex((entry) => entry.id === promptRevision.image_moment_id);
+    assert.notEqual(index, -1, "Current image moment is required for prompt authority");
+    const entry = entries[index];
+    const sourceContext = buildImageMapPromptSourceContext(entries, index, entry.description, null);
+    return {
+      prompt_revision: {
+        ...promptRevision,
+        interpretation_request_json: {
+          image_moment_id: entry.id,
+          script_approval_id: promptRevision.script_approval_id,
+          script_approval_revision: promptRevision.script_approval_revision,
+          source_context: {
+            before: sourceContext.before,
+            focus: sourceContext.focus,
+            after: sourceContext.after,
+          },
+          creator_direction: entry.description,
+          visual_style: entry.style_preset ?? null,
+        },
+      },
+    };
+  };
   return promptRevision;
 }
 
@@ -4663,6 +4687,9 @@ test("canonical thumbnail generation forwards exact v3 authority and stage-only 
       render_recipe_id: "recipe-9",
       render_recipe_revision: 4,
       aspect: "16:9",
+      prompt_package_hash: "a".repeat(64),
+      prompt_serialization_version: "hearth-thumbnail-base-prompt-canonical-v2",
+      provider_settings: {},
     }),
   });
   const response = await handler(request);
@@ -4671,6 +4698,33 @@ test("canonical thumbnail generation forwards exact v3 authority and stage-only 
   assert.equal(calls.generateEpisodeThumbnail[0].input.concept_revision_id, "concept-revision-7");
   assert.equal(calls.generateEpisodeThumbnail[0].input.render_recipe_id, "recipe-9");
   assert.equal(calls.generateEpisodeThumbnail[0].input.render_recipe_revision, 4);
+  assert.equal(calls.generateEpisodeThumbnail[0].input.prompt_package_hash, "a".repeat(64));
+  assert.equal(calls.generateEpisodeThumbnail[0].input.prompt_serialization_version, "hearth-thumbnail-base-prompt-canonical-v2");
+  assert.deepEqual(calls.generateEpisodeThumbnail[0].input.provider_settings, {});
+});
+
+test("canonical thumbnail generation rejects missing prompt authority before dispatch", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/generate-thumbnail", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      operation_id: "22222222-2222-4222-8222-222222222222",
+      prompt: "derived prompt export",
+      canonical_stage_only: true,
+      concept_revision_id: "concept-revision-7",
+      render_recipe_id: "recipe-9",
+      render_recipe_revision: 4,
+      aspect: "16:9",
+      prompt_serialization_version: "hearth-thumbnail-base-prompt-canonical-v2",
+    }),
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 400);
+  assert.equal(body.error.code, "invalid_string");
+  assert.equal(calls.generateEpisodeThumbnail.length, 0);
 });
 
 test("POST /tongs/workpieces/:id/image-map/generate-candidates dispatches generateImageMapCandidates", async () => {
@@ -5326,7 +5380,7 @@ test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for mi
   assert.equal(body.data, null);
 });
 
-test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata version", async () => {
+test("TongsCommitService.generateEpisodeThumbnail stages only the authorized canonical v3 base", async () => {
   const workspaceId = "11111111-1111-4111-8111-111111111111";
   const workpieceId = "22222222-2222-4222-8222-222222222222";
   const userId = "33333333-3333-4333-8333-333333333333";
@@ -5396,6 +5450,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
 
   const paidRpcCalls = installPaidImageRpcMock(supabase);
   const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  service.getThumbnailAssetByOperation = async () => null;
   const stagedAsset = {
     id: "55555555-5555-4555-8555-555555555555",
     workspace_id: workspaceId,
@@ -5447,6 +5502,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
     updated_at: "2026-02-28T00:00:00.000Z",
   });
   service.resolveUserIdFromAccessToken = async () => userId;
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId, role: "editor" });
   service.readWorkpieceJson = async () => ({
     found: true,
     file_row: { updated_at: "2026-02-28T01:59:00.000Z" },
@@ -5458,50 +5514,37 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
       updated_at: "2026-02-28T00:00:00.000Z",
       status: "draft",
       episode: {
-        schema: "forge.episode.package.v2",
+        schema: "forge.episode.package.v3",
         seo: {
           titles: [
-            { id: "seo-title-a", label: "A", text: "Launch title", is_primary: true },
+            { id: "seo-title-a", revision: 1, label: "A", text: "Launch title", thumbnail_text: "Launch title", is_primary: true },
           ],
           tags: [],
           description_short: null,
           description_long: null,
         },
         thumbnail: {
-          concepts: [
+          concept_revisions: [
             {
-              id: "concept-01",
-              label: "Concept 01",
-              prompt_text: "Host in studio with neon glow",
-              style_preset: "studio lighting",
+              concept_revision_id: "concept-revision-1",
             },
           ],
-          versions: [
+          render_recipes: [
             {
-              id: "thumb-existing",
-              concept_id: "concept-01",
-              created_at: "2026-02-28T00:05:00.000Z",
-              provider: "upload",
-              prompt: "Existing upload",
-              provider_request_id: null,
-              asset_id: "asset-existing",
-              asset_path: "assets/thumbnails/existing.png",
-              mime_type: "image/png",
-              status: "ready",
-              error: null,
+              id: "recipe-1",
+              revision: 2,
+              concept_revision_id: "concept-revision-1",
+              title_id: "seo-title-a",
+              title_revision: 1,
+              title_text: "Launch title",
+              prompt_review_state: "reviewed",
+              prompt_template_version: "hearth-thumbnail-base-prompt-v2",
             },
           ],
-          primary_version_id: null,
+          active_render_recipe_id: "recipe-1",
+          base_versions: [],
+          launch_variant_revisions: [],
         },
-        launch_variants: [
-          {
-            id: "launch-variant-01",
-            title_id: "seo-title-a",
-            thumbnail_version_id: "thumb-existing",
-            created_at: "2026-02-28T00:10:00.000Z",
-            updated_at: "2026-02-28T00:10:00.000Z",
-          },
-        ],
         image_map: {
           entries: [],
         },
@@ -5582,9 +5625,17 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
     workspace_id: workspaceId,
     episode_id: workpieceId,
     operation_id: "44444444-4444-4444-8444-444444444444",
-    concept_id: "concept-01",
+    prompt: "Canonical base art without title text",
+    canonical_stage_only: true,
+    concept_revision_id: "concept-revision-1",
+    render_recipe_id: "recipe-1",
+    render_recipe_revision: 2,
+    aspect: "16:9",
+    prompt_package_hash: "b".repeat(64),
+    prompt_serialization_version: "hearth-thumbnail-base-prompt-canonical-v2",
+    provider_settings: {},
     confirm_spend: true,
-    lane: "forge",
+    lane: "byo",
     user_access_token: "token_abc",
   });
 
@@ -5592,27 +5643,42 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(providerCalls[0].size, "1536x1024");
   assert.equal(providerCalls[0].quality, "high");
   assert.equal(providerCalls[0].model, "gpt-image-2-2026-04-21");
-  assert.match(providerCalls[0].prompt, /Host in studio with neon glow/);
-  assert.match(providerCalls[0].prompt, /Visual style: Studio Photography\./);
+  assert.equal(providerCalls[0].prompt, "Canonical base art without title text");
+  assert.doesNotMatch(providerCalls[0].prompt, /Launch title/);
   assert.equal(assetInsertCalls.length, 0);
   assert.equal(commitCalls.length, 0);
   assert.equal(stageCalls.length, 1);
   assert.equal(stageCalls[0].input.operation_id, "44444444-4444-4444-8444-444444444444");
   assert.equal(stageCalls[0].input.asset_kind, "thumbnail_image");
-  assert.equal(referenceCalls.length, 1);
-  assert.equal(referenceCalls[0].input.reference_pointer, "/episode/thumbnail/versions/1/asset_id");
-  assert.equal(referenceCalls[0].input.metadata_document.episode.thumbnail.concepts[0].style_preset, "studio_photography");
-  assert.equal(referenceCalls[0].input.metadata_document.episode.thumbnail.versions.length, 2);
-  assert.equal(referenceCalls[0].input.metadata_document.episode.launch_variants.length, 1);
-  assert.equal(transitionCalls.length, 1);
-  assert.equal(transitionCalls[0].input.target_status, "ready");
-  assert.equal(result.version.status, "ready");
-  assert.equal(result.primary_version_id, result.version.id);
-  assert.equal(result.updated_episode_package.launch_variants.length, 1);
+  assert.equal(stageCalls[0].input.prompt, null);
+  assert.equal(stageCalls[0].input.metadata.authority, "episode_package_v3");
+  assert.equal(stageCalls[0].input.metadata.concept_revision_id, "concept-revision-1");
+  assert.equal(stageCalls[0].input.metadata.render_recipe_id, "recipe-1");
+  assert.equal(stageCalls[0].input.metadata.render_recipe_revision, 2);
+  assert.equal(stageCalls[0].input.metadata.prompt_persisted, false);
+  assert.equal(referenceCalls.length, 0);
+  assert.equal(transitionCalls.length, 0);
+  assert.equal(result.canonical_stage_only, true);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
-  assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_media_authorization_quote").length, 1);
-  assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 1);
-  assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation").length, 1);
+  assert.equal(paidRpcCalls.length, 0, "BYO canonical staging unexpectedly entered paid execution");
+
+  await assert.rejects(
+    service.generateEpisodeThumbnail(workpieceId, {
+      workspace_id: workspaceId, episode_id: workpieceId,
+      operation_id: "77777777-7777-4777-8777-777777777777",
+      prompt: "Canonical base art without title text", canonical_stage_only: true,
+      concept_revision_id: "concept-revision-1", render_recipe_id: "recipe-1",
+      render_recipe_revision: 3, aspect: "16:9", prompt_package_hash: "b".repeat(64),
+      prompt_serialization_version: "hearth-thumbnail-base-prompt-canonical-v2",
+      provider_settings: {}, confirm_spend: true, lane: "byo", user_access_token: "token_abc",
+    }),
+    (error) => {
+      assert.equal(error?.status, 409);
+      assert.equal(error?.code, "thumbnail_base_preflight_stale_authority");
+      return true;
+    },
+  );
+  assert.equal(providerCalls.length, 1, "Mismatched thumbnail authority reached the provider");
 
   service.getThumbnailAssetByOperation = async () => ({
     id: stagedAsset.id, workspace_id: workspaceId, workpiece_id: workpieceId,
@@ -5626,7 +5692,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
     workspace_id: workspaceId, episode_id: workpieceId,
     operation_id: "66666666-6666-4666-8666-666666666666", prompt: "derived prompt",
     canonical_stage_only: true, concept_revision_id: "concept-revision-1",
-    render_recipe_id: "recipe-1", render_recipe_revision: 2,
+    render_recipe_id: "recipe-1", render_recipe_revision: 2, aspect: "16:9",
+    prompt_package_hash: "b".repeat(64),
+    prompt_serialization_version: "hearth-thumbnail-base-prompt-canonical-v2", provider_settings: {},
     confirm_spend: true, lane: "forge", user_access_token: "token_abc",
   });
   assert.equal(replayResult.canonical_stage_only, true);
@@ -5884,7 +5952,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   };
 
   const promptRevision = installCurrentImageMapAuthority(service, workspaceId, workpieceId);
-  const result = await service.generateImageMapCandidates(workpieceId, {
+  const generationInput = {
     workspace_id: workspaceId,
     image_map_entry_id: "image-map-01",
     prompt_revision_id: promptRevision.id,
@@ -5893,13 +5961,36 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
     context_before: "British forces regrouped after Napoleon's defeat.",
     context_after: "The Mississippi delta made New Orleans strategically decisive.",
     confirm_spend: true,
-    lane: "forge",
+    lane: "byo",
     user_access_token: "token_abc",
-  });
+  };
+  const readCurrentImageMapPrompt = service.readCurrentImageMapPrompt;
+  service.readCurrentImageMapPrompt = async (...args) => {
+    const projection = await readCurrentImageMapPrompt(...args);
+    return {
+      prompt_revision: {
+        ...projection.prompt_revision,
+        interpretation_request_json: {
+          ...projection.prompt_revision.interpretation_request_json,
+          creator_direction: "Stale creator direction that no longer matches the image map.",
+        },
+      },
+    };
+  };
+  await assert.rejects(
+    service.generateImageMapCandidates(workpieceId, generationInput),
+    (error) => {
+      assert.equal(error?.status, 409);
+      assert.equal(error?.code, "prompt_authority_mismatch");
+      return true;
+    },
+  );
+  assert.equal(providerCalls.length, 0, "Stale prompt authority reached the image provider");
+  service.readCurrentImageMapPrompt = readCurrentImageMapPrompt;
+  const result = await service.generateImageMapCandidates(workpieceId, generationInput);
 
   assert.equal(providerCalls.length, 2);
-  assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 2);
-  assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation").length, 2);
+  assert.equal(paidRpcCalls.length, 0, "BYO prompt-authority fixture unexpectedly entered paid execution");
   assert.equal(providerCalls[0]?.size, "1536x1024");
   assert.equal(providerCalls[0]?.quality, "high");
   assert.equal(providerCalls[0]?.model, "gpt-image-2-2026-04-21");
@@ -6171,7 +6262,7 @@ test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bul
     prompt_revision: promptRevision.revision,
     prompt_content_hash: promptRevision.content_hash,
     confirm_spend: true,
-    lane: "forge",
+    lane: "byo",
     user_access_token: "token_bullet",
   });
 
