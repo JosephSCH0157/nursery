@@ -1,8 +1,8 @@
 # Gate 5F authentic historical-upgrade certification
 
-Status: **ACL and catalog-output reconciliation plus hardened synthetic certification passed. No authentic export is authorized by this record.**
+Status: **Authentic historical-upgrade certification passed in both privilege lanes. No production migration, repeat export, merge, or deployment is authorized by this result.**
 
-The current non-confidential result is recorded in [`ACL_RECONCILIATION_RESULTS.md`](ACL_RECONCILIATION_RESULTS.md). The original [`STAGE_A_RESULTS.md`](STAGE_A_RESULTS.md) is retained as superseded execution evidence.
+The final non-confidential result is recorded in [`AUTHENTIC_CERTIFICATION_CLOSEOUT.md`](AUTHENTIC_CERTIFICATION_CLOSEOUT.md). [`ACL_RECONCILIATION_RESULTS.md`](ACL_RECONCILIATION_RESULTS.md) and the original [`STAGE_A_RESULTS.md`](STAGE_A_RESULTS.md) remain preserved as superseded historical evidence. Frozen preflight contracts remain unchanged.
 
 The owner-facing coordinator is `scripts/invoke-gate5f-authentic-history-certification.ps1`. It has two fail-closed modes:
 
@@ -25,9 +25,9 @@ This is the only currently authorized coordinator invocation:
 
 It must report two passing lanes, 411 restored rows, the seven matching history hashes, exactly four pending migrations, 415 final rows, `historical-v1`, unchanged original history, catalog hash `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`, only the approved `wrappers` difference, no hosted request, and complete cleanup.
 
-## Future owner-controlled authentic procedure
+## Completed owner-controlled authentic procedure
 
-The following is documented but **not authorized by Stage A**. After separate owner authorization, use a fresh PowerShell 7 process with no transcript and disabled PSReadLine history:
+The following records the procedure used under the completed one-time owner authorization. It is not authorization to repeat the hosted request. A future run requires a new owner-reviewed token and separate explicit authorization. The run used a fresh PowerShell 7 process with no transcript and disabled PSReadLine history:
 
 ```powershell
 Set-Location D:\nursery\nursery
@@ -40,7 +40,7 @@ $gate5f = ./scripts/prepare-gate5e-owner-attestation.ps1 | ConvertFrom-Json
 
 The owner must independently review that the new PAT is restricted to the one Forge project, has exactly `database_read`, is not legacy, and has the reviewed expiration. The attestation is a local fingerprint record; it does not independently interrogate Supabase-side permissions.
 
-Only after the separate authentic-transfer authorization, in the same PowerShell process:
+After the separate authentic-transfer authorization, the same PowerShell process invoked:
 
 ```powershell
 $gate5fResult = ./scripts/invoke-gate5f-authentic-history-certification.ps1 `
@@ -55,4 +55,4 @@ $gate5fResult
 
 The coordinator removes the process token, encrypted capsule, and attestation directory in `finally` after success or failure. It suppresses raw responses and confidential row values. The owner should revoke the PAT immediately afterward. These measures reduce retention but do not prove forensic erasure from RAM, paging files, backups, crash dumps, SSDs, or operating-system telemetry.
 
-Authentic metadata certification remains narrower than a production upgrade with customer and financial rows. Integration and production deployment require later owner approval.
+The completed run returned 411 authentic history rows, applied the exact four pending migrations locally in both privilege lanes, reached 415 rows and `historical-v1`, and preserved all seven original-history hashes. The process token and confidential temporary resources were removed, and the owner revoked the scoped PAT. Authentic metadata certification remains narrower than a production upgrade with customer and financial rows. Integration and production deployment require later owner approval.

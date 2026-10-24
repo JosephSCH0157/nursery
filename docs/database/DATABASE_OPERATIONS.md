@@ -100,7 +100,9 @@ The available read-only preflight is:
 
 Record its lineage result, hosted history range/digest, migration list, and dry-run order.
 
-**Not yet implemented/certified:** genuine H upgrade execution. It requires an owner-authorized, supported, data-less branch/restoration derived from the hosted migration history. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run are not substitutes. No repository command currently creates that hosted environment or applies the pending migrations there.
+Authentic-history H upgrade certification completed under the one-time Gate 5F owner authorization. The dedicated read-only endpoint returned the authentic 411-row six-column history into an encrypted local capsule; both disposable privilege lanes restored it transactionally, discovered exactly four migrations normally, applied them, and reached 415 rows plus `historical-v1` with the original records unchanged. See the [Gate 5F authentic closeout](baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md).
+
+**Not yet implemented/certified:** a production hosted-apply command. Gate 5F did not migrate production or exercise production customer/financial rows. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run remain distinct evidence and are not substitutes for the recorded authentic-history run. Every hosted migration still requires backup/PITR verification, read-only production preflight, exact pending-version review, and separate owner authorization.
 
 Gate 5D Stage 1 provides a synthetic-only guardrail run:
 
@@ -110,11 +112,11 @@ Gate 5D Stage 1 provides a synthetic-only guardrail run:
   -RepositoryRoot D:\nursery\nursery
 ```
 
-It makes no hosted request. This command now certifies the new encrypted-capsule restorer end to end with deterministic 411-row six-column synthetic history, the exact four pending migrations, both default-privilege lanes, catalog/security/application/Data API/financial checks, failure rollback, and scoped teardown. Authentic export/certification remains **unauthorized** until the owner separately approves Stage 2. A local token-fingerprint attestation does not independently prove Supabase-side token scopes; see [Gate 5D](baseline/v1-gate5d/README.md).
+It makes no hosted request. This command certifies the encrypted-capsule restorer end to end with deterministic 411-row six-column synthetic history, the exact four pending migrations, both default-privilege lanes, catalog/security/application/Data API/financial checks, failure rollback, and scoped teardown. It remains the repeatable local regression lane. A local token-fingerprint attestation does not independently prove Supabase-side token scopes; see [Gate 5D](baseline/v1-gate5d/README.md).
 
 Gate 5D Stage 1C provides a separately frozen dedicated read-only endpoint adapter and mock tests. It is not an operational hosted procedure. The generic adapter remains unchanged; neither adapter may be selected for a hosted call until the owner authorizes the non-confidential probe and names the approved Stage 2 endpoint. See [Stage 1C assessment](baseline/v1-gate5d/STAGE_1C_READ_ONLY_ENDPOINT_ASSESSMENT.md).
 
-Gate 5E provides a dedicated zero-row probe runner and masked owner-preparation helper. The runner cannot invoke the full-history exporter and always clears its process token. It remains a separately owner-authorized hosted operation; do not run it merely because local mock certification passes. Use only the exact procedure in [Gate 5E](baseline/v1-gate5e/README.md). Authentic history export remains separately prohibited until Stage 2 authorization.
+Gate 5E provides the dedicated zero-row probe runner and masked owner-preparation helper used before the authentic run. The runner cannot invoke the full-history exporter and always clears its process token. Its completed probe is historical evidence, not reusable authorization for another hosted request. See [Gate 5E](baseline/v1-gate5e/README.md).
 
 Gate 5F Stage A provides the two-lane coordinator and bounded dedicated-endpoint adapter. The locally authorized synthetic procedure is:
 
@@ -124,7 +126,7 @@ Gate 5F Stage A provides the two-lane coordinator and bounded dedicated-endpoint
   -RepositoryRoot D:\nursery\nursery
 ```
 
-The authentic mode is documented but not authorized by Stage A. It requires a fresh owner-reviewed token and separate authentic-transfer authorization. See [Gate 5F](baseline/v1-gate5f/README.md).
+The authentic mode was exercised once under explicit owner authorization and passed; its scoped token was then revoked. That completed authorization is not reusable. Do not invoke authentic mode again without a new owner-reviewed token, attestation, and explicit transfer authorization. See [Gate 5F](baseline/v1-gate5f/README.md) and its [authentic closeout](baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md).
 
 Read-only investigation predicts that a dashboard branch will fail while replaying the backdated September credit-economy migration because its lived-in Luna pricing prerequisite is not in earlier stored migration statements. The owner-approval procedure, cost, and mandatory teardown conditions are documented in [DASHBOARD_BRANCH_PREFLIGHT.md](baseline/v1-gate4/DASHBOARD_BRANCH_PREFLIGHT.md). Do not create that branch under this runbook without separate authorization.
 
