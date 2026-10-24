@@ -1,5 +1,9 @@
 # Gate 5F Stage A results
 
+> Superseded for current execution evidence by
+> [`ACL_RECONCILIATION_RESULTS.md`](ACL_RECONCILIATION_RESULTS.md). This record
+> is preserved unchanged below as the original Stage A conclusion.
+
 Date: 2026-10-23
 
 Status: **passed with synthetic six-column history only; no hosted request or authentic metadata transfer occurred**.

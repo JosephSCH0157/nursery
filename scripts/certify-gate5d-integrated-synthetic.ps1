@@ -49,8 +49,20 @@ function Invoke-Psql([string]$Container,[string]$Sql,[switch]$Redact) {
 }
 
 function Invoke-PsqlFile([string]$Container,[string]$Path) {
-  $sql=Get-Content -LiteralPath $Path -Raw
-  $null=Invoke-Psql $Container $sql -Redact
+  # Preserve the reviewed SQL bytes exactly. Piping a PowerShell string to a
+  # native process makes the database input depend on the caller's
+  # $OutputEncoding; that can alter non-ASCII function bodies and therefore
+  # their catalog fingerprints.
+  $target='/tmp/forge-gate5d-' + [guid]::NewGuid().ToString('N') + '.sql'
+  try {
+    & docker cp $Path "${Container}:$target" 2>$null
+    if($LASTEXITCODE -ne 0){throw 'Unable to copy a reviewed SQL file into the disposable database.'}
+    $output=(& docker exec $Container psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target 2>$null|Out-String)
+    if($LASTEXITCODE -ne 0){throw "Disposable SQL-file operation failed.`n$output"}
+  }
+  finally {
+    & docker exec $Container rm -f $target 2>$null|Out-Null
+  }
 }
 
 function Get-HistoryHashes([string]$Container,[string]$MaximumVersion) {

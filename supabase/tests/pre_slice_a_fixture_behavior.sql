@@ -100,6 +100,35 @@ select pg_temp.assert_true(
   'ensure_rls event trigger is missing'
 );
 
+-- This SECURITY DEFINER trigger function was historically service-only. Check
+-- the direct PUBLIC ACL separately from effective role privileges so permissive
+-- ambient defaults cannot silently expose it.
+select pg_temp.assert_true(
+  not exists (
+    select 1
+    from pg_proc p
+    cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
+    where p.oid = 'public.start_trial_on_first_login()'::regprocedure
+      and acl.grantee = 0
+      and acl.privilege_type = 'EXECUTE'
+  ),
+  'PUBLIC gained direct execution of start_trial_on_first_login'
+);
+
+select pg_temp.assert_true(
+  not has_function_privilege('anon', 'public.start_trial_on_first_login()', 'EXECUTE')
+  and not has_function_privilege('authenticated', 'public.start_trial_on_first_login()', 'EXECUTE')
+  and has_function_privilege('service_role', 'public.start_trial_on_first_login()', 'EXECUTE'),
+  'start_trial_on_first_login role ACL differs from the hosted pre-Slice-A contract'
+);
+
+select pg_temp.assert_true(
+  (select position(chr(8217) in prosrc) > 0
+   from pg_proc
+   where oid = 'public.start_trial_on_first_login()'::regprocedure),
+  'start_trial_on_first_login body was not transferred as exact UTF-8'
+);
+
 select pg_temp.assert_true(
   not has_table_privilege('anon', 'tongs.youtube_publication_jobs', 'select')
   and not has_table_privilege('authenticated', 'tongs.youtube_publication_jobs', 'select'),

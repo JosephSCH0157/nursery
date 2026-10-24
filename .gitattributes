@@ -64,6 +64,11 @@ scripts/verify-pre-slice-a-fixture.ps1 text eol=lf
 supabase/tests/catalog/pre_slice_a_reference_contract.sql text eol=lf
 supabase/tests/pre_slice_a_fixture_behavior.sql text eol=lf
 
+# Gate 5F hashes these executable/test bytes. Keep their manifest values stable
+# across Windows checkouts.
+scripts/certify-gate5d-integrated-synthetic.ps1 text eol=lf
+supabase/tests/public_slice_a_security_behavior.sql text eol=lf
+
 # Generated artifacts/mirrors (do not hand edit)
 apps/anvil/dist/** linguist-generated=true
 apps/nursery/public/anvil/** linguist-generated=true

@@ -1,8 +1,8 @@
 # Gate 5F authentic historical-upgrade certification
 
-Status: **Stage A tooling and synthetic certification passed. No authentic export has been performed.**
+Status: **ACL reconciliation and hardened synthetic certification passed. No authentic export is authorized by this record.**
 
-The non-confidential result is recorded in [`STAGE_A_RESULTS.md`](STAGE_A_RESULTS.md).
+The current non-confidential result is recorded in [`ACL_RECONCILIATION_RESULTS.md`](ACL_RECONCILIATION_RESULTS.md). The original [`STAGE_A_RESULTS.md`](STAGE_A_RESULTS.md) is retained as superseded execution evidence.
 
 The owner-facing coordinator is `scripts/invoke-gate5f-authentic-history-certification.ps1`. It has two fail-closed modes:
 

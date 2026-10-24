@@ -13,12 +13,14 @@
     { "path": "scripts/test-gate5e-read-only-probe.ps1", "sha256": "242ad6b2c117745cdfc4a69b18f3712ee0e4d0681fe0368bd298051962878063" },
     { "path": "scripts/verify-gate5d-authentic-history-tooling.ps1", "sha256": "67c96ac4fb1e7ad093daf1ee6c4abe3a4ba47de8d133910fd92795385485d0d0" },
     { "path": "scripts/new-gate5d-synthetic-history-capsule.ps1", "sha256": "4ccfe7c93e93da450e976dcb741ada13b2efcf79cb45d736b2679f4c035f513e" },
-    { "path": "scripts/certify-gate5d-integrated-synthetic.ps1", "sha256": "1f8f1da32547115c158c2bc40cf2d55d462749adbf1e883c01f536fab8b2f95a" },
+    { "path": "scripts/certify-gate5d-integrated-synthetic.ps1", "sha256": "2435b0e6b1e7318bf1e3eaa3001aa645cf4d006da1ac4f6b9349c93bd25c7b8b" },
     { "path": "scripts/invoke-gate5f-authentic-history-certification.ps1", "sha256": "9189e16c013d7c9338bdc7f4db536e6bf9e172ededd446c5c6fca0345190c617" },
     { "path": "supabase/tests/catalog/gate5d_authentic_history_export.sql", "sha256": "7aa193e8154063b155e5f06ee0ebb3f4b38c2e16fcb7746734184d9246347e6f" },
     { "path": "supabase/tests/catalog/gate5d_authentic_history_export_read_only.sql", "sha256": "62bdcad7e26bc18b7b308b0e9c9cf876d433114707da7662391ff08e10a7a83c" },
     { "path": "supabase/tests/catalog/gate5d_read_only_endpoint_probe.sql", "sha256": "d9bf4e0257583e7c8ec865bac73d28f4fbd84ee59197e3867f75d844c6b248fb" },
     { "path": "supabase/tests/gate5d_historical_v1_behavior.sql", "sha256": "82c64a79f508f70930e7c66c2bb7a476e86b6eef81581ba3aebd611536d6c404" },
+    { "path": "supabase/tests/pre_slice_a_fixture_behavior.sql", "sha256": "7e3e0140e745306f8d64776efc1d7c6c4ed32e956688d4fce9ad8c24714b9c69" },
+    { "path": "supabase/tests/public_slice_a_security_behavior.sql", "sha256": "fdbe87c7a4a99096dc1d2b498a2342cc0f2da1ae7fd1d419e9cbfde2808cd44d" },
     { "path": "docs/database/baseline/v1-gate5d/authentic-history-contract.json", "sha256": "0c8245b8fa707c28f49043d2b40f255bade67d1a5b7137cb7e1fd223a5a25a7f" }
   ]
 }
