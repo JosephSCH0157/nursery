@@ -28,6 +28,8 @@ Gate 6H adds the shared-tail successor `20261024164519_barstock_project_archive_
 
 Gate 6O adds `20261025070300_tongs_episode_storage_tier_parity.sql` after Gate 6H. It restores the historical `tongs.episodes.storage_tier text NOT NULL DEFAULT 'hot'` plus `hot`/`cold` constraint that was absent from the approved snapshots while leaving every frozen predecessor byte unchanged. The migration validates the complete surviving episode deletion-lifecycle predecessor and rejects incompatible pre-existing definitions. The versioned successor authority is [Gate 6O successor-contract.v1.json](baseline/v1-gate6o/successor-contract.v1.json), with its separate [catalog fingerprint](baseline/v1-gate6o/successor-catalog-fingerprint.json).
 
+Gate 6P adds `20261025080943_provision_required_storage_buckets.sql` after Gate 6O. It provisions the two deterministic private Storage bucket records already required by B1's frozen `storage.objects` policies and application code: `forge-workpieces` and `bellows-capture`. It never copies objects, customer identity, credentials, activation state, or financial data. Compatible rows are unchanged, missing rows are inserted, and any conflicting visibility, size, MIME, AVIF, name, or type aborts the transaction. The record-level authority and successor chronology are [storage-bucket-contract.v1.json](baseline/v1-gate6p/storage-bucket-contract.v1.json) and [Gate 6P successor-contract.v1.json](baseline/v1-gate6p/successor-contract.v1.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future
@@ -45,6 +47,8 @@ Supabase CLI `2.84.2` is part of the contract. Package resolution, CI setup, wor
 B1 reproduces the approved post-Slice-A structural and security contract: extensions, schemas, relations, sequences, functions, triggers, indexes, ownership, RLS, policies, ACLs, revocations, default privileges, and deterministic prerequisites.
 
 Its only application rows are the seven owner-approved Quench records: three destination scopes and four immutable capability revisions. The exact records, sources, and dependencies are linked by the [baseline manifest](baseline/v1-gate3/canonical-baseline-v1.manifest.json) to the [reference-data allowlist](baseline/v1-gate2/proposed-reference-data.allowlist.json). The source filename retains its Gate 2 “proposed” name, but the seven-row hash was approved and incorporated into the immutable B1 manifest. All customer, transaction, balance, credential, activation, external-account, and operator-state rows are excluded.
+
+The shared tail also provisions two deterministic Storage infrastructure records, not application reference data: private `forge-workpieces` and private `bellows-capture`. Their security remains entirely governed by the frozen Storage RLS and policy contract. Nondeterministic bucket timestamps and environment-managed ownership metadata are excluded from parity; stored objects are never baseline data.
 
 ## Financially inactive installation
 
@@ -66,6 +70,8 @@ The complete empty-state contract is [FINANCIAL_INACTIVE_CONTRACT.md](baseline/v
 The Gate 5F predecessor catalog contains 15,901 normalized entries with certification contract SHA-256 `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`; it remains frozen in [canonical-application-catalog-fingerprint.json](baseline/v1-gate3/canonical-application-catalog-fingerprint.json). The Gate 6H successor still contains 15,901 entries and changes exactly the Bar Stock status constraint, atomicity function, and Project archive trigger. Its production-normalized contract SHA-256 is `6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5`; local certification with approved `wrappers` 0.5.7 reports `dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e`.
 
 The Gate 6O successor contains 15,903 entries. Its only additions relative to Gate 6H are `column|tongs.episodes.storage_tier` and `constraint|tongs.episodes.episodes_storage_tier_check`. Its production-normalized contract SHA-256 is `766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd`; local certification with the approved `wrappers` 0.5.7 environment reports `37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef`.
+
+Gate 6P changes no catalog object, ACL, RLS policy, owner, or default privilege, so those Gate 6O catalog fingerprints remain the structural authority. Gate 6P adds a separate provisioning fingerprint for the exact two Storage rows; catalog equality alone is therefore insufficient to certify the current installation contract.
 
 Strict equality applies to every catalog and security entry except one explicit environmental compatibility rule: existing hosted infrastructure records `wrappers` 0.5.6, while the Supabase CLI 2.84.2 disposable PostgreSQL image provides compatible 0.5.7. [wrappers-extension-compatibility.json](baseline/v1-gate3/wrappers-extension-compatibility.json) records the evidence and rejects every unlisted version or extension difference. This exception does not authorize a hosted extension upgrade.
 

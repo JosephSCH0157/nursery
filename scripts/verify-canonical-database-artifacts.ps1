@@ -50,8 +50,8 @@ $result = [ordered]@{
   canonicalGitCommit = $canonical.verifiedCommit
   canonicalGitFileCount = $canonical.fileCount
   successorProtectedFileCount = $canonical.successorFileCount
-  gate6hSuccessorContractSha256 = $canonical.predecessorSuccessorContractSha256
-  gate6oSuccessorContractSha256 = $canonical.successorContractSha256
+  gate6oSuccessorContractSha256 = $canonical.predecessorSuccessorContractSha256
+  gate6pSuccessorContractSha256 = $canonical.successorContractSha256
   failures = @($failures)
 }
 if ($Json) { $result | ConvertTo-Json -Depth 4 } else { $result | ConvertTo-Json -Compress }

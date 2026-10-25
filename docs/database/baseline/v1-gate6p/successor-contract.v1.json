@@ -1,0 +1,79 @@
+{
+  "schema": "forge.gate6p-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Gate 6O",
+    "contractPath": "docs/database/baseline/v1-gate6o/successor-contract.v1.json",
+    "contractSha256": "6faf15bd24a3b9b398ffd42027bdb7a993fdc51f40cfc46b084018ecbda2c87e",
+    "historicalRows": 417,
+    "catalogObjectCount": 15903,
+    "catalogContractSha256": "766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd"
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "preSliceFixtureSha256": "abf0d6f03dd25dc9d4af3f30bcca8d8be6047045033b399d6ba2918315bc9751",
+    "gate6bTrustAnchorSha256": "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb",
+    "gate6oSuccessorContractSha256": "6faf15bd24a3b9b398ffd42027bdb7a993fdc51f40cfc46b084018ecbda2c87e"
+  },
+  "sharedTailAddition": {
+    "version": "20261025080943",
+    "path": "supabase/migrations/20261025080943_provision_required_storage_buckets.sql",
+    "sha256": "88705e86648a5e5171e2c86ee63302433f4a3e38e27cd521d6e108609029ba15"
+  },
+  "historicalSuccessor": {
+    "restoredAuthenticPrefixRows": 411,
+    "finalRows": 418,
+    "lineage": "historical-v1",
+    "pendingVersions": [
+      "20261020171517",
+      "20261020171519",
+      "20261020171522",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943"
+    ]
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-gate6o/successor-catalog-fingerprint.json",
+    "fileSha256": "6eeaa955fd67624784d13c017f33c029f3461fc4d04a43cacd5facdae57a267e",
+    "objectCount": 15903,
+    "normalizedContractSha256": "766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd",
+    "localWrappers057ContractSha256": "37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef",
+    "changedEntries": []
+  },
+  "provisioningSuccessor": {
+    "path": "docs/database/baseline/v1-gate6p/storage-bucket-contract.v1.json",
+    "sha256": "18722cbd2a747e456b882e5069b05772bc560acf2ee25e42af2d4d4d8c2dd939",
+    "recordIds": [
+      "bellows-capture",
+      "forge-workpieces"
+    ]
+  },
+  "securityContract": {
+    "bucketRowsPrivate": true,
+    "relationAclChanged": false,
+    "rlsChanged": false,
+    "policiesChanged": false,
+    "ownershipChanged": false,
+    "defaultPrivilegesChanged": false,
+    "existingBuckets": "Existing compatible rows and every stored object remain untouched; incompatible configuration aborts the transaction."
+  },
+  "approvedEnvironmentalDifference": {
+    "path": "docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json",
+    "sha256": "8b82e58a85b835641c42738a51e695b05b4c7871ae922a48dd192dca303defc1"
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

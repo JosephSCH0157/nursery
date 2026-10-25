@@ -102,6 +102,7 @@ $restrictive_defaults$
     'supabase/tests/public_slice_a_catalog_parity.sql',
     'supabase/tests/public_slice_a_security_behavior.sql',
     'supabase/tests/gate6o_episode_storage_tier_contract.sql'
+    'supabase/tests/gate6p_storage_bucket_contract.sql'
   )) {
     $source = Join-Path $repo $test
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -131,7 +132,7 @@ $restrictive_defaults$
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.gate6o-baseline-successor-certification.v1'
+    schema = 'forge.gate6p-baseline-successor-certification.v1'
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

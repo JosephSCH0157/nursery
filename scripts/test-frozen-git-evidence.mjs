@@ -104,7 +104,7 @@ try {
   git(publishedRoot, ["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   const published = verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all", requireExactWorktreeBytes: true });
   assert.equal(published.fileCount, 451);
-  assert.equal(published.successorFileCount, 2);
+  assert.equal(published.successorFileCount, 3);
   assert.equal(published.trustAnchorSha256, FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256);
   assert.throws(
     () => git(publishedRoot, ["cat-file", "-e", `${published.certifiedSourceCommit}^{commit}`]),

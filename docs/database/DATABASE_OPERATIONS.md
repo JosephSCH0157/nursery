@@ -99,7 +99,7 @@ pnpm verify:db:historical-integrity
 pnpm certify:db:canonical-baseline
 ```
 
-Certification creates disposable databases, executes B1 plus T, runs catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, Bar Stock lifecycle, episode storage-tier parity, pairing, subscription/billing, Quench, Data API, and financial-inactivity tests, compares the normalized catalog, and tears the databases down. The current Gate 6O successor must report 15,903 entries, production-normalized contract hash `766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd`, local `wrappers` 0.5.7 hash `37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef`, and only the approved hosted `wrappers` 0.5.6 versus local 0.5.7 difference. The earlier Gate 5F and Gate 6H catalogs remain frozen predecessors, not the current tail target.
+Certification creates disposable databases, executes B1 plus T, runs catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, Bar Stock lifecycle, episode storage-tier parity, Storage bucket provisioning and cross-user isolation, pairing, subscription/billing, Quench, Data API, and financial-inactivity tests, compares the normalized catalog and provisioning contract, and tears the databases down. The current Gate 6P successor must report 15,903 catalog entries, production-normalized contract hash `766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd`, local `wrappers` 0.5.7 hash `37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef`, exactly the two approved private Storage bucket records, and only the approved hosted `wrappers` 0.5.6 versus local 0.5.7 difference. Gate 6P does not change catalog entries; its provisioning evidence is recorded separately. The earlier Gate 5F, Gate 6H, and Gate 6O contracts remain frozen predecessors, not the current tail target.
 
 For evidence continuity, Gate 5F recorded 15,901 entries at `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`. Gate 6H also recorded 15,901 entries after its three Bar Stock definition changes, with production-normalized hash `6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5` and approved local `wrappers` 0.5.7 hash `dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e`.
 
@@ -131,13 +131,21 @@ pnpm certify:db:gate6o-successor
 
 It must preserve all seven authentic-prefix hashes, reach `historical-v1`, match the 15,903-entry Gate 6O catalog in both default-privilege lanes, and prove the exact episode deletion-lifecycle column and constraint contract. The Gate 6H command and evidence remain the frozen predecessor record.
 
+Gate 6P extends that certified successor with the seventh pending version through `20261025080943` and a 418-row final history. Run the current two-lineage successor gate with:
+
+```powershell
+pnpm certify:db:gate6p-successor
+```
+
+It must preserve all seven authentic-prefix hashes, reach `historical-v1`, retain the unchanged 15,903-entry Gate 6O catalog contract, and prove exact, private, idempotent provisioning of `forge-workpieces` and `bellows-capture` without changing Storage objects, policies, RLS, ACLs, or existing compatible rows.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell
-pnpm certify:db:gate6o-browser
+pnpm certify:db:gate6p-browser
 ```
 
-This runs the browser fixture authority and disposable-isolation tests before `pnpm gate:browser`, then removes only its task-created local stack and temporary files. It makes no hosted request and does not invoke a paid provider.
+This runs Gate 6P fresh missing-row provisioning through the normal B1-plus-tail path, repeated-provisioning idempotency, incompatible-configuration rollback, the bucket/RLS contract, browser fixture authority, and disposable-isolation tests before `pnpm gate:browser`, then removes only its task-created local stack and temporary files. It makes no hosted request and does not invoke a paid provider. The Gate 6O browser command remains predecessor evidence; use the Gate 6P command for the current tail.
 
 **Not yet implemented/certified:** a production hosted-apply command. Gate 5F did not migrate production or exercise production customer/financial rows. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run remain distinct evidence and are not substitutes for the recorded authentic-history run. Every hosted migration still requires backup/PITR verification, read-only production preflight, exact pending-version review, and separate owner authorization.
 

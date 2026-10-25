@@ -18,6 +18,10 @@ $gate6oRelativePath = 'docs/database/baseline/v1-gate6o/successor-contract.v1.js
 $gate6oPath = Join-Path $repo $gate6oRelativePath
 $gate6oSha256 = '6faf15bd24a3b9b398ffd42027bdb7a993fdc51f40cfc46b084018ecbda2c87e'
 $gate6o = Get-Content -LiteralPath $gate6oPath -Raw | ConvertFrom-Json
+$gate6pRelativePath = 'docs/database/baseline/v1-gate6p/successor-contract.v1.json'
+$gate6pPath = Join-Path $repo $gate6pRelativePath
+$gate6pSha256 = 'dc27fb7a84a6cbeb44bc9af91f1db51a6c82ff6fa7db32863a6f32e9c2963219'
+$gate6p = Get-Content -LiteralPath $gate6pPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -70,6 +74,7 @@ foreach ($reference in @(
   $trustAnchorRelativePath,
   $successorRelativePath
   $gate6oRelativePath
+  $gate6pRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -88,6 +93,15 @@ if ($gate6o.predecessor.contractSha256 -ne $successorSha256 -or
     $gate6o.sharedTailAddition.version -ne '20261025070300' -or
     $gate6o.historicalSuccessor.finalRows -ne 417) {
   $failures.Add('Gate 6O successor contract has unexpected predecessor or chronology.')
+}
+if ((Get-FileHash -LiteralPath $gate6pPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $gate6pSha256) {
+  $failures.Add('Gate 6P successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($gate6p.predecessor.contractSha256 -ne $gate6oSha256 -or
+    $gate6p.sharedTailAddition.version -ne '20261025080943' -or
+    $gate6p.historicalSuccessor.finalRows -ne 418 -or
+    $gate6p.provisioningSuccessor.sha256 -ne '18722cbd2a747e456b882e5069b05772bc560acf2ee25e42af2d4d4d8c2dd939') {
+  $failures.Add('Gate 6P successor contract has unexpected predecessor, chronology, or provisioning evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
@@ -121,6 +135,8 @@ foreach ($command in @(
   'pnpm certify:db:canonical-baseline',
   'pnpm certify:db:gate6h-successor',
   'pnpm certify:db:gate6o-successor',
+  'pnpm certify:db:gate6p-successor',
+  'pnpm certify:db:gate6p-browser',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {

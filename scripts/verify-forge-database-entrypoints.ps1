@@ -35,6 +35,12 @@ if ([string]$package.scripts.'certify:db:gate6o-successor' -notmatch 'certify-ga
 if ([string]$package.scripts.'certify:db:gate6o-browser' -notmatch 'certify-gate6o-browser\.ps1') {
   $failures.Add('Gate 6O authenticated browser certification is not routed through its isolated baseline harness.')
 }
+if ([string]$package.scripts.'certify:db:gate6p-successor' -notmatch 'certify-gate6h-successor\.ps1') {
+  $failures.Add('Gate 6P historical successor certification is not routed through the approved two-lineage harness.')
+}
+if ([string]$package.scripts.'certify:db:gate6p-browser' -notmatch 'certify-gate6o-browser\.ps1') {
+  $failures.Add('Gate 6P authenticated browser certification is not routed through the isolated baseline harness.')
+}
 
 $approvedExecutablePaths = @(
   '.github/workflows/pr-smoke.yml',

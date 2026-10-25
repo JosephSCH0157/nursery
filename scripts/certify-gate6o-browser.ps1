@@ -59,6 +59,53 @@ try {
     [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, 'Process')
   }
 
+  $databaseContainers = @(docker ps --filter "label=com.supabase.cli.project=$projectId" --format '{{.Names}}' |
+    Where-Object { $_ -like 'supabase_db_*' })
+  if ($databaseContainers.Count -ne 1) { throw 'Disposable browser database container identity is ambiguous.' }
+  $databaseContainer = $databaseContainers[0]
+  $migrationPath = Join-Path $repo 'supabase/migrations/20261025080943_provision_required_storage_buckets.sql'
+  $contractTestPath = Join-Path $repo 'supabase/tests/gate6p_storage_bucket_contract.sql'
+  & docker cp $migrationPath "${databaseContainer}:/tmp/gate6p-storage-buckets.sql" *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to stage the Gate 6P migration in the disposable database.' }
+  & docker cp $contractTestPath "${databaseContainer}:/tmp/gate6p-storage-contract.sql" *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to stage the Gate 6P Storage test in the disposable database.' }
+
+  $bucketSnapshotBefore = (& docker exec $databaseContainer psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "select jsonb_agg(to_jsonb(bucket) order by id)::text from storage.buckets bucket where id in ('bellows-capture','forge-workpieces');" | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($bucketSnapshotBefore)) { throw 'Unable to snapshot required Storage buckets.' }
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/gate6p-storage-buckets.sql *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Gate 6P repeated provisioning failed.' }
+  $bucketSnapshotAfter = (& docker exec $databaseContainer psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "select jsonb_agg(to_jsonb(bucket) order by id)::text from storage.buckets bucket where id in ('bellows-capture','forge-workpieces');" | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $bucketSnapshotAfter -cne $bucketSnapshotBefore) { throw 'Gate 6P repeated provisioning changed a correct bucket record.' }
+
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "update storage.buckets set public=true where id='forge-workpieces';" *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare the visibility-conflict regression.' }
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/gate6p-storage-buckets.sql *> $null
+  if ($LASTEXITCODE -eq 0) { throw 'Gate 6P accepted a public forge-workpieces bucket.' }
+  $publicConflict = (& docker exec $databaseContainer psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "select public::text from storage.buckets where id='forge-workpieces';" | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $publicConflict -cne 'true') { throw 'Visibility-conflict failure did not roll back completely.' }
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "update storage.buckets set public=false where id='forge-workpieces';" *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to restore the disposable visibility probe.' }
+
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "update storage.buckets set allowed_mime_types=array['video/webm']::text[] where id='bellows-capture';" *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to prepare the upload-restriction conflict regression.' }
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/gate6p-storage-buckets.sql *> $null
+  if ($LASTEXITCODE -eq 0) { throw 'Gate 6P accepted incompatible Bellows upload restrictions.' }
+  $mimeConflict = (& docker exec $databaseContainer psql -X -A -t -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "select array_to_string(allowed_mime_types,',') from storage.buckets where id='bellows-capture';" | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $mimeConflict -cne 'video/webm') { throw 'Upload-restriction failure did not roll back completely.' }
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c `
+    "update storage.buckets set allowed_mime_types=array['video/webm','video/mp4','audio/webm','application/octet-stream']::text[] where id='bellows-capture';" *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to restore the disposable MIME-type probe.' }
+
+  & docker exec $databaseContainer psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/gate6p-storage-contract.sql *> $null
+  if ($LASTEXITCODE -ne 0) { throw 'Gate 6P Storage bucket contract failed.' }
+
   Push-Location $repo
   try {
     & pnpm --filter nursery test:browser-fixtures
@@ -72,7 +119,7 @@ try {
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.gate6o-browser-certification.v1'
+    schema = 'forge.gate6p-browser-certification.v1'
     projectId = $projectId
     lineage = 'baseline-v1'
     hostedRequests = 0
@@ -88,6 +135,8 @@ finally {
   $tongsToken = $null
   $status = $null
   $statusText = $null
+  $bucketSnapshotBefore = $null
+  $bucketSnapshotAfter = $null
   $resolved = [IO.Path]::GetFullPath($workdir)
   if (-not $resolved.StartsWith($temporaryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
       [IO.Path]::GetFileName($resolved) -notlike 'forge-g6o-browser-*') {

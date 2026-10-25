@@ -62,6 +62,8 @@
     "certify:db:gate6h-successor": "pwsh -NoProfile -File scripts/certify-gate6h-successor.ps1",
     "certify:db:gate6o-successor": "pwsh -NoProfile -File scripts/certify-gate6h-successor.ps1",
     "certify:db:gate6o-browser": "pwsh -NoProfile -File scripts/certify-gate6o-browser.ps1",
+    "certify:db:gate6p-successor": "pwsh -NoProfile -File scripts/certify-gate6h-successor.ps1",
+    "certify:db:gate6p-browser": "pwsh -NoProfile -File scripts/certify-gate6o-browser.ps1",
     "verify:db:historical-integrity": "pwsh -NoProfile -File scripts/verify-canonical-database-artifacts.ps1",
     "gate:anvil-release": "node scripts/run-anvil-release-gate.mjs",
     "gate:barstock-release": "pnpm --filter @nursery/bar-stock lint && pnpm --filter @nursery/bar-stock typecheck && pnpm --filter @nursery/bar-stock test && pnpm --filter @nursery/bar-stock build && pnpm --filter @nursery/bar-stock test:db && pnpm --filter @nursery/bar-stock test:db:repository",
