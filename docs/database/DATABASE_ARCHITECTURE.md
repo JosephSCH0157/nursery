@@ -26,6 +26,8 @@ Gate 5D/5F authentic-history certification is deliberately separate from the lin
 
 Gate 6H adds the shared-tail successor `20261024164519_barstock_project_archive_atomic_graduation.sql`. It does not replace Gate 5F evidence. Gate 5F remains the certified 415-row predecessor; Gate 6H separately certifies a 416-row historical successor and B1 plus the same tail. The versioned successor contract and catalog are [successor-contract.v1.json](baseline/v1-gate6h/successor-contract.v1.json) and [successor-catalog-fingerprint.json](baseline/v1-gate6h/successor-catalog-fingerprint.json).
 
+Gate 6O adds `20261025070300_tongs_episode_storage_tier_parity.sql` after Gate 6H. It restores the historical `tongs.episodes.storage_tier text NOT NULL DEFAULT 'hot'` plus `hot`/`cold` constraint that was absent from the approved snapshots while leaving every frozen predecessor byte unchanged. The migration validates the complete surviving episode deletion-lifecycle predecessor and rejects incompatible pre-existing definitions. The versioned successor authority is [Gate 6O successor-contract.v1.json](baseline/v1-gate6o/successor-contract.v1.json), with its separate [catalog fingerprint](baseline/v1-gate6o/successor-catalog-fingerprint.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future
@@ -62,6 +64,8 @@ The complete empty-state contract is [FINANCIAL_INACTIVE_CONTRACT.md](baseline/v
 ## Catalog contract and environmental normalization
 
 The Gate 5F predecessor catalog contains 15,901 normalized entries with certification contract SHA-256 `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`; it remains frozen in [canonical-application-catalog-fingerprint.json](baseline/v1-gate3/canonical-application-catalog-fingerprint.json). The Gate 6H successor still contains 15,901 entries and changes exactly the Bar Stock status constraint, atomicity function, and Project archive trigger. Its production-normalized contract SHA-256 is `6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5`; local certification with approved `wrappers` 0.5.7 reports `dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e`.
+
+The Gate 6O successor contains 15,903 entries. Its only additions relative to Gate 6H are `column|tongs.episodes.storage_tier` and `constraint|tongs.episodes.episodes_storage_tier_check`. Its production-normalized contract SHA-256 is `766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd`; local certification with the approved `wrappers` 0.5.7 environment reports `37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef`.
 
 Strict equality applies to every catalog and security entry except one explicit environmental compatibility rule: existing hosted infrastructure records `wrappers` 0.5.6, while the Supabase CLI 2.84.2 disposable PostgreSQL image provides compatible 0.5.7. [wrappers-extension-compatibility.json](baseline/v1-gate3/wrappers-extension-compatibility.json) records the evidence and rejects every unlisted version or extension difference. This exception does not authorize a hosted extension upgrade.
 

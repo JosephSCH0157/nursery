@@ -101,7 +101,7 @@ $restrictive_defaults$
   foreach ($test in @(
     'supabase/tests/public_slice_a_catalog_parity.sql',
     'supabase/tests/public_slice_a_security_behavior.sql',
-    'supabase/tests/gate6h_canonical_baseline_successor_behavior.sql'
+    'supabase/tests/gate6o_episode_storage_tier_contract.sql'
   )) {
     $source = Join-Path $repo $test
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -125,13 +125,13 @@ $restrictive_defaults$
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
   Push-Location $workdir
   try {
-    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-gate6h/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-gate6o/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
   }
   finally { Pop-Location }
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.gate6h-baseline-successor-certification.v1'
+    schema = 'forge.gate6o-baseline-successor-certification.v1'
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

@@ -131,6 +131,12 @@ test("Hammer fixture seeds a reusable canonical speaker-turn transcript", async 
   assert.match(source, /media_signature:\s*mediaSignature/);
 });
 
+test("browser episode provisioning exercises the canonical storage-tier contract", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /from\(["']episodes["']\)\.upsert\(\{[^}]*lifecycle_state:\s*["']active["'][^}]*storage_tier:\s*["']hot["']/s);
+  assert.doesNotMatch(source, /storage_tier\s*\?\?|storage_tier\s*:\s*undefined/);
+});
+
 test("Hearth fixtures seed recording-valid speaker blocks", async () => {
   const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
   assert.match(source, /const fixtureScript = \(label: string\) => `\[s1\]\\n/);

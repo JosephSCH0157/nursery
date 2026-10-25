@@ -252,15 +252,15 @@ select jsonb_build_object(
     $preflight=& (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage historical -Workdir $workdir -DatabaseTarget local -Mode preflight -ConfigurationPath $lineagePath -RepositoryRoot $repo|ConvertFrom-Json
     if(-not $preflight.ok -or $preflight.databaseState -ne 'historical-preflight'){throw 'Restored history was not recognized as historical preflight.'}
     $dryRun=(& supabase db push --local --dry-run --workdir $workdir --agent=no 2>&1|Out-String);if($LASTEXITCODE -ne 0){throw 'Normal migration discovery failed; output suppressed.'}
-    $pending=@([regex]::Matches($dryRun,'(?m)2026\d{10}')|ForEach-Object Value|Select-Object -Unique);$expected=@('20261020171517','20261020171519','20261020171522','20261022000000','20261024164519')
+    $pending=@([regex]::Matches($dryRun,'(?m)2026\d{10}')|ForEach-Object Value|Select-Object -Unique);$expected=@('20261020171517','20261020171519','20261020171522','20261022000000','20261024164519','20261025070300')
     if(($pending-join ',') -ne ($expected-join ',')){throw "Unexpected pending migrations: $($pending-join ',')"}
-    $upgrade=(& supabase migration up --local --workdir $workdir --yes --agent=no 2>&1|Out-String);if($LASTEXITCODE -ne 0){throw 'Normal five-migration successor upgrade failed; output suppressed.'}
+    $upgrade=(& supabase migration up --local --workdir $workdir --yes --agent=no 2>&1|Out-String);if($LASTEXITCODE -ne 0){throw 'Normal six-migration successor upgrade failed; output suppressed.'}
     $finalCount=[int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;');$marker=Invoke-Psql $container "select lineage from forge_meta.database_lineage where singleton;"
-    if($finalCount -ne 416 -or $marker -ne 'historical-v1'){throw 'Final successor history count or lineage marker mismatch.'}
+    if($finalCount -ne 417 -or $marker -ne 'historical-v1'){throw 'Final successor history count or lineage marker mismatch.'}
     $after=Get-HistoryHashes $container ([string]$historyContract.history.maximumVersion)
     foreach($name in @('allColumns','version','statements','name','createdBy','idempotencyKey','rollback')){if([string]$after.$name -cne [string]$before.$name){throw "Original history changed after tail: $name"}}
 
-    foreach($test in @('supabase/tests/public_slice_a_catalog_parity.sql','supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate6h_historical_v1_successor_behavior.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
+    foreach($test in @('supabase/tests/public_slice_a_catalog_parity.sql','supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate6o_episode_storage_tier_contract.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
     $savedContainer=$env:SUPABASE_DB_CONTAINER
     try {
       $env:SUPABASE_DB_CONTAINER=$container
@@ -276,14 +276,14 @@ select jsonb_build_object(
     $dataApi=& (Join-Path $repo 'scripts/test-canonical-baseline-v1-data-api.ps1') -Workdir $workdir|ConvertFrom-Json;if(-not $dataApi.ok){throw 'Disposable Data API certification failed.'}
     $postFingerprint=Join-Path $temporaryRoot 'post-upgrade.json'
     Push-Location $workdir
-    try{$postCatalog=& (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $postFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-gate6h/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|ConvertFrom-Json}finally{Pop-Location}
+    try{$postCatalog=& (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $postFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-gate6o/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|ConvertFrom-Json}finally{Pop-Location}
 
     $result=[pscustomobject]@{
       ok=$true;mode=$Lane;projectId=$projectId;restoredRows=411;finalHistoryRows=$finalCount;lineage=$marker
       pendingVersions=$pending;historyHashes=$after;originalHistoryUnchanged=$true;negativeTests=$negative
       preUpgradeCatalogSha256=$preCatalog.contractSha256;postUpgradeCatalogSha256=$postCatalog.contractSha256
       catalogObjectCount=$postCatalog.objectCount;approvedEnvironmentalDifferences=@($postCatalog.approvedEnvironmentalDifferences)
-      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate6h_historical_v1_successor_behavior','barstock_project_archive_atomicity','local_data_api','gate6h_successor_catalog_fingerprint_comparison')
+      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate6o_episode_storage_tier_contract','barstock_project_archive_atomicity','local_data_api','gate6o_successor_catalog_fingerprint_comparison')
       dataApi=$dataApi;localReadOnlyRoleExpectedAccess=$true;financiallyInactive=$true;paidProviderOperations=0;hostedRequests=0
     }
   }
@@ -332,7 +332,7 @@ try {
   $nurseryUnchanged=(($nurseryBeforeAll.containers-join ',') -eq ($nurseryAfterAll.containers-join ',') -and ($nurseryBeforeAll.volumes-join ',') -eq ($nurseryAfterAll.volumes-join ','))
   if(-not $nurseryUnchanged -or @($lanes|Where-Object{-not $_.cleanupVerified -or -not $_.nurseryResourcesUnchanged}).Count){throw 'Final isolation verification failed.'}
   [pscustomobject]@{
-    ok=$true;schema='forge.gate6h-successor-two-lineage-certification.v1';historyMode=$HistoryMode
+    ok=$true;schema='forge.gate6o-successor-two-lineage-certification.v1';historyMode=$HistoryMode
     syntheticOnly=($HistoryMode -ne 'ExternalAuthentic');authenticHistory=($HistoryMode -eq 'ExternalAuthentic');authenticRequestMade=$false
     cliVersion=$cli;gitBranch=$branch;gitHead=$head;failureCleanupVerified=$failureCleanup
     nurseryResourcesUnchanged=$nurseryUnchanged;hostingCharges=0;productionMetadataTransferred=$false;lanes=$lanes

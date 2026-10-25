@@ -9,6 +9,8 @@ export const FROZEN_EVIDENCE_TRUST_ANCHOR_PATH = "docs/database/baseline/v1-gate
 export const FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256 = "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb";
 export const GATE6H_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-gate6h/successor-contract.v1.json";
 export const GATE6H_SUCCESSOR_CONTRACT_SHA256 = "a424d05912c808467dd13957d0690d3f95a3f11cafe0089bcd7f87712cc8fd32";
+export const GATE6O_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-gate6o/successor-contract.v1.json";
+export const GATE6O_SUCCESSOR_CONTRACT_SHA256 = "6faf15bd24a3b9b398ffd42027bdb7a993fdc51f40cfc46b084018ecbda2c87e";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -226,6 +228,35 @@ function loadGate6HSuccessorContract(root, head) {
   return contract;
 }
 
+function loadGate6OSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [GATE6O_SUCCESSOR_CONTRACT_PATH]).get(GATE6O_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== GATE6O_SUCCESSOR_CONTRACT_SHA256) throw new Error("Gate 6O successor-contract SHA-256 mismatch.");
+  const contract = JSON.parse(bytes.toString("utf8"));
+  if (contract.schema !== "forge.gate6o-successor-contract.v1" || contract.repository !== "JosephSCH0157/nursery") {
+    throw new Error("Gate 6O successor contract has an unexpected identity.");
+  }
+  const addition = contract.sharedTailAddition;
+  if (contract.predecessor?.contractSha256 !== GATE6H_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261025070300" ||
+      addition?.path !== "supabase/migrations/20261025070300_tongs_episode_storage_tier_parity.sql" ||
+      !/^[0-9a-f]{64}$/.test(addition?.sha256 ?? "") ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Gate 6O successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(GATE6O_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") throw new Error("Gate 6O successor contract is missing or has an unsupported mode.");
+  checkAttributes(root, [GATE6O_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...GATE6O_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Gate 6O successor-contract working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", GATE6O_SUCCESSOR_CONTRACT_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) throw new Error("Gate 6O successor-contract staged content differs from HEAD.");
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -319,19 +350,19 @@ function assertRepository(repositoryRoot, verifiedTree, certifiedSourceTree) {
   return { root, head, source };
 }
 
-function verifyAnchoredFileSet({ root, head, anchor, successor, scope, requireExactWorktreeBytes = false }) {
+function verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireExactWorktreeBytes = false }) {
   if (!["historical", "canonical", "pre-slice", "gate5d", "all"].includes(scope)) throw new Error(`Unknown frozen-evidence scope: ${scope}`);
   const files = anchor.files.filter((item) => scope === "all" || item.scopes.includes(scope));
   if (!files.length) throw new Error(`Frozen evidence trust anchor has no records for scope: ${scope}`);
   const protectedRoots = anchor.protectedRootsByScope[scope];
   if (!Array.isArray(protectedRoots)) throw new Error(`Frozen evidence trust anchor omits protected roots for scope: ${scope}`);
   const headTree = readTree(root, head);
-  const successorFiles = [{
-    path: successor.sharedTailAddition.path,
-    expectedSha256: successor.sharedTailAddition.sha256,
+  const successorFiles = successors.map((successor) => ({
+    path: successor.contract.sharedTailAddition.path,
+    expectedSha256: successor.contract.sharedTailAddition.sha256,
     mode: "100644",
-    contracts: ["gate6h-shared-tail-successor"],
-  }];
+    contracts: [`${successor.gate}-shared-tail-successor`],
+  }));
   for (const item of files) {
     const current = headTree.get(item.path);
     if (!current || current.type !== "blob" || current.mode !== item.mode || current.oid !== item.oid) {
@@ -352,10 +383,10 @@ function verifyAnchoredFileSet({ root, head, anchor, successor, scope, requireEx
   }
   const successorRecords = successorFiles.map((item) => {
     const current = headTree.get(item.path);
-    if (!current || current.type !== "blob" || current.mode !== item.mode) throw new Error(`Gate 6H successor object is missing or unsupported: ${item.path}`);
+    if (!current || current.type !== "blob" || current.mode !== item.mode) throw new Error(`Shared-tail successor object is missing or unsupported: ${item.path}`);
     const bytes = readBlobs(root, head, [item.path]).get(item.path);
     const blobSha256 = sha256(bytes);
-    if (blobSha256 !== item.expectedSha256) throw new Error(`Gate 6H successor SHA-256 differs: ${item.path}`);
+    if (blobSha256 !== item.expectedSha256) throw new Error(`Shared-tail successor SHA-256 differs: ${item.path}`);
     return { ...item, oid: current.oid, blobSha256, worktreeSha256: sha256(fs.readFileSync(path.join(root, ...item.path.split("/")))) };
   });
   const paths = files.map((item) => item.path);
@@ -400,8 +431,10 @@ function verifyAnchoredFileSet({ root, head, anchor, successor, scope, requireEx
     scope,
     fileCount: records.length,
     successorFileCount: successorRecords.length,
-    successorContractPath: GATE6H_SUCCESSOR_CONTRACT_PATH,
-    successorContractSha256: GATE6H_SUCCESSOR_CONTRACT_SHA256,
+    successorContractPath: GATE6O_SUCCESSOR_CONTRACT_PATH,
+    successorContractSha256: GATE6O_SUCCESSOR_CONTRACT_SHA256,
+    predecessorSuccessorContractPath: GATE6H_SUCCESSOR_CONTRACT_PATH,
+    predecessorSuccessorContractSha256: GATE6H_SUCCESSOR_CONTRACT_SHA256,
     expectedModes: modes,
     requireExactWorktreeBytes,
     worktreeByteDifferences,
@@ -545,8 +578,13 @@ export function verifyFrozenEvidence({
 } = {}) {
   const { root, head } = assertCurrentRepository(repositoryRoot, verifiedTree);
   const anchor = loadTrustAnchor(root, head, trustAnchorSha256);
-  const successor = loadGate6HSuccessorContract(root, head);
-  return verifyAnchoredFileSet({ root, head, anchor, successor, scope, requireExactWorktreeBytes });
+  const gate6h = loadGate6HSuccessorContract(root, head);
+  const gate6o = loadGate6OSuccessorContract(root, head);
+  const successors = [
+    { gate: "gate6h", contract: gate6h },
+    { gate: "gate6o", contract: gate6o },
+  ];
+  return verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireExactWorktreeBytes });
 }
 
 export function materializeFrozenEvidence(options = {}) {

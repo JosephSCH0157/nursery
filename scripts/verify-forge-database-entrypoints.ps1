@@ -29,6 +29,12 @@ if ([string]$package.scripts.'supabase:types' -notmatch 'generate-forge-database
 if ([string]$package.scripts.'supabase:types' -match '--project-id|--linked') {
   $failures.Add('Type generation still targets a hosted database.')
 }
+if ([string]$package.scripts.'certify:db:gate6o-successor' -notmatch 'certify-gate6h-successor\.ps1') {
+  $failures.Add('Gate 6O historical successor certification is not routed through the approved two-lineage harness.')
+}
+if ([string]$package.scripts.'certify:db:gate6o-browser' -notmatch 'certify-gate6o-browser\.ps1') {
+  $failures.Add('Gate 6O authenticated browser certification is not routed through its isolated baseline harness.')
+}
 
 $approvedExecutablePaths = @(
   '.github/workflows/pr-smoke.yml',
@@ -37,6 +43,8 @@ $approvedExecutablePaths = @(
   'scripts/new-forge-database-workdir.ps1',
   'scripts/generate-forge-database-types.ps1',
   'scripts/certify-canonical-baseline-v1.ps1'
+  'scripts/certify-gate6h-successor.ps1'
+  'scripts/certify-gate6o-browser.ps1'
 )
 foreach ($relativePath in $approvedExecutablePaths) {
   $path = Join-Path $repo $relativePath

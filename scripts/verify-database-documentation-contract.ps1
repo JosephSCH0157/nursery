@@ -14,6 +14,10 @@ $successorRelativePath = 'docs/database/baseline/v1-gate6h/successor-contract.v1
 $successorPath = Join-Path $repo $successorRelativePath
 $successorSha256 = 'a424d05912c808467dd13957d0690d3f95a3f11cafe0089bcd7f87712cc8fd32'
 $successor = Get-Content -LiteralPath $successorPath -Raw | ConvertFrom-Json
+$gate6oRelativePath = 'docs/database/baseline/v1-gate6o/successor-contract.v1.json'
+$gate6oPath = Join-Path $repo $gate6oRelativePath
+$gate6oSha256 = '6faf15bd24a3b9b398ffd42027bdb7a993fdc51f40cfc46b084018ecbda2c87e'
+$gate6o = Get-Content -LiteralPath $gate6oPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -65,6 +69,7 @@ foreach ($reference in @(
   'docs/database/baseline/v1-gate2/FINANCIAL_INACTIVE_CONTRACT.md',
   $trustAnchorRelativePath,
   $successorRelativePath
+  $gate6oRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -75,6 +80,14 @@ if ((Get-FileHash -LiteralPath $successorPath -Algorithm SHA256).Hash.ToLowerInv
 }
 if ($successor.sharedTailAddition.version -ne '20261024164519' -or $successor.historicalSuccessor.finalRows -ne 416) {
   $failures.Add('Gate 6H successor contract has unexpected chronology.')
+}
+if ((Get-FileHash -LiteralPath $gate6oPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $gate6oSha256) {
+  $failures.Add('Gate 6O successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($gate6o.predecessor.contractSha256 -ne $successorSha256 -or
+    $gate6o.sharedTailAddition.version -ne '20261025070300' -or
+    $gate6o.historicalSuccessor.finalRows -ne 417) {
+  $failures.Add('Gate 6O successor contract has unexpected predecessor or chronology.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
@@ -107,6 +120,7 @@ foreach ($command in @(
   'test-supabase-lineage-guard.ps1',
   'pnpm certify:db:canonical-baseline',
   'pnpm certify:db:gate6h-successor',
+  'pnpm certify:db:gate6o-successor',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {
@@ -130,6 +144,9 @@ foreach ($value in @(
   '49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f',
   '6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5',
   'dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e',
+  '15903',
+  '766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd',
+  '37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef',
   [string]$wrappersContract.environments.linked.requiredVersion,
   [string]$wrappersContract.environments.local.requiredVersion
 )) {
