@@ -221,16 +221,19 @@ function loadGate6TFrozenSuccessor(root, head, anchor, expectedSha256 = GATE6T_F
       contract.preserveProtectedPathMembership !== true) {
     throw new Error("Gate 6T frozen-evidence successor has an invalid predecessor, source identity, or fail-closed contract.");
   }
-  const source = resolveCommit(root, contract.authorizedSource.commit, "Gate 6T authorized source");
-  if (source !== contract.authorizedSource.commit || git(root, ["rev-parse", `${source}^{tree}`]).trim() !== contract.authorizedSource.tree) {
+  const sourceProbe = spawnSync("git", ["-C", root, "rev-parse", "--verify", `${contract.authorizedSource.commit}^{commit}`], {
+    encoding: "utf8",
+  });
+  const source = sourceProbe.status === 0 ? sourceProbe.stdout.trim() : null;
+  if (source && (source !== contract.authorizedSource.commit || git(root, ["rev-parse", `${source}^{tree}`]).trim() !== contract.authorizedSource.tree)) {
     throw new Error("Gate 6T frozen-evidence successor authorized source identity differs.");
   }
   if (!Array.isArray(contract.protectedChanges) || contract.protectedChanges.length !== 8) {
     throw new Error("Gate 6T frozen-evidence successor must authorize exactly eight protected changes.");
   }
   const anchorFiles = new Map(anchor.files.map((item) => [item.path, item]));
-  const sourceTree = readTree(root, source);
-  const sourceBlobs = readBlobs(root, source, contract.protectedChanges.map((item) => item.path));
+  const sourceTree = source ? readTree(root, source) : null;
+  const sourceBlobs = source ? readBlobs(root, source, contract.protectedChanges.map((item) => item.path)) : null;
   const changes = new Map();
   let previous = "";
   for (const item of contract.protectedChanges) {
@@ -247,9 +250,17 @@ function loadGate6TFrozenSuccessor(root, head, anchor, expectedSha256 = GATE6T_F
     if (!predecessor || predecessor.mode !== item.mode || predecessor.oid !== item.predecessorOid) {
       throw new Error(`Gate 6T frozen-evidence successor does not match its pinned predecessor: ${normalized}`);
     }
-    const successor = sourceTree.get(normalized);
-    if (!successor || successor.type !== "blob" || successor.mode !== item.mode || successor.oid !== item.successorOid ||
-        sha256(sourceBlobs.get(normalized)) !== item.sha256) {
+    const current = headTree.get(normalized);
+    if (!current || current.type !== "blob" || current.mode !== item.mode || current.oid !== item.successorOid) {
+      throw new Error(`Gate 6T frozen-evidence successor does not match the current protected tree: ${normalized}`);
+    }
+    const currentBytes = readBlobs(root, head, [normalized]).get(normalized);
+    if (!currentBytes || sha256(currentBytes) !== item.sha256) {
+      throw new Error(`Gate 6T frozen-evidence successor SHA-256 differs from the current protected tree: ${normalized}`);
+    }
+    const successor = sourceTree?.get(normalized);
+    if (source && (!successor || successor.type !== "blob" || successor.mode !== item.mode || successor.oid !== item.successorOid ||
+        sha256(sourceBlobs.get(normalized)) !== item.sha256)) {
       throw new Error(`Gate 6T frozen-evidence successor does not match its authorized source: ${normalized}`);
     }
     changes.set(normalized, item);

@@ -103,9 +103,10 @@ try {
   git(publishedRoot, ["config", "user.name", "Forge certification"]);
   git(publishedRoot, ["config", "user.email", "forge-certification@example.invalid"]);
   // The trust-successor contract is bound to the certified predecessor commit.
-  // Two published commits are sufficient to prove that chain without relying on
-  // the older local-only Gate 5F source history.
-  git(publishedRoot, ["fetch", "--quiet", "--depth=2", repositoryRoot, "HEAD"]);
+  // Ordinary PR jobs receive only a synthetic merge commit. The separately
+  // pinned successor must therefore remain verifiable from its current Git
+  // objects without requiring either authorized source history to be present.
+  git(publishedRoot, ["fetch", "--quiet", "--depth=1", repositoryRoot, "HEAD"]);
   git(publishedRoot, ["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   const published = verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all", requireExactWorktreeBytes: true });
   assert.equal(published.fileCount, 451);
@@ -116,6 +117,10 @@ try {
   assert.throws(
     () => git(publishedRoot, ["cat-file", "-e", `${published.certifiedSourceCommit}^{commit}`]),
     "fresh published-history fixture must not contain the local-only certified source commit",
+  );
+  assert.throws(
+    () => git(publishedRoot, ["cat-file", "-e", `${published.trustSuccessorAuthorizedSourceCommit}^{commit}`]),
+    "fresh published-history fixture must not require the Gate 6T authorized source commit",
   );
 
   fs.appendFileSync(path.join(publishedRoot, ...GATE6T_FROZEN_SUCCESSOR_PATH.split("/")), "\n", "utf8");
@@ -138,7 +143,7 @@ try {
   fs.appendFileSync(path.join(publishedRoot, ...approvedProtectedPath.split("/")), "\n", "utf8");
   git(publishedRoot, ["add", approvedProtectedPath]);
   git(publishedRoot, ["commit", "--quiet", "-m", "tamper approved protected successor"]);
-  expectFailure("changed approved successor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /Protected Git object differs/);
+  expectFailure("changed approved successor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /does not match the current protected tree/);
   git(publishedRoot, ["reset", "--hard", "--quiet", "HEAD^"]);
 
   fs.appendFileSync(path.join(publishedRoot, ...FROZEN_EVIDENCE_TRUST_ANCHOR_PATH.split("/")), "\n", "utf8");
