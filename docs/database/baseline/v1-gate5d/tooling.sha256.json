@@ -1,0 +1,27 @@
+{
+  "schema": "forge.gate5d-tooling-manifest.v1",
+  "files": [
+    { "path": "scripts/lib/ForgeGate5D.psm1", "sha256": "cbbbc27a08a000940628cddcf7cc33c294ef1927bb663c9674c399247e1aa8d2" },
+    { "path": "scripts/export-gate5d-authentic-history.ps1", "sha256": "2ceeecb1d118c6a755f46ab32b52fca7eda93d977284777ded422ae878eaa0ee" },
+    { "path": "scripts/export-gate5d-authentic-history-read-only.ps1", "sha256": "464462d5b80db91771280271df8bb754d7b2f4ed2467add722b934a2ae620490" },
+    { "path": "scripts/restore-gate5d-authentic-history.ps1", "sha256": "4429ef82396d6950136aff8706802559c98aada44bebac94dd286990a0c0f7bf" },
+    { "path": "scripts/invoke-gate5d-authentic-history-certification.ps1", "sha256": "c36202f431505e651b3edb82a1e88e3dcda1c8ffb51dbbccd5eb1e80aa5ec065" },
+    { "path": "scripts/test-gate5d-authentic-history-tooling.ps1", "sha256": "4c4d8a8d45d57b8f7c24cc9c17cb02937c6c3d50f409556d5f8c5adccc332a26" },
+    { "path": "scripts/test-gate5d-read-only-endpoint-adapter.ps1", "sha256": "375690e47326e801602c6a74401c9ac09db502d55eaaf8a9be971430ecfa6b21" },
+    { "path": "scripts/prepare-gate5e-owner-attestation.ps1", "sha256": "dd62dd84273116bb986ae492ec13e0301648dc16495b5737f714725e5a7f299c" },
+    { "path": "scripts/invoke-gate5e-read-only-probe.ps1", "sha256": "7ad1cf44f11e6afa77e0c8ec5e72599f343bae866bb3d082dfd59472879b6acf" },
+    { "path": "scripts/test-gate5e-read-only-probe.ps1", "sha256": "242ad6b2c117745cdfc4a69b18f3712ee0e4d0681fe0368bd298051962878063" },
+    { "path": "scripts/verify-gate5d-authentic-history-tooling.ps1", "sha256": "84e0c6fafeec62a56c5559b857ada59cde4f0119935e21a068f648449d3c943c" },
+    { "path": "scripts/new-gate5d-synthetic-history-capsule.ps1", "sha256": "15192999dc7a772811405dd79f8280b2698ae13f253833d271e19134073ae893" },
+    { "path": "scripts/certify-gate5d-integrated-synthetic.ps1", "sha256": "61a89b37d574c63f0b556c18415e1e96d178e4c79924b7e69b3f0c504c387899" },
+    { "path": "scripts/capture-canonical-baseline-v1-catalog.ps1", "sha256": "4e1cce30b99029443a9230548d8371844fdf54ac22ac854254efa6eb8b4a87a7" },
+    { "path": "scripts/invoke-gate5f-authentic-history-certification.ps1", "sha256": "9189e16c013d7c9338bdc7f4db536e6bf9e172ededd446c5c6fca0345190c617" },
+    { "path": "supabase/tests/catalog/gate5d_authentic_history_export.sql", "sha256": "7aa193e8154063b155e5f06ee0ebb3f4b38c2e16fcb7746734184d9246347e6f" },
+    { "path": "supabase/tests/catalog/gate5d_authentic_history_export_read_only.sql", "sha256": "62bdcad7e26bc18b7b308b0e9c9cf876d433114707da7662391ff08e10a7a83c" },
+    { "path": "supabase/tests/catalog/gate5d_read_only_endpoint_probe.sql", "sha256": "d9bf4e0257583e7c8ec865bac73d28f4fbd84ee59197e3867f75d844c6b248fb" },
+    { "path": "supabase/tests/gate5d_historical_v1_behavior.sql", "sha256": "82c64a79f508f70930e7c66c2bb7a476e86b6eef81581ba3aebd611536d6c404" },
+    { "path": "supabase/tests/pre_slice_a_fixture_behavior.sql", "sha256": "7e3e0140e745306f8d64776efc1d7c6c4ed32e956688d4fce9ad8c24714b9c69" },
+    { "path": "supabase/tests/public_slice_a_security_behavior.sql", "sha256": "fdbe87c7a4a99096dc1d2b498a2342cc0f2da1ae7fd1d419e9cbfde2808cd44d" },
+    { "path": "docs/database/baseline/v1-gate5d/authentic-history-contract.json", "sha256": "0c8245b8fa707c28f49043d2b40f255bade67d1a5b7137cb7e1fd223a5a25a7f" }
+  ]
+}

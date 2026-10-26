@@ -1,0 +1,53 @@
+{
+  "schema": "forge.gate6h-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Gate 5F",
+    "historicalRows": 415,
+    "catalogObjectCount": 15901,
+    "catalogContractSha256": "49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f",
+    "evidencePath": "docs/database/baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md",
+    "evidenceSha256": "a549d499a337319faca5ffe2184ecee8e926408e8eb4529f63746807a6baff9e"
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "preSliceFixtureSha256": "abf0d6f03dd25dc9d4af3f30bcca8d8be6047045033b399d6ba2918315bc9751",
+    "gate6bTrustAnchorSha256": "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb"
+  },
+  "sharedTailAddition": {
+    "version": "20261024164519",
+    "path": "supabase/migrations/20261024164519_barstock_project_archive_atomic_graduation.sql",
+    "sha256": "aeaea192f5a2787b4cdbd2ff0ad02f2e3fb4a11d35baa2da092b334b5a71d49c"
+  },
+  "historicalSuccessor": {
+    "restoredAuthenticPrefixRows": 411,
+    "finalRows": 416,
+    "lineage": "historical-v1",
+    "pendingVersions": [
+      "20261020171517",
+      "20261020171519",
+      "20261020171522",
+      "20261022000000",
+      "20261024164519"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-gate6h/successor-catalog-fingerprint.json",
+    "fileSha256": "fab65d073ddde18dc217d99044a0914ad11d08a1ac013fb9040f87e03aed65ca",
+    "objectCount": 15901,
+    "normalizedContractSha256": "6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5",
+    "localWrappers057ContractSha256": "dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e",
+    "changedEntries": [
+      "constraint|tongs.barstock_sparks.barstock_sparks_status_check",
+      "function|tongs.enforce_barstock_project_atomicity_on_sparks()",
+      "trigger|tongs.barstock_assignments.trg_barstock_assignments_archive_graduates_sparks"
+    ]
+  },
+  "approvedEnvironmentalDifference": {
+    "path": "docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json",
+    "sha256": "8b82e58a85b835641c42738a51e695b05b4c7871ae922a48dd192dca303defc1"
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

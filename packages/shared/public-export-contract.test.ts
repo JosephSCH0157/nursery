@@ -20,10 +20,16 @@ test("@forge/shared publishes its canonical public surfaces", () => {
     "./episode-workspace",
     "./hearth-visual-styles",
     "./henry",
+    "./reference-visual-readiness",
     "./script-tags",
   ]);
+  assert.deepEqual(manifest.exports["./reference-visual-readiness"], {
+    types: "./dist/reference-visual-readiness.d.ts",
+    import: "./dist/reference-visual-readiness.js",
+    default: "./dist/reference-visual-readiness.js",
+  });
   const index = fs.readFileSync(path.join(root, "index.ts"), "utf8");
-  for (const publicModule of ["script-tags", "episode-workspace", "henry", "hearth-visual-styles"]) {
+  for (const publicModule of ["script-tags", "episode-workspace", "henry", "hearth-visual-styles", "reference-visual-readiness"]) {
     assert.match(index, new RegExp(`\\./${publicModule}`));
   }
 });

@@ -1,0 +1,57 @@
+name: Database frozen evidence
+
+on:
+  pull_request:
+    paths:
+      - ".gitattributes"
+      - ".github/workflows/database-frozen-evidence.yml"
+      - "database/**"
+      - "docs/database/**"
+      - "scripts/*database*"
+      - "scripts/*gate5*"
+      - "scripts/*historical-migration*"
+      - "scripts/*lineage*"
+      - "scripts/*pre-slice-a*"
+      - "scripts/*canonical-baseline*"
+      - "scripts/*frozen*"
+      - "scripts/lib/ForgeGate5D.psm1"
+      - "scripts/lib/forge-frozen-evidence.mjs"
+      - "supabase/migrations/**"
+      - "supabase/tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+
+      - name: Verify canonical Git objects and regression cases
+        run: |
+          node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes --trust-anchor-sha256 fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb --trust-successor-sha256 a78a66f7495958c172b477391507af643539af80dc184b87794e2ceaf62df838
+          node scripts/test-frozen-git-evidence.mjs
+
+      - name: Prove explicit materialization is idempotent
+        run: |
+          node scripts/materialize-frozen-git-evidence.mjs --scope all
+          git diff --exit-code -- .
+
+      - name: Verify frozen database contracts
+        shell: pwsh
+        run: |
+          ./scripts/verify-historical-migration-manifest.ps1 -RepositoryRoot $PWD
+          ./scripts/verify-canonical-database-artifacts.ps1 -RepositoryRoot $PWD
+          ./scripts/verify-pre-slice-a-fixture.ps1 -RepositoryRoot $PWD
+          ./scripts/verify-gate5d-authentic-history-tooling.ps1 -RepositoryRoot $PWD

@@ -14,7 +14,6 @@ const WORKSPACE_ID = "a2222222-2222-4222-8222-222222222222";
 const EPISODE_ID = "a3333333-3333-4333-8333-333333333333";
 const WORKPIECE_ID = "a4444444-4444-4444-8444-444444444444";
 const ACCESS_TOKEN = "matrix-user-token";
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type UsageEventRow = {
   status?: string;
@@ -37,6 +36,7 @@ type DeltaRpcRow = {
 };
 
 type PolicyReply = "allow" | "soft_deny" | "hard_deny" | "missing" | "malformed" | "unavailable";
+type OwnerAuthorityReply = "not_owner" | "missing" | "mismatched";
 
 class MockMatrixBackend {
   public usageEvents: UsageEventRow[] = [];
@@ -44,10 +44,12 @@ class MockMatrixBackend {
   public chargedRequestIds = new Set<string>();
   public chatCalls = 0;
   public sttCalls = 0;
+  public ownerCostCalls: string[] = [];
   public tokenBalance: number;
   public failDeduction = false;
   public chatTemperature400Once = false;
   public policyReply: PolicyReply = "allow";
+  public ownerAuthorityReply: OwnerAuthorityReply = "not_owner";
   public scriptReply: string | null = null;
 
   private readonly originalFetch: typeof fetch;
@@ -153,6 +155,40 @@ class MockMatrixBackend {
         }]);
       }
 
+      if (url.endsWith("/rest/v1/rpc/resolve_transition_owner_authority") && init?.method === "POST") {
+        if (this.ownerAuthorityReply === "missing") return jsonResponse(200, []);
+        return jsonResponse(200, {
+          user_id: USER_ID,
+          canonical_user_id: this.ownerAuthorityReply === "mismatched"
+            ? "a9999999-9999-4999-8999-999999999999"
+            : USER_ID,
+          account_class: "customer",
+          account_authority_revision: null,
+          account_authority_explicit: false,
+          legacy_user_id: null,
+          legacy_principal_status: null,
+          legacy_principal_revision: null,
+          same_user: true,
+          consistent: true,
+          eligible: false,
+          state: "not_owner",
+          authority_mode: "canonical_legacy_dual_read",
+        });
+      }
+
+      if (url.endsWith("/rest/v1/rpc/resolve_openai_text_model_for_funding_quote") && init?.method === "POST") {
+        return jsonResponse(200, {
+          catalog_revision_id: "a5555555-5555-4555-8555-555555555555",
+          catalog_revision: 1,
+          model_catalog_entry_id: "a6666666-6666-4666-8666-666666666666",
+          customer_selection_key: "a7777777-7777-4777-8777-777777777777",
+          runtime_model_id: "gpt-5.3",
+          provider_model_id: "gpt-5.3",
+          display_name: "GPT-5.3",
+          tradeoff_summary: "Money-path matrix fixture model.",
+        });
+      }
+
       if (url.endsWith("/rest/v1/rpc/apply_ai_token_delta") && init?.method === "POST") {
         const body = parseJsonBody(init?.body) as DeltaRpcRow | null;
         if (!body) {
@@ -170,6 +206,33 @@ class MockMatrixBackend {
         }
 
         return jsonResponse(200, [{ token_balance: this.tokenBalance }]);
+      }
+
+      if (url.includes("/rest/v1/rpc/") && init?.method === "POST") {
+        const name = url.slice(url.lastIndexOf("/") + 1);
+        if ([
+          "read_financial_runtime_environment",
+          "establish_owner_cost_operation",
+          "authorize_owner_cost_provider_attempt",
+          "append_owner_cost_attempt_event",
+          "record_owner_cost_valuation",
+        ].includes(name)) {
+          this.ownerCostCalls.push(name);
+          if (name === "read_financial_runtime_environment") {
+            return jsonResponse(200, { financial_environment: "test" });
+          }
+          if (name === "append_owner_cost_attempt_event") {
+            const body = parseJsonBody(init.body) as Record<string, unknown> | null;
+            return jsonResponse(200, {
+              replay: false,
+              provider_submission_created: body?.p_lifecycle_state === "submitted",
+            });
+          }
+          if (name === "record_owner_cost_valuation") {
+            return jsonResponse(200, { valuation_id: "a8888888-8888-4888-8888-888888888888", replay: false });
+          }
+          return jsonResponse(200, { replay: false, authorized: true });
+        }
       }
 
       if (url.includes("/rest/v1/rpc/") && init?.method === "POST") {
@@ -342,6 +405,7 @@ async function runTest3AnvilHappyPath(): Promise<void> {
     const formWithAction = new FormData();
     formWithAction.set("lane", "forge");
     formWithAction.set("action_id", explicitActionId);
+    formWithAction.set("operation_created_at", "2026-10-24T12:00:00.000Z");
     formWithAction.set("file", new Blob(["audio"], { type: "audio/webm" }), "audio.webm");
 
     const firstResponse = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
@@ -350,10 +414,11 @@ async function runTest3AnvilHappyPath(): Promise<void> {
       body: formWithAction,
     }));
 
-    assert.equal(firstResponse.status, 200);
+    assert.equal(firstResponse.status, 200, await firstResponse.clone().text());
 
     const formWithoutAction = new FormData();
     formWithoutAction.set("lane", "forge");
+    formWithoutAction.set("operation_created_at", "2026-10-24T12:00:01.000Z");
     formWithoutAction.set("file", new Blob(["audio"], { type: "audio/webm" }), "audio.webm");
 
     const secondResponse = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
@@ -362,16 +427,14 @@ async function runTest3AnvilHappyPath(): Promise<void> {
       body: formWithoutAction,
     }));
 
-    assert.equal(secondResponse.status, 200);
+    assert.equal(secondResponse.status, 200, await secondResponse.clone().text());
 
-    const successRows = backend.usageEvents.filter((row) => row.status === "success" && row.subfeature === "anvil_whisper");
-    assert.equal(successRows.length, 2);
-
-    assert.equal(backend.deltaCalls.length, 2);
-    assert.equal(backend.deltaCalls[0]?.p_request_id, explicitActionId);
-    assert(UUID_RE.test(backend.deltaCalls[1]?.p_request_id ?? ""));
-    assert.notEqual(backend.deltaCalls[1]?.p_request_id, explicitActionId);
-    assert.equal(backend.chargedRequestIds.size, 2);
+    assert.equal(backend.sttCalls, 2);
+    assert.equal(backend.deltaCalls.length, 0, "owner-cost ASR must not mutate customer token balances");
+    assert.equal(backend.usageEvents.filter((row) => row.subfeature === "anvil_whisper").length, 0);
+    assert.equal(backend.ownerCostCalls.filter((name) => name === "establish_owner_cost_operation").length, 2);
+    assert.equal(backend.ownerCostCalls.filter((name) => name === "authorize_owner_cost_provider_attempt").length, 2);
+    assert.equal(backend.ownerCostCalls.filter((name) => name === "record_owner_cost_valuation").length, 2);
   } finally {
     backend.restore();
   }
@@ -448,7 +511,7 @@ async function runTest4MissingAuthBlocked(): Promise<void> {
 }
 
 async function runTest5ForcedDeductionFailure(): Promise<void> {
-  const runOne = async (kind: "chat" | "stt" | "anvil", actionId: string): Promise<void> => {
+  const runOne = async (kind: "chat" | "stt", actionId: string): Promise<void> => {
     const backend = new MockMatrixBackend();
     backend.failDeduction = true;
     backend.install();
@@ -491,21 +554,6 @@ async function runTest5ForcedDeductionFailure(): Promise<void> {
         assert.equal(response.status, 502);
         const payload = await response.json() as Record<string, unknown>;
         assert.equal(payload.code, "forge_deduction_failed");
-      } else {
-        const handler = createAnvilWhisperHandler(buildAnvilConfig());
-        const form = new FormData();
-        form.set("lane", "forge");
-        form.set("action_id", actionId);
-        form.set("file", new Blob(["audio"], { type: "audio/webm" }), "audio.webm");
-
-        const response = await handler(new Request(`http://localhost${ANVIL_WHISPER_ROUTE}`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${ACCESS_TOKEN}` },
-          body: form,
-        }));
-        assert.equal(response.status, 502);
-        const payload = await response.json() as Record<string, unknown>;
-        assert.equal(payload.code, "forge_deduction_failed");
       }
 
       const successRows = backend.usageEvents.filter((row) => row.status === "success" && row.action_id === actionId);
@@ -517,7 +565,6 @@ async function runTest5ForcedDeductionFailure(): Promise<void> {
 
   await runOne("chat", "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
   await runOne("stt", "ffffffff-ffff-4fff-8fff-ffffffffffff");
-  await runOne("anvil", "11111111-2222-4333-8444-555555555555");
 }
 
 async function runTest6DuplicateActionRetryNoDoubleCharge(): Promise<void> {
@@ -646,6 +693,39 @@ async function runInsufficientFundsBlockedBeforeGeneration(): Promise<void> {
   }
 }
 
+async function runOwnerAuthorityFailClosedMatrix(): Promise<void> {
+  for (const ownerAuthorityReply of ["missing", "mismatched"] as const) {
+    const backend = new MockMatrixBackend();
+    backend.ownerAuthorityReply = ownerAuthorityReply;
+    backend.install();
+    try {
+      const handler = createHearthAiHandler(buildHearthConfig());
+      const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${ACCESS_TOKEN}` },
+        body: JSON.stringify({
+          lane: "forge",
+          action_id: ownerAuthorityReply === "missing"
+            ? "aaaaaaaa-0000-4000-8000-000000000001"
+            : "aaaaaaaa-0000-4000-8000-000000000002",
+          messages: [{ role: "user", content: "Do not execute without valid owner authority." }],
+          episode_context: buildEpisodeContext(),
+        }),
+      }));
+      const payload = await response.json() as Record<string, unknown>;
+      assert.equal(response.status, 403, JSON.stringify(payload));
+      assert.equal(
+        payload.code,
+        ownerAuthorityReply === "missing" ? "owner_authority_unavailable" : "owner_authority_mismatch",
+      );
+      assert.equal(backend.chatCalls, 0);
+      assert.equal(backend.deltaCalls.length, 0);
+    } finally {
+      backend.restore();
+    }
+  }
+}
+
 async function main(): Promise<void> {
   await runTest1HearthChatHappyPath();
   await runTest2HearthSttHappyPath();
@@ -656,8 +736,9 @@ async function main(): Promise<void> {
   await runTest7CurrentGpt5RequestShape();
   await runPolicyAuthorityMatrix();
   await runInsufficientFundsBlockedBeforeGeneration();
+  await runOwnerAuthorityFailClosedMatrix();
 
-  console.log("Forge money-path matrix passed, including policy denial/failure, billing, insufficient funds, and idempotent replay.");
+  console.log("Forge money-path matrix passed, including owner-cost ASR, customer policy denial/failure, billing, insufficient funds, and idempotent replay.");
 }
 
 main().catch((error) => {

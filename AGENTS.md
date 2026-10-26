@@ -70,6 +70,44 @@ Agent instructions must follow the canonical lifecycle defined in `FORGE_SPARK_T
 
 ---
 
+## Database Migration and Certification Policy (Canonical)
+
+`docs/database/DATABASE_ARCHITECTURE.md` defines why Forge has two permanent
+database lineages; `docs/database/DATABASE_OPERATIONS.md` is the only supported
+operating runbook.
+
+- Historical lineage `historical-v1` (H) is the immutable 414-migration audit
+  and upgrade record through `20261020171522`. Never amend, renumber, delete, or
+  replay it to create a new database.
+- Fresh installations use canonical baseline lineage `baseline-v1` (B1), whose
+  reserved epoch is `20261021000000` through `20261021235959`. Never apply the
+  baseline to an existing or hosted historical database.
+- All migrations from `20261022000000` onward are the single shared forward tail
+  (T) in `supabase/migrations`; both lineages must receive identical bytes.
+- Installed lineage is recorded by the private singleton
+  `forge_meta.database_lineage`; never fabricate or bypass that marker.
+- Every database command must select and validate a lineage through the checked-in
+  scripts. Direct historical-root bootstrap is prohibited. Supabase CLI must be
+  exactly `2.84.2`.
+- Historical migrations and frozen baseline artifacts are immutable. Do not use
+  `--include-all`, `migration repair`, direct writes to migration-history tables,
+  or unapproved migration renumbering.
+- A migration must transactionally establish its complete owner, dependencies,
+  RLS, policies, grants/revocations, and function execution contract. Objects in
+  Data API schemas require explicit grants and RLS; do not rely on automatic or
+  default privileges.
+- A fresh baseline stays financially inactive and fail closed. Do not add pricing
+  activation, credentials, balances, grants, operational Stripe/provider state,
+  or customer data.
+- Run frozen-artifact, lineage, catalog/ACL, RLS/Data API, application, and
+  financial certification before review. Fail closed on any unapproved catalog
+  difference; only the recorded `wrappers` 0.5.6/0.5.7 exception is allowed.
+- Hosted schema changes and all production writes require explicit owner approval.
+  Never deploy, apply migrations, alter hosted history, or write production data
+  merely because local certification passed.
+
+---
+
 ## Test / Live Financial Parity — Non-Negotiable
 
 Forge has ONE customer financial system.
@@ -232,4 +270,4 @@ after the Docker engine is already available.
 
 ---
 
-*Last updated: 2026-09-10*
+*Last updated: 2026-10-21*

@@ -1,0 +1,87 @@
+{
+  "schema": "forge.pre-slice-a-schema-fixture-manifest.v1",
+  "status": "local-certification-candidate",
+  "requiredSupabaseCliVersion": "2.84.2",
+  "historicalPrefix": {
+    "count": 411,
+    "lineageState": "historical-preflight",
+    "marker": null,
+    "pendingVersions": [
+      "20261020171517",
+      "20261020171519",
+      "20261020171522",
+      "20261022000000"
+    ]
+  },
+  "fixture": {
+    "path": "database/historical-pre-slice-a-v1/pre-slice-a-schema.sql",
+    "sha256": "abf0d6f03dd25dc9d4af3f30bcca8d8be6047045033b399d6ba2918315bc9751",
+    "bytes": 5003603,
+    "installsMigrationHistory": false,
+    "installsLineageMarker": false
+  },
+  "structuralSource": {
+    "path": "database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql",
+    "sha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "justification": "The source is used only after a fresh read-only recapture proved that its public+tongs structural definitions equal the genuine 411-version hosted catalog. Baseline-only data, lineage metadata, and assertions are not assumed or retained."
+  },
+  "hostedCatalogEvidence": {
+    "queryPath": "supabase/tests/catalog/post_slice_a_contract_rows.sql",
+    "querySha256": "739fb3589666856501cf9a2c56cc39a3cf486ec2f413223664313a4f11b9e182",
+    "fingerprintPath": "docs/database/baseline/v1-gate2/post-slice-a-catalog-fingerprint.json",
+    "fingerprintFileSha256": "f13e6cf9429ce7b7be3d0b1df99bfd063ae40aecdeccdf2ed62aeb87bf408e07",
+    "objectCount": 15924,
+    "contractSha256": "817f42cfe0f57d2961b52a72b58a5273c3cc1e2bf306e3a527e6bc58bdbcbfbe",
+    "gate5bReadOnlyRecaptureExactMatch": true,
+    "rawDefinitionsRetained": false
+  },
+  "included": [
+    "extensions and approved environment-version assertions",
+    "public and tongs schemas, types, relations, sequences, constraints, indexes, views, functions, triggers, policies, ACLs, owners, and default privileges",
+    "eight Forge policies on storage.objects",
+    "the approved auth.users signup trigger",
+    "the retained ensure_rls event trigger",
+    "three deterministic Quench destination scopes",
+    "four immutable Quench capability revisions",
+    "pre-upgrade empty-state and financial-inactivity assertions"
+  ],
+  "excluded": [
+    "forge_meta schema and database_lineage marker",
+    "B1 lineage and baseline-only assertions",
+    "all migration-history records",
+    "customer and Auth user rows",
+    "billing, transaction, credit, balance, reservation, and settlement rows",
+    "pricing publication and economic activation rows",
+    "operator configuration and external-account state",
+    "credentials, secrets, provider tokens, foreign servers, foreign tables, and user mappings",
+    "results unique to the four pending migration versions"
+  ],
+  "referenceData": {
+    "allowlistPath": "docs/database/baseline/v1-gate2/proposed-reference-data.allowlist.json",
+    "allowlistSha256": "2f0c5d3099cab91539c1fd5cca96e0e7387a44c7f0d96763a5ec89cb26ed6e96",
+    "hostedVerificationQuery": "supabase/tests/catalog/pre_slice_a_reference_contract.sql",
+    "hostedVerificationQuerySha256": "386d560cebc9636634ce07db14cc75f3df4a7bb2e14dd409c4b92b3e7a873a8b",
+    "exactScopeMatches": 3,
+    "exactCapabilityMatches": 4,
+    "containsCustomerConnectionCredentialOrFinancialState": false
+  },
+  "sensitiveDefinitionReview": {
+    "functionDefinitions": 987,
+    "securityDefinerFunctions": 868,
+    "foreignServers": 0,
+    "foreignTables": 0,
+    "userMappings": 0,
+    "credentialValues": 0,
+    "approvedLiteralUrlClasses": [
+      "YouTube canonical and privacy-enhanced embed URL validation",
+      "OpenAI public pricing-document URL constraints"
+    ],
+    "credentialColumnAndParameterNamesAreStructuralOnly": true
+  },
+  "pendingMigrationHashes": {
+    "20261020171517": "da604a19a73984d730a943dd5fc312285f5b32faa728cbf4f17e453400bf47bc",
+    "20261020171519": "414050336e111447efdfae878eae7a38eee4c8bf6ba6b6452272806ce260fa04",
+    "20261020171522": "fd0f74697b7935d759d2abcacba3ea03157a8b84befc5c30204df771dc76b0c9",
+    "20261022000000": "d9e41755bca6be4026d5faac6eb9e0be86ceb4b371d2b850b6a9028ed3c0b53e"
+  }
+}

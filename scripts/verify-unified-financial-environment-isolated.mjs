@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -55,31 +55,104 @@ const migrations = [
   "20261010130000_tongs_owner_hearth_research_permissions.sql",
   "20261011140000_tongs_unified_financial_environment.sql",
   "20261011150000_tongs_historical_backfill_link_repair.sql",
-  "20261011160000_tongs_forge_credit_economy.sql",
-  "20261011170000_tongs_standard_customer_luna_catalog.sql",
-  "20261011180000_tongs_settled_customer_price_quote.sql",
-  "20261011190000_tongs_standard_customer_aggregate_admission.sql",
-  "20261011200000_tongs_standard_customer_certification_aggregate.sql",
-  "20261011210000_tongs_standard_customer_certification_scope_price.sql",
-  "20261011220000_tongs_aggregate_financial_environment_selection.sql",
-  "20261011230000_tongs_deposit_fee_allocation_catchup.sql",
-  "20261011240000_tongs_standard_customer_rollout.sql",
-  "20261011250000_tongs_beta_credit_controls.sql",
-  "20261011260000_tongs_credit_pack_purchase_availability.sql",
-  "20261011270000_tongs_internal_quote_credit_units.sql",
-  "20261011280000_tongs_normal_customer_provider_authority.sql",
-  "20261011290000_tongs_credit_pack_availability_caller_role.sql",
-  "20261011300000_standard_customer_hearth_research.sql",
-  "20261011310000_standard_customer_hearth_research_failure_loss.sql",
-  "20261011320000_standard_customer_hearth_research_full_failure_exposure.sql",
-  "20261011330000_customer_operation_relief_balance_restoration.sql",
-  "20261011340000_tongs_existing_openai_funding_handle_environment.sql",
-  "20261011350000_settled_openai_replay_relief_safety.sql",
-  "20261011360000_customer_operation_relief_corrections.sql",
-  "20261011370000_customer_operation_relief_canonical_binding_evidence.sql",
-  "20261011380000_openai_failure_loss_environment_isolation.sql",
-  "20261011390000_operator_controlled_openai_failure_loss.sql",
+  "20260916110806_tongs_forge_credit_economy.sql",
+  "20260916113132_tongs_standard_customer_luna_catalog.sql",
+  "20260916113500_tongs_settled_customer_price_quote.sql",
+  "20260916113753_tongs_standard_customer_aggregate_admission.sql",
+  "20260916114619_tongs_standard_customer_certification_aggregate.sql",
+  "20260916114739_tongs_standard_customer_certification_scope_price.sql",
+  "20260916114943_tongs_aggregate_financial_environment_selection.sql",
+  "20260916115105_tongs_deposit_fee_allocation_catchup.sql",
+  "20260916130700_tongs_standard_customer_rollout.sql",
+  "20260916130706_tongs_beta_credit_controls.sql",
+  "20260916130712_tongs_credit_pack_purchase_availability.sql",
+  "20260916131208_tongs_internal_quote_credit_units.sql",
+  "20260916131632_tongs_normal_customer_provider_authority.sql",
+  "20260916132017_tongs_credit_pack_availability_caller_role.sql",
+  "20260916154851_standard_customer_hearth_research.sql",
+  "20260916160541_standard_customer_hearth_research_failure_loss.sql",
+  "20260916161021_standard_customer_hearth_research_full_failure_exposure.sql",
+  "20260916162248_customer_operation_relief_balance_restoration.sql",
+  "20260916180205_tongs_existing_openai_funding_handle_environment.sql",
+  "20260916181807_settled_openai_replay_relief_safety.sql",
+  "20260916184248_customer_operation_relief_corrections.sql",
+  "20260916184526_customer_operation_relief_canonical_binding_evidence.sql",
+  "20260916195559_openai_failure_loss_environment_isolation.sql",
+  "20260916202804_operator_controlled_openai_failure_loss.sql",
 ];
+
+function normalizeMigrationSql(source, label) {
+  const normalized = source.replaceAll("\r\n", "\n");
+  if (normalized.includes("\r")) {
+    throw new Error(`${label} contains an unexpected standalone carriage return`);
+  }
+  return normalized;
+}
+
+function verifyMigrationSqlTransportPortability() {
+  const lf = [
+    "do $migration$",
+    "begin",
+    "  if not v_control.owner_budget_spending_enabled then",
+    "    raise exception 'reservation function changed upstream';",
+    "  end if;",
+    "end",
+    "$migration$;",
+    "",
+  ].join("\n");
+  const crlf = lf.replaceAll("\n", "\r\n");
+  const normalizedLf = normalizeMigrationSql(lf, "LF transport fixture");
+  const normalizedCrlf = normalizeMigrationSql(crlf, "CRLF transport fixture");
+  if (normalizedLf !== normalizedCrlf) {
+    throw new Error("LF and CRLF migration transport fixtures normalized differently");
+  }
+
+  const expectedGuard = "if not v_control.owner_budget_spending_enabled then";
+  if (!normalizedLf.includes(expectedGuard)
+    || normalizeMigrationSql(lf.replace(expectedGuard, "if v_control.owner_budget_spending_enabled then"), "drift fixture")
+      .includes(expectedGuard)) {
+    throw new Error("Migration transport normalization suppressed a source-drift safety failure");
+  }
+
+  let standaloneCarriageReturnRejected = false;
+  try {
+    normalizeMigrationSql("select 1;\rselect 2;", "standalone carriage-return fixture");
+  } catch (error) {
+    standaloneCarriageReturnRejected = error instanceof Error
+      && error.message.includes("unexpected standalone carriage return");
+  }
+  if (!standaloneCarriageReturnRejected) {
+    throw new Error("Migration transport accepted an unexpected standalone carriage return");
+  }
+}
+
+function migrationPath(migration) {
+  return `supabase/migrations/${migration}`;
+}
+
+function sha256(content) {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+const migrationSourceHashes = new Map(migrations.map((migration) => [
+  migration,
+  sha256(readFileSync(migrationPath(migration))),
+]));
+
+function readMigrationSql(migration) {
+  return normalizeMigrationSql(readFileSync(migrationPath(migration), "utf8"), migration);
+}
+
+function assertMigrationSourcesUnchanged() {
+  for (const [migration, expectedHash] of migrationSourceHashes) {
+    const observedHash = sha256(readFileSync(migrationPath(migration)));
+    if (observedHash !== expectedHash) {
+      throw new Error(`${migration} changed during isolated verification`);
+    }
+  }
+}
+
+verifyMigrationSqlTransportPortability();
 
 const historicalBackfillFixture = `
   set session_replication_role = replica;
@@ -312,7 +385,7 @@ try {
       psql(historicalBackfillFixture, "historical backfill fixture");
       historicalRepairBefore = JSON.parse(psql(historicalRepairProofSql, "historical backfill pre-proof"));
     }
-    if (migration === "20261011160000_tongs_forge_credit_economy.sql") {
+    if (migration === "20260916110806_tongs_forge_credit_economy.sql") {
       psql(`
         insert into tongs.private_pricing_policies(
           id,policy_code,scope_kind,provider,sku,created_by
@@ -361,7 +434,7 @@ try {
         );
       `, "bounded Luna pricing fixture");
     }
-    if (migration === "20261011170000_tongs_standard_customer_luna_catalog.sql") {
+    if (migration === "20260916113132_tongs_standard_customer_luna_catalog.sql") {
       psql(`
         set session_replication_role=replica;
         update tongs.private_pricing_cost_components
@@ -413,7 +486,7 @@ try {
         );
       `, "connected bounded Luna pricing identity fixture");
     }
-    if (migration === "20261011380000_openai_failure_loss_environment_isolation.sql") {
+    if (migration === "20260916195559_openai_failure_loss_environment_isolation.sql") {
       psql(`
         with latest as(
           select distinct on(policy.route_code) policy.*
@@ -440,12 +513,12 @@ try {
         );
       `, "active failure-loss source policy compatibility");
     }
-    psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
+    psql(readMigrationSql(migration), migration);
   }
 
   const historicalRepairAfter = JSON.parse(psql(historicalRepairProofSql, "historical backfill post-proof"));
   psql(
-    readFileSync("supabase/migrations/20261011150000_tongs_historical_backfill_link_repair.sql", "utf8"),
+    readMigrationSql("20261011150000_tongs_historical_backfill_link_repair.sql"),
     "historical backfill idempotent replay",
   );
   const historicalRepairReplay = JSON.parse(psql(historicalRepairProofSql, "historical backfill replay proof"));
@@ -1117,7 +1190,10 @@ try {
     failure_loss_environment_isolation: "test_and_live_independent",
     preprovider_platform_risk_release: "released_once_without_charge_or_relief",
     operator_controlled_test_failure_loss: "finite_append_only_and_live_isolated",
+    migration_sql_transport: "lf_crlf_equivalent_standalone_cr_rejected",
+    migration_source_files: "unchanged",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);
+  assertMigrationSourcesUnchanged();
 }

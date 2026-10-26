@@ -1,0 +1,71 @@
+{
+  "schema": "forge.gate6o-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Gate 6H",
+    "contractPath": "docs/database/baseline/v1-gate6h/successor-contract.v1.json",
+    "contractSha256": "a424d05912c808467dd13957d0690d3f95a3f11cafe0089bcd7f87712cc8fd32",
+    "historicalRows": 416,
+    "catalogObjectCount": 15901,
+    "catalogContractSha256": "6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5"
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "preSliceFixtureSha256": "abf0d6f03dd25dc9d4af3f30bcca8d8be6047045033b399d6ba2918315bc9751",
+    "gate6bTrustAnchorSha256": "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb",
+    "gate6hSuccessorContractSha256": "a424d05912c808467dd13957d0690d3f95a3f11cafe0089bcd7f87712cc8fd32"
+  },
+  "sharedTailAddition": {
+    "version": "20261025070300",
+    "path": "supabase/migrations/20261025070300_tongs_episode_storage_tier_parity.sql",
+    "sha256": "8d7747338663dc46143096a7f5a55ebb60405c5e3879a36b9fb70dd0fe022a1f"
+  },
+  "historicalSuccessor": {
+    "restoredAuthenticPrefixRows": 411,
+    "finalRows": 417,
+    "lineage": "historical-v1",
+    "pendingVersions": [
+      "20261020171517",
+      "20261020171519",
+      "20261020171522",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300"
+    ]
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-gate6o/successor-catalog-fingerprint.json",
+    "fileSha256": "6eeaa955fd67624784d13c017f33c029f3461fc4d04a43cacd5facdae57a267e",
+    "objectCount": 15903,
+    "normalizedContractSha256": "766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd",
+    "localWrappers057ContractSha256": "37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef",
+    "changedEntries": [
+      "column|tongs.episodes.storage_tier",
+      "constraint|tongs.episodes.episodes_storage_tier_check"
+    ]
+  },
+  "securityContract": {
+    "relationAclChanged": false,
+    "rlsChanged": false,
+    "policiesChanged": false,
+    "ownershipChanged": false,
+    "defaultPrivilegesChanged": false,
+    "existingEpisodeRows": "Existing classifications are never updated; databases missing the column receive the historical default hot."
+  },
+  "approvedEnvironmentalDifference": {
+    "path": "docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json",
+    "sha256": "8b82e58a85b835641c42738a51e695b05b4c7871ae922a48dd192dca303defc1"
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

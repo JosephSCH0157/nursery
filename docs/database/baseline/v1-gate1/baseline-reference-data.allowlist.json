@@ -1,0 +1,9 @@
+{
+  "schema": "forge.baseline-reference-data-allowlist.v1",
+  "baseline": "v1",
+  "status": "proposed-owner-approval-required",
+  "recordCount": 0,
+  "records": [],
+  "defaultDisposition": "exclude",
+  "reason": "No production or migration-authored row has yet satisfied record-level determinism, environment-neutrality, and non-activation evidence."
+}

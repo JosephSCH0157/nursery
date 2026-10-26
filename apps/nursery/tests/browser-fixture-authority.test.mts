@@ -131,6 +131,12 @@ test("Hammer fixture seeds a reusable canonical speaker-turn transcript", async 
   assert.match(source, /media_signature:\s*mediaSignature/);
 });
 
+test("browser episode provisioning exercises the canonical storage-tier contract", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /from\(["']episodes["']\)\.upsert\(\{[^}]*lifecycle_state:\s*["']active["'][^}]*storage_tier:\s*["']hot["']/s);
+  assert.doesNotMatch(source, /storage_tier\s*\?\?|storage_tier\s*:\s*undefined/);
+});
+
 test("Hearth fixtures seed recording-valid speaker blocks", async () => {
   const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
   assert.match(source, /const fixtureScript = \(label: string\) => `\[s1\]\\n/);
@@ -138,6 +144,18 @@ test("Hearth fixtures seed recording-valid speaker blocks", async () => {
   assert.match(source, /const script = fixtureScript\(episode\.label\)/);
   assert.match(source, /body:\s*handoffScript/);
   assert.match(source, /hearth\/drafts\.v1\.json/);
+});
+
+test("Ready fixtures use current authenticated creator-readiness authority and preserve fail-closed probes", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /rpc\(["']approve_canonical_script_v4["']/);
+  assert.match(source, /recording_readiness/);
+  assert.match(source, /current_workpiece_ready_scripts/);
+  assert.match(source, /source_revision_changed/);
+  assert.match(source, /editor_required/);
+  assert.match(source, /rpc\(["']approve_canonical_script_v3["'][\s\S]*?permission denied/);
+  assert.doesNotMatch(source, /rpc\(["']hearth_transition_preflighted_script_ready_v3["']/);
+  assert.doesNotMatch(source, /serviceKey[\s\S]{0,500}approve_canonical_script_v4/);
 });
 
 test("non-production guard allows local and explicit remote project refs", () => {

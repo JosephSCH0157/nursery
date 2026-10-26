@@ -1,0 +1,57 @@
+{
+  "schema": "forge.gate6p-storage-bucket-contract.v1",
+  "classification": "deterministic-application-infrastructure",
+  "records": [
+    {
+      "id": "bellows-capture",
+      "name": "bellows-capture",
+      "public": false,
+      "avifAutodetection": false,
+      "fileSizeLimit": 1073741824,
+      "allowedMimeTypes": [
+        "video/webm",
+        "video/mp4",
+        "audio/webm",
+        "application/octet-stream"
+      ],
+      "type": "STANDARD",
+      "historicalSource": "supabase/migrations/20260905120000_tongs_bellows_record_only_foundation.sql"
+    },
+    {
+      "id": "forge-workpieces",
+      "name": "forge-workpieces",
+      "public": false,
+      "avifAutodetection": false,
+      "fileSizeLimit": 524288000,
+      "allowedMimeTypes": null,
+      "type": "STANDARD",
+      "historicalSources": [
+        "supabase/migrations/20260220183000_tongs_workpiece_commit_api.sql",
+        "supabase/migrations/20260317024500_raise_forge_workpieces_limit.sql"
+      ]
+    }
+  ],
+  "storageObjectPolicies": [
+    "bellows_capture_operator_insert",
+    "bellows_capture_operator_read",
+    "brand_asset_objects_insert",
+    "brand_asset_objects_select",
+    "forge_workpieces_stt_insert",
+    "forge_workpieces_stt_select",
+    "forge_workpieces_stt_update",
+    "stt_upload_select"
+  ],
+  "excludedFields": {
+    "owner": "Environment-managed metadata; direct historical SQL provisioning leaves it null and ownership alone grants no access.",
+    "owner_id": "Environment-managed metadata; direct historical SQL provisioning leaves it null and ownership alone grants no access.",
+    "created_at": "Nondeterministic creation timestamp.",
+    "updated_at": "Nondeterministic update timestamp."
+  },
+  "security": {
+    "bucketRowsArePrivate": true,
+    "objectAccessRemainsRlsControlled": true,
+    "migrationChangesPolicies": false,
+    "migrationChangesAcls": false,
+    "migrationChangesExistingObjects": false
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "schema": "forge.wrappers-extension-compatibility.v1",
+  "extension": "wrappers",
+  "schemaName": "extensions",
+  "relocatable": true,
+  "productionFingerprintSha256": "7a718c878e7eb4ce66548b9bf056bf3e63ab447ba0a77c7b82f1f13427c04dce",
+  "environments": {
+    "linked": {
+      "requiredVersion": "0.5.6",
+      "recordedOrigin": "hosted-production-catalog-2026-10-21"
+    },
+    "local": {
+      "requiredVersion": "0.5.7",
+      "recordedOrigin": "supabase-cli-2.84.2-postgres-17.6.1.095"
+    }
+  },
+  "installerArtifacts": {
+    "0.5.6": {
+      "origin": "public.ecr.aws/supabase/postgres:17.6.1.054",
+      "sha256": "ebb023c4b9eca16d5fe557507814b7b73106a0840d6889b3ec898421d4c6eda8"
+    },
+    "0.5.7": {
+      "origin": "public.ecr.aws/supabase/postgres:17.6.1.095",
+      "sha256": "199207c2569e9dfdba14eaafd0e690130870922dc39d7d5fdc94a9b57f7f5b1c"
+    }
+  },
+  "rejectAllOtherVersions": true
+}

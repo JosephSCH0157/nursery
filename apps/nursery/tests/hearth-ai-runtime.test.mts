@@ -607,7 +607,7 @@ test("Generate Titles cannot use BYO or the legacy unpriced production path", as
   }
 });
 
-test("createHearthAiHandler repairs malformed thumbnail production output once before billing", async () => {
+test("createHearthAiHandler rejects legacy BYO thumbnail production before provider execution", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -658,19 +658,22 @@ test("createHearthAiHandler repairs malformed thumbnail production output once b
       }),
     }));
     const payload = await response.json();
-    assert.equal(response.status, 200);
-    assert.equal(payload.ok, true);
-    assert.equal(calls, 2);
-    assert.match(payload.assistant_text, /THUMBNAIL_05/);
+    assert.equal(response.status, 422);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "thumbnail_direction_customer_scope_required");
+    assert.equal(calls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("createHearthAiHandler does not route thumbnail production contracts through research", async () => {
+test("legacy BYO thumbnail production is rejected without research or provider execution", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({
+  let providerCalls = 0;
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    return new Response(JSON.stringify({
     choices: [{ message: { content: JSON.stringify({
       assistantText: [
         "THUMBNAIL_STRATEGY",
@@ -697,7 +700,8 @@ test("createHearthAiHandler does not route thumbnail production contracts throug
       ops: [],
     }) } }],
     usage: { prompt_tokens: 40, completion_tokens: 100, total_tokens: 140 },
-  }), { status: 200, headers: { "content-type": "application/json" } });
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
   try {
     const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
       method: "POST",
@@ -711,9 +715,10 @@ test("createHearthAiHandler does not route thumbnail production contracts throug
       }),
     }));
     const payload = await response.json();
-    assert.equal(response.status, 200);
-    assert.doesNotMatch(String(payload.assistant_text), /Research outcome:/i);
-    assert.match(String(payload.assistant_text), /THUMBNAIL_05/);
+    assert.equal(response.status, 422);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "thumbnail_direction_customer_scope_required");
+    assert.equal(providerCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

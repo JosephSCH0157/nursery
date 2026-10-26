@@ -1,6 +1,17 @@
 import { spawn, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
-const container = process.env.SUPABASE_DB_CONTAINER ?? "supabase_db_nursery";
+const configuredWorkdir = process.env.FORGE_BARSTOCK_SUPABASE_WORKDIR;
+const configuredContainer = configuredWorkdir
+  ? `supabase_db_${(() => {
+      const config = readFileSync(path.join(configuredWorkdir, "supabase", "config.toml"), "utf8");
+      const match = /^project_id\s*=\s*"([a-zA-Z0-9_-]+)"/m.exec(config);
+      if (!match) throw new Error("Disposable Bar Stock workdir has no valid Supabase project_id");
+      return match[1];
+    })()}`
+  : undefined;
+const container = process.env.SUPABASE_DB_CONTAINER ?? configuredContainer ?? "supabase_db_nursery";
 
 const ids = {
   viewer: "10000000-0000-4000-8000-000000000001",
@@ -16,8 +27,14 @@ const ids = {
   archiveAssignment: "b0000000-0000-4000-8000-000000000003",
   deleteAssignment: "b0000000-0000-4000-8000-000000000004",
   conflictAssignment: "b0000000-0000-4000-8000-000000000005",
-  spark: "c0000000-0000-4000-8000-000000000001",
+  atomicAssignment: "b0000000-0000-4000-8000-000000000006",
+  unrelatedAssignment: "b0000000-0000-4000-8000-000000000007",
+  standaloneSpark: "c0000000-0000-4000-8000-000000000001",
   mismatchedSpark: "c0000000-0000-4000-8000-000000000002",
+  projectSpark: "c0000000-0000-4000-8000-000000000003",
+  atomicSparkA: "c0000000-0000-4000-8000-000000000004",
+  atomicSparkB: "c0000000-0000-4000-8000-000000000005",
+  unrelatedSpark: "c0000000-0000-4000-8000-000000000006",
   workpiece: "d0000000-0000-4000-8000-000000000001",
 };
 
@@ -98,6 +115,18 @@ const definerMetadata = psql(`
     and p.proconfig @> array['search_path=pg_catalog, tongs'];
 `).stdout;
 check(Number(definerMetadata) === 5, "all mutation RPCs are postgres-owned definers with an explicit safe search_path");
+
+const projectArchiveTrigger = psql(`
+  select pg_get_triggerdef(t.oid, false)
+  from pg_trigger t
+  where t.tgrelid = 'tongs.barstock_assignments'::regclass
+    and t.tgname = 'trg_barstock_assignments_archive_graduates_sparks'
+    and not t.tgisinternal;
+`).stdout;
+check(
+  projectArchiveTrigger === "CREATE TRIGGER trg_barstock_assignments_archive_graduates_sparks AFTER UPDATE OF status ON tongs.barstock_assignments FOR EACH ROW EXECUTE FUNCTION tongs.barstock_archive_project_graduates_sparks()",
+  "Project-driven Spark graduation runs only after the archived Project row is visible",
+);
 
 const grantMetadata = psql(`
   select
@@ -208,16 +237,119 @@ const missingOutcome = rpc(
 check(missingOutcome.outcome === "not_found" && missingOutcome.row === null, "authorized update of an absent canonical id returns not_found");
 
 const sparkCreated = rpc(
-  `tongs.barstock_apply_spark('{"id":"${ids.spark}","workspace_id":"${ids.workspaceA}","assignment_id":"${ids.archiveAssignment}","body":"Spark body"}'::jsonb, null, 'spark-main')`,
+  `tongs.barstock_apply_spark('{"id":"${ids.standaloneSpark}","workspace_id":"${ids.workspaceA}","body":"Standalone Spark body"}'::jsonb, null, 'spark-standalone')`,
   ids.editor,
 );
-check(sparkCreated.outcome === "saved" && sparkCreated.row.revision === 1, "editor creates workspace-scoped Spark");
+check(sparkCreated.outcome === "saved" && sparkCreated.row.revision === 1, "editor creates a standalone workspace-scoped Spark");
 
-const sparkArchived = rpc(`tongs.barstock_archive_spark('${ids.workspaceA}', '${ids.spark}', 1)`, ids.editor);
-check(sparkArchived.outcome === "saved" && sparkArchived.row.status === "archived" && sparkArchived.row.deleted_at, "Spark archive is soft and revisioned");
+const sparkArchived = rpc(`tongs.barstock_archive_spark('${ids.workspaceA}', '${ids.standaloneSpark}', 1)`, ids.editor);
+check(sparkArchived.outcome === "saved" && sparkArchived.row.status === "archived" && sparkArchived.row.deleted_at, "authorized standalone Spark archival is soft and revisioned");
+
+const projectSparkCreated = rpc(
+  `tongs.barstock_apply_spark('{"id":"${ids.projectSpark}","workspace_id":"${ids.workspaceA}","assignment_id":"${ids.archiveAssignment}","body":"Project Spark body"}'::jsonb, null, 'spark-project')`,
+  ids.editor,
+);
+check(projectSparkCreated.outcome === "saved" && projectSparkCreated.row.status === "raw", "editor creates a Spark inside an open Project");
+
+const independentGraduation = psql(
+  `select tongs.barstock_apply_spark('{"id":"${ids.projectSpark}","workspace_id":"${ids.workspaceA}","assignment_id":"${ids.archiveAssignment}","body":"Project Spark body","status":"graduated"}'::jsonb, 1, null);`,
+  { role: "authenticated", user: ids.editor, allowFailure: true },
+);
+check(
+  independentGraduation.status !== 0 && /Cannot graduate an individual spark inside an open Project/i.test(independentGraduation.stderr),
+  "individual Spark graduation inside an open Project is rejected",
+);
+check(
+  psql(`select status || ':' || revision from tongs.barstock_sparks where id = '${ids.projectSpark}';`).stdout === "raw:1",
+  "rejected individual graduation leaves the Spark unchanged",
+);
 
 const assignmentArchived = rpc(`tongs.barstock_archive_assignment('${ids.workspaceA}', '${ids.archiveAssignment}', 1)`, ids.editor);
 check(assignmentArchived.outcome === "saved" && assignmentArchived.row.status === "archived" && assignmentArchived.row.revision === 2, "Assignment archive is editor-authorized and revisioned");
+check(
+  psql(`select status from tongs.barstock_sparks where id = '${ids.projectSpark}';`).stdout === "graduated",
+  "archiving a Project graduates every contained Spark in the same statement",
+);
+
+const staleRepeat = rpc(`tongs.barstock_archive_assignment('${ids.workspaceA}', '${ids.archiveAssignment}', 1)`, ids.editor);
+check(staleRepeat.outcome === "stale" && staleRepeat.row.status === "archived", "replaying a stale Project archive cannot repeat the terminal transition");
+
+const reverseProject = psql(
+  `update tongs.barstock_assignments set status = 'open' where id = '${ids.archiveAssignment}';`,
+  { allowFailure: true },
+);
+check(reverseProject.status !== 0 && /Cannot un-archive/i.test(reverseProject.stderr), "an archived Project cannot be reopened");
+const reverseSpark = psql(
+  `update tongs.barstock_sparks set status = 'raw' where id = '${ids.projectSpark}';`,
+  { allowFailure: true },
+);
+check(reverseSpark.status !== 0, "a Spark in an archived Project cannot be un-graduated");
+check(
+  psql(`select a.status || ':' || s.status from tongs.barstock_assignments a join tongs.barstock_sparks s on s.assignment_id = a.id where a.id = '${ids.archiveAssignment}' and s.id = '${ids.projectSpark}';`).stdout === "archived:graduated",
+  "failed terminal reversals preserve the archived Project and graduated Spark",
+);
+
+for (const [assignmentId, importKey, title] of [
+  [ids.atomicAssignment, "assignment-atomic", "Atomic archive"],
+  [ids.unrelatedAssignment, "assignment-unrelated", "Unrelated Project"],
+]) {
+  const result = rpc(
+    `tongs.barstock_apply_assignment('{"id":"${assignmentId}","workspace_id":"${ids.workspaceA}","title":"${title}"}'::jsonb, null, '${importKey}')`,
+    ids.editor,
+  );
+  check(result.outcome === "saved", `${title} fixture created`);
+}
+for (const [sparkId, assignmentId, importKey] of [
+  [ids.atomicSparkA, ids.atomicAssignment, "spark-atomic-a"],
+  [ids.atomicSparkB, ids.atomicAssignment, "spark-atomic-b"],
+  [ids.unrelatedSpark, ids.unrelatedAssignment, "spark-unrelated"],
+]) {
+  const result = rpc(
+    `tongs.barstock_apply_spark('{"id":"${sparkId}","workspace_id":"${ids.workspaceA}","assignment_id":"${assignmentId}","body":"Atomicity fixture"}'::jsonb, null, '${importKey}')`,
+    ids.editor,
+  );
+  check(result.outcome === "saved", `${importKey} fixture created`);
+}
+
+psql(`
+  create function tongs.gate6h_reject_one_spark_graduation() returns trigger
+  language plpgsql set search_path = pg_catalog, tongs as $$
+  begin
+    if new.id = '${ids.atomicSparkB}'::uuid and new.status = 'graduated' then
+      raise exception 'gate6h deliberate child failure' using errcode = '23514';
+    end if;
+    return new;
+  end
+  $$;
+  revoke all on function tongs.gate6h_reject_one_spark_graduation() from public, anon, authenticated;
+  create trigger trg_gate6h_reject_one_spark_graduation
+    before update of status on tongs.barstock_sparks
+    for each row execute function tongs.gate6h_reject_one_spark_graduation();
+`);
+try {
+  const failedArchive = psql(
+    `select tongs.barstock_archive_assignment('${ids.workspaceA}', '${ids.atomicAssignment}', 1);`,
+    { role: "authenticated", user: ids.editor, allowFailure: true },
+  );
+  check(failedArchive.status !== 0 && /gate6h deliberate child failure/i.test(failedArchive.stderr), "a child graduation failure aborts Project archival");
+} finally {
+  psql(`
+    drop trigger if exists trg_gate6h_reject_one_spark_graduation on tongs.barstock_sparks;
+    drop function if exists tongs.gate6h_reject_one_spark_graduation();
+  `);
+}
+check(
+  psql(`select status || ':' || revision from tongs.barstock_assignments where id = '${ids.atomicAssignment}';`).stdout === "open:1",
+  "failed child graduation rolls the Project update back completely",
+);
+check(
+  psql(`select string_agg(status || ':' || revision, ',' order by id) from tongs.barstock_sparks where assignment_id = '${ids.atomicAssignment}';`).stdout === "raw:1,raw:1",
+  "failed child graduation rolls every contained Spark update back completely",
+);
+check(
+  psql(`select a.status || ':' || s.status from tongs.barstock_assignments a join tongs.barstock_sparks s on s.assignment_id = a.id where a.id = '${ids.unrelatedAssignment}' and s.id = '${ids.unrelatedSpark}';`).stdout === "open:raw",
+  "Project archival attempts leave unrelated Projects and Sparks unchanged",
+);
 
 const mismatch = psql(
   `select tongs.barstock_apply_spark('{"id":"${ids.mismatchedSpark}","workspace_id":"${ids.workspaceB}","assignment_id":"${ids.assignment}","body":"Mismatch"}'::jsonb, null, 'spark-mismatch');`,

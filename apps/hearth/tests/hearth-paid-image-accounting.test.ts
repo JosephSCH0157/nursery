@@ -8,15 +8,29 @@ const imageRepo = readFileSync(new URL("lib/hearth-image-map-repo.ts", root), "u
 const thumbnailActions = readFileSync(new URL("hooks/visuals/useThumbnailGenerationActions.ts", root), "utf8");
 const thumbnailApi = readFileSync(new URL("lib/hearth-thumbnail-api.ts", root), "utf8");
 const referenceVisualPanel = readFileSync(new URL("components/visuals/CanonicalReferenceVisualPanel.tsx", root), "utf8");
+const spendingConfirmation = readFileSync(
+  new URL("../../../packages/tongs/src/customer-spending-confirmation.ts", import.meta.url),
+  "utf8",
+);
+const workpieceApi = readFileSync(
+  new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url),
+  "utf8",
+);
 
-test("Episode Images obtains the canonical ceiling before creator approval and replays one operation identity", () => {
-  assert.match(imageActions, /requestCandidateGeneration\(expectedMetadataUpdatedAt, false\)/);
-  assert.match(imageActions, /requiresConfirmation/);
-  assert.match(imageActions, /authorizedCustomerCeiling/);
-  assert.match(imageActions, /window\.confirm\(quote\.authorizationMessage/);
-  assert.match(imageActions, /requestCandidateGeneration\(expectedMetadataUpdatedAt, confirmed\)/);
-  assert.match(imageRepo, /details\?\.requires_confirmation === true/);
-  assert.match(imageRepo, /details\?\.authorized_customer_ceiling/);
+test("Episode Images quotes first and forwards the exact accepted quote identity", () => {
+  const quoteAt = imageActions.indexOf("requestCandidateGeneration(expectedMetadataUpdatedAt)");
+  const acceptanceAt = imageActions.indexOf("requestCustomerSpendingAcceptance(quote.billingQuote)", quoteAt);
+  const executionAt = imageActions.indexOf("requestCandidateGeneration(expectedMetadataUpdatedAt, acceptance)", acceptanceAt);
+  assert.ok(quoteAt >= 0 && acceptanceAt > quoteAt && executionAt > acceptanceAt);
+  assert.match(imageActions, /confirmSpend: Boolean\(spendingAcceptance\)/);
+  assert.match(imageActions, /spendingAcceptance,/);
+  assert.match(imageActions, /if \(quote\.ok \|\| !quote\.requiresConfirmation\)[\s\S]*unexpectedly generated media before approval/);
+  assert.match(imageActions, /if \(!quote\.billingQuote\)[\s\S]*spending quote could not be verified/);
+  assert.match(imageRepo, /\.\.\.\(args\.spendingAcceptance \? \{ spending_acceptance: args\.spendingAcceptance \} : \{\}\)/);
+  assert.match(spendingConfirmation, /quote_id: quote\.quote_id,[\s\S]*operation_id: quote\.operation_id,[\s\S]*quote_hash: quote\.quote_hash,[\s\S]*request_fingerprint: quote\.request_fingerprint/);
+  assert.doesNotMatch(imageActions, /requestCandidateGeneration\(expectedMetadataUpdatedAt,\s*(?:true|false|confirmed)\)/);
+  assert.match(workpieceApi, /body\.spending_acceptance != null && !spendingAcceptance[\s\S]*invalid_spending_acceptance/);
+  assert.match(workpieceApi, /acceptance: input\.spending_acceptance \?\? null/);
   assert.doesNotMatch(imageActions, /estimated token|prompt\.length\s*\/\s*4/i);
 });
 

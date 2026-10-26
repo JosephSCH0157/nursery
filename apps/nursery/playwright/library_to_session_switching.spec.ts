@@ -43,9 +43,21 @@ test("library_to_session_switching", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Recording Sessions" })).toBeVisible();
 
   const sessionTitle = `[fixture:forge-browser-release-v1] PW Session ${Date.now()}`;
-  await page.getByRole("button", { name: "Create Session" }).click();
-  await page.getByPlaceholder("Recording Session").fill(sessionTitle);
-  await page.locator("div").filter({ hasText: "Create Session" }).first().getByRole("button", { name: "Create" }).click();
+  const header = page.locator("header.trs-header");
+  const createSessionToggle = header.getByRole("button", { name: "Create Session", exact: true });
+  // The heading is present before workspace initialization and its reset effects
+  // have necessarily settled. Refresh is enabled only after the initial session
+  // and Ready-candidate loads complete, so it is the page's meaningful readiness
+  // signal for opening stateful controls.
+  await expect(header.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
+  await expect(createSessionToggle).toBeEnabled();
+  await createSessionToggle.click();
+  await expect(header.getByRole("button", { name: "Close", exact: true })).toBeVisible();
+
+  const createSessionPanel = page.locator("section.trs-create");
+  await expect(createSessionPanel).toBeVisible();
+  await createSessionPanel.getByPlaceholder("Recording Session").fill(sessionTitle);
+  await createSessionPanel.getByRole("button", { name: "Create", exact: true }).click();
 
   const createdSessionButton = page.locator("button.trs-session-row__select").filter({ hasText: sessionTitle }).first();
   await expect(createdSessionButton).toBeVisible();

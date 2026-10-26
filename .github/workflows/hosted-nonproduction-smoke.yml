@@ -1,0 +1,128 @@
+name: Hosted Nonproduction Smoke
+run-name: Hosted nonproduction smoke from trusted main at ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: Type RUN_NONPRODUCTION_HOSTED_SMOKE after reviewing the target and run SHA
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: hosted-nonproduction-smoke
+  cancel-in-progress: false
+
+jobs:
+  hosted-smoke:
+    name: hosted:nonproduction-smoke
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.authorization == 'RUN_NONPRODUCTION_HOSTED_SMOKE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: forge-nonproduction-hosted-smoke
+    env:
+      FORGE_HOSTED_SMOKE_EVENT_NAME: ${{ github.event_name }}
+      FORGE_HOSTED_SMOKE_REF: ${{ github.ref }}
+      FORGE_HOSTED_SMOKE_SHA: ${{ github.sha }}
+      FORGE_HOSTED_SMOKE_AUTHORIZATION: ${{ inputs.authorization }}
+      FORGE_HOSTED_SMOKE_ENVIRONMENT: forge-nonproduction-hosted-smoke
+      FORGE_HOSTED_SMOKE_ENABLED: ${{ vars.FORGE_HOSTED_SMOKE_ENABLED }}
+      FORGE_NONPROD_SUPABASE_PROJECT_REF: ${{ vars.FORGE_NONPROD_SUPABASE_PROJECT_REF }}
+      CI: "true"
+      REQUIRE_HEARTH_PHASE4_SMOKE: "1"
+    steps:
+      - name: Checkout the trusted main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Establish trusted code and target identity
+        env:
+          FORGE_GITHUB_TOKEN: ${{ github.token }}
+          FORGE_GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main
+          node scripts/verify-github-hosted-smoke-environment.mjs
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.84.2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm --filter nursery exec playwright install --with-deps chromium
+
+      - name: Validate nonproduction target and required credentials
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
+          FORGE_CI_AUTH_EMAIL: ${{ secrets.NURSERY_PLAYWRIGHT_EMAIL }}
+          FORGE_CI_AUTH_PASSWORD: ${{ secrets.NURSERY_PLAYWRIGHT_PASSWORD }}
+          FORGE_TEST_WORKSPACE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKSPACE_ID }}
+          FORGE_TEST_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
+        run: node scripts/verify-hosted-smoke-authorization.mjs
+
+      - name: Write ephemeral app configuration
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+          TONGS_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          {
+            echo "VITE_SUPABASE_URL=${VITE_SUPABASE_URL}"
+            echo "VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}"
+            echo "TONGS_SERVICE_ROLE_KEY=${TONGS_SERVICE_ROLE_KEY}"
+          } > apps/nursery/.env.local
+
+      - name: Run hosted team smoke
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm smoke:team
+
+      - name: Generate Playwright auth state
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+          FORGE_CI_AUTH_EMAIL: ${{ secrets.NURSERY_PLAYWRIGHT_EMAIL }}
+          FORGE_CI_AUTH_PASSWORD: ${{ secrets.NURSERY_PLAYWRIGHT_PASSWORD }}
+        run: pnpm --filter nursery generate:playwright:auth
+
+      - name: Run hosted Hearth Phase 4 smoke
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+          TONGS_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
+          FORGE_TEST_WORKSPACE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKSPACE_ID }}
+          FORGE_TEST_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
+        run: pnpm smoke:hearth-phase4:gate
+
+      - name: Remove ephemeral local credential files
+        if: always()
+        shell: bash
+        run: |
+          rm -f apps/nursery/.env.local
+          rm -f apps/nursery/playwright/.auth/state.json

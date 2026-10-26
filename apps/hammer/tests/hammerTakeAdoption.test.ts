@@ -10,6 +10,19 @@ const target = {
   workpieceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
 };
 
+function assertLandingPadCardContract(rawSource: string): void {
+  const source = rawSource.replace(/\r\n?/g, "\n");
+  const articleMarker = "<article\n              key={project.workpieceId}";
+  const bodyMarker = '<div className="hammer-project-library__card-body">';
+  const articleStart = source.indexOf(articleMarker);
+  const bodyStart = source.indexOf(bodyMarker, articleStart);
+  const articleOpening = source.slice(articleStart, bodyStart);
+  assert.ok(articleStart >= 0 && bodyStart > articleStart);
+  assert.doesNotMatch(articleOpening, /onClick|onKeyDown|tabIndex/);
+  assert.match(source, />\s*Open Current Edit\s*</);
+  assert.match(source, /"Use New Take"/);
+}
+
 test("Use New Take adopts first and opens only after canonical authority returns", async () => {
   const calls: string[] = [];
   await useNewTakeThenOpen({
@@ -35,13 +48,24 @@ test("failed take adoption never opens Hammer", async () => {
 
 test("Landing Pad cards are informational and expose independent commands", async () => {
   const source = await readFile(new URL("../src/app/HammerProjectLibrary.tsx", import.meta.url), "utf8");
-  const articleStart = source.indexOf("<article\n              key={project.workpieceId}");
-  const bodyStart = source.indexOf('<div className="hammer-project-library__card-body">', articleStart);
-  const articleOpening = source.slice(articleStart, bodyStart);
-  assert.ok(articleStart >= 0 && bodyStart > articleStart);
-  assert.doesNotMatch(articleOpening, /onClick|onKeyDown|tabIndex/);
-  assert.match(source, />\s*Open Current Edit\s*</);
-  assert.match(source, /"Use New Take"/);
+  assertLandingPadCardContract(source);
+});
+
+test("Landing Pad card contract is newline-portable and fails closed on structural drift", async () => {
+  const source = await readFile(new URL("../src/app/HammerProjectLibrary.tsx", import.meta.url), "utf8");
+  const lfSource = source.replace(/\r\n?/g, "\n");
+  const crlfSource = lfSource.replace(/\n/g, "\r\n");
+
+  assert.doesNotThrow(() => assertLandingPadCardContract(lfSource));
+  assert.doesNotThrow(() => assertLandingPadCardContract(crlfSource));
+  assert.throws(() => assertLandingPadCardContract(lfSource.replace(
+    "<article\n              key={project.workpieceId}",
+    "<article\n              data-missing-workpiece-identity",
+  )));
+  assert.throws(() => assertLandingPadCardContract(lfSource.replace(
+    "<article\n              key={project.workpieceId}",
+    "<article\n              onClick={() => undefined}\n              key={project.workpieceId}",
+  )));
 });
 
 test("a prepared package from Take A cannot become stale authority in Take B", () => {

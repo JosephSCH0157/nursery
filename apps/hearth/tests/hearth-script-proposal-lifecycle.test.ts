@@ -42,7 +42,7 @@ test("paid script response preserves the canonical persisted proposal identity",
 test("migration defines append-only, user-scoped, stale-safe proposal lifecycle", () => {
   const migration = fs.readFileSync(path.join(
     root,
-    "supabase/migrations/20261011440000_hearth_script_proposal_lifecycle.sql",
+    "supabase/migrations/20260917094105_hearth_script_proposal_lifecycle.sql",
   ), "utf8");
 
   assert.match(migration, /hearth_script_generation_proposal_draft_bindings/);
@@ -56,17 +56,19 @@ test("migration defines append-only, user-scoped, stale-safe proposal lifecycle"
   assert.match(migration, /unique index hearth_script_generation_proposal_terminal_event_idx/);
   assert.match(migration, /canonical_revision_id','hearth-script-proposal-'\|\|proposal\.id::text/);
   assert.match(migration, /for all to anon,authenticated using\(false\) with check\(false\)/);
-  assert.match(migration, /reason','newer_persisted_proposal'/);
-  assert.match(migration, /\(newer\.created_at,newer\.id\)>\(candidate\.created_at,candidate\.id\)/);
+  assert.match(migration, /jsonb_build_object\('superseded_by',new\.id\)/);
+  assert.match(migration, /\(newer\.created_at,newer\.id\)>\(proposal\.created_at,proposal\.id\)/);
 });
 
 test("legacy proposal correction is append-only and prevents older proposals from resurfacing", () => {
   const migration = fs.readFileSync(path.join(
     root,
-    "supabase/migrations/20261011450000_hearth_script_proposal_legacy_supersession.sql",
+    "supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sql",
   ), "utf8");
   assert.match(migration, /insert into tongs\.hearth_script_generation_proposal_events/);
   assert.match(migration, /'superseded'/);
+  assert.match(migration, /reason','newer_persisted_proposal'/);
+  assert.match(migration, /\(newer\.created_at,newer\.id\)>\(candidate\.created_at,candidate\.id\)/);
   assert.doesNotMatch(migration, /update\s+tongs\.hearth_script_generation_proposals/i);
   assert.doesNotMatch(migration, /delete\s+from/i);
   assert.match(migration, /not exists\([\s\S]*hearth_script_generation_proposals newer/);

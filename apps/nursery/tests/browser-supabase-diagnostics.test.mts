@@ -9,6 +9,23 @@ import { summarizeSupabaseStartup } from "../scripts/browser-supabase-diagnostic
 
 const migration = "20261011120000_tongs_hammer_cleanup_review_decisions.sql";
 
+function approvedDisposableStartupShell(workflow: string): string {
+  const runBlocks = [...workflow.matchAll(/(?:^|\r?\n)      - (?:name: [^\r\n]+\r?\n        )?run: \|\r?\n((?:          [^\r\n]*(?:\r?\n|$))+)/g)]
+    .map((match) => match[1]);
+  const candidates = runBlocks.filter((block) =>
+    block.includes("scripts/invoke-forge-database.ps1")
+      && block.includes("-Lineage baseline")
+      && block.includes("-Action Start")
+      && block.includes('"$FORGE_BROWSER_SUPABASE_WORKDIR"'),
+  );
+  assert.equal(candidates.length, 1, "workflow must contain exactly one lineage-aware disposable startup block");
+  const block = candidates[0];
+  assert.match(block, /\$RUNNER_TEMP\/browser-supabase-start\.log[^\r\n]*2>&1/);
+  assert.match(block, /browser-supabase-diagnostics\.mjs[^\r\n]*browser-supabase-start\.log[^\r\n]*supabase\/migrations/);
+  assert.doesNotMatch(block, /--linked|https?:\/\/|SUPABASE_(?:ACCESS_TOKEN|DB_PASSWORD|DB_URL|SERVICE_ROLE_KEY)/);
+  return block.split(/\r?\n/).map((line) => line.replace(/^          /, "")).join("\n");
+}
+
 test("reports migration progress, SQLSTATE and statement without echoing SQL", () => {
   const result = summarizeSupabaseStartup(`Applying migration ${migration}...\nERROR: syntax error at or near \"secret-literal\" (SQLSTATE 42601)\nAt statement: 7\nSELECT 'private-data';`, [migration]);
   assert.equal(result.lastReportedMigration, migration);
@@ -48,8 +65,8 @@ test("CLI summarizes a private file and keeps missing-file errors private", () =
   const directory = mkdtempSync(join(tmpdir(), "forge-startup-diagnostics-"));
   const script = fileURLToPath(new URL("../scripts/browser-supabase-diagnostics.mjs", import.meta.url));
   try {
-    const migrations = join(directory, "migrations");
-    mkdirSync(migrations);
+    const migrations = join(directory, "supabase", "migrations");
+    mkdirSync(migrations, { recursive: true });
     writeFileSync(join(migrations, migration), "-- fixture only\n");
     const log = join(directory, "private.log");
     writeFileSync(log, `Applying migration ${migration}...\nERROR: syntax error at or near \"do-not-print\" (SQLSTATE 42601)\nAt statement: 3`);
@@ -70,16 +87,18 @@ test("CLI summarizes a private file and keeps missing-file errors private", () =
 test("actual workflow shell preserves startup/migration exit codes without exposing raw output", () => {
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const workflow = readFileSync(join(root, ".github/workflows/pr-smoke.yml"), "utf8");
-  const block = workflow.match(/      - name: Start disposable Supabase and apply repository migrations\r?\n        run: \|\r?\n([\s\S]*?)      - name: Configure disposable credentials/);
-  assert.ok(block, "startup block must remain recognizable for failure-path verification");
-  const shell = block[1].split(/\r?\n/).map((line) => line.replace(/^          /, "")).join("\n");
+  const shell = approvedDisposableStartupShell(workflow);
   assert.match(workflow, /name: Stop job-owned disposable Supabase\r?\n\s+if: always\(\)/);
   const directory = mkdtempSync(join(tmpdir(), "forge-startup-shell-"));
   const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
   try {
-    for (const [stage, expectedStatus] of [["start", 7], ["migration", 11], ["success", 0]] as const) {
-      // Function replaces only the external CLI: the checked-in workflow body runs unchanged.
-      const stub = `supabase() {\n  echo 'private-cli-secret'\n  if [ "$1" = "$FAIL_STAGE" ]; then\n    echo 'ERROR: syntax error at or near "private-sql" (SQLSTATE 42601)' >&2\n    return "$FAIL_STATUS"\n  fi\n}\n`;
+    const migrations = join(directory, "supabase", "migrations");
+    mkdirSync(migrations, { recursive: true });
+    writeFileSync(join(migrations, migration), "-- fixture only\n");
+    for (const [stage, expectedStatus] of [["startup", 7], ["success", 0]] as const) {
+      // Function replaces only PowerShell at the lineage-aware wrapper boundary:
+      // the checked-in workflow body and its private diagnostic handling run unchanged.
+      const stub = `pwsh() {\n  echo 'private-cli-secret'\n  if [ "$FAIL_STAGE" = "startup" ]; then\n    echo 'Applying migration ${migration}...'\n    echo 'ERROR: syntax error at or near "private-sql" (SQLSTATE 42601)' >&2\n    return "$FAIL_STATUS"\n  fi\n}\n`;
       const result = spawnSync(bash, ["-e", "-o", "pipefail", "-c", stub + shell + "\necho REACHED_NEXT_STEP\n"], {
         cwd: root,
         encoding: "utf8",
@@ -96,4 +115,15 @@ test("actual workflow shell preserves startup/migration exit codes without expos
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("workflow startup contract rejects a hosted or linked database target", () => {
+  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const workflow = readFileSync(join(root, ".github/workflows/pr-smoke.yml"), "utf8");
+  const unsafe = workflow.replace(
+    /-Action Start(?= -Workdir "\$FORGE_BROWSER_SUPABASE_WORKDIR")/,
+    "-Action Start --linked",
+  );
+  assert.notEqual(unsafe, workflow, "negative fixture must alter the startup command");
+  assert.throws(() => approvedDisposableStartupShell(unsafe));
 });

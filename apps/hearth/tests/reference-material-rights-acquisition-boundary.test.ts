@@ -3,58 +3,64 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const panel = readFileSync(
-  new URL("../src/components/visuals/CanonicalReferenceMaterialPanel.tsx", import.meta.url),
+  new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx", import.meta.url),
   "utf8",
 );
 const authority = readFileSync(
   new URL("../src/lib/hearth-reference-visual-authority.ts", import.meta.url),
   "utf8",
 );
-const collections = readFileSync(
-  new URL("../src/lib/hearth-reference-visual-collections.ts", import.meta.url),
+const server = readFileSync(
+  new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url),
   "utf8",
 );
 
 const saveRights = panel.slice(
-  panel.indexOf("async function saveLinkedVisualRights"),
-  panel.indexOf("async function acquireLinkedVisual"),
+  panel.indexOf("async function saveRights()"),
+  panel.indexOf("async function saveSourceUse()"),
 );
 const acquire = panel.slice(
-  panel.indexOf("async function acquireLinkedVisual"),
-  panel.indexOf("async function begin("),
+  panel.indexOf("async function acquire()"),
+  panel.indexOf("async function acquireDiscoveredStill"),
+);
+const serverAcquire = server.slice(
+  server.indexOf("async acquireReferenceVisual("),
+  server.indexOf("async commitReferenceVisualSourceSet(", server.indexOf("async acquireReferenceVisual(")),
 );
 
-test("rights save and archival acquisition are separate creator actions", () => {
-  assert.match(panel, />Save rights</);
-  assert.match(panel, />Acquire image</);
+test("rights declaration and archival acquisition remain separate creator actions", () => {
+  assert.match(panel, />Save rights declaration</);
+  assert.match(panel, />Verify and add archival still</);
+  assert.match(panel, />Verify and add this still</);
   assert.doesNotMatch(panel, /Save rights and add image/);
   assert.match(saveRights, /commitReferenceVisualRights/);
   assert.equal((saveRights.match(/commitReferenceVisualRights/g) ?? []).length, 1);
   assert.doesNotMatch(saveRights, /acquireReferenceVisual|reference-visuals\/acquire|renderReferenceVisual/);
 });
 
-test("unchanged saved rights are recovered and never duplicated", () => {
-  assert.match(panel, /setRightsStatus\(typeof rights\?\.rights_status/);
-  assert.match(panel, /setRightsAcknowledged\(rights\?\.creator_acknowledged_responsibility === true\)/);
-  assert.match(panel, /setRightsSaved\(Boolean\(rights\)\)/);
-  assert.match(saveRights, /if \(rightsDraftMatches\(opportunity\)\)/);
-  assert.match(saveRights, /rights_declaration_revision_id/);
-  assert.match(saveRights, /setDrawer\(null\)/);
+test("rights declaration records explicit creator consent without bypassing access controls", () => {
+  assert.match(panel, /I confirm that I am responsible for rights and permissions and did not bypass access controls/);
+  assert.match(panel, /disabled=\{!!pending\|\|!rights\.acknowledged\}/);
+  assert.match(saveRights, /creator_acknowledged_responsibility:rights\.acknowledged/);
+  assert.match(saveRights, /access_controls_bypassed:false/);
+  assert.match(authority, /p_source_set_revision_id:args\.opportunity\.sourceSetRevisionId/);
+  assert.match(authority, /p_expected_revision:args\.opportunity\.rightsSequenceRevision/);
 });
 
-test("acquisition rereads and binds current rights and Source collection authority", () => {
-  const reread = acquire.indexOf("readCanonicalReferenceVisualCollections");
-  const request = acquire.indexOf("acquireReferenceVisual");
-  assert.ok(reread >= 0 && reread < request);
-  assert.match(acquire, /current\.rights/);
-  assert.match(acquire, /current\.sourceSetRevisionId/);
+test("archival acquisition binds and validates exact current Source and rights revisions", () => {
+  assert.match(acquire, /acquireReferenceVisual\(\{workspaceId,workpieceId,opportunity/);
   assert.match(authority, /source_set_revision_id:args\.opportunity\.sourceSetRevisionId/);
-  assert.match(collections, /sourceSetRevisionId:str\(set\?\.id\)/);
+  assert.match(authority, /rights_declaration_revision_id:str\(args\.opportunity\.rights\.id\)/);
+  assert.match(serverAcquire, /rights_declaration\.id !== input\.rights_declaration_revision_id/);
+  assert.match(serverAcquire, /reference_visual_rights_revision_conflict/);
+  assert.match(serverAcquire, /currentSourceSet\?\.id !== input\.source_set_revision_id/);
+  assert.match(serverAcquire, /reference_visual_source_collection_revision_conflict/);
 });
 
-test("non-archival material keeps saved rights and cannot cross the acquisition boundary", () => {
-  assert.match(acquire, /current\.subtype !== "archival_still"/);
-  assert.match(acquire, /rights remain saved and no archival image was acquired/);
+test("only archival subtypes can cross the acquisition boundary", () => {
+  assert.match(authority, /args\.opportunity\.subtype!=="archival_still"&&args\.opportunity\.subtype!=="archival_sequence"/);
   assert.match(authority, /reference_visual_archival_subtype_required/);
+  assert.match(serverAcquire, /\["archival_still", "archival_sequence"\]/);
+  assert.match(serverAcquire, /reference_visual_archival_subtype_required/);
   assert.doesNotMatch(saveRights, /fetch\(|tongsFetch|OpenAI|Luna|provider/i);
 });

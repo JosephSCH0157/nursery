@@ -1,0 +1,2522 @@
+{
+  "schema": "forge.historical-migration-manifest.v1",
+  "generatedOn": "2026-10-20",
+  "sourceCommit": "716c4f54d759202ebc00315c5d16fb93f66d64c1",
+  "supabaseCliCertificationVersion": "2.84.2",
+  "migrationCount": 414,
+  "historicalCutoffVersion": "20261020171522",
+  "firstVersion": "20260131120000",
+  "lastVersion": "20261020171522",
+  "approvedHistoricalAmendments": [
+    {
+      "version": "20260206120007",
+      "migration": "20260206120007_000002_public_workspaces_view.sql",
+      "amended": {
+        "path": "supabase/migrations/20260206120007_000002_public_workspaces_view.sql",
+        "sha256": "7e4186d5e35464b35c52562bdf7aea357eae230ab4e1517bc85fae1e723a8e2a"
+      },
+      "original": {
+        "path": "docs/database/reconciliation/slice-a/original/20260206120007_000002_public_workspaces_view.original.sql",
+        "sha256": "938fb0a8dcbd306de01fb3464bbbecef41cb41e36e079e95c3b57641af295a2c"
+      }
+    },
+    {
+      "version": "20260306224500",
+      "migration": "20260306224500_fix_signup_workspace_provisioning_drift.sql",
+      "amended": {
+        "path": "supabase/migrations/20260306224500_fix_signup_workspace_provisioning_drift.sql",
+        "sha256": "02f5d0d264b91746df9e672acb3bd67ef64f9ee46dfd8d04831570cbcbbed82b"
+      },
+      "original": {
+        "path": "docs/database/reconciliation/slice-a/original/20260306224500_fix_signup_workspace_provisioning_drift.original.sql",
+        "sha256": "e68f8f7485316f4b1d272ebf683d05532f38f63ab78f954c582e8da5c8e656b6"
+      }
+    }
+  ],
+  "migrations": [
+    {
+      "version": "20260131120000",
+      "name": "000001_tongs_calendar_events",
+      "path": "supabase/migrations/20260131120000_000001_tongs_calendar_events.sql",
+      "sha256": "cf0b0faa31533ba143b2f2fd13767eabac0720e61825fd2836f863197b042e39"
+    },
+    {
+      "version": "20260201120001",
+      "name": "000001_tongs_core_workspaces",
+      "path": "supabase/migrations/20260201120001_000001_tongs_core_workspaces.sql",
+      "sha256": "2b3303024ad4d6e50b50a5e9428225843b7adafb806c64ba1b96b082db655b64"
+    },
+    {
+      "version": "20260201182712",
+      "name": "my_migration",
+      "path": "supabase/migrations/20260201182712_my_migration.sql",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "version": "20260201184500",
+      "name": "tongs_workspaces_insert_policy_fix",
+      "path": "supabase/migrations/20260201184500_tongs_workspaces_insert_policy_fix.sql",
+      "sha256": "ff6b5d281beca6131afad2b2b4deee456a3facbe288da0c52140e06c991f5680"
+    },
+    {
+      "version": "20260201193000",
+      "name": "tongs_workspaces_canonical_insert",
+      "path": "supabase/migrations/20260201193000_tongs_workspaces_canonical_insert.sql",
+      "sha256": "841afe0b43d6219cddf5a8d27729cc09d45fd2b9d384fa7e72c5d851ad510dfe"
+    },
+    {
+      "version": "20260201194500",
+      "name": "tongs_workspaces_add_name",
+      "path": "supabase/migrations/20260201194500_tongs_workspaces_add_name.sql",
+      "sha256": "2dd4fbae1445bfa5e03b57b74e6f596021307044b61f42490e4c0626ca82e3a1"
+    },
+    {
+      "version": "20260202120002",
+      "name": "000001_tongs_calendar_events_add_session_id",
+      "path": "supabase/migrations/20260202120002_000001_tongs_calendar_events_add_session_id.sql",
+      "sha256": "0e83588a35a91aa1528ef9bf01573b0768bcdf9869ed52213e93d90b82fbfb8f"
+    },
+    {
+      "version": "20260203120003",
+      "name": "000001_tongs_workspaces_rls",
+      "path": "supabase/migrations/20260203120003_000001_tongs_workspaces_rls.sql",
+      "sha256": "ab7580f8e2f0197f9a8630d045fcec3d12232053a96a649d5b77e2aae6114160"
+    },
+    {
+      "version": "20260204120004",
+      "name": "000001_tongs_workspaces_created_by",
+      "path": "supabase/migrations/20260204120004_000001_tongs_workspaces_created_by.sql",
+      "sha256": "324902d04735609a6bbd55596236c7c0244bdb00cf20a0df196728d85c2c42ea"
+    },
+    {
+      "version": "20260205120005",
+      "name": "000001_tongs_workspaces_insert_policy",
+      "path": "supabase/migrations/20260205120005_000001_tongs_workspaces_insert_policy.sql",
+      "sha256": "0d96acf843883780acbf85a81bcbb2bf55aeb9a5c1a355c1cf332db5543e1b24"
+    },
+    {
+      "version": "20260206120006",
+      "name": "000001_tongs_workspaces_add_name",
+      "path": "supabase/migrations/20260206120006_000001_tongs_workspaces_add_name.sql",
+      "sha256": "2dd4fbae1445bfa5e03b57b74e6f596021307044b61f42490e4c0626ca82e3a1"
+    },
+    {
+      "version": "20260206120007",
+      "name": "000002_public_workspaces_view",
+      "path": "supabase/migrations/20260206120007_000002_public_workspaces_view.sql",
+      "sha256": "7e4186d5e35464b35c52562bdf7aea357eae230ab4e1517bc85fae1e723a8e2a"
+    },
+    {
+      "version": "20260207",
+      "name": "forge_workspace_and_calendar_link",
+      "path": "supabase/migrations/20260207_forge_workspace_and_calendar_link.sql",
+      "sha256": "cc154c9abcd2481826fa4cd2d11f7eaf8aadceba8373c98fbcc70cbe464721d1"
+    },
+    {
+      "version": "20260220183000",
+      "name": "tongs_workpiece_commit_api",
+      "path": "supabase/migrations/20260220183000_tongs_workpiece_commit_api.sql",
+      "sha256": "22eb706d81c1da8ef30ab74adc9552dfba19118e275782070a32f6a9bf306b25"
+    },
+    {
+      "version": "20260224120000",
+      "name": "tongs_workspaces_membership_only",
+      "path": "supabase/migrations/20260224120000_tongs_workspaces_membership_only.sql",
+      "sha256": "e2b321c6f377ef82fffcfb7dc53525eb4e26f3082b322aa271c4887da35415a5"
+    },
+    {
+      "version": "20260224121500",
+      "name": "tongs_can_access_workspace_membership_only",
+      "path": "supabase/migrations/20260224121500_tongs_can_access_workspace_membership_only.sql",
+      "sha256": "a47e4b8bd7ff8d33ccd76afb23d122ce38df988ffcb1aa084f720a9b1d3671bd"
+    },
+    {
+      "version": "20260224123000",
+      "name": "tongs_episodes_cradle_alignment",
+      "path": "supabase/migrations/20260224123000_tongs_episodes_cradle_alignment.sql",
+      "sha256": "9bcc707257e2dfeeda3f703762e2470c5e27822947487a27233e0a64b87c9e41"
+    },
+    {
+      "version": "20260225120000",
+      "name": "tongs_workspace_members_policy_recursion_fix",
+      "path": "supabase/migrations/20260225120000_tongs_workspace_members_policy_recursion_fix.sql",
+      "sha256": "9f5b40ee7231bf1848b6886e2e2e547f057b1bdafc2cd8e46ab8675a1480a43d"
+    },
+    {
+      "version": "20260225133000",
+      "name": "tongs_workspaces_policy_recursion_fix",
+      "path": "supabase/migrations/20260225133000_tongs_workspaces_policy_recursion_fix.sql",
+      "sha256": "29dae5af6fa5f51234a2295555d4a4982ecb2950a9967a3082750ab6c3485c1a"
+    },
+    {
+      "version": "20260225153000",
+      "name": "tongs_workspace_create_rpc",
+      "path": "supabase/migrations/20260225153000_tongs_workspace_create_rpc.sql",
+      "sha256": "9650d4a9f726406257d307cb6879ac582937008d877f881c5148822e8fed38ae"
+    },
+    {
+      "version": "20260225190000",
+      "name": "tongs_rls_recursion_hard_break",
+      "path": "supabase/migrations/20260225190000_tongs_rls_recursion_hard_break.sql",
+      "sha256": "1a67837492d617b651ca65277c9fb15aa339183fa8e87e931b2f673a3eacecd6"
+    },
+    {
+      "version": "20260225224500",
+      "name": "tongs_ai_credits_rpc",
+      "path": "supabase/migrations/20260225224500_tongs_ai_credits_rpc.sql",
+      "sha256": "2e951b1517bd5f91e79218a9002b60d19e75ba3b596d6032da0d7b7f2b2afb30"
+    },
+    {
+      "version": "20260227163000",
+      "name": "tongs_hearth_creator_learning",
+      "path": "supabase/migrations/20260227163000_tongs_hearth_creator_learning.sql",
+      "sha256": "0607a43c466e45e18382d74b901bbc4a41c4bc4753857d7466e17c877e98941e"
+    },
+    {
+      "version": "20260228143000",
+      "name": "tongs_recording_sessions",
+      "path": "supabase/migrations/20260228143000_tongs_recording_sessions.sql",
+      "sha256": "b6b50f2d5ad7aac916ce36fb68869b069af134ddef67b5b522ab154e8b34d463"
+    },
+    {
+      "version": "20260228170000",
+      "name": "tongs_assets_table",
+      "path": "supabase/migrations/20260228170000_tongs_assets_table.sql",
+      "sha256": "14bf9e363bbf162957713271868685d2d18161122548893d639302d883e9750b"
+    },
+    {
+      "version": "20260228193000",
+      "name": "tongs_service_role_schema_grants",
+      "path": "supabase/migrations/20260228193000_tongs_service_role_schema_grants.sql",
+      "sha256": "a8b89df89d8fe650eab2768b7eaa50b6daa1d78e2ffbb890a8af94e2fe1c5dff"
+    },
+    {
+      "version": "20260301101500",
+      "name": "tongs_recording_session_items",
+      "path": "supabase/migrations/20260301101500_tongs_recording_session_items.sql",
+      "sha256": "2b49673f630f9dfc5303d1f30d215e7f2d81242e9b1a62cec552184fb4976d0f"
+    },
+    {
+      "version": "20260301113000",
+      "name": "tongs_authenticated_schema_grants",
+      "path": "supabase/migrations/20260301113000_tongs_authenticated_schema_grants.sql",
+      "sha256": "3d7386faef37f4aa6383efae5a1b6a0838b2389498d41f147795f0365230e492"
+    },
+    {
+      "version": "20260302110000",
+      "name": "tongs_barstock_projects_and_links",
+      "path": "supabase/migrations/20260302110000_tongs_barstock_projects_and_links.sql",
+      "sha256": "a36b032af42fe31cb0b5cb197ff6d02fe7bd48c897b5b4ff613fea1355ec124e"
+    },
+    {
+      "version": "20260302133000",
+      "name": "tongs_project_link_uniqueness_enforcement",
+      "path": "supabase/migrations/20260302133000_tongs_project_link_uniqueness_enforcement.sql",
+      "sha256": "446bd66268297d7b4e37071da40bbf3639eb5b267fda08994a6eddec84b95b03"
+    },
+    {
+      "version": "20260302153000",
+      "name": "tongs_workspace_delete_rpc",
+      "path": "supabase/migrations/20260302153000_tongs_workspace_delete_rpc.sql",
+      "sha256": "9dd25a85e00c2dbbb30498829e022acdc6f36174ed7af0cc9b2536c3562add53"
+    },
+    {
+      "version": "20260302170000",
+      "name": "tongs_workspace_delete_rpc_result",
+      "path": "supabase/migrations/20260302170000_tongs_workspace_delete_rpc_result.sql",
+      "sha256": "ce4003e162ba636997ccc17506762a8ebe844425b309ced3ebf8520a4b3a2d56"
+    },
+    {
+      "version": "20260302183000",
+      "name": "tongs_workspace_roles_authoritative",
+      "path": "supabase/migrations/20260302183000_tongs_workspace_roles_authoritative.sql",
+      "sha256": "6f2a229557864844fa87e849bd4d9bd109f3bfedcf82dbb6adfb7ce9c6f00e4e"
+    },
+    {
+      "version": "20260302184500",
+      "name": "tongs_workspace_invites",
+      "path": "supabase/migrations/20260302184500_tongs_workspace_invites.sql",
+      "sha256": "00b590c48328b019d2a9ebd433aba3dd0cde2324cb1146a9afc6841804402e4f"
+    },
+    {
+      "version": "20260302190000",
+      "name": "tongs_barstock_workspace_role_gates",
+      "path": "supabase/migrations/20260302190000_tongs_barstock_workspace_role_gates.sql",
+      "sha256": "f89e90ccc3fcd461e960f641a87af934ebe6fd308ace2fbe8ac833f1d4cefdd0"
+    },
+    {
+      "version": "20260302191000",
+      "name": "tongs_workspace_invite_accept_fix",
+      "path": "supabase/migrations/20260302191000_tongs_workspace_invite_accept_fix.sql",
+      "sha256": "0316ba4db7a30882ac8df709b03b46af07d579508cb8561c861c5703082c176d"
+    },
+    {
+      "version": "20260302200000",
+      "name": "tongs_workspace_and_barstock_policy_canonical_cleanup",
+      "path": "supabase/migrations/20260302200000_tongs_workspace_and_barstock_policy_canonical_cleanup.sql",
+      "sha256": "28e6ea7ed283f961b957bd88c959d093169e7a6372c36e98414834332b744e73"
+    },
+    {
+      "version": "20260302203000",
+      "name": "tongs_calendar_event_assignments_and_role_gates",
+      "path": "supabase/migrations/20260302203000_tongs_calendar_event_assignments_and_role_gates.sql",
+      "sha256": "a115ea217370fb882817366b8530d22076477ac96b6968cbd7668b5aaf3021ae"
+    },
+    {
+      "version": "20260302214500",
+      "name": "tongs_recording_session_items_integrity_backstop",
+      "path": "supabase/migrations/20260302214500_tongs_recording_session_items_integrity_backstop.sql",
+      "sha256": "9de27f9fa368673ab6a6031dc74721c0ccaa28a9fda2276d690fa3b72f021a70"
+    },
+    {
+      "version": "20260302231500",
+      "name": "tongs_barstock_workspace_consistency_backstops",
+      "path": "supabase/migrations/20260302231500_tongs_barstock_workspace_consistency_backstops.sql",
+      "sha256": "bfa25524dc79e09dee893167153efe9f3fada0c16a3c6e0cb96934b33901e324"
+    },
+    {
+      "version": "20260302232500",
+      "name": "tongs_barstock_legacy_episode_id_nullable",
+      "path": "supabase/migrations/20260302232500_tongs_barstock_legacy_episode_id_nullable.sql",
+      "sha256": "837ffcf58e5952a001c819970a40731ae5d737bd34dfcf8a884cce47abbfc87a"
+    },
+    {
+      "version": "20260303001500",
+      "name": "tongs_hearth_workpiece_presence",
+      "path": "supabase/migrations/20260303001500_tongs_hearth_workpiece_presence.sql",
+      "sha256": "b256520857cff139a197389157f7f77c3d9cc649ed8544cfc100b3e4b3585bb2"
+    },
+    {
+      "version": "20260303013000",
+      "name": "tongs_ready_script_meta",
+      "path": "supabase/migrations/20260303013000_tongs_ready_script_meta.sql",
+      "sha256": "77b3f6365e080befaa0b84063cd1091d17eade3b589a357558f92d26f90faf47"
+    },
+    {
+      "version": "20260303020000",
+      "name": "tongs_workspace_team_rpcs",
+      "path": "supabase/migrations/20260303020000_tongs_workspace_team_rpcs.sql",
+      "sha256": "e666e921caebf70b49fef14a3d665e437c4f51df7cc8a548962136bb545122ed"
+    },
+    {
+      "version": "20260303023000",
+      "name": "tongs_workspace_team_list_rpcs",
+      "path": "supabase/migrations/20260303023000_tongs_workspace_team_list_rpcs.sql",
+      "sha256": "ea4fc8d9c0118df8910ef6596b46a445157ce269d5ee58825a4f5ee93a5aae8c"
+    },
+    {
+      "version": "20260303030000",
+      "name": "tongs_workspace_team_hardening",
+      "path": "supabase/migrations/20260303030000_tongs_workspace_team_hardening.sql",
+      "sha256": "d47fba9616d08eddb54f4b8081e2a2f51a74d7269ef770dec32494ec42f98392"
+    },
+    {
+      "version": "20260303103000",
+      "name": "tongs_adaptive_style_alignment_flags_and_profile",
+      "path": "supabase/migrations/20260303103000_tongs_adaptive_style_alignment_flags_and_profile.sql",
+      "sha256": "5d6ed2cf63fe60b9787d45d16c29b69506bdc01eda5bd19af6f7c5a93a08f177"
+    },
+    {
+      "version": "20260303114500",
+      "name": "tongs_workspace_feature_toggle_audit",
+      "path": "supabase/migrations/20260303114500_tongs_workspace_feature_toggle_audit.sql",
+      "sha256": "7bd755c648d3f23ba0530177d020692f1fcfd62363474b9b5a0125838f159529"
+    },
+    {
+      "version": "20260303130000",
+      "name": "tongs_orgs_teams_workspace_org_slice1",
+      "path": "supabase/migrations/20260303130000_tongs_orgs_teams_workspace_org_slice1.sql",
+      "sha256": "def93913cb08ecd4d297326a2eca6f13d5fb0b766475ac3905ebd226a5e669e1"
+    },
+    {
+      "version": "20260303153000",
+      "name": "tongs_org_teams_slice2_rpcs",
+      "path": "supabase/migrations/20260303153000_tongs_org_teams_slice2_rpcs.sql",
+      "sha256": "b96535702c19787c175ed2a89efa65bdbc4d187602e757aa1ecb05e91137840f"
+    },
+    {
+      "version": "20260303170000",
+      "name": "tongs_org_team_member_email_rpcs",
+      "path": "supabase/migrations/20260303170000_tongs_org_team_member_email_rpcs.sql",
+      "sha256": "6e6a8c47143437ba3e7bb2e8b7695e701d2f6ebd4c2b6acc0e8db83c198b9e30"
+    },
+    {
+      "version": "20260303173000",
+      "name": "tongs_org_team_member_ambiguity_fix",
+      "path": "supabase/migrations/20260303173000_tongs_org_team_member_ambiguity_fix.sql",
+      "sha256": "a42ef80145aa14158ce3c6acedb8a58e9f7cb223de7b981c7da4dc32aa0efb04"
+    },
+    {
+      "version": "20260303210000",
+      "name": "tongs_hearth_creator_user_id_ambiguity_fix",
+      "path": "supabase/migrations/20260303210000_tongs_hearth_creator_user_id_ambiguity_fix.sql",
+      "sha256": "2f5dbac7c01fa737034e86ccbd7be8531b92aeec20d192b3150d090a699a9264"
+    },
+    {
+      "version": "20260303224000",
+      "name": "tongs_org_membership_invariant_and_repair",
+      "path": "supabase/migrations/20260303224000_tongs_org_membership_invariant_and_repair.sql",
+      "sha256": "38e34b0aede7ff84e003725e15ad66929a9ea230cc54ee8834b7cd2bf3952bb6"
+    },
+    {
+      "version": "20260303233000",
+      "name": "tongs_workspace_writing_profiles",
+      "path": "supabase/migrations/20260303233000_tongs_workspace_writing_profiles.sql",
+      "sha256": "7534d1972606a90c9c5acc45cf85568b4f49f028b26e2a208a8c24056a1e4ec4"
+    },
+    {
+      "version": "20260304101500",
+      "name": "tongs_workspace_style_samples",
+      "path": "supabase/migrations/20260304101500_tongs_workspace_style_samples.sql",
+      "sha256": "27251b1b1a17ca96872f15f8bf631fea0e65ec36b9d39fe2f70bf771a5a18706"
+    },
+    {
+      "version": "20260305143000",
+      "name": "tongs_ai_credit_purchases_grant_rpc",
+      "path": "supabase/migrations/20260305143000_tongs_ai_credit_purchases_grant_rpc.sql",
+      "sha256": "372b1ea5553fa7c6df62d441579a9df1f1a866293ea34b4061da71486222f45e"
+    },
+    {
+      "version": "20260306224500",
+      "name": "fix_signup_workspace_provisioning_drift",
+      "path": "supabase/migrations/20260306224500_fix_signup_workspace_provisioning_drift.sql",
+      "sha256": "02f5d0d264b91746df9e672acb3bd67ef64f9ee46dfd8d04831570cbcbbed82b"
+    },
+    {
+      "version": "20260310143000",
+      "name": "tongs_workspace_ready_queue_state",
+      "path": "supabase/migrations/20260310143000_tongs_workspace_ready_queue_state.sql",
+      "sha256": "f59af5db736a2686f01cfecd3c61f11c4dbc301c530e0b11b6829c72f1f23003"
+    },
+    {
+      "version": "20260310170000",
+      "name": "tongs_assets_image_map_slice1",
+      "path": "supabase/migrations/20260310170000_tongs_assets_image_map_slice1.sql",
+      "sha256": "8ea446f04e6978465a9bbb6b88b5c899ad1d97c626abc8f76bf74a69f9c1f301"
+    },
+    {
+      "version": "20260311153000",
+      "name": "tongs_episodes_archive_state",
+      "path": "supabase/migrations/20260311153000_tongs_episodes_archive_state.sql",
+      "sha256": "93271b0fa3a9a649056562e74d1b553b278790f1467e173d02eceb08cc6dab8d"
+    },
+    {
+      "version": "20260311190000",
+      "name": "tongs_assets_image_map_candidate_images",
+      "path": "supabase/migrations/20260311190000_tongs_assets_image_map_candidate_images.sql",
+      "sha256": "3eb16cf7b4c3875d2ad1baa332194a7095c53122d57fc9c800a729ad6937eaa1"
+    },
+    {
+      "version": "20260313130000",
+      "name": "tongs_hammer_workpiece_state",
+      "path": "supabase/migrations/20260313130000_tongs_hammer_workpiece_state.sql",
+      "sha256": "f05d461806590b29b54dc51a7f35eeefb6349354497e648499f30bc0ba002e80"
+    },
+    {
+      "version": "20260314120000",
+      "name": "tongs_hammer_prep_status_runtime_alignment",
+      "path": "supabase/migrations/20260314120000_tongs_hammer_prep_status_runtime_alignment.sql",
+      "sha256": "f308fc44472ce2081e167ea4858387383c10c71bb210e2aeb29649651acccc4a"
+    },
+    {
+      "version": "20260314194500",
+      "name": "tongs_workspace_thumbnail_brand_templates",
+      "path": "supabase/migrations/20260314194500_tongs_workspace_thumbnail_brand_templates.sql",
+      "sha256": "b3c810e8cd05c83e1ef4d13b4b1ffc93cc914218a7128f9e5bea6179d5118577"
+    },
+    {
+      "version": "20260317024500",
+      "name": "raise_forge_workpieces_limit",
+      "path": "supabase/migrations/20260317024500_raise_forge_workpieces_limit.sql",
+      "sha256": "bc8c221b588b4c2e424bc309462b3dcf66bc6d9ac8bfc32513312c6eef2e14b4"
+    },
+    {
+      "version": "20260319173000",
+      "name": "tongs_bellows_runtime_sessions",
+      "path": "supabase/migrations/20260319173000_tongs_bellows_runtime_sessions.sql",
+      "sha256": "7370c50b90626b8991365dcb68ec19153f0a3d1dcaf25664dff63b9c384cf9ed"
+    },
+    {
+      "version": "20260319203000",
+      "name": "tongs_bellows_join_links",
+      "path": "supabase/migrations/20260319203000_tongs_bellows_join_links.sql",
+      "sha256": "510d7478b08b30712f639de63494728be29924ef9fa0f1130dd1ff9e5120915a"
+    },
+    {
+      "version": "20260320153000",
+      "name": "tongs_billing_canonical_contract",
+      "path": "supabase/migrations/20260320153000_tongs_billing_canonical_contract.sql",
+      "sha256": "4b18dd833a9806ee2a2f52a39d4a25a354aeb7492f0fa742bbd88a07f9d34821"
+    },
+    {
+      "version": "20260320170000",
+      "name": "tongs_postgrest_schema_exposure",
+      "path": "supabase/migrations/20260320170000_tongs_postgrest_schema_exposure.sql",
+      "sha256": "d9a2cb4d348837c11f56c39ae0ac8a2b769eb3309e2ab9f9b0eb9e27ee40e471"
+    },
+    {
+      "version": "20260325103000",
+      "name": "tongs_workspace_rls_recursion_hotfix",
+      "path": "supabase/migrations/20260325103000_tongs_workspace_rls_recursion_hotfix.sql",
+      "sha256": "11f135d949980917fcdf8d4ba839930eb2a75e2d5c5974cc1640b290a367cf53"
+    },
+    {
+      "version": "20260325111500",
+      "name": "auth_signup_fail_open_and_workspace_rpc",
+      "path": "supabase/migrations/20260325111500_auth_signup_fail_open_and_workspace_rpc.sql",
+      "sha256": "982e217c901e32c5a4d70d023bde4da8163a35e8ec1e54bae4918fc4bd0a9e78"
+    },
+    {
+      "version": "20260325114000",
+      "name": "auth_user_create_unblock",
+      "path": "supabase/migrations/20260325114000_auth_user_create_unblock.sql",
+      "sha256": "7dc5f07fe6f3f00a7ad4ae8e54ab779fc15f9bdaf80114b83d598a9fb9560f7f"
+    },
+    {
+      "version": "20260325120000",
+      "name": "debug_auth_users_triggers",
+      "path": "supabase/migrations/20260325120000_debug_auth_users_triggers.sql",
+      "sha256": "27bb4f4af5531eb124c108113f029e90f0562610fdf735a17ef7d788ce07b0cb"
+    },
+    {
+      "version": "20260325121000",
+      "name": "auth_users_disable_legacy_bootstrap_triggers",
+      "path": "supabase/migrations/20260325121000_auth_users_disable_legacy_bootstrap_triggers.sql",
+      "sha256": "90c779c656c90c8b3abdecfecd99450720574be37d6e71c4aa8e57809a844a09"
+    },
+    {
+      "version": "20260325123000",
+      "name": "drop_debug_auth_users_triggers",
+      "path": "supabase/migrations/20260325123000_drop_debug_auth_users_triggers.sql",
+      "sha256": "41314a906d3e9ab35bd454906163f028ba78768c1cfb11f9ce9381faa1202064"
+    },
+    {
+      "version": "20260325153000",
+      "name": "tongs_henry_v1_orientation_layer",
+      "path": "supabase/migrations/20260325153000_tongs_henry_v1_orientation_layer.sql",
+      "sha256": "64482d6bf2a3d70166b3b0d19d4f273e2d98fffb0082141d74f1852a30d24fd5"
+    },
+    {
+      "version": "20260325174500",
+      "name": "tongs_henry_rpc_ambiguity_fix",
+      "path": "supabase/migrations/20260325174500_tongs_henry_rpc_ambiguity_fix.sql",
+      "sha256": "de28312cef74378fd705407a910944049d9a4915641cd1b69bf0012142aadaf6"
+    },
+    {
+      "version": "20260326183000",
+      "name": "tongs_hammer_pass_orchestrator_state",
+      "path": "supabase/migrations/20260326183000_tongs_hammer_pass_orchestrator_state.sql",
+      "sha256": "78de9dcecf619a34fc14eea7169b50ecaf7357ee6db82aae786cb9e7393f66fe"
+    },
+    {
+      "version": "20260327170000",
+      "name": "tongs_ai_policy_foundation_milestone_a",
+      "path": "supabase/migrations/20260327170000_tongs_ai_policy_foundation_milestone_a.sql",
+      "sha256": "d9e883e0b7c61d31796a7fd55365b1c2176fe4874ce8878d136fa25304e9a422"
+    },
+    {
+      "version": "20260327184500",
+      "name": "tongs_ai_usage_events_telemetry",
+      "path": "supabase/migrations/20260327184500_tongs_ai_usage_events_telemetry.sql",
+      "sha256": "67b9571e986c0c6347123a1e92b12ad34e14dfe37e9f354a9346e21cd951f35f"
+    },
+    {
+      "version": "20260327213000",
+      "name": "tongs_ai_usage_events_lane_provider",
+      "path": "supabase/migrations/20260327213000_tongs_ai_usage_events_lane_provider.sql",
+      "sha256": "485ece63f4a10f7da8cc698162307c15b5940158db32500556246a194f6cc3ad"
+    },
+    {
+      "version": "20260328233000",
+      "name": "tongs_ai_usage_spend_rollups",
+      "path": "supabase/migrations/20260328233000_tongs_ai_usage_spend_rollups.sql",
+      "sha256": "0d8dec6b69fd539dd318f80f98047ea076d38e7ac345ee8634deec3b80d71544"
+    },
+    {
+      "version": "20260329103000",
+      "name": "tongs_thumbnail_brand_template_rpc_ambiguity_fix",
+      "path": "supabase/migrations/20260329103000_tongs_thumbnail_brand_template_rpc_ambiguity_fix.sql",
+      "sha256": "6babdb48be81367c3d6cb35736eb84e3d2509a5a33358fe6dd6f61fcb1a983f2"
+    },
+    {
+      "version": "20260401120000",
+      "name": "tongs_billing_pro_membership_and_ai_credits",
+      "path": "supabase/migrations/20260401120000_tongs_billing_pro_membership_and_ai_credits.sql",
+      "sha256": "43b5a177afd2ada3750150121f315e741101d6cb528530f168b10b14403d5460"
+    },
+    {
+      "version": "20260402153000",
+      "name": "tongs_ai_usage_events_policy_enforced",
+      "path": "supabase/migrations/20260402153000_tongs_ai_usage_events_policy_enforced.sql",
+      "sha256": "8e5eb7bac9d7b5d371382197c8cfd2ac5501e5ef537a3d25144e0610fe52d74c"
+    },
+    {
+      "version": "20260403110000",
+      "name": "tongs_user_ai_keys",
+      "path": "supabase/migrations/20260403110000_tongs_user_ai_keys.sql",
+      "sha256": "28370c5f88ab237c1d26b5aa9718cfcc13d7565b584d36eb02c1f3acbc2d016c"
+    },
+    {
+      "version": "20260403143000",
+      "name": "tongs_ai_usage_events_attribution_snapshot",
+      "path": "supabase/migrations/20260403143000_tongs_ai_usage_events_attribution_snapshot.sql",
+      "sha256": "e591bc9253d4f3db5185623a159b41e5f8a5741c77da0d736f57f6e6c742e144"
+    },
+    {
+      "version": "20260403190000",
+      "name": "tongs_episode_deletion_modes",
+      "path": "supabase/migrations/20260403190000_tongs_episode_deletion_modes.sql",
+      "sha256": "36304fa9b7c10bd4edc35fddab6726418eb8268822cf971b4f2580a6667eb00f"
+    },
+    {
+      "version": "20260404103000",
+      "name": "tongs_asset_variant_contract",
+      "path": "supabase/migrations/20260404103000_tongs_asset_variant_contract.sql",
+      "sha256": "4cd38e055593e6bf84c3b3466c70f034aab1aee5de09750dc4a463de3c082912"
+    },
+    {
+      "version": "20260404121500",
+      "name": "tongs_admin_panel_v1",
+      "path": "supabase/migrations/20260404121500_tongs_admin_panel_v1.sql",
+      "sha256": "7ba4602e97dc95eeed32d12e478767f9276863e3a2fa28a1427a4ab97440cf61"
+    },
+    {
+      "version": "20260404133000",
+      "name": "tongs_admin_panel_exports",
+      "path": "supabase/migrations/20260404133000_tongs_admin_panel_exports.sql",
+      "sha256": "43d9ddbe0a7c1139ed76f9ce9f556559d433968f1e57540af1a0261446d5da95"
+    },
+    {
+      "version": "20260404151500",
+      "name": "tongs_workspace_access_union_rpc",
+      "path": "supabase/migrations/20260404151500_tongs_workspace_access_union_rpc.sql",
+      "sha256": "3d640245cb3faafa47e5a3a2a3648f915d19aa6c72b427c1e845a5d0a8a6585f"
+    },
+    {
+      "version": "20260408123000",
+      "name": "tongs_canonical_recordings_and_revisions_phase1",
+      "path": "supabase/migrations/20260408123000_tongs_canonical_recordings_and_revisions_phase1.sql",
+      "sha256": "c67621114dcff37f28dedf9f19392eaac1e2587ffd17909933561dcb912afedd"
+    },
+    {
+      "version": "20260414203147",
+      "name": "tongs_workpiece_jobs",
+      "path": "supabase/migrations/20260414203147_tongs_workpiece_jobs.sql",
+      "sha256": "fff71981d1d7a322b251b24ad0946f2a53f528b07e0c11b62ead04ac98a4e5d2"
+    },
+    {
+      "version": "20260426120000",
+      "name": "tongs_hammer_transcript_versions_path",
+      "path": "supabase/migrations/20260426120000_tongs_hammer_transcript_versions_path.sql",
+      "sha256": "a431c09ead4ccf0a719acf9c499e6f5edb81d30723297f50f87880f2b30ba50a"
+    },
+    {
+      "version": "20260505113000",
+      "name": "tongs_hearth_attachments",
+      "path": "supabase/migrations/20260505113000_tongs_hearth_attachments.sql",
+      "sha256": "92ecad5af70ec4a66f63514fdb984dc81c4ae0ce60fef86fd18ced9fe1b74332"
+    },
+    {
+      "version": "20260505150000",
+      "name": "tongs_hearth_attachments_v2",
+      "path": "supabase/migrations/20260505150000_tongs_hearth_attachments_v2.sql",
+      "sha256": "c15dfffbbae86099f6992622856a06b5f6b7761b87a8199584502d8621a7fb8b"
+    },
+    {
+      "version": "20260708165000",
+      "name": "tongs_workspace_delete_requires_archived_episodes",
+      "path": "supabase/migrations/20260708165000_tongs_workspace_delete_requires_archived_episodes.sql",
+      "sha256": "5fc59b014b060fc0ec464102f75cfb93f87651f1d8d88a18e68a5fc886612e61"
+    },
+    {
+      "version": "20260713023000",
+      "name": "tongs_hammer_composition_v2",
+      "path": "supabase/migrations/20260713023000_tongs_hammer_composition_v2.sql",
+      "sha256": "4b8759a480fffbb23aa3d3931a414aa331de9703066348dabb5b6487262eeb5a"
+    },
+    {
+      "version": "20260713043000",
+      "name": "tongs_hammer_composition_v2_concurrency",
+      "path": "supabase/migrations/20260713043000_tongs_hammer_composition_v2_concurrency.sql",
+      "sha256": "ccda8d5e738767f4a38aad0b64f86ad31a43335fe5bf8ca17fa88621935ffa9d"
+    },
+    {
+      "version": "20260713170000",
+      "name": "tongs_barstock_persistence_authority",
+      "path": "supabase/migrations/20260713170000_tongs_barstock_persistence_authority.sql",
+      "sha256": "769fca01214e24729764d7b40805f7e20ed35cf9f29f9edeb834c88111a4c33b"
+    },
+    {
+      "version": "20260713190000",
+      "name": "tongs_hearth_ready_transition_authority",
+      "path": "supabase/migrations/20260713190000_tongs_hearth_ready_transition_authority.sql",
+      "sha256": "c3408a85be6ada097ff3371bc7bfc16176e7ea4bdebee7164603bd03653c7f7e"
+    },
+    {
+      "version": "20260713210000",
+      "name": "tongs_anvil_recording_completion_authority",
+      "path": "supabase/migrations/20260713210000_tongs_anvil_recording_completion_authority.sql",
+      "sha256": "7fb1829cca91796c37d25a6f92693278121c94a29ac67ed39f542ab1d18a3cee"
+    },
+    {
+      "version": "20260714190000",
+      "name": "tongs_generation_allowance_banks",
+      "path": "supabase/migrations/20260714190000_tongs_generation_allowance_banks.sql",
+      "sha256": "ee662cd25ce3da4d147554b48fa65607053b7a5ab99993499e50c77f59542da6"
+    },
+    {
+      "version": "20260715153000",
+      "name": "tongs_thumbnail_asset_lifecycle",
+      "path": "supabase/migrations/20260715153000_tongs_thumbnail_asset_lifecycle.sql",
+      "sha256": "a8fbe171e2afeebd1228ef87714553c34d43c5518963d9e3cc5050e24b5d1df6"
+    },
+    {
+      "version": "20260715170000",
+      "name": "tongs_remove_incomplete_generation_allowances",
+      "path": "supabase/migrations/20260715170000_tongs_remove_incomplete_generation_allowances.sql",
+      "sha256": "102760d93545434e88bfef3db6c6c30493b6cb739b31147001f50e640a665812"
+    },
+    {
+      "version": "20260717090000",
+      "name": "tongs_thumbnail_editorial_memory",
+      "path": "supabase/migrations/20260717090000_tongs_thumbnail_editorial_memory.sql",
+      "sha256": "5afdb0fad178df78f5c29a80429eb682138d58043198940ba00795e3804355e2"
+    },
+    {
+      "version": "20260717093000",
+      "name": "tongs_thumbnail_memory_workspace_delete",
+      "path": "supabase/migrations/20260717093000_tongs_thumbnail_memory_workspace_delete.sql",
+      "sha256": "cf2f51fc0a6c85af2b29b8b6df1602e6626d35c74c8f1567e662d2f2afbeafd9"
+    },
+    {
+      "version": "20260717130000",
+      "name": "tongs_thumbnail_ledger_intelligence",
+      "path": "supabase/migrations/20260717130000_tongs_thumbnail_ledger_intelligence.sql",
+      "sha256": "2d7d44d367ae84bff762b50fab5c496b61396fc9facfbbb86c88ba3ebbd9cc52"
+    },
+    {
+      "version": "20260717133000",
+      "name": "tongs_thumbnail_ledger_cursor_authority",
+      "path": "supabase/migrations/20260717133000_tongs_thumbnail_ledger_cursor_authority.sql",
+      "sha256": "a488bbfbac01800cde238a8ab8077fdcc3eb44afcfc8579aa096c20a072d4d7a"
+    },
+    {
+      "version": "20260717200000",
+      "name": "tongs_workspace_brand_library",
+      "path": "supabase/migrations/20260717200000_tongs_workspace_brand_library.sql",
+      "sha256": "c93d050b23620122379b6140d7bf4b0a4a4f8ca4a4fcea5d32a5b4702b4078a6"
+    },
+    {
+      "version": "20260717203000",
+      "name": "tongs_brand_bindability_and_resolution_hardening",
+      "path": "supabase/migrations/20260717203000_tongs_brand_bindability_and_resolution_hardening.sql",
+      "sha256": "913e5001482ab035790092ba29013c62d6ce041f41822884cb268c1386c6ac3d"
+    },
+    {
+      "version": "20260717210000",
+      "name": "tongs_brand_asset_storage_policies",
+      "path": "supabase/migrations/20260717210000_tongs_brand_asset_storage_policies.sql",
+      "sha256": "0b0ff26401e6bdad487630cd0369e121cce6955baa8be66bfdb24571f04aa816"
+    },
+    {
+      "version": "20260718090000",
+      "name": "tongs_brand_library_projection_contract",
+      "path": "supabase/migrations/20260718090000_tongs_brand_library_projection_contract.sql",
+      "sha256": "5defad1933865c009fd663b851d9087c240ca05070f3c48d4722c4a00d83ead1"
+    },
+    {
+      "version": "20260718130000",
+      "name": "tongs_thumbnail_candidate_sets",
+      "path": "supabase/migrations/20260718130000_tongs_thumbnail_candidate_sets.sql",
+      "sha256": "699f70a56f2c118779cbdc6de81d3a1944dcbeb175721b50652a7653e3869454"
+    },
+    {
+      "version": "20260718133000",
+      "name": "tongs_thumbnail_structural_fingerprint_execute",
+      "path": "supabase/migrations/20260718133000_tongs_thumbnail_structural_fingerprint_execute.sql",
+      "sha256": "cb6fa6082332240165a241f01e2cdf49759c707af796d5d261f561c39eabde8e"
+    },
+    {
+      "version": "20260718134500",
+      "name": "tongs_thumbnail_candidate_eligibility_states",
+      "path": "supabase/migrations/20260718134500_tongs_thumbnail_candidate_eligibility_states.sql",
+      "sha256": "3b06bbff55387b1c4ec79492aaa0049b212f25a8ece4d671a47ebe37d76616d0"
+    },
+    {
+      "version": "20260718140000",
+      "name": "tongs_thumbnail_candidate_identity_verification",
+      "path": "supabase/migrations/20260718140000_tongs_thumbnail_candidate_identity_verification.sql",
+      "sha256": "1093b610eb88b021e41cdd379cc9a71b957b813a2e75290e2c7c286f9929ee93"
+    },
+    {
+      "version": "20260718143000",
+      "name": "tongs_thumbnail_candidate_decision_projection",
+      "path": "supabase/migrations/20260718143000_tongs_thumbnail_candidate_decision_projection.sql",
+      "sha256": "bb881484feaf19e606ceca45c2afc7d41658d17fbd229c83ac0d3e3725538ff5"
+    },
+    {
+      "version": "20260718160000",
+      "name": "tongs_quench_release_decisions",
+      "path": "supabase/migrations/20260718160000_tongs_quench_release_decisions.sql",
+      "sha256": "7610353c837294ebd3db4ab01738a8bb6cf76bbcf6b3b17ec26e11bb1fac887e"
+    },
+    {
+      "version": "20260720120000",
+      "name": "tongs_brand_media_roles",
+      "path": "supabase/migrations/20260720120000_tongs_brand_media_roles.sql",
+      "sha256": "4103c68547462d16246264360d14d59cebc088bbda0a473504c4f46404110993"
+    },
+    {
+      "version": "20260720123000",
+      "name": "tongs_brand_asset_media_inspection",
+      "path": "supabase/migrations/20260720123000_tongs_brand_asset_media_inspection.sql",
+      "sha256": "d131f01a283b42992d1ffd209fcbedaab501d729ab25563b7378130b323143d6"
+    },
+    {
+      "version": "20260720130000",
+      "name": "tongs_thumbnail_style_source_provenance",
+      "path": "supabase/migrations/20260720130000_tongs_thumbnail_style_source_provenance.sql",
+      "sha256": "dfa9344aabac2ddf892234275d7c7e3dc60d6e6e0205c1b27c8b50c35fbe8fd3"
+    },
+    {
+      "version": "20260721120000",
+      "name": "tongs_script_approval_image_map_revision_authority",
+      "path": "supabase/migrations/20260721120000_tongs_script_approval_image_map_revision_authority.sql",
+      "sha256": "c9d84d2c12105d67f5e233d74c688adaaf331f7e88cb1f1d1be42e0e82e6661f"
+    },
+    {
+      "version": "20260802120000",
+      "name": "tongs_thumbnail_brand_setup_operations",
+      "path": "supabase/migrations/20260802120000_tongs_thumbnail_brand_setup_operations.sql",
+      "sha256": "3e68fd7706b7a2612a6826a7a40b8782da1fb3fbfc3f2435d9e93338975f1547"
+    },
+    {
+      "version": "20260802130000",
+      "name": "tongs_image_map_prompt_authority",
+      "path": "supabase/migrations/20260802130000_tongs_image_map_prompt_authority.sql",
+      "sha256": "8233de0ce5eb57386a5d88d8db65a5f49cec6be710e8bb25737fa0b5b621aa24"
+    },
+    {
+      "version": "20260803153000",
+      "name": "tongs_image_map_candidate_selection_authority",
+      "path": "supabase/migrations/20260803153000_tongs_image_map_candidate_selection_authority.sql",
+      "sha256": "c0077546c118e5205814c7e85e59c4af5eaeb074dd0e8bd975999562663b4a43"
+    },
+    {
+      "version": "20260803170000",
+      "name": "tongs_broll_v2_authority",
+      "path": "supabase/migrations/20260803170000_tongs_broll_v2_authority.sql",
+      "sha256": "0e0a88cac86a9e9a7e153aa7187afd4bbcac7d71f582fcc4e146dc24867804ed"
+    },
+    {
+      "version": "20260803190000",
+      "name": "tongs_broll_acquisition_bridge",
+      "path": "supabase/migrations/20260803190000_tongs_broll_acquisition_bridge.sql",
+      "sha256": "3d2bb4a7fbf4955ef24addf36d0d521912425d964e83b1f9b3fb534917e958fa"
+    },
+    {
+      "version": "20260803210000",
+      "name": "tongs_broll_motion_prompt_authority",
+      "path": "supabase/migrations/20260803210000_tongs_broll_motion_prompt_authority.sql",
+      "sha256": "233a7fce63c51510d4e60252d5a416145c91e10d714d8bae96d6a42d3f0fa94c"
+    },
+    {
+      "version": "20260803213000",
+      "name": "tongs_broll_motion_prompt_replay_order",
+      "path": "supabase/migrations/20260803213000_tongs_broll_motion_prompt_replay_order.sql",
+      "sha256": "b1bee94c0cb160c06b11e913389fdd262200fd665c57b525afcd4cf232c392ef"
+    },
+    {
+      "version": "20260803214500",
+      "name": "cleanup_broll_motion_hosted_smoke_fixture",
+      "path": "supabase/migrations/20260803214500_cleanup_broll_motion_hosted_smoke_fixture.sql",
+      "sha256": "b0d45992208de192c6af462e11e31ca44c053757dfb6080a5bf8572b4b8ce5eb"
+    },
+    {
+      "version": "20260803220000",
+      "name": "tongs_broll_runway_fail_closed",
+      "path": "supabase/migrations/20260803220000_tongs_broll_runway_fail_closed.sql",
+      "sha256": "8ac562c9f2069b0ad9a8cef0fa5b2fe8b8a467cbbf01b1687913669e2e98ae9a"
+    },
+    {
+      "version": "20260804010000",
+      "name": "tongs_broll_runway_rejection_evidence",
+      "path": "supabase/migrations/20260804010000_tongs_broll_runway_rejection_evidence.sql",
+      "sha256": "6ba8c6cf8b40b3a2660a9e367e4e0a3bb4d43c64f86fce4e5b00339717fa71cf"
+    },
+    {
+      "version": "20260804011000",
+      "name": "tongs_broll_runway_operator_reconciliation",
+      "path": "supabase/migrations/20260804011000_tongs_broll_runway_operator_reconciliation.sql",
+      "sha256": "8b821f41a27ac4a21a41b6ba846411989d298ad27f103407bfae2b2559732aac"
+    },
+    {
+      "version": "20260804113000",
+      "name": "tongs_broll_runway_clear_resolved_failure",
+      "path": "supabase/migrations/20260804113000_tongs_broll_runway_clear_resolved_failure.sql",
+      "sha256": "41bff89c9fe43b6a8adcc2623301d72b2562a174f3eca1137844510a835ea7ff"
+    },
+    {
+      "version": "20260804130000",
+      "name": "tongs_broll_candidate_readback",
+      "path": "supabase/migrations/20260804130000_tongs_broll_candidate_readback.sql",
+      "sha256": "e66bbb24cea89b5013a77673b1a14632bcfa794744e982688cebfa40d15af624"
+    },
+    {
+      "version": "20260804150000",
+      "name": "tongs_source_revision_authority",
+      "path": "supabase/migrations/20260804150000_tongs_source_revision_authority.sql",
+      "sha256": "987394d50984b2d4a5c0bf97dfcaeda5a9f67248a9b682dcee923f02e0713766"
+    },
+    {
+      "version": "20260804170000",
+      "name": "tongs_reference_clip_authority",
+      "path": "supabase/migrations/20260804170000_tongs_reference_clip_authority.sql",
+      "sha256": "b70ccd680e6b894c6ffd1b6424ce5cd8ee0e5f7469f85ee8cde0701cafc3f5a7"
+    },
+    {
+      "version": "20260804180000",
+      "name": "tongs_reference_clip_acquisition_bridge",
+      "path": "supabase/migrations/20260804180000_tongs_reference_clip_acquisition_bridge.sql",
+      "sha256": "8c87285b03dc3d87dff72a6c37f7aae141157eb161202ac400b9bf0c3704602a"
+    },
+    {
+      "version": "20260804200000",
+      "name": "tongs_unresolved_reference_and_unified_visual_plan",
+      "path": "supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",
+      "sha256": "739bed82bbc44f0e2e5a390bb2efceaa0a1cf487cc0eeda30994ea7c9a4a132c"
+    },
+    {
+      "version": "20260804210000",
+      "name": "tongs_reference_clip_hammer_evidence",
+      "path": "supabase/migrations/20260804210000_tongs_reference_clip_hammer_evidence.sql",
+      "sha256": "3261b3f153882f50071706191713d2315617233e59cd0dd34ac5e1d84725cedc"
+    },
+    {
+      "version": "20260805120000",
+      "name": "tongs_reference_visual_authority",
+      "path": "supabase/migrations/20260805120000_tongs_reference_visual_authority.sql",
+      "sha256": "84815b1f2ef1d2e5d315450cbfccfd76d44e957cbeb88c1582a6bc99bdc3adde"
+    },
+    {
+      "version": "20260805130000",
+      "name": "tongs_unified_visual_plan_reference_visual_child",
+      "path": "supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",
+      "sha256": "d1e4f697e39169aceb0132bb643e7e3d8add24edb68df0334586264274765a8e"
+    },
+    {
+      "version": "20260805140000",
+      "name": "tongs_visual_plan_creator_amendments",
+      "path": "supabase/migrations/20260805140000_tongs_visual_plan_creator_amendments.sql",
+      "sha256": "572f976ac7c2aaeca2801ca0ce0def7cfbe2784b26033267782bf4862c78361a"
+    },
+    {
+      "version": "20260806120000",
+      "name": "tongs_reference_clip_retention_ordinals",
+      "path": "supabase/migrations/20260806120000_tongs_reference_clip_retention_ordinals.sql",
+      "sha256": "2eec1e464525a7d9c38015ffda6f35a58eefdddfc3ee97b1159dc214e66364d2"
+    },
+    {
+      "version": "20260806121000",
+      "name": "tongs_unified_reference_visual_creator_supersession",
+      "path": "supabase/migrations/20260806121000_tongs_unified_reference_visual_creator_supersession.sql",
+      "sha256": "133f963f1e6e5bea479ae7bfa5cdc4fc5bc5a3382df039f2ab8a610a60e17f69"
+    },
+    {
+      "version": "20260806122000",
+      "name": "tongs_unified_image_repair_successor",
+      "path": "supabase/migrations/20260806122000_tongs_unified_image_repair_successor.sql",
+      "sha256": "c245ccb87393e10d1afd7857732b8a25d2a01323b88298a67bdb40b4a7519e36"
+    },
+    {
+      "version": "20260806130000",
+      "name": "tongs_visual_opportunity_dispositions",
+      "path": "supabase/migrations/20260806130000_tongs_visual_opportunity_dispositions.sql",
+      "sha256": "2c1a3b44ea1fa8ff536115d1a0db6e136b50ddfcf14674338a99bb1acc22fd1b"
+    },
+    {
+      "version": "20260806131000",
+      "name": "tongs_restore_reference_visual_fulfillment_rpc",
+      "path": "supabase/migrations/20260806131000_tongs_restore_reference_visual_fulfillment_rpc.sql",
+      "sha256": "7f47c9ee96b6768fd4834d24ab3f5cd0906280d24c7de3e0e6fce7077db202fe"
+    },
+    {
+      "version": "20260806132000",
+      "name": "tongs_reference_visual_source_use_authority",
+      "path": "supabase/migrations/20260806132000_tongs_reference_visual_source_use_authority.sql",
+      "sha256": "7c20afd443b5fe6403b61a7e55a58f40c1f7a297224fb412f98c8cc30932f485"
+    },
+    {
+      "version": "20260806133000",
+      "name": "tongs_reference_visual_recipe_ambiguity",
+      "path": "supabase/migrations/20260806133000_tongs_reference_visual_recipe_ambiguity.sql",
+      "sha256": "f0826f1d27ab8a3128253fcdc71c743641376288777d0b17ce53ecf2fc3c2439"
+    },
+    {
+      "version": "20260806134000",
+      "name": "tongs_restore_reference_visual_asset_kind",
+      "path": "supabase/migrations/20260806134000_tongs_restore_reference_visual_asset_kind.sql",
+      "sha256": "454322653518b0fddfdd1b0da4f7acd86ea369a22102c6c010db07a70079efc3"
+    },
+    {
+      "version": "20260806135000",
+      "name": "tongs_restore_reference_visual_selection_rpc",
+      "path": "supabase/migrations/20260806135000_tongs_restore_reference_visual_selection_rpc.sql",
+      "sha256": "8e7c96b3ebff44117ef84af51e6f1a4302552de511b1063f8ea5bcfdf9351402"
+    },
+    {
+      "version": "20260806136000",
+      "name": "tongs_restore_reference_visual_selection_errors",
+      "path": "supabase/migrations/20260806136000_tongs_restore_reference_visual_selection_errors.sql",
+      "sha256": "3231d15e7930bcdd1f3fda4c1f7413467f605e0eb86c62317e81c931cb86b00f"
+    },
+    {
+      "version": "20260806140000",
+      "name": "tongs_visual_source_reassignment",
+      "path": "supabase/migrations/20260806140000_tongs_visual_source_reassignment.sql",
+      "sha256": "454bba923cf4bab7a7b2436a25fc11784c14a0d36307a53730f9ba524e5f67f8"
+    },
+    {
+      "version": "20260806141000",
+      "name": "tongs_reference_visual_source_projection",
+      "path": "supabase/migrations/20260806141000_tongs_reference_visual_source_projection.sql",
+      "sha256": "168eb962a67a03bca5395e87061fce57aea672a4caeb8df0f6cad47391e7d17d"
+    },
+    {
+      "version": "20260807120000",
+      "name": "tongs_reference_visual_evidence_proposal_origin",
+      "path": "supabase/migrations/20260807120000_tongs_reference_visual_evidence_proposal_origin.sql",
+      "sha256": "29534dc43812a45daa16d3c6e9371d1bbc5c518ddd0242feb6975a2a9a2ea058"
+    },
+    {
+      "version": "20260807130000",
+      "name": "tongs_ai_credit_reservation_integrity",
+      "path": "supabase/migrations/20260807130000_tongs_ai_credit_reservation_integrity.sql",
+      "sha256": "161fdb403eec27afd11e417cd6cffd601bf2d167df3eedd6046b6c9e4b3c7ea5"
+    },
+    {
+      "version": "20260807131000",
+      "name": "tongs_ai_pricing_quote_authority",
+      "path": "supabase/migrations/20260807131000_tongs_ai_pricing_quote_authority.sql",
+      "sha256": "72c09e7920e631f5a45146c91c74317e418f3cfffa2f84f065be3e9c087cad5a"
+    },
+    {
+      "version": "20260807132000",
+      "name": "tongs_compound_ai_pricing",
+      "path": "supabase/migrations/20260807132000_tongs_compound_ai_pricing.sql",
+      "sha256": "dcc750a907f076145b514f8adf1b25372bedb62b928070e3bb35f92f53fdfea5"
+    },
+    {
+      "version": "20260807133000",
+      "name": "tongs_paid_image_authorization_ceiling",
+      "path": "supabase/migrations/20260807133000_tongs_paid_image_authorization_ceiling.sql",
+      "sha256": "efaecd0c801215de1646458417a82f0601f492848bb9e17810c1474240dbe5bb"
+    },
+    {
+      "version": "20260808130000",
+      "name": "tongs_paid_media_video_usage",
+      "path": "supabase/migrations/20260808130000_tongs_paid_media_video_usage.sql",
+      "sha256": "8046fdbb9cee51b421a938a6bcc01d1d903cfd3a2ea78c2b434e774822b2240f"
+    },
+    {
+      "version": "20260808131000",
+      "name": "tongs_runway_gen45_pricing",
+      "path": "supabase/migrations/20260808131000_tongs_runway_gen45_pricing.sql",
+      "sha256": "022a3c627d6bd746a0c9a59fd5d22d27982b0992bd18ea489137b93746870c3a"
+    },
+    {
+      "version": "20260808132000",
+      "name": "tongs_paid_media_authorization_quote",
+      "path": "supabase/migrations/20260808132000_tongs_paid_media_authorization_quote.sql",
+      "sha256": "13ee199825e5f74329780abbd6f32fcedc934e3a14c4cc138d396748e0787342"
+    },
+    {
+      "version": "20260810120000",
+      "name": "tongs_reference_clip_selection_sets",
+      "path": "supabase/migrations/20260810120000_tongs_reference_clip_selection_sets.sql",
+      "sha256": "cf2d3e274da20110e17bea0debb844926285030a43a7b132aa894799866b162b"
+    },
+    {
+      "version": "20260810130000",
+      "name": "tongs_reference_visual_source_sets",
+      "path": "supabase/migrations/20260810130000_tongs_reference_visual_source_sets.sql",
+      "sha256": "7871915eebb5d3ad24b8af547d2d8a6713205354b522c34b710defc17ae59c6f"
+    },
+    {
+      "version": "20260811120000",
+      "name": "tongs_reference_visual_evidence_extracted_content_origin",
+      "path": "supabase/migrations/20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",
+      "sha256": "086cf2d2a9617fe6a4852ed77ee68421d8e793220cfc9c5a1952cfc56ac360e6"
+    },
+    {
+      "version": "20260811130000",
+      "name": "tongs_restore_collection_aware_reference_visual_acquisition",
+      "path": "supabase/migrations/20260811130000_tongs_restore_collection_aware_reference_visual_acquisition.sql",
+      "sha256": "306aacd23c82bf4cb8f322ab0b0c499414b0b42db6827d8949ac8e13124e008f"
+    },
+    {
+      "version": "20260811135000",
+      "name": "tongs_reference_visual_sequence_policy_clean_init_bridge",
+      "path": "supabase/migrations/20260811135000_tongs_reference_visual_sequence_policy_clean_init_bridge.sql",
+      "sha256": "7547f3de3a04f2484c7d7445221ea22296918527c4a4ca0998fde467c71266f7"
+    },
+    {
+      "version": "20260811140000",
+      "name": "tongs_restore_reference_visual_archival_completion_rpcs",
+      "path": "supabase/migrations/20260811140000_tongs_restore_reference_visual_archival_completion_rpcs.sql",
+      "sha256": "9bac6d46e77adb71637c0cf6ac6ba735fa5d97b63b5c8d016e54c5d263e8cdba"
+    },
+    {
+      "version": "20260811150000",
+      "name": "tongs_allow_paid_media_quote_contract",
+      "path": "supabase/migrations/20260811150000_tongs_allow_paid_media_quote_contract.sql",
+      "sha256": "b43dcf18e4ef52c56966a607123964401b2af04bd65b4480a4ae09deb7daaac0"
+    },
+    {
+      "version": "20260811160000",
+      "name": "tongs_fix_paid_video_quote_shape",
+      "path": "supabase/migrations/20260811160000_tongs_fix_paid_video_quote_shape.sql",
+      "sha256": "098db867fe4c4cb74d532cf2adcbe2c13f271060e6ac19008b496007765db89a"
+    },
+    {
+      "version": "20260811170000",
+      "name": "tongs_paid_media_video_operation_identity",
+      "path": "supabase/migrations/20260811170000_tongs_paid_media_video_operation_identity.sql",
+      "sha256": "cfd35c045a66e85336849bb055c72f540bb508a04ef2ade29f15e452a9295e40"
+    },
+    {
+      "version": "20260811173000",
+      "name": "tongs_creator_uploaded_image_map_candidate_shape",
+      "path": "supabase/migrations/20260811173000_tongs_creator_uploaded_image_map_candidate_shape.sql",
+      "sha256": "6465fcc7fb45f0af82bf3ccfcaff1b498a2f7aece61d1c1fc2cc6b33bb33af81"
+    },
+    {
+      "version": "20260811180000",
+      "name": "tongs_allow_paid_video_actual_usage_component",
+      "path": "supabase/migrations/20260811180000_tongs_allow_paid_video_actual_usage_component.sql",
+      "sha256": "840d4beeaaec855c9de13e0f514928e6c80b1f351ccc35a7cffbc1aa5e5455b2"
+    },
+    {
+      "version": "20260811190000",
+      "name": "tongs_collection_aware_reference_visual_source_use",
+      "path": "supabase/migrations/20260811190000_tongs_collection_aware_reference_visual_source_use.sql",
+      "sha256": "be3fec9885efc935b4a894634bb72d647e702d57102e897f1894da006b70b548"
+    },
+    {
+      "version": "20260811200000",
+      "name": "tongs_youtube_reference_clip_authority",
+      "path": "supabase/migrations/20260811200000_tongs_youtube_reference_clip_authority.sql",
+      "sha256": "eb41e0001a207831525b7a6cc1b4638bfcd1fd98ba5205e312f0239e8ad665ba"
+    },
+    {
+      "version": "20260812143000",
+      "name": "tongs_reference_visual_evidence_reset",
+      "path": "supabase/migrations/20260812143000_tongs_reference_visual_evidence_reset.sql",
+      "sha256": "c9b3c593e78770bf5b8bdde7052578eb8b62ed6b0abfd9f9e097369f05afb9a1"
+    },
+    {
+      "version": "20260812150000",
+      "name": "tongs_reference_visual_reset_readback_repair",
+      "path": "supabase/migrations/20260812150000_tongs_reference_visual_reset_readback_repair.sql",
+      "sha256": "a8da1b18a6d8af380e5284800ead13a46a8ac7d667f864475aa7bcfab8e500dd"
+    },
+    {
+      "version": "20260812153000",
+      "name": "tongs_reference_visual_post_reset_selection",
+      "path": "supabase/migrations/20260812153000_tongs_reference_visual_post_reset_selection.sql",
+      "sha256": "ca989e5e35769ed564388177f70c6a3d7952fa3699b3cb4e489286161b08b480"
+    },
+    {
+      "version": "20260812190000",
+      "name": "tongs_recording_workflow_minimal_repair",
+      "path": "supabase/migrations/20260812190000_tongs_recording_workflow_minimal_repair.sql",
+      "sha256": "08c7154d4ee2af6283c069a629afbc5800a68ee1598dec70d83ad816162bfda7"
+    },
+    {
+      "version": "20260816190000",
+      "name": "tongs_hammer_editorial_authority_revision",
+      "path": "supabase/migrations/20260816190000_tongs_hammer_editorial_authority_revision.sql",
+      "sha256": "fbf8a810ff38814a871dddcc94e4f4f80efaa3f0ec760718b852c1818154d07e"
+    },
+    {
+      "version": "20260819120000",
+      "name": "tongs_hammer_editorial_authority_terminal_conflict",
+      "path": "supabase/migrations/20260819120000_tongs_hammer_editorial_authority_terminal_conflict.sql",
+      "sha256": "1b85cd592c9705bf6a374c185e8f208afd73ba85616f31ed8f2881f32c16dd5a"
+    },
+    {
+      "version": "20260819130000",
+      "name": "tongs_hammer_history_epochs",
+      "path": "supabase/migrations/20260819130000_tongs_hammer_history_epochs.sql",
+      "sha256": "451ab7715e700378ba705db50b6889a26bd075310208c7707252490135ac5700"
+    },
+    {
+      "version": "20260819140000",
+      "name": "tongs_hammer_history_epoch_heads",
+      "path": "supabase/migrations/20260819140000_tongs_hammer_history_epoch_heads.sql",
+      "sha256": "1b6561f6fe1cc7654b91e403062ad3010b0f04bbe4d5db07153368047c6cb988"
+    },
+    {
+      "version": "20260821120000",
+      "name": "tongs_hammer_history_atomic_components",
+      "path": "supabase/migrations/20260821120000_tongs_hammer_history_atomic_components.sql",
+      "sha256": "685b94076bc0968a5a49aeb18708d3771d8c867f6def46e442c501226f0560af"
+    },
+    {
+      "version": "20260821130000",
+      "name": "tongs_hammer_history_atomic_readback_completion",
+      "path": "supabase/migrations/20260821130000_tongs_hammer_history_atomic_readback_completion.sql",
+      "sha256": "59843954956754578ceb57539be047a972b825fc6af6333eb0c346e6ba200fdf"
+    },
+    {
+      "version": "20260825180000",
+      "name": "tongs_hearth_project_intake_authority",
+      "path": "supabase/migrations/20260825180000_tongs_hearth_project_intake_authority.sql",
+      "sha256": "312c260bba13d6fd52e8e6cfb0e25a930a747ab6afc37da1b1d67d45f0df1ac7"
+    },
+    {
+      "version": "20260825190000",
+      "name": "tongs_anvil_take_decision_authority",
+      "path": "supabase/migrations/20260825190000_tongs_anvil_take_decision_authority.sql",
+      "sha256": "99456b089e382b2a73fdaac1e5c521c1ac0203995213e54c15b7e491e762c36a"
+    },
+    {
+      "version": "20260826120000",
+      "name": "tongs_source_desk_timed_media_authority",
+      "path": "supabase/migrations/20260826120000_tongs_source_desk_timed_media_authority.sql",
+      "sha256": "1ca66cf995693de7fa645ac01c127e3349a9ea4daf11dfb8e20df36690c590e0"
+    },
+    {
+      "version": "20260826150000",
+      "name": "tongs_project_episode_identity_isolation",
+      "path": "supabase/migrations/20260826150000_tongs_project_episode_identity_isolation.sql",
+      "sha256": "b4b9f2a4b95c24cfc1db9aa08b473333b7fe0e68fd2210de5b58d12995fb4952"
+    },
+    {
+      "version": "20260826170000",
+      "name": "tongs_episode_split_recovery",
+      "path": "supabase/migrations/20260826170000_tongs_episode_split_recovery.sql",
+      "sha256": "253cfb84bf94f32244d77a88508faab71992a60c5eda3cf2f496581a38d8a22f"
+    },
+    {
+      "version": "20260826171000",
+      "name": "tongs_project_episode_link_primary_key",
+      "path": "supabase/migrations/20260826171000_tongs_project_episode_link_primary_key.sql",
+      "sha256": "989ec5eef71bf981496416535e3ad10a2cd0745c99fcb261f8de045a15ac5044"
+    },
+    {
+      "version": "20260826190000",
+      "name": "repair_recovered_episode_ready_transition",
+      "path": "supabase/migrations/20260826190000_repair_recovered_episode_ready_transition.sql",
+      "sha256": "c1b3baf5a17c4f3b731164b3f5efbdbddfce3e35120ac2085a243e01f98d0bda"
+    },
+    {
+      "version": "20260826210000",
+      "name": "tongs_anvil_capture_identity_authority",
+      "path": "supabase/migrations/20260826210000_tongs_anvil_capture_identity_authority.sql",
+      "sha256": "d0eea90e38b5da3233e395567e204d9d747b3528165588962cb5b32cd6ef4764"
+    },
+    {
+      "version": "20260826211000",
+      "name": "tongs_anvil_capture_relationship_constraints",
+      "path": "supabase/migrations/20260826211000_tongs_anvil_capture_relationship_constraints.sql",
+      "sha256": "b71fef8d954bdcf28b270fe930414236908f48bd8c4ec187bc78a819fee0260b"
+    },
+    {
+      "version": "20260827120000",
+      "name": "tongs_hammer_preparation_authority",
+      "path": "supabase/migrations/20260827120000_tongs_hammer_preparation_authority.sql",
+      "sha256": "3895d1638b7b04183e7c0910b7a9864f43fa0ae479f8d244cab080efb74182fe"
+    },
+    {
+      "version": "20260827150000",
+      "name": "tongs_approved_script_production_authority",
+      "path": "supabase/migrations/20260827150000_tongs_approved_script_production_authority.sql",
+      "sha256": "a113462b1b19654197afbae53e44da918bc80de3e12f7838b3abeea46fb9ada7"
+    },
+    {
+      "version": "20260827160000",
+      "name": "tongs_hammer_explicit_take_adoption",
+      "path": "supabase/migrations/20260827160000_tongs_hammer_explicit_take_adoption.sql",
+      "sha256": "0d38f99539f7d965e2367025cc7e669c8990ac43f7eae55a249db9fd0844f15f"
+    },
+    {
+      "version": "20260827190000",
+      "name": "tongs_canonical_asset_authority_s4_1",
+      "path": "supabase/migrations/20260827190000_tongs_canonical_asset_authority_s4_1.sql",
+      "sha256": "43c19a2fa32f96461b1e77076d6126f86259346e22465994530097bc1006acf0"
+    },
+    {
+      "version": "20260827210000",
+      "name": "tongs_quench_open_authority_s5_1",
+      "path": "supabase/migrations/20260827210000_tongs_quench_open_authority_s5_1.sql",
+      "sha256": "3dd4473780e621d441098d5c1f657e753cc84452dbea0474afb524e45bf51407"
+    },
+    {
+      "version": "20260827230000",
+      "name": "tongs_publishing_destination_authority_s5_2b",
+      "path": "supabase/migrations/20260827230000_tongs_publishing_destination_authority_s5_2b.sql",
+      "sha256": "b7f1a3ca9928d3c86051c8f2f6dc7468dd2b3e3bb42eb6c951c29c2323d12b9e"
+    },
+    {
+      "version": "20260828100000",
+      "name": "tongs_youtube_connection_vertical_s5_2c",
+      "path": "supabase/migrations/20260828100000_tongs_youtube_connection_vertical_s5_2c.sql",
+      "sha256": "20cc2ea8e4ec097b25f6b768b1fb2a262b71d7db509c2087e7c5194626b0901b"
+    },
+    {
+      "version": "20260828120000",
+      "name": "tongs_publication_operation_authority_s5_3b",
+      "path": "supabase/migrations/20260828120000_tongs_publication_operation_authority_s5_3b.sql",
+      "sha256": "6441e23e7f861b8fd144cea12dc58d0b549f0b7d96cd5cc99d8e296a962c2b33"
+    },
+    {
+      "version": "20260828130000",
+      "name": "tongs_hammer_audio_master_authority",
+      "path": "supabase/migrations/20260828130000_tongs_hammer_audio_master_authority.sql",
+      "sha256": "7959f7465d174b6f9882ed597374699f1cfce7c1ac772e834bb918c3e12e8467"
+    },
+    {
+      "version": "20260828140000",
+      "name": "tongs_hammer_video_master_authority",
+      "path": "supabase/migrations/20260828140000_tongs_hammer_video_master_authority.sql",
+      "sha256": "37de44df3193749aa35316e929e587e83c58903defee788d759e61155fa7d287"
+    },
+    {
+      "version": "20260828150000",
+      "name": "tongs_hammer_take_lineage_reset",
+      "path": "supabase/migrations/20260828150000_tongs_hammer_take_lineage_reset.sql",
+      "sha256": "365c498c8b8a955538b959e72d524b47517f2f1abafa80932cf49e5cead0c39e"
+    },
+    {
+      "version": "20260828160000",
+      "name": "tongs_hammer_take_lineage_idle_reset",
+      "path": "supabase/migrations/20260828160000_tongs_hammer_take_lineage_idle_reset.sql",
+      "sha256": "69f22d77ac7d204f30e3f81a55601c6e730a8eb55a18d6b46af77875f0215b14"
+    },
+    {
+      "version": "20260828170000",
+      "name": "tongs_hammer_take_lineage_revision_authority_fix",
+      "path": "supabase/migrations/20260828170000_tongs_hammer_take_lineage_revision_authority_fix.sql",
+      "sha256": "19c75771cd5b397f5373ea7714066436cbb2318c1bdc34d62813735492b1cbe4"
+    },
+    {
+      "version": "20260829120000",
+      "name": "tongs_venue_neutral_recording_authority",
+      "path": "supabase/migrations/20260829120000_tongs_venue_neutral_recording_authority.sql",
+      "sha256": "7f04c13fea39dd0d8930f711482f036ae3b77de17e05a253ff8e58f5e8c26d1d"
+    },
+    {
+      "version": "20260829130000",
+      "name": "tongs_recording_canonical_media_verification",
+      "path": "supabase/migrations/20260829130000_tongs_recording_canonical_media_verification.sql",
+      "sha256": "1874f1320226148f20ab4dba351a6b69fec3b8015d2913cb0128eb397f376c45"
+    },
+    {
+      "version": "20260830090000",
+      "name": "tongs_quench_open_manifest_timestamp_repair",
+      "path": "supabase/migrations/20260830090000_tongs_quench_open_manifest_timestamp_repair.sql",
+      "sha256": "01c3b5602e398021f29d62aac039c1bf075b5e27d4e765958c116d3aa5478234"
+    },
+    {
+      "version": "20260830160000",
+      "name": "tongs_spark_hearth_episode_authority",
+      "path": "supabase/migrations/20260830160000_tongs_spark_hearth_episode_authority.sql",
+      "sha256": "6665288f944d8ef66f051eff0eadc2fe35ca912dec06476813da6e71b88f5041"
+    },
+    {
+      "version": "20260831090000",
+      "name": "tongs_hammer_import_adoptable_take",
+      "path": "supabase/migrations/20260831090000_tongs_hammer_import_adoptable_take.sql",
+      "sha256": "2b758b88803a3800b4a90fae20a2109a379f31cb1c31644f60932864a20b9ddb"
+    },
+    {
+      "version": "20260901110000",
+      "name": "tongs_personal_org_workspace_source",
+      "path": "supabase/migrations/20260901110000_tongs_personal_org_workspace_source.sql",
+      "sha256": "a598392a39af99d78933d885283b6db56294b8b04b46280010c3b3c2f48c4c10"
+    },
+    {
+      "version": "20260901113000",
+      "name": "tongs_membership_entitlement_without_legacy_profiles",
+      "path": "supabase/migrations/20260901113000_tongs_membership_entitlement_without_legacy_profiles.sql",
+      "sha256": "294817b6ba645e9bd070f8cd8a96a34ca5ff8210d1e30ed1449715b9537679e6"
+    },
+    {
+      "version": "20260901150000",
+      "name": "tongs_hammer_shorts_derivative_authority",
+      "path": "supabase/migrations/20260901150000_tongs_hammer_shorts_derivative_authority.sql",
+      "sha256": "e4a7a6825e852ec13ace5f6b2240622a5603dc68f6fda9915eb1850289db10b7"
+    },
+    {
+      "version": "20260901153000",
+      "name": "tongs_hammer_shorts_usable_child",
+      "path": "supabase/migrations/20260901153000_tongs_hammer_shorts_usable_child.sql",
+      "sha256": "4f4c7bfec775fd16b30ca53692c86c0d05ba5fd0f0bada09f4b48c95e7524c39"
+    },
+    {
+      "version": "20260901154000",
+      "name": "tongs_hammer_shorts_discovery_failure",
+      "path": "supabase/migrations/20260901154000_tongs_hammer_shorts_discovery_failure.sql",
+      "sha256": "cb03af3459c2224e94b7e1587de4ac3a2ee48939266b31afe771358a46511093"
+    },
+    {
+      "version": "20260901155000",
+      "name": "tongs_hammer_shorts_preparation_authority",
+      "path": "supabase/migrations/20260901155000_tongs_hammer_shorts_preparation_authority.sql",
+      "sha256": "f5b057437ddaa0db8df8497f7d8159387d8d13b573bea94c129abbbe84760ac9"
+    },
+    {
+      "version": "20260902090000",
+      "name": "tongs_visual_source_attribution",
+      "path": "supabase/migrations/20260902090000_tongs_visual_source_attribution.sql",
+      "sha256": "55feadd0db84226163799440b62781ddb10946c84aa538f8caeba1e59754bfb6"
+    },
+    {
+      "version": "20260902120000",
+      "name": "tongs_chat_source_reconciliation",
+      "path": "supabase/migrations/20260902120000_tongs_chat_source_reconciliation.sql",
+      "sha256": "4eb30fec93bc832da9004b32df95e855fc2ec6266a6aeb88c535790eb5b3b30f"
+    },
+    {
+      "version": "20260902150000",
+      "name": "tongs_reconciliation_editorial_invariant_fix",
+      "path": "supabase/migrations/20260902150000_tongs_reconciliation_editorial_invariant_fix.sql",
+      "sha256": "d6982060bfa2211bb3075ad0cf6c56fe06a4ae5c7c46a1efa9854f08639f5ad0"
+    },
+    {
+      "version": "20260902153000",
+      "name": "tongs_scout_canonical_lineage_repair",
+      "path": "supabase/migrations/20260902153000_tongs_scout_canonical_lineage_repair.sql",
+      "sha256": "7f4cadd97dd10e80fecbd3603137eef8f9b6a8a7fb5cca67289ecc15a9fca1a5"
+    },
+    {
+      "version": "20260902154500",
+      "name": "tongs_scout_spark_lineage_readback_fix",
+      "path": "supabase/migrations/20260902154500_tongs_scout_spark_lineage_readback_fix.sql",
+      "sha256": "30dae846d77384c029758f6853de327faceca5d298d8ee2f9249d6b40f3dc291"
+    },
+    {
+      "version": "20260902163000",
+      "name": "tongs_unified_visual_coverage_exclusivity",
+      "path": "supabase/migrations/20260902163000_tongs_unified_visual_coverage_exclusivity.sql",
+      "sha256": "4675fbee23163f03ec1acbd390d3d7dab2039fee6d08efefcec1fd88e92a470d"
+    },
+    {
+      "version": "20260902170000",
+      "name": "tongs_unified_image_retention_no_append",
+      "path": "supabase/migrations/20260902170000_tongs_unified_image_retention_no_append.sql",
+      "sha256": "3a20f3a2dfc4fecd3b1e1855b55d7859dc23211648ae9bb8f23a2a09f9f8d96b"
+    },
+    {
+      "version": "20260902173000",
+      "name": "tongs_broll_prompt_assertion_execute_repair",
+      "path": "supabase/migrations/20260902173000_tongs_broll_prompt_assertion_execute_repair.sql",
+      "sha256": "c1eec2dc823219f8bd4c2c9a4d196c9a3c8799040e0c76f262f30f58fa13eeb1"
+    },
+    {
+      "version": "20260903120000",
+      "name": "tongs_reference_review_operation_attempts",
+      "path": "supabase/migrations/20260903120000_tongs_reference_review_operation_attempts.sql",
+      "sha256": "2629b88bf3511332365b13e3b60ca52d0c41d928ccf7e2a2cf2e2cd15458d043"
+    },
+    {
+      "version": "20260903150000",
+      "name": "tongs_reference_material_rollout_gate",
+      "path": "supabase/migrations/20260903150000_tongs_reference_material_rollout_gate.sql",
+      "sha256": "2362f79d764f730011cfe2defcb19d83bcfe9c9f73b9de1bb14ab62cef895863"
+    },
+    {
+      "version": "20260904120000",
+      "name": "tongs_quench_destination_packages_youtube_jobs",
+      "path": "supabase/migrations/20260904120000_tongs_quench_destination_packages_youtube_jobs.sql",
+      "sha256": "cc0edf403e06d63b06dc6f8cdfd3cc70f76b0400a0144a52362494d6fca37e17"
+    },
+    {
+      "version": "20260904130000",
+      "name": "tongs_quench_podcast_host_boundary",
+      "path": "supabase/migrations/20260904130000_tongs_quench_podcast_host_boundary.sql",
+      "sha256": "425fea2288241dfd0cf909959dea373161927a47cd807480b03844e10e42d4eb"
+    },
+    {
+      "version": "20260904150000",
+      "name": "tongs_quench_manual_handoff_authority",
+      "path": "supabase/migrations/20260904150000_tongs_quench_manual_handoff_authority.sql",
+      "sha256": "68c1220bbf3cee77e9857331647dafdf2ecb03b42c4ae3b076b21adb0fcd8000"
+    },
+    {
+      "version": "20260905120000",
+      "name": "tongs_bellows_record_only_foundation",
+      "path": "supabase/migrations/20260905120000_tongs_bellows_record_only_foundation.sql",
+      "sha256": "e4c957483c71cac74cefaa35ff2622515b9e38d798b509ff77761f8046b9f0d4"
+    },
+    {
+      "version": "20260905130000",
+      "name": "tongs_bellows_record_only_hardening",
+      "path": "supabase/migrations/20260905130000_tongs_bellows_record_only_hardening.sql",
+      "sha256": "314b6e7af6e59235080b8fcc0546175e039f109adcec44ced7228bcd48cdcdf4"
+    },
+    {
+      "version": "20260905140000",
+      "name": "tongs_bellows_sealed_hammer_handoffs",
+      "path": "supabase/migrations/20260905140000_tongs_bellows_sealed_hammer_handoffs.sql",
+      "sha256": "1481f16cc35a1b6a3da393465cf9ebcbb1897f09381bbf1f78fcac7bf052efd0"
+    },
+    {
+      "version": "20260906120000",
+      "name": "tongs_barstock_topic_discovery",
+      "path": "supabase/migrations/20260906120000_tongs_barstock_topic_discovery.sql",
+      "sha256": "ad8f3cf99a528ea140821e260acda5002170da301039680244e20acd1879ecf9"
+    },
+    {
+      "version": "20260907120000",
+      "name": "tongs_hearth_conversation_history",
+      "path": "supabase/migrations/20260907120000_tongs_hearth_conversation_history.sql",
+      "sha256": "40f927217982f7a208b32f82423d38b0ed358870874be7bd270f585bf68466c1"
+    },
+    {
+      "version": "20260908120000",
+      "name": "tongs_broll_generation_references",
+      "path": "supabase/migrations/20260908120000_tongs_broll_generation_references.sql",
+      "sha256": "7cc82e1d08e1843063aa0636daa3df3163c3bb65b802ba325b13a0abb82bdf70"
+    },
+    {
+      "version": "20260908180000",
+      "name": "tongs_hearth_research_preflight_authority",
+      "path": "supabase/migrations/20260908180000_tongs_hearth_research_preflight_authority.sql",
+      "sha256": "74ea4ea9a40746731c27fea21786c61634e6295b6a4a3f09209beed91de5ac16"
+    },
+    {
+      "version": "20260908180100",
+      "name": "tongs_hearth_ready_current_file_coherence",
+      "path": "supabase/migrations/20260908180100_tongs_hearth_ready_current_file_coherence.sql",
+      "sha256": "27a8f7d3b435834832dd5609920d13e615cdfdb841e44ed47121fedcffd7bad2"
+    },
+    {
+      "version": "20260908180200",
+      "name": "tongs_hearth_authority_readback_integrity",
+      "path": "supabase/migrations/20260908180200_tongs_hearth_authority_readback_integrity.sql",
+      "sha256": "0e146d1a3425b1a9b20ed2f9370905f4819442f6bb310d15faa5b887c0573f47"
+    },
+    {
+      "version": "20260908180300",
+      "name": "tongs_hearth_authority_payload_bounds",
+      "path": "supabase/migrations/20260908180300_tongs_hearth_authority_payload_bounds.sql",
+      "sha256": "e3aa85cf20dc97dbb7bad2aebc153d8291650bb72806ff1966472abcac3e7589"
+    },
+    {
+      "version": "20260908180400",
+      "name": "tongs_hearth_approval_preflight_revision_binding",
+      "path": "supabase/migrations/20260908180400_tongs_hearth_approval_preflight_revision_binding.sql",
+      "sha256": "e05c7dc03ff35fa5d8436305f4c95e482f3189dd5ed70f6689bd5f800c279ab6"
+    },
+    {
+      "version": "20260908180500",
+      "name": "tongs_hearth_approval_preflight_receipts",
+      "path": "supabase/migrations/20260908180500_tongs_hearth_approval_preflight_receipts.sql",
+      "sha256": "36fc3cb931625fa6f4dc5b2535bbeeb0b02299dae8c6738decd32b894b89648e"
+    },
+    {
+      "version": "20260908180600",
+      "name": "tongs_hearth_ready_full_proof_coherence",
+      "path": "supabase/migrations/20260908180600_tongs_hearth_ready_full_proof_coherence.sql",
+      "sha256": "70ec7a16b20e1b1de9589b4eb084aa18ce8e8294fa77c8e69a34ce5ab16dfab4"
+    },
+    {
+      "version": "20260908180700",
+      "name": "tongs_hearth_stale_preflight_decision_guard",
+      "path": "supabase/migrations/20260908180700_tongs_hearth_stale_preflight_decision_guard.sql",
+      "sha256": "7b795e0c7f8dc46de3dfc0277afa91fca30b4dddfc9e9b712be3ab0af4a7ca6b"
+    },
+    {
+      "version": "20260909120000",
+      "name": "tongs_workspace_cost_ledger",
+      "path": "supabase/migrations/20260909120000_tongs_workspace_cost_ledger.sql",
+      "sha256": "fd29ac2b6677a8bd086b173d307dd4e1edaddcde30215a4f37b948ce17c10df2"
+    },
+    {
+      "version": "20260909130000",
+      "name": "tongs_workspace_cost_ledger_paid_media_grouping",
+      "path": "supabase/migrations/20260909130000_tongs_workspace_cost_ledger_paid_media_grouping.sql",
+      "sha256": "4028d49a757d8be9097e39c36114898f0e7ca1eaf1d9d776c6173ceba964848b"
+    },
+    {
+      "version": "20260909140000",
+      "name": "tongs_billing_privacy_containment",
+      "path": "supabase/migrations/20260909140000_tongs_billing_privacy_containment.sql",
+      "sha256": "6ddcac2d6305d3889225e657e7b7d41ea1e13ad31a167aa6848c8d161c79eb06"
+    },
+    {
+      "version": "20260909141000",
+      "name": "tongs_billing_privacy_admin_inspection_compat",
+      "path": "supabase/migrations/20260909141000_tongs_billing_privacy_admin_inspection_compat.sql",
+      "sha256": "32d5a43928aca9cd2b0f924d2062af6c689d721323f86d004e9993769e34923f"
+    },
+    {
+      "version": "20260909142000",
+      "name": "tongs_billing_privacy_admin_inspection_policy_compat",
+      "path": "supabase/migrations/20260909142000_tongs_billing_privacy_admin_inspection_policy_compat.sql",
+      "sha256": "08a9db36723a2836867c2165f8812103090ec2f4702c7aacc35ea552de0e092d"
+    },
+    {
+      "version": "20260910120000",
+      "name": "tongs_accounting_foundation",
+      "path": "supabase/migrations/20260910120000_tongs_accounting_foundation.sql",
+      "sha256": "48b1bc8f6aa8f66fe488941aed70e4e8414af4cc20234e2a552067e272c10b96"
+    },
+    {
+      "version": "20260911120000",
+      "name": "tongs_private_pricing_reservations_shadow",
+      "path": "supabase/migrations/20260911120000_tongs_private_pricing_reservations_shadow.sql",
+      "sha256": "3bfd6413764aaa0e8a888a5b22692bc43d6102e70b1fb59e394d1b671a3777a0"
+    },
+    {
+      "version": "20260912120000",
+      "name": "tongs_owner_budget_reservations_shadow",
+      "path": "supabase/migrations/20260912120000_tongs_owner_budget_reservations_shadow.sql",
+      "sha256": "ad98a8c74a01ef2ef7093270d25c57ea96ba318289ff4b6da2bceaebd559b498"
+    },
+    {
+      "version": "20260913120000",
+      "name": "tongs_owner_purchase_activity",
+      "path": "supabase/migrations/20260913120000_tongs_owner_purchase_activity.sql",
+      "sha256": "8d0f2949942c5a9d6f81f456ba83b62c0b1a29cca09c7485958698f140df0d3a"
+    },
+    {
+      "version": "20260914120000",
+      "name": "tongs_live_subscription_compatibility",
+      "path": "supabase/migrations/20260914120000_tongs_live_subscription_compatibility.sql",
+      "sha256": "581d486e6b73f45d236a540c5c4011b2465cfd4af599d9b2d1e540478d9cbcbf"
+    },
+    {
+      "version": "20260915120000",
+      "name": "tongs_runway_paid_execution_boundary",
+      "path": "supabase/migrations/20260915120000_tongs_runway_paid_execution_boundary.sql",
+      "sha256": "23c965d53fb86a50b46492aabfbfa0f2df95f5acc7d8df63a1124cf220d95a8b"
+    },
+    {
+      "version": "20260916110806",
+      "name": "tongs_forge_credit_economy",
+      "path": "supabase/migrations/20260916110806_tongs_forge_credit_economy.sql",
+      "sha256": "e5dc137d677d935896542d7ba7879355648ef584275a8723cb2aed956350a000"
+    },
+    {
+      "version": "20260916113132",
+      "name": "tongs_standard_customer_luna_catalog",
+      "path": "supabase/migrations/20260916113132_tongs_standard_customer_luna_catalog.sql",
+      "sha256": "42ea235c458ef2d2c6af417e15c2c771195491a7b4b6b03ae6d06b927ae3abec"
+    },
+    {
+      "version": "20260916113500",
+      "name": "tongs_settled_customer_price_quote",
+      "path": "supabase/migrations/20260916113500_tongs_settled_customer_price_quote.sql",
+      "sha256": "e636586e636bca032fc66cee6f50df8307e31e268080fb0e72020a0ffc02cd05"
+    },
+    {
+      "version": "20260916113753",
+      "name": "tongs_standard_customer_aggregate_admission",
+      "path": "supabase/migrations/20260916113753_tongs_standard_customer_aggregate_admission.sql",
+      "sha256": "3d828ece23b3b2b819ca46ed1d18f185b48324233d1015490a1db31043dcee97"
+    },
+    {
+      "version": "20260916114619",
+      "name": "tongs_standard_customer_certification_aggregate",
+      "path": "supabase/migrations/20260916114619_tongs_standard_customer_certification_aggregate.sql",
+      "sha256": "fd798b0a1f1e4c48bb0c24872248b84ee7ec8e432a9f6cb77521a4d91629aaf8"
+    },
+    {
+      "version": "20260916114739",
+      "name": "tongs_standard_customer_certification_scope_price",
+      "path": "supabase/migrations/20260916114739_tongs_standard_customer_certification_scope_price.sql",
+      "sha256": "88a3459d02d02f1993b1d217b6071c6e7347ab755844dc05f7c53d068c195e61"
+    },
+    {
+      "version": "20260916114943",
+      "name": "tongs_aggregate_financial_environment_selection",
+      "path": "supabase/migrations/20260916114943_tongs_aggregate_financial_environment_selection.sql",
+      "sha256": "9d43dda90bbb7b66209b63a83b96afa1abd426629ef114fb9019a84b62c5e044"
+    },
+    {
+      "version": "20260916115105",
+      "name": "tongs_deposit_fee_allocation_catchup",
+      "path": "supabase/migrations/20260916115105_tongs_deposit_fee_allocation_catchup.sql",
+      "sha256": "fe65013e086dc15ec9a7459d404fb7f96b2735e82c242c085470447b0fc513d8"
+    },
+    {
+      "version": "20260916120000",
+      "name": "tongs_runway_owner_pilot_activation",
+      "path": "supabase/migrations/20260916120000_tongs_runway_owner_pilot_activation.sql",
+      "sha256": "fa1508bec5abfdced06f60184489251fa2d855e4a06f0fb7bd409299bb468a0d"
+    },
+    {
+      "version": "20260916130700",
+      "name": "tongs_standard_customer_rollout",
+      "path": "supabase/migrations/20260916130700_tongs_standard_customer_rollout.sql",
+      "sha256": "8dc53c864d2619bec74385612580e0fa424e7a3b3ca994aaa766af1119daba18"
+    },
+    {
+      "version": "20260916130706",
+      "name": "tongs_beta_credit_controls",
+      "path": "supabase/migrations/20260916130706_tongs_beta_credit_controls.sql",
+      "sha256": "045276f447fe29b9dbc92040809d40133f94cfa9c4c696715049f67da6d1ec7e"
+    },
+    {
+      "version": "20260916130712",
+      "name": "tongs_credit_pack_purchase_availability",
+      "path": "supabase/migrations/20260916130712_tongs_credit_pack_purchase_availability.sql",
+      "sha256": "86f73705b2d727b1cc7116e576d2d83b062e62503967b9f7ec816c758c8f98c8"
+    },
+    {
+      "version": "20260916131208",
+      "name": "tongs_internal_quote_credit_units",
+      "path": "supabase/migrations/20260916131208_tongs_internal_quote_credit_units.sql",
+      "sha256": "5b0a0b275197dcff2018aa80f49e1cbb9ce79032e873e89196ead0ba14bf406c"
+    },
+    {
+      "version": "20260916131632",
+      "name": "tongs_normal_customer_provider_authority",
+      "path": "supabase/migrations/20260916131632_tongs_normal_customer_provider_authority.sql",
+      "sha256": "3760931f64f1b3dc110e9d87f8417b00092dbeaca6583691575a66eac80c12fb"
+    },
+    {
+      "version": "20260916132017",
+      "name": "tongs_credit_pack_availability_caller_role",
+      "path": "supabase/migrations/20260916132017_tongs_credit_pack_availability_caller_role.sql",
+      "sha256": "c1178d0d1fa1e955d950458143431465623dfa5a1efef8dfe8e75f76c1e8eb5d"
+    },
+    {
+      "version": "20260916154851",
+      "name": "standard_customer_hearth_research",
+      "path": "supabase/migrations/20260916154851_standard_customer_hearth_research.sql",
+      "sha256": "57b56b70de8327642321bccfaf172357cbdabbf0ffe0f5053d8ef3ef174178ad"
+    },
+    {
+      "version": "20260916160541",
+      "name": "standard_customer_hearth_research_failure_loss",
+      "path": "supabase/migrations/20260916160541_standard_customer_hearth_research_failure_loss.sql",
+      "sha256": "e3c633d3b6aff6bdec3e8e381953973949cbb901f663253b2e8845c8edc20e16"
+    },
+    {
+      "version": "20260916161021",
+      "name": "standard_customer_hearth_research_full_failure_exposure",
+      "path": "supabase/migrations/20260916161021_standard_customer_hearth_research_full_failure_exposure.sql",
+      "sha256": "e3858f732925bdb9fd45654b126d104329866f50a3730acdda8ec1d9258948c0"
+    },
+    {
+      "version": "20260916162248",
+      "name": "customer_operation_relief_balance_restoration",
+      "path": "supabase/migrations/20260916162248_customer_operation_relief_balance_restoration.sql",
+      "sha256": "04a0f3dfb0a3749f393d289c3d3eb9fd1056240125869b13f7d4bf409ea38d75"
+    },
+    {
+      "version": "20260916180205",
+      "name": "tongs_existing_openai_funding_handle_environment",
+      "path": "supabase/migrations/20260916180205_tongs_existing_openai_funding_handle_environment.sql",
+      "sha256": "d833131e9372cd8889b47369f1e0f5c6db6fc78c3e5dcae0ab4dd0333b39bee9"
+    },
+    {
+      "version": "20260916181807",
+      "name": "settled_openai_replay_relief_safety",
+      "path": "supabase/migrations/20260916181807_settled_openai_replay_relief_safety.sql",
+      "sha256": "7e8c40d8e5bb32ef459028232a52d07e8037998fd2fb7c3ba9adc435eb5b9dc9"
+    },
+    {
+      "version": "20260916184248",
+      "name": "customer_operation_relief_corrections",
+      "path": "supabase/migrations/20260916184248_customer_operation_relief_corrections.sql",
+      "sha256": "84c6833d6c4956e7efff84a70f8cbf85352ea67be6c605cd4c4c89215f703d67"
+    },
+    {
+      "version": "20260916184526",
+      "name": "customer_operation_relief_canonical_binding_evidence",
+      "path": "supabase/migrations/20260916184526_customer_operation_relief_canonical_binding_evidence.sql",
+      "sha256": "b0ade991f3343069adfbc3f6b756b35fde6de53025c76244febb9e6112804c3d"
+    },
+    {
+      "version": "20260916195559",
+      "name": "openai_failure_loss_environment_isolation",
+      "path": "supabase/migrations/20260916195559_openai_failure_loss_environment_isolation.sql",
+      "sha256": "3a95ddadd2daa4229fd02861ed1fda415beb72f0fe4ddba6bf97b6719f2780d4"
+    },
+    {
+      "version": "20260916202804",
+      "name": "operator_controlled_openai_failure_loss",
+      "path": "supabase/migrations/20260916202804_operator_controlled_openai_failure_loss.sql",
+      "sha256": "08a1afcdaf8c291291b8c6c776b86b3573752a7e2d88b298a975bcc5f811229b"
+    },
+    {
+      "version": "20260917012316",
+      "name": "openai_realized_loss_corrections",
+      "path": "supabase/migrations/20260917012316_openai_realized_loss_corrections.sql",
+      "sha256": "e445b078099b849d7647f7f68a46bae39d8635644092f8f91f1608c7bf3614b0"
+    },
+    {
+      "version": "20260917012424",
+      "name": "hearth_script_generation_test_canary",
+      "path": "supabase/migrations/20260917012424_hearth_script_generation_test_canary.sql",
+      "sha256": "efff6301ac2257deb16714cff69c0276d6d06106d2b86638df19550ec2d35f2e"
+    },
+    {
+      "version": "20260917012533",
+      "name": "hearth_script_canary_private_table_hardening",
+      "path": "supabase/migrations/20260917012533_hearth_script_canary_private_table_hardening.sql",
+      "sha256": "636d707153fdb5d9ed9f7837ee7ec03309677ca6b0c10e70c7fd6e1955ee29de"
+    },
+    {
+      "version": "20260917024621",
+      "name": "hearth_script_paid_result_persistence_boundary",
+      "path": "supabase/migrations/20260917024621_hearth_script_paid_result_persistence_boundary.sql",
+      "sha256": "db7722b8b8ed3516fc3a6e801a6e75db507aa5aadcd226487fefd032e1e376df"
+    },
+    {
+      "version": "20260917094105",
+      "name": "hearth_script_proposal_lifecycle",
+      "path": "supabase/migrations/20260917094105_hearth_script_proposal_lifecycle.sql",
+      "sha256": "df1f8a1abd432a49a7258665a20bc264176b5976740c234eddb3a0aa07fd82fa"
+    },
+    {
+      "version": "20260917095336",
+      "name": "hearth_script_proposal_legacy_supersession",
+      "path": "supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sql",
+      "sha256": "8c70472cad2a8db702e067c706ac0cfa9bcc26a4381d2c73394ec32fb3400317"
+    },
+    {
+      "version": "20260917120000",
+      "name": "tongs_pricing_customer_interface",
+      "path": "supabase/migrations/20260917120000_tongs_pricing_customer_interface.sql",
+      "sha256": "faeff837843661d6b36a7ef2cf32088d285581d4ea1254d49f2fd16a4e8bb058"
+    },
+    {
+      "version": "20260917225047",
+      "name": "tongs_hearth_creator_readiness_authority",
+      "path": "supabase/migrations/20260917225047_tongs_hearth_creator_readiness_authority.sql",
+      "sha256": "bec8791414a5af7316d8cba21ac57dafa34f7cafc85d3f231bed7a12cfe2bdbd"
+    },
+    {
+      "version": "20260918055813",
+      "name": "hearth_optional_review_persistence",
+      "path": "supabase/migrations/20260918055813_hearth_optional_review_persistence.sql",
+      "sha256": "2a3d8a150015c97450a6292b8865ee32b76b05d34eff0ec5ec3b0ac06755fb58"
+    },
+    {
+      "version": "20260918120000",
+      "name": "tongs_failure_relief_openai_text_shadow",
+      "path": "supabase/migrations/20260918120000_tongs_failure_relief_openai_text_shadow.sql",
+      "sha256": "2cd19aae5cb6334eefd25d94f4a502c0966b7cc0e6f58ed6322bcb20d673cf2f"
+    },
+    {
+      "version": "20260919120000",
+      "name": "tongs_openai_text_enforcement_foundation",
+      "path": "supabase/migrations/20260919120000_tongs_openai_text_enforcement_foundation.sql",
+      "sha256": "21c041a5efa0b8abcb1b89061c5e377eaa9a3526a2dfc0c9f7e18923aa9994d8"
+    },
+    {
+      "version": "20260920120000",
+      "name": "tongs_hearth_chat_paid_execution",
+      "path": "supabase/migrations/20260920120000_tongs_hearth_chat_paid_execution.sql",
+      "sha256": "3571bc7911be0c364e04bef76478b515d77d4315647a67ab858f78c59ce8ce5d"
+    },
+    {
+      "version": "20260921120000",
+      "name": "tongs_openai_hearth_owner_pilot_control",
+      "path": "supabase/migrations/20260921120000_tongs_openai_hearth_owner_pilot_control.sql",
+      "sha256": "64e5bf091a6e09d5568f174a2f205f3535bd098cd1ac81065c6ed33c4686a98b"
+    },
+    {
+      "version": "20260922120000",
+      "name": "tongs_openai_hearth_luna_pilot_proposal",
+      "path": "supabase/migrations/20260922120000_tongs_openai_hearth_luna_pilot_proposal.sql",
+      "sha256": "15843d61d08d58a6d92c97ac00e00ea2d6c9437dd15156406259f6fd6e7a1f9a"
+    },
+    {
+      "version": "20260922130000",
+      "name": "tongs_openai_hearth_luna_pilot_control",
+      "path": "supabase/migrations/20260922130000_tongs_openai_hearth_luna_pilot_control.sql",
+      "sha256": "3c15513caff41078ab82ff353975e5320fb8281e953718b686e12b83c318cb27"
+    },
+    {
+      "version": "20260922140000",
+      "name": "tongs_openai_hearth_luna_pilot_emergency_halt",
+      "path": "supabase/migrations/20260922140000_tongs_openai_hearth_luna_pilot_emergency_halt.sql",
+      "sha256": "4bd832c5bf8a36911244840fd806bac17c4587764850260130ff1a7456f317e8"
+    },
+    {
+      "version": "20260922150000",
+      "name": "tongs_openai_loss_policy_scope_and_preprovider_rearm",
+      "path": "supabase/migrations/20260922150000_tongs_openai_loss_policy_scope_and_preprovider_rearm.sql",
+      "sha256": "0269bda0418cddece71cd2c3d97d257304683edf3d6e2e29a58fefca28b3bcea"
+    },
+    {
+      "version": "20260922160000",
+      "name": "tongs_failure_class_corrections_and_luna_retest",
+      "path": "supabase/migrations/20260922160000_tongs_failure_class_corrections_and_luna_retest.sql",
+      "sha256": "9e88f37f8b016c3c2524a0d86d0fdf3ae4afe63575d6d63ccc0ba6e6db74ba93"
+    },
+    {
+      "version": "20260922170000",
+      "name": "tongs_precise_forge_failure_classes",
+      "path": "supabase/migrations/20260922170000_tongs_precise_forge_failure_classes.sql",
+      "sha256": "6ccfb03fc6cf8697c2676d3981fee67d2b1cc5184e9c16f26c9b910559993f6d"
+    },
+    {
+      "version": "20260923120000",
+      "name": "tongs_customer_hearth_luna_canary",
+      "path": "supabase/migrations/20260923120000_tongs_customer_hearth_luna_canary.sql",
+      "sha256": "a1f52768ec50c8a290424650b9fa18a8413a4da52e25e41ce9f640a9f9d3a68b"
+    },
+    {
+      "version": "20260923140000",
+      "name": "tongs_owner_pricing_rounded_customer_ceiling",
+      "path": "supabase/migrations/20260923140000_tongs_owner_pricing_rounded_customer_ceiling.sql",
+      "sha256": "4ca4a6e75f882098fc2963357fe9f277bc15281daf6893d2adc21bb2d280883e"
+    },
+    {
+      "version": "20260923150000",
+      "name": "tongs_owner_pricing_nullable_markup_fix",
+      "path": "supabase/migrations/20260923150000_tongs_owner_pricing_nullable_markup_fix.sql",
+      "sha256": "d4938f6c12734eb4c9f4be0f356fd72a50f96aec048af26da2840441c55b48d1"
+    },
+    {
+      "version": "20260923160000",
+      "name": "tongs_owner_pricing_nullable_markup_short_circuit",
+      "path": "supabase/migrations/20260923160000_tongs_owner_pricing_nullable_markup_short_circuit.sql",
+      "sha256": "95b136e9c4966b42becac7cdc5929cc1fc3681d010a1d55bf119d51ac9296bbe"
+    },
+    {
+      "version": "20260924120000",
+      "name": "tongs_test_customer_paid_execution",
+      "path": "supabase/migrations/20260924120000_tongs_test_customer_paid_execution.sql",
+      "sha256": "6b4d17d63dab3e920712bfc11c7ab40d799361d71f607f1c6c3eabfb5c7f17f1"
+    },
+    {
+      "version": "20260924174757",
+      "name": "reference_visual_source_transition_authority",
+      "path": "supabase/migrations/20260924174757_reference_visual_source_transition_authority.sql",
+      "sha256": "71870e358aa334cac5ef277705f2096038f706e27bd90c08fe528e4129e7536f"
+    },
+    {
+      "version": "20260925120000",
+      "name": "tongs_openai_text_route_execution_adapters",
+      "path": "supabase/migrations/20260925120000_tongs_openai_text_route_execution_adapters.sql",
+      "sha256": "796afb0490f7b1f16ea35e088e38b7d1d9191f6e3fa1737ecbe0e3ae30c6caa8"
+    },
+    {
+      "version": "20260926120000",
+      "name": "tongs_openai_text_test_certification",
+      "path": "supabase/migrations/20260926120000_tongs_openai_text_test_certification.sql",
+      "sha256": "d734fc4cedaf2ee75fb5e32a0589ea5a9b3124c6ccd7f040dc85fb8235400fa3"
+    },
+    {
+      "version": "20260927120000",
+      "name": "tongs_openai_text_domain_results",
+      "path": "supabase/migrations/20260927120000_tongs_openai_text_domain_results.sql",
+      "sha256": "68365693eb03d7c16992f00d17c1f834319e0970b60b6eb4e81be82d1d53c04e"
+    },
+    {
+      "version": "20260928120000",
+      "name": "tongs_openai_text_ordinary_customer_funding",
+      "path": "supabase/migrations/20260928120000_tongs_openai_text_ordinary_customer_funding.sql",
+      "sha256": "71233a3c8e4dfd7e1def9a2559c96ea0646f6fba76c5bb8c7b246be4f1048e2b"
+    },
+    {
+      "version": "20260929120000",
+      "name": "tongs_openai_text_model_catalog",
+      "path": "supabase/migrations/20260929120000_tongs_openai_text_model_catalog.sql",
+      "sha256": "2e32ee262d2964cc55d26d07b3f85df48a785a322adcd3669be7144525ccfc0c"
+    },
+    {
+      "version": "20260930120000",
+      "name": "tongs_openai_evidence_and_support_proposal",
+      "path": "supabase/migrations/20260930120000_tongs_openai_evidence_and_support_proposal.sql",
+      "sha256": "801b94574b60414bdf2578788353d5d958b80414c9ef7210db57167bad799056"
+    },
+    {
+      "version": "20260930130000",
+      "name": "tongs_openai_text_test_recovery_handle",
+      "path": "supabase/migrations/20260930130000_tongs_openai_text_test_recovery_handle.sql",
+      "sha256": "531a28b2d3971d977d2c2fe77aa5136c842162eb7151c638259689c3e15a5291"
+    },
+    {
+      "version": "20261001120000",
+      "name": "tongs_restricted_beta_financial_policy",
+      "path": "supabase/migrations/20261001120000_tongs_restricted_beta_financial_policy.sql",
+      "sha256": "302a9499d67054f96bc4e9b1ef7e8ae885720de42d524c1210c4ca675933a69a"
+    },
+    {
+      "version": "20261002120000",
+      "name": "tongs_aggregate_paid_execution_connection",
+      "path": "supabase/migrations/20261002120000_tongs_aggregate_paid_execution_connection.sql",
+      "sha256": "3363a2c47ef094e79490340b5e7608fcfddcf691b57688fea2738a8442584716"
+    },
+    {
+      "version": "20261003120000",
+      "name": "tongs_openai_cost_reconciliation_connection",
+      "path": "supabase/migrations/20261003120000_tongs_openai_cost_reconciliation_connection.sql",
+      "sha256": "9c07e382772c3e2b9ee63b14a677496b1ee07d08022c02a9672a42cc0c16e0ea"
+    },
+    {
+      "version": "20261004120000",
+      "name": "tongs_openai_transcription_financial_coordination",
+      "path": "supabase/migrations/20261004120000_tongs_openai_transcription_financial_coordination.sql",
+      "sha256": "2bc87c0a7e2276a5a15e08528adc93df92dd39868a156c0837b0813ebaadce02"
+    },
+    {
+      "version": "20261005120000",
+      "name": "tongs_customer_funding_read_model",
+      "path": "supabase/migrations/20261005120000_tongs_customer_funding_read_model.sql",
+      "sha256": "413ddae6600c26df1631c865204703d352789d884701e89afaa293de0ba6a31b"
+    },
+    {
+      "version": "20261006120000",
+      "name": "tongs_owner_org_funding_authority",
+      "path": "supabase/migrations/20261006120000_tongs_owner_org_funding_authority.sql",
+      "sha256": "d4ce98fb44b2c1b81ac4cac73cd7a5bd1ef55ad895fb95710f06b58187a58800"
+    },
+    {
+      "version": "20261006130000",
+      "name": "tongs_openai_model_catalog_revision_2",
+      "path": "supabase/migrations/20261006130000_tongs_openai_model_catalog_revision_2.sql",
+      "sha256": "1f8dcae0b90f23f3a660691cda6445ee254b7269ddd5e549d509bf464cc0bbef"
+    },
+    {
+      "version": "20261007120000",
+      "name": "tongs_non_spending_financial_repairs",
+      "path": "supabase/migrations/20261007120000_tongs_non_spending_financial_repairs.sql",
+      "sha256": "20d0d6c79b66fe72ec0fa4b51c3fb01532736df0b755106fdbf73fb84df670e2"
+    },
+    {
+      "version": "20261008120000",
+      "name": "tongs_owner_funded_hearth_activation",
+      "path": "supabase/migrations/20261008120000_tongs_owner_funded_hearth_activation.sql",
+      "sha256": "0f142802f3d8add2db27c108590df6e7976a33832f742f658c7b8c6eac49f803"
+    },
+    {
+      "version": "20261008130000",
+      "name": "tongs_owner_hearth_runway_commitment_repair",
+      "path": "supabase/migrations/20261008130000_tongs_owner_hearth_runway_commitment_repair.sql",
+      "sha256": "f2d289db0fffd05c05878097dbbc40c005bc83c25839f2503122430b091795ce"
+    },
+    {
+      "version": "20261008140000",
+      "name": "tongs_owner_hearth_attempt_signature_repair",
+      "path": "supabase/migrations/20261008140000_tongs_owner_hearth_attempt_signature_repair.sql",
+      "sha256": "538189e11bc52170a63c7a27fe4c32aae6019c043baeff28793518e7d28e7104"
+    },
+    {
+      "version": "20261008150000",
+      "name": "tongs_owner_hearth_definitive_rejection_recovery",
+      "path": "supabase/migrations/20261008150000_tongs_owner_hearth_definitive_rejection_recovery.sql",
+      "sha256": "ecde518660fac0aad2eab9e4552988d345528212a4bfe856831a687db9093c1f"
+    },
+    {
+      "version": "20261008160000",
+      "name": "tongs_owner_hearth_compatibility_result_corrections",
+      "path": "supabase/migrations/20261008160000_tongs_owner_hearth_compatibility_result_corrections.sql",
+      "sha256": "5945153839c5c69c8fecb8bbd3a0c70ab415000ed80a15ad5ce5b9bb5b370404"
+    },
+    {
+      "version": "20261008170000",
+      "name": "tongs_owner_hearth_compatibility_rpc_alias",
+      "path": "supabase/migrations/20261008170000_tongs_owner_hearth_compatibility_rpc_alias.sql",
+      "sha256": "4daa80868498bc909dd9f5046eb418d24807b45977fc9d3a3a5f68bdae9c214e"
+    },
+    {
+      "version": "20261008180000",
+      "name": "tongs_owner_hearth_fresh_compatibility_retry",
+      "path": "supabase/migrations/20261008180000_tongs_owner_hearth_fresh_compatibility_retry.sql",
+      "sha256": "beb645c27259a429f42a4cfba7934156128c188f7fe80956e952e6b078be0942"
+    },
+    {
+      "version": "20261008190000",
+      "name": "tongs_owner_hearth_terminal_concurrency_recovery",
+      "path": "supabase/migrations/20261008190000_tongs_owner_hearth_terminal_concurrency_recovery.sql",
+      "sha256": "e57adb902ad1e2ee1a1c3a77f7bf64f292c14d80de69acbd7b8095d2ba47915b"
+    },
+    {
+      "version": "20261008200000",
+      "name": "tongs_owner_hearth_preprovider_recovery_expiry",
+      "path": "supabase/migrations/20261008200000_tongs_owner_hearth_preprovider_recovery_expiry.sql",
+      "sha256": "c33bef64659be7448ea326813e59921d291141caad90a9ee1c599b80284a6777"
+    },
+    {
+      "version": "20261008210000",
+      "name": "tongs_owner_hearth_recovery_renewal",
+      "path": "supabase/migrations/20261008210000_tongs_owner_hearth_recovery_renewal.sql",
+      "sha256": "817ce2d64cd7e19c0e388d97cbfb4c5121a7246d7311caac13aac121ac3629f2"
+    },
+    {
+      "version": "20261008220000",
+      "name": "tongs_owner_hearth_model_choice_view",
+      "path": "supabase/migrations/20261008220000_tongs_owner_hearth_model_choice_view.sql",
+      "sha256": "02a8f75b0a8769e8bead91fc3c3b22e0e2e28329ee57e3c66b998b794a7bfeaa"
+    },
+    {
+      "version": "20261009120000",
+      "name": "tongs_openai_coordinated_cutover",
+      "path": "supabase/migrations/20261009120000_tongs_openai_coordinated_cutover.sql",
+      "sha256": "42a4e65feaaeb54c76327f735f87cc85d02e8b2f19d2db50a75c33a1e0cf6f7f"
+    },
+    {
+      "version": "20261010120000",
+      "name": "tongs_owner_funded_hearth_research",
+      "path": "supabase/migrations/20261010120000_tongs_owner_funded_hearth_research.sql",
+      "sha256": "7ad381d6674ad29631f2871a542e35abd8f07c2bc01f648cff157cc90a9a5bd9"
+    },
+    {
+      "version": "20261010130000",
+      "name": "tongs_owner_hearth_research_permissions",
+      "path": "supabase/migrations/20261010130000_tongs_owner_hearth_research_permissions.sql",
+      "sha256": "957ff05559ec33feeb876e0021fbbb27e23aa5f3541c9d40fde79a65d68f9e9e"
+    },
+    {
+      "version": "20261011120000",
+      "name": "tongs_hammer_cleanup_review_decisions",
+      "path": "supabase/migrations/20261011120000_tongs_hammer_cleanup_review_decisions.sql",
+      "sha256": "8170aa0ada84e9db711ada3b5f1246514e7de643cb32b604ec7b512224731bf8"
+    },
+    {
+      "version": "20261011130000",
+      "name": "tongs_barstock_discovery_context_fallback",
+      "path": "supabase/migrations/20261011130000_tongs_barstock_discovery_context_fallback.sql",
+      "sha256": "06c9b597dc02fc158efa434204fdcc0448fb6ede2c800dac277c276d49ba8de3"
+    },
+    {
+      "version": "20261011140000",
+      "name": "tongs_unified_financial_environment",
+      "path": "supabase/migrations/20261011140000_tongs_unified_financial_environment.sql",
+      "sha256": "4334055af650823d1aa2a5df928f4bc80b208f29f77e1dfe0e96e42f8e77b052"
+    },
+    {
+      "version": "20261011150000",
+      "name": "tongs_historical_backfill_link_repair",
+      "path": "supabase/migrations/20261011150000_tongs_historical_backfill_link_repair.sql",
+      "sha256": "6e0ebaf231ff4c28a5beb67df2ec33c17689e476de6e98e55c38a3f463fbf182"
+    },
+    {
+      "version": "20261011460000",
+      "name": "reassert_settled_customer_price_quote",
+      "path": "supabase/migrations/20261011460000_reassert_settled_customer_price_quote.sql",
+      "sha256": "9630c429bd80510dbb169dc2cbe68010f19e192e9856554a047c0391b130a08c"
+    },
+    {
+      "version": "20261011470000",
+      "name": "reassert_standard_customer_aggregate_admission",
+      "path": "supabase/migrations/20261011470000_reassert_standard_customer_aggregate_admission.sql",
+      "sha256": "9b6ec4131a1645f92954c5487639e8d2ff26afb72ada0235103f275528f28143"
+    },
+    {
+      "version": "20261011480000",
+      "name": "hearth_title_generation_test_product",
+      "path": "supabase/migrations/20261011480000_hearth_title_generation_test_product.sql",
+      "sha256": "96571931b7ac4e76bf234b6f9709917beaee6cf658f6ac7238ac483f523f8201"
+    },
+    {
+      "version": "20261011490000",
+      "name": "hearth_title_generation_episode_titles_v2",
+      "path": "supabase/migrations/20261011490000_hearth_title_generation_episode_titles_v2.sql",
+      "sha256": "1837cc15b5a38a22171b396857dcec34d3919dcb8384aa5113dcbe43fb97f348"
+    },
+    {
+      "version": "20261011500000",
+      "name": "hearth_tag_generation_test_product",
+      "path": "supabase/migrations/20261011500000_hearth_tag_generation_test_product.sql",
+      "sha256": "6168e4e08ae76ad68c07581a71c287b67154940d87c8c2b6aa998d50f2af8c62"
+    },
+    {
+      "version": "20261011510000",
+      "name": "hearth_tag_validation_evidence_v2",
+      "path": "supabase/migrations/20261011510000_hearth_tag_validation_evidence_v2.sql",
+      "sha256": "8af4d1d7df2f6e6d36b53053067f932b73507a1d92529bac0828d880fc2d427d"
+    },
+    {
+      "version": "20261011520000",
+      "name": "hearth_framing_pack_generation_test_product",
+      "path": "supabase/migrations/20261011520000_hearth_framing_pack_generation_test_product.sql",
+      "sha256": "94df5f30541f9358e7036a6225db499ac2053c7584051f05f7836ca972783503"
+    },
+    {
+      "version": "20261011530000",
+      "name": "visual_unified_plan_test_product",
+      "path": "supabase/migrations/20261011530000_visual_unified_plan_test_product.sql",
+      "sha256": "a89d6903da3bae71788d5cc079fc90d47e985d40648530f02bc53586875b904e"
+    },
+    {
+      "version": "20261011540000",
+      "name": "visual_unified_plan_canary_repair",
+      "path": "supabase/migrations/20261011540000_visual_unified_plan_canary_repair.sql",
+      "sha256": "bc5db902f3ed372f50774256a3b9dd124156b0c2e55dc4d8439d645132e56068"
+    },
+    {
+      "version": "20261011550000",
+      "name": "visual_unified_plan_v5_compatibility_authority",
+      "path": "supabase/migrations/20261011550000_visual_unified_plan_v5_compatibility_authority.sql",
+      "sha256": "8ced5c7f81c1e1500f043d2ec04166f345ebca4302302ad3e50f5009184f1697"
+    },
+    {
+      "version": "20261011560000",
+      "name": "visual_unified_plan_v5_canary_risk_authorization",
+      "path": "supabase/migrations/20261011560000_visual_unified_plan_v5_canary_risk_authorization.sql",
+      "sha256": "69fa74b17587fb028cb26f4086fe71e232944f0847c7bf72682fe2334c0ace3b"
+    },
+    {
+      "version": "20261011570000",
+      "name": "visual_unified_plan_transport_lease_recovery",
+      "path": "supabase/migrations/20261011570000_visual_unified_plan_transport_lease_recovery.sql",
+      "sha256": "4fdb02ecbb1a13f2cb17f10e4009f1f793d31cdda721b4d5a966d8ced804d62b"
+    },
+    {
+      "version": "20261011580000",
+      "name": "visual_plan_submission_unknown_concurrency_repair",
+      "path": "supabase/migrations/20261011580000_visual_plan_submission_unknown_concurrency_repair.sql",
+      "sha256": "cc1f4f461f9dd19ec0c77f3ab6d04f6c0cbf3837fe2caf04a3ff572afd899a06"
+    },
+    {
+      "version": "20261011590000",
+      "name": "visual_plan_submission_unknown_paid_scope_concurrency_repair",
+      "path": "supabase/migrations/20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql",
+      "sha256": "2c4aa9faf9d5a4c4381bcc86a4315ed66255c231f859200ee116d0ef83b89051"
+    },
+    {
+      "version": "20261011600000",
+      "name": "visual_plan_reference_visual_state_repair",
+      "path": "supabase/migrations/20261011600000_visual_plan_reference_visual_state_repair.sql",
+      "sha256": "c9b6e792058e4e92fd7de076bd7f40355f193758a1183160c0bb58a0e7ae479a"
+    },
+    {
+      "version": "20261011610000",
+      "name": "visual_plan_reconciliation_replay_path_repair",
+      "path": "supabase/migrations/20261011610000_visual_plan_reconciliation_replay_path_repair.sql",
+      "sha256": "c643e6a94a103d59690ef9bda2cdd16c69c1f565277a19fa5e48f729123b804e"
+    },
+    {
+      "version": "20261011620000",
+      "name": "hearth_thumbnail_direction_generation_test_product",
+      "path": "supabase/migrations/20261011620000_hearth_thumbnail_direction_generation_test_product.sql",
+      "sha256": "6d320d9406e05f56fe45851381dd753d50b2cd44c47cc87bf48cab51c0db6b33"
+    },
+    {
+      "version": "20261011630000",
+      "name": "hearth_thumbnail_base_generation_test_product",
+      "path": "supabase/migrations/20261011630000_hearth_thumbnail_base_generation_test_product.sql",
+      "sha256": "81764964321857180971ce31fb50598ad88c58a02ae897d7f7ff79f3396121d4"
+    },
+    {
+      "version": "20261011640000",
+      "name": "thumbnail_base_quote_model_resolution_repair",
+      "path": "supabase/migrations/20261011640000_thumbnail_base_quote_model_resolution_repair.sql",
+      "sha256": "85501453c705ef4a289b4bf5fdb974875714c8ba5d515da7735d2aa7bc0bd6d2"
+    },
+    {
+      "version": "20261011650000",
+      "name": "thumbnail_base_quote_creation_sku_repair",
+      "path": "supabase/migrations/20261011650000_thumbnail_base_quote_creation_sku_repair.sql",
+      "sha256": "d044e7cee8b5c5d3c95e16db2bb6998e69baadffd3085e32af6108a8bdc9fa9d"
+    },
+    {
+      "version": "20261011660000",
+      "name": "visual_narrative_interpretation_test_product",
+      "path": "supabase/migrations/20261011660000_visual_narrative_interpretation_test_product.sql",
+      "sha256": "5a11a04e5161e50746ca3aaffc9cb32e191f2e8d7cddf2ad95cffbe6b7ad3505"
+    },
+    {
+      "version": "20261011670000",
+      "name": "hearth_timeline_image_generation_test_product",
+      "path": "supabase/migrations/20261011670000_hearth_timeline_image_generation_test_product.sql",
+      "sha256": "e8ec5a743ea61fe3c1ef55aaa92c8b84918cd534102f2727229ebcd1ec01071f"
+    },
+    {
+      "version": "20261011675000",
+      "name": "reference_visual_acquisition_order_compatibility",
+      "path": "supabase/migrations/20261011675000_reference_visual_acquisition_order_compatibility.sql",
+      "sha256": "68cafe878ed173e28f95d073311a916ab8e4919571caaa07b71dd093a168f39f"
+    },
+    {
+      "version": "20261011680000",
+      "name": "reference_material_rights_acquisition_boundary_repair",
+      "path": "supabase/migrations/20261011680000_reference_material_rights_acquisition_boundary_repair.sql",
+      "sha256": "a1f39eaf93a3bd8d368a7fe87346157bcd125d99c5791486080c5b73971961ca"
+    },
+    {
+      "version": "20261011690000",
+      "name": "reference_visual_evidence_claim_identity",
+      "path": "supabase/migrations/20261011690000_reference_visual_evidence_claim_identity.sql",
+      "sha256": "24e3389e4cf1b49264a53a7d502c1b0c04c5b904c7c143aec52a829e3c203eaf"
+    },
+    {
+      "version": "20261011700000",
+      "name": "reference_visual_evidence_reset_claim_compatibility",
+      "path": "supabase/migrations/20261011700000_reference_visual_evidence_reset_claim_compatibility.sql",
+      "sha256": "b9e6d28d4027accf2e05c0724bde709a047296285aaf7d644187220e2d6f50ed"
+    },
+    {
+      "version": "20261011710000",
+      "name": "reference_visual_source_transition_authority_reassert",
+      "path": "supabase/migrations/20261011710000_reference_visual_source_transition_authority_reassert.sql",
+      "sha256": "1dae1b42c150132d9b4f8efa2f7cf1d51798c610694afca0b5cc232569f55f1f"
+    },
+    {
+      "version": "20261011720000",
+      "name": "motion_broll_interpretation_test_product",
+      "path": "supabase/migrations/20261011720000_motion_broll_interpretation_test_product.sql",
+      "sha256": "939b521234723fca114d470eb7b7edf8c10d19ceaa50e895d2e0813e28867c89"
+    },
+    {
+      "version": "20261011730000",
+      "name": "runway_gen45_customer_test_product",
+      "path": "supabase/migrations/20261011730000_runway_gen45_customer_test_product.sql",
+      "sha256": "549664bb31e55cc99c007331712ca9d372d07ca9c47f6f622ad6d87158b85699"
+    },
+    {
+      "version": "20261011740000",
+      "name": "runway_customer_quote_expiry_replay",
+      "path": "supabase/migrations/20261011740000_runway_customer_quote_expiry_replay.sql",
+      "sha256": "478fc574c90b829ea47bab7da0bd34c5901c8690bfe689d313bca81b688e7354"
+    },
+    {
+      "version": "20261011750000",
+      "name": "runway_customer_canary_preprovider_terminalization",
+      "path": "supabase/migrations/20261011750000_runway_customer_canary_preprovider_terminalization.sql",
+      "sha256": "40c72b92cc85d36216bd8ea784248fa47912820fad6ad843661c1654476e2505"
+    },
+    {
+      "version": "20261011760000",
+      "name": "test_aggregate_exposure_reconciliation",
+      "path": "supabase/migrations/20261011760000_test_aggregate_exposure_reconciliation.sql",
+      "sha256": "ec2b0f9f5eb0851c0cd4705199ecbfdc00e9270fc7c5b0482240b829687458c0"
+    },
+    {
+      "version": "20261011770000",
+      "name": "broll_terminal_replay_generation_attempt",
+      "path": "supabase/migrations/20261011770000_broll_terminal_replay_generation_attempt.sql",
+      "sha256": "be6485560d137600270a191df49e7b7aa2edd488aa7b6a8c02a7f90157a22845"
+    },
+    {
+      "version": "20261011780000",
+      "name": "runway_aggregate_attempt_smallint_resolution",
+      "path": "supabase/migrations/20261011780000_runway_aggregate_attempt_smallint_resolution.sql",
+      "sha256": "beb0c2667deeabf5849317516c33217220b7e2142c831bf2781e4cbddb33a9c5"
+    },
+    {
+      "version": "20261011790000",
+      "name": "runway_preboundary_recovery_reconciliation",
+      "path": "supabase/migrations/20261011790000_runway_preboundary_recovery_reconciliation.sql",
+      "sha256": "b1c24a8da7e9e5b501c6560dcc21cb890305dd0a51ee2b9bd8cd63aa83db40dd"
+    },
+    {
+      "version": "20261011800000",
+      "name": "broll_generation_attempt_readback",
+      "path": "supabase/migrations/20261011800000_broll_generation_attempt_readback.sql",
+      "sha256": "fa84fe6088d15b5f5a3d74ee684a8c64c9c2da4b3b12264ea4869df057ab6231"
+    },
+    {
+      "version": "20261011810000",
+      "name": "runway_success_financial_finalization",
+      "path": "supabase/migrations/20261011810000_runway_success_financial_finalization.sql",
+      "sha256": "e92951292e14dd6b0d073e389f62627679b617a84fc226ceece33c15b7fba797"
+    },
+    {
+      "version": "20261011820000",
+      "name": "tongs_owner_cost_accounting_authority",
+      "path": "supabase/migrations/20261011820000_tongs_owner_cost_accounting_authority.sql",
+      "sha256": "ad13f456356fac19b144a2c39eff7a44f682d9c98027b1c1c7827bbed264c0dc"
+    },
+    {
+      "version": "20261011830000",
+      "name": "index_owner_cost_relations",
+      "path": "supabase/migrations/20261011830000_index_owner_cost_relations.sql",
+      "sha256": "8c03ab68e8e0f0408f96ecd55a5df276821b388907a5c90c130207921665e4c9"
+    },
+    {
+      "version": "20261011840000",
+      "name": "allow_definitive_provider_rejection",
+      "path": "supabase/migrations/20261011840000_allow_definitive_provider_rejection.sql",
+      "sha256": "6623afa66d0afd4d63800de285ebc554b0ae08ae42ec7755292fe2b46e511661"
+    },
+    {
+      "version": "20261011850000",
+      "name": "hearth_owner_result_persistence_authority",
+      "path": "supabase/migrations/20261011850000_hearth_owner_result_persistence_authority.sql",
+      "sha256": "5f7838de6c62f5ac9bc6b1514a1cd4614687e089d4ee144e3192c5a143e654fa"
+    },
+    {
+      "version": "20261011860000",
+      "name": "owner_hearth_result_fingerprint_authority_fix",
+      "path": "supabase/migrations/20261011860000_owner_hearth_result_fingerprint_authority_fix.sql",
+      "sha256": "af45ee2c03fc4547b8dcc1a8308e2e9e79d206a5e02d97001e0e693c3bbf0ce8"
+    },
+    {
+      "version": "20261011870000",
+      "name": "grandfather_historical_hearth_authority",
+      "path": "supabase/migrations/20261011870000_grandfather_historical_hearth_authority.sql",
+      "sha256": "442752fdf8b743ca26a2cb00e2478fbcff588bb73f81fac3157b8eb14e7c67b3"
+    },
+    {
+      "version": "20261011880000",
+      "name": "owner_hearth_image_result_persistence_authority",
+      "path": "supabase/migrations/20261011880000_owner_hearth_image_result_persistence_authority.sql",
+      "sha256": "b92793303082179003727c59262757e6d831a7a1dc1b25098625721aa292c4c7"
+    },
+    {
+      "version": "20261011890000",
+      "name": "index_owner_hearth_image_customer_authority",
+      "path": "supabase/migrations/20261011890000_index_owner_hearth_image_customer_authority.sql",
+      "sha256": "b356517ce559f61a331bc01efbade9cc312bd0ce292e17d38a8ea1c8c7f56677"
+    },
+    {
+      "version": "20261011900000",
+      "name": "forge_credential_lifecycle",
+      "path": "supabase/migrations/20261011900000_forge_credential_lifecycle.sql",
+      "sha256": "d42ceef7c8ac5055d6587a1989856aabe13703b07b3cd33c2c7d16e65f8dee83"
+    },
+    {
+      "version": "20261011910000",
+      "name": "credential_lifecycle_secret_key_role",
+      "path": "supabase/migrations/20261011910000_credential_lifecycle_secret_key_role.sql",
+      "sha256": "62031eb8dbe49f915c1501dfc980cb5b3beab2b102d8d46dbe976be52d5309e5"
+    },
+    {
+      "version": "20261011920000",
+      "name": "accept_owner_narrative_prompt_operation_keys",
+      "path": "supabase/migrations/20261011920000_accept_owner_narrative_prompt_operation_keys.sql",
+      "sha256": "b8d6889b88a5f69e547f3e14383938ac56724161c0f7165b67aa450b3c58b74a"
+    },
+    {
+      "version": "20261011930000",
+      "name": "credential_lifecycle_activation_ordering",
+      "path": "supabase/migrations/20261011930000_credential_lifecycle_activation_ordering.sql",
+      "sha256": "e01c0448c70236af564ffdfaf95bf4916509d3c30c41a1998870acdd7ea8d398"
+    },
+    {
+      "version": "20261011940000",
+      "name": "canonical_account_owner_authority",
+      "path": "supabase/migrations/20261011940000_canonical_account_owner_authority.sql",
+      "sha256": "8ad7acd7a4ed8d86f30aeb61747ccdb232c57b8844001c43748f05ecef582184"
+    },
+    {
+      "version": "20261011950000",
+      "name": "dual_read_canonical_owner_authority",
+      "path": "supabase/migrations/20261011950000_dual_read_canonical_owner_authority.sql",
+      "sha256": "0c21721af227455fe168ac152bab2f7650208d51fab276dd5ae65c582f3daa1d"
+    },
+    {
+      "version": "20261011960000",
+      "name": "transition_owner_authority_service_role_gate",
+      "path": "supabase/migrations/20261011960000_transition_owner_authority_service_role_gate.sql",
+      "sha256": "fdf73661ccd872f92b956d4d710b28665b031a66e6ff0ec01c1024c9a743df40"
+    },
+    {
+      "version": "20261011970000",
+      "name": "owner_unified_visual_plan_persistence_authority",
+      "path": "supabase/migrations/20261011970000_owner_unified_visual_plan_persistence_authority.sql",
+      "sha256": "89d011f9adc34efb74858eb1b879d03345c145248453c4699c04768c787a589c"
+    },
+    {
+      "version": "20261011980000",
+      "name": "owner_unified_visual_plan_captured_failure_recovery",
+      "path": "supabase/migrations/20261011980000_owner_unified_visual_plan_captured_failure_recovery.sql",
+      "sha256": "d377165204f5bfd225a622d182f4b584295615b353facf5e344a232600403736"
+    },
+    {
+      "version": "20261012000000",
+      "name": "allow_zero_beat_unified_broll_plan",
+      "path": "supabase/migrations/20261012000000_allow_zero_beat_unified_broll_plan.sql",
+      "sha256": "e97fa7e9df8ba938f4697dffbb0d0381a91d1b2a24b1ea879e7e7ee95c6f13fa"
+    },
+    {
+      "version": "20261012010000",
+      "name": "tongs_route_scoped_openai_model_preferences",
+      "path": "supabase/migrations/20261012010000_tongs_route_scoped_openai_model_preferences.sql",
+      "sha256": "66ba3a306c8c4ad6ac7441ccf9a00ef9e8ea5d5a1ee572d7f9e43428a11e7354"
+    },
+    {
+      "version": "20261012020000",
+      "name": "forge_ai_global_model_preference_and_hammer_authority",
+      "path": "supabase/migrations/20261012020000_forge_ai_global_model_preference_and_hammer_authority.sql",
+      "sha256": "8173122d7902f27fd4cc818a9c90e90884d4df5d35bca759bc57967180b0673c"
+    },
+    {
+      "version": "20261012030000",
+      "name": "shared_owner_only_execution_authority",
+      "path": "supabase/migrations/20261012030000_shared_owner_only_execution_authority.sql",
+      "sha256": "f9408d33c16f713fe1ec99f0134edf10a33ab300d456d5a40fbc843505f5b9e5"
+    },
+    {
+      "version": "20261012040000",
+      "name": "hammer_test_canary_prerequisites",
+      "path": "supabase/migrations/20261012040000_hammer_test_canary_prerequisites.sql",
+      "sha256": "cad5cc676172781081b3b48b2d20d66f43435ab7f78e14a3a01826dc2b7d9342"
+    },
+    {
+      "version": "20261012050000",
+      "name": "owner_only_test_canary_scoped_activation",
+      "path": "supabase/migrations/20261012050000_owner_only_test_canary_scoped_activation.sql",
+      "sha256": "0506e260372ba13234fe1086ef35ceba9982b8297575c9ded8f7e32d17d44774"
+    },
+    {
+      "version": "20261012060000",
+      "name": "scoped_owner_canary_execution_context_activation",
+      "path": "supabase/migrations/20261012060000_scoped_owner_canary_execution_context_activation.sql",
+      "sha256": "2537c46a16910cbfc16552088e0a1397818e90ad540895f26a8a2c553628e3ae"
+    },
+    {
+      "version": "20261012070000",
+      "name": "return_paid_funding_environment",
+      "path": "supabase/migrations/20261012070000_return_paid_funding_environment.sql",
+      "sha256": "bd7678fe52a4a49fb4d52e9e9ba333a6f2fc6f0d66c9aac3fcd329bbc84bbb47"
+    },
+    {
+      "version": "20261012075000",
+      "name": "hammer_canary_eligibility_verified_zero_support",
+      "path": "supabase/migrations/20261012075000_hammer_canary_eligibility_verified_zero_support.sql",
+      "sha256": "7404f086bf974e780e86ec3f51bee88991af455826218da843a60aa546721e99"
+    },
+    {
+      "version": "20261012080000",
+      "name": "hearth_luna_operation_only_model_authority",
+      "path": "supabase/migrations/20261012080000_hearth_luna_operation_only_model_authority.sql",
+      "sha256": "df90b9df70841f6961507b8afad5c285336846e6c18236bf5f5cc64ee040b016"
+    },
+    {
+      "version": "20261014205219",
+      "name": "hammer_6c_financial_contract_repair",
+      "path": "supabase/migrations/20261014205219_hammer_6c_financial_contract_repair.sql",
+      "sha256": "9c2cbe64d470bd5e63f1c2b78e9c9103a2141c91be69b62ba56450de57b1a3d7"
+    },
+    {
+      "version": "20261015090533",
+      "name": "align_customer_funding_v4_authority",
+      "path": "supabase/migrations/20261015090533_align_customer_funding_v4_authority.sql",
+      "sha256": "4ddb04a9eeba6b203f75f01df40a6d0f8dca9a5f6389b987514063d34a97b057"
+    },
+    {
+      "version": "20261017201640",
+      "name": "hammer_customer_test_acceptance",
+      "path": "supabase/migrations/20261017201640_hammer_customer_test_acceptance.sql",
+      "sha256": "9df65d6e7099426971909281705df22ca75a547edc6adcd0ed621f7cf197a1c4"
+    },
+    {
+      "version": "20261018120000",
+      "name": "tongs_approved_script_recording_readiness",
+      "path": "supabase/migrations/20261018120000_tongs_approved_script_recording_readiness.sql",
+      "sha256": "c3fe97da601f78b006474025b6a9ed66f9ca47f68ee0a61ab81d31fb92e9e8fc"
+    },
+    {
+      "version": "20261020171517",
+      "name": "public_slice_a1_identity_profile_access_baseline",
+      "path": "supabase/migrations/20261020171517_public_slice_a1_identity_profile_access_baseline.sql",
+      "sha256": "da604a19a73984d730a943dd5fc312285f5b32faa728cbf4f17e453400bf47bc"
+    },
+    {
+      "version": "20261020171519",
+      "name": "public_slice_a2_legacy_financial_baseline",
+      "path": "supabase/migrations/20261020171519_public_slice_a2_legacy_financial_baseline.sql",
+      "sha256": "414050336e111447efdfae878eae7a38eee4c8bf6ba6b6452272806ce260fa04"
+    },
+    {
+      "version": "20261020171522",
+      "name": "public_slice_a3_tongs_compatibility_surfaces",
+      "path": "supabase/migrations/20261020171522_public_slice_a3_tongs_compatibility_surfaces.sql",
+      "sha256": "fd0f74697b7935d759d2abcacba3ea03157a8b84befc5c30204df771dc76b0c9"
+    }
+  ]
+}

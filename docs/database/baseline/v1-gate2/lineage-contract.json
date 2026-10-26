@@ -1,0 +1,25 @@
+{
+  "schema": "forge.database-lineage-contract.v1",
+  "requiredSupabaseCliVersion": "2.84.2",
+  "historical": {
+    "lineage": "historical-v1",
+    "rootWorkdir": ".",
+    "manifestPath": "docs/database/baseline/v1-gate1/historical-migrations.sha256.json",
+    "cutoffVersion": "20261020171522"
+  },
+  "baseline": {
+    "lineage": "baseline-v1",
+    "reservedStartVersion": "20261021000000",
+    "reservedEndVersion": "20261021235959",
+    "workdirMarkerFilename": ".forge-database-lineage.json"
+  },
+  "sharedTail": {
+    "canonicalMigrationsDirectory": "supabase/migrations",
+    "minimumVersion": "20261022000000"
+  },
+  "databaseMarker": {
+    "schema": "forge_meta",
+    "table": "database_lineage",
+    "singletonKey": true
+  }
+}

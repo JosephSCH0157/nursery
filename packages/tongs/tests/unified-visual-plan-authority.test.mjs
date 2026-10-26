@@ -142,13 +142,38 @@ test("Unified provider retains malformed paid output for one-attempt validation 
 });
 
 test("Unified provider turns a network failure into an actionable creator-facing error",async()=>{
-  const originalFetch=globalThis.fetch;
-  globalThis.fetch=async()=>{throw Object.assign(new Error("fetch failed"),{cause:{code:"ECONNRESET"}});};
+  const originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls+=1;throw Object.assign(new Error("sensitive socket detail"),{cause:{code:"ECONNRESET"}});};
   try{
     await assert.rejects(
       new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:"Approved script.",creatorDirection:null,generationScope:"full_media_plan",sourceCatalog:[]}),
-      /OpenAI could not be reached.*ECONNRESET.*last verified plan is unchanged/,
+      error=>{
+        assert.match(error.message,/OpenAI could not be reached.*ECONNRESET.*last verified plan is unchanged/);
+        assert.doesNotMatch(error.message,/sensitive socket detail/);
+        assert.equal(error.ambiguous,true);
+        assert.equal(error.evidence.error_code,"ECONNRESET");
+        return true;
+      },
     );
+    assert.equal(calls,1,"Ambiguous Visual Plan submissions must never be retried");
+  }finally{globalThis.fetch=originalFetch;}
+});
+
+test("Unified provider redacts generic transport details without retrying",async()=>{
+  const originalFetch=globalThis.fetch;let calls=0;
+  globalThis.fetch=async()=>{calls+=1;throw new Error("private network diagnostic");};
+  try{
+    await assert.rejects(
+      new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:"Approved script.",creatorDirection:null,generationScope:"full_media_plan",sourceCatalog:[]}),
+      error=>{
+        assert.match(error.message,/OpenAI could not be reached.*last verified plan is unchanged/);
+        assert.doesNotMatch(error.message,/private network diagnostic/);
+        assert.equal(error.ambiguous,true);
+        assert.equal(error.evidence.error_code,null);
+        return true;
+      },
+    );
+    assert.equal(calls,1);
   }finally{globalThis.fetch=originalFetch;}
 });
 

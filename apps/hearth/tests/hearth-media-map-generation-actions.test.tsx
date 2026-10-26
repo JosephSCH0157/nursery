@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { useMediaMapGenerationActions } from "../src/hooks/visuals/useMediaMapGenerationActions";
 import { createHearthOperationAuthority } from "../src/lib/hearth-operation-authority";
 import { deriveFullMediaBudgetPolicy } from "../src/lib/hearth-media-map-builder";
+import type { HearthVisualPlanFailure } from "../src/lib/hearth-visual-plan-operation";
 import {
   createEmptyEpisodePackageV2,
   type EpisodeMediaMap,
@@ -47,8 +48,10 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
   const map = createMap();
   const order: string[] = [];
   const saveStates: string[] = [];
+  const saveErrors: Array<string | null> = [];
   const busyStates: boolean[] = [];
   const operationStages: string[] = [];
+  const visualPlanFailures: Array<HearthVisualPlanFailure | null> = [];
   const selectedEntries: Array<string | null> = [];
   const generationScopes: string[] = [];
   const authority = createHearthOperationAuthority({
@@ -70,8 +73,9 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
       setMediaMapGenerationScope: () => undefined,
       setIsMediaMapBusy: (busy) => busyStates.push(busy),
       setVisualPlanOperationStage: (stage) => operationStages.push(stage),
+      setVisualPlanFailure: (failure) => visualPlanFailures.push(failure),
       setMediaMapSaveState: (state) => saveStates.push(state),
-      setMediaMapSaveError: () => undefined,
+      setMediaMapSaveError: (error) => saveErrors.push(error),
       setMediaMapMessage: () => undefined,
       setSelectedMediaMapEntryId: (id) => selectedEntries.push(id),
       prepareSourceEpisodePackageForMediaMapGeneration: async () => ({
@@ -113,8 +117,10 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
   assert.equal(applied, true);
   assert.deepEqual(order, ["unified", "verify", "broll-readback", "reference-readback"]);
   assert.deepEqual(saveStates, ["saving", "saved"]);
+  assert.deepEqual(saveErrors, [null]);
   assert.deepEqual(busyStates, [true, false]);
   assert.deepEqual(operationStages, ["generating", "validating", "refreshing", "complete"]);
+  assert.deepEqual(visualPlanFailures, [null]);
   assert.deepEqual(selectedEntries, []);
   assert.deepEqual(generationScopes, ["images_only"]);
 });
@@ -125,6 +131,8 @@ test("Visual Plan apply remains failed when canonical image-map verification fai
   const saveStates: string[] = [];
   const busyStates: boolean[] = [];
   const operationStages: string[] = [];
+  const visualPlanFailures: Array<HearthVisualPlanFailure | null> = [];
+  let generationAttempts = 0;
   const authority = createHearthOperationAuthority({
     workspaceId: WORKSPACE_ID,
     workpieceId: WORKPIECE_ID,
@@ -144,6 +152,7 @@ test("Visual Plan apply remains failed when canonical image-map verification fai
       setMediaMapGenerationScope: () => undefined,
       setIsMediaMapBusy: (busy) => busyStates.push(busy),
       setVisualPlanOperationStage: (stage) => operationStages.push(stage),
+      setVisualPlanFailure: (failure) => visualPlanFailures.push(failure),
       setMediaMapSaveState: (state) => saveStates.push(state),
       setMediaMapSaveError: (error) => errors.push(error),
       setMediaMapMessage: () => undefined,
@@ -159,7 +168,10 @@ test("Visual Plan apply remains failed when canonical image-map verification fai
       buildMediaMapFromExistingPlans: () => createMap(),
       persistMediaMap: async () => ({ ok: true, episodePackage }),
       repairImageMapAuthority: async () => ({ ok: false, error: "Canonical verification failed." }),
-      generateUnifiedVisualPlan: async () => ({ ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1, referenceVisualPlanRevision: 1 } }),
+      generateUnifiedVisualPlan: async () => {
+        generationAttempts += 1;
+        return { ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1, referenceVisualPlanRevision: 1 } };
+      },
       refreshCanonicalBroll: async () => true,
       notifyCanonicalReferenceClipsChanged: () => undefined,
     });
@@ -179,4 +191,14 @@ test("Visual Plan apply remains failed when canonical image-map verification fai
   assert.deepEqual(errors, [null, "Canonical verification failed."]);
   assert.deepEqual(busyStates, [true, false]);
   assert.deepEqual(operationStages, ["generating", "validating", "failed"]);
+  assert.equal(generationAttempts, 1);
+  assert.deepEqual(visualPlanFailures, [
+    null,
+    {
+      status: null,
+      code: "visual_plan_canonical_repair_failed",
+      stage: "canonical_persistence",
+      message: "Canonical verification failed.",
+    },
+  ]);
 });

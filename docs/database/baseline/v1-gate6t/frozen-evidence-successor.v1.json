@@ -1,0 +1,72 @@
+{
+  "schema": "forge.gate6t-frozen-evidence-successor.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "path": "docs/database/baseline/v1-gate6b/frozen-evidence-trust-anchor.v1.json",
+    "sha256": "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb"
+  },
+  "authorizedSource": {
+    "commit": "5316868a9148b89847c3289fc2acc5353642d4c4",
+    "tree": "036742b686befbdce218f27c90f3b4c78e916593"
+  },
+  "protectedChanges": [
+    {
+      "path": "docs/database/baseline/v1-gate5d/tooling.sha256.json",
+      "mode": "100644",
+      "predecessorOid": "fef6fe28eac949c7b98bc01044cb99541e63808a",
+      "successorOid": "1741df5dac4b0a8b2fb24a7c8d011160385a2dcc",
+      "sha256": "f24b371e746d5620f4642201015f7c2556c54f0c01dfac9b9703eda757eff300"
+    },
+    {
+      "path": "scripts/certify-gate5d-integrated-synthetic.ps1",
+      "mode": "100644",
+      "predecessorOid": "da37629b22dbf33fb652e57c5400dbaada2553fe",
+      "successorOid": "f887a736f25fd9a2d53371db86007a6ba77d6ccd",
+      "sha256": "61a89b37d574c63f0b556c18415e1e96d178e4c79924b7e69b3f0c504c387899"
+    },
+    {
+      "path": "scripts/export-gate5d-authentic-history-read-only.ps1",
+      "mode": "100644",
+      "predecessorOid": "abad0eeaa7fdc9d7067eff9323a84322e5a81d70",
+      "successorOid": "4b09033fc8465994db11240cb5382991eedcfa35",
+      "sha256": "464462d5b80db91771280271df8bb754d7b2f4ed2467add722b934a2ae620490"
+    },
+    {
+      "path": "scripts/lib/ForgeGate5D.psm1",
+      "mode": "100644",
+      "predecessorOid": "1f711f50eb743f2828f2fcf48d020ed34dbba5f9",
+      "successorOid": "997766ef01a92b1a9428866d52d2c68ef7bf9d4a",
+      "sha256": "cbbbc27a08a000940628cddcf7cc33c294ef1927bb663c9674c399247e1aa8d2"
+    },
+    {
+      "path": "scripts/new-gate5d-synthetic-history-capsule.ps1",
+      "mode": "100644",
+      "predecessorOid": "c9e728c0b74028ba3eaa5ec3a0168bf670a9891e",
+      "successorOid": "08ab4b0d88907539c07c8db112c411390ca486bb",
+      "sha256": "15192999dc7a772811405dd79f8280b2698ae13f253833d271e19134073ae893"
+    },
+    {
+      "path": "scripts/test-gate5d-authentic-history-tooling.ps1",
+      "mode": "100644",
+      "predecessorOid": "142e9bf685f5d61c58d0381c843409de0189ea3d",
+      "successorOid": "41e5318827d67c03c00118ea785bfce5e892b5f3",
+      "sha256": "4c4d8a8d45d57b8f7c24cc9c17cb02937c6c3d50f409556d5f8c5adccc332a26"
+    },
+    {
+      "path": "scripts/test-gate5d-read-only-endpoint-adapter.ps1",
+      "mode": "100644",
+      "predecessorOid": "3e681bddc7f33fa44e7cc4760da46f35dfb2fa9b",
+      "successorOid": "3705f5fe41f32c5c3f9a40d336ee9e4ac55a267e",
+      "sha256": "375690e47326e801602c6a74401c9ac09db502d55eaaf8a9be971430ecfa6b21"
+    },
+    {
+      "path": "scripts/verify-gate5d-authentic-history-tooling.ps1",
+      "mode": "100644",
+      "predecessorOid": "81575058ef8b9394f095fe130c423452f6d426e6",
+      "successorOid": "580d950a2760fbe6ffb810a656a08f6952f5d5bf",
+      "sha256": "84e0c6fafeec62a56c5559b857ada59cde4f0119935e21a068f648449d3c943c"
+    }
+  ],
+  "rejectAdditionalProtectedChanges": true,
+  "preserveProtectedPathMembership": true
+}

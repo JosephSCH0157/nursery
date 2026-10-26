@@ -16,7 +16,9 @@ class MemoryStorage implements RetryStorage {
 }
 
 function localEnvironment(): Record<string, string> {
-  const output = execFileSync("supabase", ["status", "-o", "env"], { cwd: new URL("../../..", import.meta.url), encoding: "utf8" });
+  const workdir = process.env.FORGE_BARSTOCK_SUPABASE_WORKDIR;
+  const args = ["status", "-o", "env", ...(workdir ? ["--workdir", workdir] : [])];
+  const output = execFileSync("supabase", args, { cwd: new URL("../../..", import.meta.url), encoding: "utf8" });
   return Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
     const match = /^([A-Z_]+)="?(.*?)"?$/.exec(line.trim());
     return match ? [[match[1], match[2]]] : [];
