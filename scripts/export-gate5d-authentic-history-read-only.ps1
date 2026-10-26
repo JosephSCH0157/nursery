@@ -48,14 +48,19 @@ function Read-Gate5DAttestation([string]$Path,[string]$ExpectedTokenHash,[string
       -not (Test-Path -LiteralPath $full -PathType Leaf)) {
     throw 'Gate 5D owner attestation is missing or outside the approved restricted temporary location.'
   }
-  $acl = Get-Acl -LiteralPath $parent
-  if (-not $acl.AreAccessRulesProtected) { throw 'Gate 5D owner-attestation directory still inherits access rules.' }
-  $allowedSids = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value,'S-1-5-18')
-  foreach ($rule in $acl.Access) {
-    if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow) {
-      $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-      if ($sid -notin $allowedSids) { throw 'Gate 5D owner-attestation directory grants access to an unapproved identity.' }
+  if ($IsWindows) {
+    $acl = Get-Acl -LiteralPath $parent
+    if (-not $acl.AreAccessRulesProtected) { throw 'Gate 5D owner-attestation directory still inherits access rules.' }
+    $allowedSids = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value,'S-1-5-18')
+    foreach ($rule in $acl.Access) {
+      if ($rule.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow) {
+        $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        if ($sid -notin $allowedSids) { throw 'Gate 5D owner-attestation directory grants access to an unapproved identity.' }
+      }
     }
+  } else {
+    Assert-ForgeGate5DUnixPathProtection -Path $parent -ExpectedMode '700' -ExpectedType 'directory'
+    Assert-ForgeGate5DUnixPathProtection -Path $full -ExpectedMode '600' -ExpectedType 'file'
   }
   try { $attestation = Get-Content -LiteralPath $full -Raw | ConvertFrom-Json }
   catch { throw 'Gate 5D owner attestation is malformed.' }

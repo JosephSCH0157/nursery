@@ -13,8 +13,7 @@ if ($manifest.requiredSupabaseCliVersion -ne '2.84.2') {
   throw 'Unexpected pre-Slice-A fixture CLI contract.'
 }
 
-$canonicalOutput = (& node $canonicalVerifier --repository-root $repo --scope pre-slice 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) { throw $canonicalOutput }
+$canonicalOutput = (& (Join-Path $PSScriptRoot 'invoke-frozen-git-evidence.ps1') -RepositoryRoot $repo -Scope pre-slice | Out-String).Trim()
 $canonical = $canonicalOutput | ConvertFrom-Json
 
 & (Join-Path $PSScriptRoot 'build-pre-slice-a-fixture.ps1') -RepositoryRoot $repo -VerifyOnly | Out-Null

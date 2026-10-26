@@ -131,11 +131,11 @@ $contractPath = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) "forge-gate5d-co
 try {
   New-ForgeGate5DRestrictedDirectory -Path $capsuleDirectory | Out-Null
   $projectHash = Get-ForgeGate5DSha256Hex -Bytes ([Text.Encoding]::UTF8.GetBytes('gate5d-synthetic-local-only'))
-  Protect-ForgeGate5DCapsule -Payload $payload -Directory $capsuleDirectory -Contract $contract -ProjectRefHash $projectHash | Out-Null
+  $protectedCapsule = Protect-ForgeGate5DCapsule -Payload $payload -Directory $capsuleDirectory -Contract $contract -ProjectRefHash $projectHash
   [IO.File]::WriteAllText($contractPath,($contract | ConvertTo-Json -Depth 20),[Text.UTF8Encoding]::new($false))
   [pscustomobject]@{
     ok=$true; schema='forge.gate5d-synthetic-capsule.v1'; variant=$Variant
-    capsuleDirectory=$capsuleDirectory; contractPath=$contractPath; recordCount=$records.Count
+    capsuleDirectory=$capsuleDirectory; capsulePath=$protectedCapsule.CapsulePath; contractPath=$contractPath; recordCount=$records.Count
     hashes=[ordered]@{
       allColumns=[string]$contract.history.hashes.allColumns; version=[string]$contract.history.hashes.version
       statements=[string]$contract.history.hashes.statements; name=[string]$contract.history.hashes.name

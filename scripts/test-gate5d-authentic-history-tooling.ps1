@@ -65,13 +65,33 @@ try {
   $disk = [IO.File]::ReadAllBytes($capsule.CapsulePath)
   if ([Text.Encoding]::UTF8.GetString($disk) -match 'gate5d-secret-sentinel') { throw 'Plaintext appeared in the encrypted capsule.' }
   $unprotected = Unprotect-ForgeGate5DCapsule -Directory $tempRoot
-  if ((Get-ForgeGate5DSha256Hex $unprotected.Payload) -ne $payloadHash) { throw 'DPAPI round-trip failed.' }
+  if ((Get-ForgeGate5DSha256Hex $unprotected.Payload) -ne $payloadHash) { throw 'Capsule round-trip failed.' }
   [Array]::Clear($unprotected.Payload,0,$unprotected.Payload.Length)
-  $acl = Get-Acl -LiteralPath $tempRoot
-  $sids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
-  $expectedSids = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value,'S-1-5-18') | Sort-Object
-  if (-not $acl.AreAccessRulesProtected -or ($sids -join ',') -ne ($expectedSids -join ',')) { throw 'Capsule ACL is broader than current user plus SYSTEM.' }
-  $checks.Add('dpapi-current-user-encrypted-before-disk-and-restricted-acl')
+  if ($IsWindows) {
+    $acl = Get-Acl -LiteralPath $tempRoot
+    $sids = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
+    $expectedSids = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value,'S-1-5-18') | Sort-Object
+    if (-not $acl.AreAccessRulesProtected -or ($sids -join ',') -ne ($expectedSids -join ',')) { throw 'Capsule ACL is broader than current user plus SYSTEM.' }
+    $checks.Add('dpapi-current-user-encrypted-before-disk-and-restricted-acl')
+  }
+  else {
+    Assert-ForgeGate5DUnixPathProtection -Path $tempRoot -ExpectedMode '700' -ExpectedType 'directory'
+    foreach ($path in @($capsule.CapsulePath,(Join-Path $tempRoot 'history.key'),$capsule.ManifestPath)) {
+      Assert-ForgeGate5DUnixPathProtection -Path $path -ExpectedMode '600' -ExpectedType 'file'
+    }
+    [IO.File]::SetUnixFileMode($tempRoot, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute -bor [IO.UnixFileMode]::GroupRead)
+    Expect-Failure { Unprotect-ForgeGate5DCapsule -Directory $tempRoot } 'ownership or permissions'
+    [IO.File]::SetUnixFileMode($tempRoot, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+    $manifestJson = [IO.File]::ReadAllText($capsule.ManifestPath, [Text.Encoding]::UTF8)
+    $tamperedManifest = $manifestJson | ConvertFrom-Json
+    $tamperedManifest.rowCount = 410
+    [IO.File]::WriteAllText($capsule.ManifestPath, ($tamperedManifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+    [IO.File]::SetUnixFileMode($capsule.ManifestPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    Expect-Failure { Unprotect-ForgeGate5DCapsule -Directory $tempRoot } 'authentication failed'
+    [IO.File]::WriteAllText($capsule.ManifestPath, $manifestJson, [Text.UTF8Encoding]::new($false))
+    [IO.File]::SetUnixFileMode($capsule.ManifestPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    $checks.Add('aes256-gcm-authenticated-encryption-owner-only-unix-permissions-and-broad-mode-rejection')
+  }
 
   Expect-Failure { ConvertFrom-ForgeGate5DResponse -ResponseJson '{bad' -Contract $testContract } 'malformed'
   $extra = $response | ConvertFrom-Json -Depth 20; $extra[0].gate5d_history_export | Add-Member extra 'nope'
@@ -111,7 +131,8 @@ try {
   Expect-Failure { & (Join-Path $repo 'scripts/export-gate5d-authentic-history.ps1') -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'stale'
   $checks.Add('legacy-token-broad-permission-wrong-project-and-stale-attestation-rejection-without-network')
 
-  [IO.File]::WriteAllBytes((Join-Path $tempRoot 'history.dpapi'),[byte[]](1,2,3))
+  [IO.File]::WriteAllBytes($capsule.CapsulePath,[byte[]](1,2,3))
+  if (-not $IsWindows) { [IO.File]::SetUnixFileMode($capsule.CapsulePath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite) }
   Expect-Failure { Unprotect-ForgeGate5DCapsule -Directory $tempRoot } 'hash mismatch'
   $checks.Add('interrupted-or-corrupt-capsule-rejection')
 }

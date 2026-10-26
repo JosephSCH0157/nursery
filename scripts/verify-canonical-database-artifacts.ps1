@@ -12,8 +12,7 @@ $canonicalVerifier = Join-Path $repo 'scripts/verify-frozen-git-evidence.mjs'
 & (Join-Path $PSScriptRoot 'verify-database-documentation-contract.ps1') -RepositoryRoot $repo | Out-Null
 
 & (Join-Path $PSScriptRoot 'verify-historical-migration-manifest.ps1') -RepositoryRoot $repo | Out-Null
-$canonicalOutput = (& node $canonicalVerifier --repository-root $repo --scope canonical 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) { throw $canonicalOutput }
+$canonicalOutput = (& (Join-Path $PSScriptRoot 'invoke-frozen-git-evidence.ps1') -RepositoryRoot $repo -Scope canonical | Out-String).Trim()
 $canonical = $canonicalOutput | ConvertFrom-Json
 
 $compatibilityPath = Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json'

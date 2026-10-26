@@ -12,6 +12,20 @@ foreach ($file in $manifest.files) {
   $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -cne [string]$file.sha256) { throw "Gate 5D tooling hash changed: $($file.path)" }
 }
+$capsuleModule = Get-Content -LiteralPath (Join-Path $repo 'scripts/lib/ForgeGate5D.psm1') -Raw
+foreach ($required in @(
+    'forge.gate5d-dpapi-capsule.v1','Windows DPAPI CurrentUser',
+    'forge.gate5d-aes-gcm-capsule.v1','AES-256-GCM owner-only key file',
+    '[Security.Cryptography.AesGcm]::new($key, 16)','Assert-ForgeGate5DUnixPathProtection',
+    "-ExpectedMode '700'","-ExpectedMode '600'",'Capsule authentication failed.')) {
+  if (-not $capsuleModule.Contains($required,[StringComparison]::Ordinal)) {
+    throw "Gate 5D cross-platform capsule guard is missing: $required"
+  }
+}
+if ($capsuleModule -match '(?i)(hardcoded|default|fallback)[-_ ]?(key|secret)' -or
+    $capsuleModule -match '(?i)WriteAllText\([^\r\n]*(payload|plaintext)') {
+  throw 'Gate 5D capsule module contains an unsafe key fallback or plaintext write path.'
+}
 $query = Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_authentic_history_export.sql') -Raw
 $contract = Get-Content -LiteralPath (Join-Path $repo 'docs/database/baseline/v1-gate5d/authentic-history-contract.json') -Raw | ConvertFrom-Json
 $queryHash = (Get-FileHash -LiteralPath (Join-Path $repo 'supabase/tests/catalog/gate5d_authentic_history_export.sql') -Algorithm SHA256).Hash.ToLowerInvariant()

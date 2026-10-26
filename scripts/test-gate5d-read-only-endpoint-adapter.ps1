@@ -29,6 +29,11 @@ function Set-SyntheticScopedToken([string]$Value) {
   [Environment]::SetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN',$Value,'Process')
 }
 
+function Write-SyntheticAttestation($Value) {
+  [IO.File]::WriteAllText($attestationPath,($Value|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  if(-not $IsWindows){[IO.File]::SetUnixFileMode($attestationPath,[IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)}
+}
+
 try {
   foreach($name in $environmentNames){$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
   New-ForgeGate5DRestrictedDirectory -Path $tempRoot | Out-Null
@@ -75,7 +80,9 @@ try {
   $result=& $adapter -ProjectRef ('a'*20) -SyntheticTest -SyntheticContractPath $contractPath -SyntheticResponsePath $responsePath -RepositoryRoot $repo|ConvertFrom-Json
   if(-not $result.ok -or $result.hostedRequestMade -or $result.endpoint -ne '/v1/projects/{ref}/database/query/read-only' -or
      ($result.requestProperties -join ',') -ne 'query,parameters' -or -not $result.singleSelect){throw 'Dedicated adapter mock result changed.'}
-  $ciphertext=[IO.File]::ReadAllBytes((Join-Path $result.capsuleDirectory 'history.dpapi'))
+  $capsuleManifest=Get-Content -LiteralPath (Join-Path $result.capsuleDirectory 'manifest.json') -Raw|ConvertFrom-Json
+  $capsuleFile=if($capsuleManifest.schema -eq 'forge.gate5d-dpapi-capsule.v1'){'history.dpapi'}elseif($capsuleManifest.schema -eq 'forge.gate5d-aes-gcm-capsule.v1'){'history.aesgcm'}else{throw 'Unexpected dedicated adapter capsule contract.'}
+  $ciphertext=[IO.File]::ReadAllBytes((Join-Path $result.capsuleDirectory $capsuleFile))
   if([Text.Encoding]::UTF8.GetString($ciphertext) -match 'gate5d-dedicated-secret-sentinel'){throw 'Dedicated adapter wrote plaintext.'}
   $unprotected=Unprotect-ForgeGate5DCapsule -Directory $result.capsuleDirectory
   $roundTrip=$unprotected.Payload
@@ -120,19 +127,19 @@ try {
     permissions=@('database_read','database_write');verifiedAtUtc=[DateTimeOffset]::UtcNow.ToString('o')
     tokenExpiresAtUtc=[DateTimeOffset]::UtcNow.AddHours(1).ToString('o')
   }
-  [IO.File]::WriteAllText($attestationPath,($attestation|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Write-SyntheticAttestation $attestation
   Set-SyntheticScopedToken $scoped
   Expect-Failure { & $adapter -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'attestation'
   $attestation.permissions=@('database_read');$attestation.projectRefSha256=('0'*64)
-  [IO.File]::WriteAllText($attestationPath,($attestation|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Write-SyntheticAttestation $attestation
   Set-SyntheticScopedToken $scoped
   Expect-Failure { & $adapter -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'attestation'
   $attestation.projectRefSha256=$projectHash;$attestation.verifiedAtUtc=[DateTimeOffset]::UtcNow.AddDays(-2).ToString('o')
-  [IO.File]::WriteAllText($attestationPath,($attestation|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Write-SyntheticAttestation $attestation
   Set-SyntheticScopedToken $scoped
   Expect-Failure { & $adapter -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'stale'
   $attestation.verifiedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');$attestation.tokenExpiresAtUtc=[DateTimeOffset]::UtcNow.AddMinutes(-1).ToString('o')
-  [IO.File]::WriteAllText($attestationPath,($attestation|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Write-SyntheticAttestation $attestation
   Set-SyntheticScopedToken $scoped
   Expect-Failure { & $adapter -ProjectRef ('a'*20) -ScopeAttestationPath $attestationPath -AuthorizeAuthenticExport -RepositoryRoot $repo } 'expired'
   if([Environment]::GetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN','Process')){throw 'Expired-token failure did not clear the process credential.'}

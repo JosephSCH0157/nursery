@@ -32,7 +32,7 @@ Stage 1C adds a separate, opt-in adapter for `POST /v1/projects/{ref}/database/q
 
 `scripts/export-gate5d-authentic-history.ps1` keeps the HTTP response and decoded canonical payload in memory. It never emits the token, SQL, raw response, statements, `created_by`, or capsule bytes. HTTP errors report only status; parsing failures report only the failed contract class.
 
-The first payload write is Windows DPAPI `CurrentUser` ciphertext in a unique `forge-gate5d-*` OS-temporary directory. Inheritance is removed and only the current Windows user and `SYSTEM` receive access. The non-sensitive manifest records hashes, count, range, project-reference hash, entropy, and creation time. Decryption occurs only in memory. Managed byte arrays are cleared where the runtime permits.
+The first payload write is encrypted ciphertext in a unique `forge-gate5d-*` OS-temporary directory. Windows retains the original DPAPI `CurrentUser` format: inheritance is removed and only the current Windows user and `SYSTEM` receive access. Unix uses AES-256-GCM with a random per-capsule key, authenticated contract metadata, a current-UID-owned `0700` directory, and `0600` ciphertext, key, and manifest files. Unix ownership and modes are revalidated before decryption; broader permissions, wrong ownership, symlinks, corruption, or metadata changes fail closed. The random key is never logged or passed as an argument. Existing DPAPI artifacts are not migrated and remain usable only by their originating Windows user context. The non-sensitive manifest records hashes, count, range, project-reference hash, encryption metadata, and creation time. Decryption occurs only in memory. Managed byte arrays are cleared where the runtime permits.
 
 Cleanup deletes only a validated task path and verifies absence. This is logical cleanup, not guaranteed forensic erasure on SSDs, journaled filesystems, swap, crash dumps, or managed-runtime copies. The capsule must never enter Git, CI, chat attachments, backups, served paths, or another account/machine.
 
@@ -52,7 +52,7 @@ Authentic mode is intentionally not an approved operational command yet. The syn
 Executed locally with Supabase CLI `2.84.2` and an already-running Docker engine:
 
 - mock parsing, exact-field/count/range/hash checks, NULL/array/quoting/newline/Unicode fidelity: passed;
-- DPAPI CurrentUser round-trip, current-user+SYSTEM ACL, ciphertext-only disk scan: passed;
+- platform capsule round-trip and ciphertext-only disk scan: passed; Windows retains DPAPI CurrentUser plus current-user+SYSTEM ACL, while Unix requires AES-256-GCM authentication plus current-UID `0700/0600` protection;
 - malformed/extra/count, duplicate/incomplete version, corrupted ciphertext, mismatched digest, and interrupted restoration: rejected with zero committed history rows;
 - classic token, attested extra `database_write`, wrong project identity, and stale attestation: rejected before network access;
 - failure-message redaction and cleanup: passed;

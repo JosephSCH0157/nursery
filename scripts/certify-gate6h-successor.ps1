@@ -1,15 +1,38 @@
 [CmdletBinding()]
 param(
-  [string]$RepositoryRoot
+  [string]$RepositoryRoot,
+  [switch]$CliPreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
-if ($IsWindows) {
-  $supabaseExecutable = (Get-Command supabase.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-  $env:PATH = (Split-Path -Parent $supabaseExecutable) + [IO.Path]::PathSeparator + $env:PATH
+if($IsWindows){
+  $supabaseExecutable=(Get-Command 'supabase.exe' -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+} else {
+  $nativeCandidates=@(Get-Command 'supabase' -CommandType Application -All -ErrorAction Stop|ForEach-Object{
+    $candidate=$_.Source
+    try{
+      $stream=[IO.File]::OpenRead($candidate);$magic=[byte[]]::new(4)
+      try{$read=$stream.Read($magic,0,4)}finally{$stream.Dispose()}
+      if($read -eq 4 -and $magic[0]-eq 0x7f -and $magic[1]-eq 0x45 -and $magic[2]-eq 0x4c -and $magic[3]-eq 0x46){$candidate}
+    }finally{if($magic){[Array]::Clear($magic,0,$magic.Length)}}
+  }|Select-Object -Unique)
+  if($nativeCandidates.Count -ne 1){throw 'Expected exactly one authorized native Linux Supabase CLI executable.'}
+  $supabaseExecutable=$nativeCandidates[0]
 }
+$env:PATH = (Split-Path -Parent $supabaseExecutable) + [IO.Path]::PathSeparator + $env:PATH
 Import-Module (Join-Path $PSScriptRoot 'lib/ForgeGate5D.psm1') -Force
 $repo = [IO.Path]::GetFullPath($(if ($RepositoryRoot) { $RepositoryRoot } else { Split-Path -Parent $PSScriptRoot }))
+$gitPointer=Join-Path $repo '.git'
+$windowsManagedWslWorktree=(-not $IsWindows -and (Test-Path -LiteralPath $gitPointer -PathType Leaf) -and
+  ((Get-Content -LiteralPath $gitPointer -Raw) -match '^gitdir:\s*[A-Za-z]:[\\/]'))
+if($windowsManagedWslWorktree){
+  $repositoryGitExecutable='/mnt/c/Program Files/Git/cmd/git.exe'
+  $repositoryGitRoot=(& wslpath -w -- $repo|Out-String).Trim()
+}else{
+  $repositoryGitExecutable=(Get-Command git -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+  $repositoryGitRoot=$repo
+}
+if(-not(Test-Path -LiteralPath $repositoryGitExecutable -PathType Leaf) -or -not $repositoryGitRoot){throw 'Repository Git executable is unavailable.'}
 $requiredCli='2.84.2'
 $HistoryMode='SharedSynthetic'
 $ExternalCapsuleDirectory=$null
@@ -22,6 +45,13 @@ $savedEnvironment=@{}
 $sharedSyntheticRoot=$null
 $sharedSyntheticCapsule=$null
 
+function Invoke-RepositoryGit {
+  param([Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+  $output=@(& $repositoryGitExecutable -C $repositoryGitRoot @Arguments 2>$null)
+  if($LASTEXITCODE -ne 0){throw 'Repository Git verification failed.'}
+  $output
+}
+
 function Get-FreePortBlock {
   foreach($candidate in (60000..64000|Sort-Object{Get-Random})) {
     if($candidate+8 -gt 65535){continue}; $probes=[Collections.Generic.List[Net.Sockets.TcpListener]]::new()
@@ -29,6 +59,36 @@ function Get-FreePortBlock {
     catch { continue } finally { foreach($p in $probes){$p.Stop()} }
   }
   throw 'Unable to reserve a local port block.'
+}
+
+function Get-PinnedSupabaseCliVersion {
+  if(-not [IO.Path]::IsPathFullyQualified($supabaseExecutable) -or -not(Test-Path -LiteralPath $supabaseExecutable -PathType Leaf)){
+    throw 'Pinned Supabase CLI executable is missing or unresolved.'
+  }
+  if(-not $IsWindows -and [IO.Path]::GetExtension($supabaseExecutable)){
+    throw 'Pinned Supabase CLI did not resolve to the authorized native Linux executable.'
+  }
+  $startInfo=[Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName=$supabaseExecutable
+  [void]$startInfo.ArgumentList.Add('--version')
+  # Keep the CLI update check outside the repository. Running `--version` from
+  # the repository rewrites supabase/.temp/cli-latest and can fail while the
+  # Windows-created checkout is observed through WSL.
+  $startInfo.WorkingDirectory=[IO.Path]::GetTempPath()
+  $startInfo.UseShellExecute=$false
+  $startInfo.RedirectStandardOutput=$true
+  $startInfo.RedirectStandardError=$true
+  $startInfo.CreateNoWindow=$true
+  $process=[Diagnostics.Process]::new();$process.StartInfo=$startInfo
+  try {
+    if(-not $process.Start()){throw 'Unable to start the pinned Supabase CLI.'}
+    $stdout=$process.StandardOutput.ReadToEnd();$stderr=$process.StandardError.ReadToEnd();$process.WaitForExit()
+    if($process.ExitCode -ne 0){throw "Unable to read the pinned Supabase CLI version (exit $($process.ExitCode))."}
+    $version=@($stdout -split "`r?`n"|Where-Object{$_}|Select-Object -First 1)
+    if($version.Count -ne 1){throw 'Pinned Supabase CLI returned no version.'}
+    return [string]$version[0]
+  }
+  finally{$stdout=$null;$stderr=$null;$process.Dispose()}
 }
 
 function Get-NurseryResources {
@@ -44,6 +104,24 @@ function Get-TaskResources([string]$ProjectId,[string]$InternalNetwork) {
     volumes=@(docker volume ls --filter "label=com.supabase.cli.project=$ProjectId" --format '{{.Name}}')
     networks=@(@(docker network ls --filter "label=com.supabase.cli.project=$ProjectId" --format '{{.Name}}')+@(docker network ls --filter "name=^$([regex]::Escape($InternalNetwork))$" --format '{{.Name}}')|Select-Object -Unique)
   }
+}
+
+function Test-DeploymentNoteLineEndingIntegrity {
+  $relativePath='supabase/migrations/PROD_DEPLOY_2026-03-03.md'
+  $path=Join-Path $repo $relativePath
+  $expectedBlob='d015b6c012824bb545a79eef50bf3c462263fe0f'
+  $expectedLfSha256='2ebb5f6f60ca9e514e6191328fbd91f8c017c8c79e6a651147f33fe3c9cbdb64'
+  $expectedCrlfSha256='fa8c1a37d564c02d2710a4a6aa6c0a0bf06f70bcdd778e9de156e112dc75c1db'
+  $blob=((Invoke-RepositoryGit rev-parse "HEAD:$relativePath")|Out-String).Trim()
+  if($blob -cne $expectedBlob){throw 'Deployment-note Git blob identity changed.'}
+  $bytes=[IO.File]::ReadAllBytes($path);$worktreeSha=Get-ForgeGate5DSha256Hex -Bytes $bytes
+  if($worktreeSha -cnotin @($expectedLfSha256,$expectedCrlfSha256)){throw 'Deployment-note working-tree byte identity changed.'}
+  $text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes)
+  if($text -match "(?<!`r)`r(?!`n)"){throw 'Deployment note contains a standalone carriage return.'}
+  $normalized=[Text.UTF8Encoding]::new($false).GetBytes($text.Replace("`r`n","`n"))
+  try{if((Get-ForgeGate5DSha256Hex -Bytes $normalized)-cne $expectedLfSha256){throw 'Deployment-note normalized content differs from the committed blob.'}}
+  finally{[Array]::Clear($bytes,0,$bytes.Length);[Array]::Clear($normalized,0,$normalized.Length);$text=$null}
+  [pscustomobject]@{blob=$blob;worktreeSha256=$worktreeSha;normalizedSha256=$expectedLfSha256;lineEnding=if($worktreeSha -ceq $expectedCrlfSha256){'crlf'}else{'lf'}}
 }
 
 function Invoke-Psql([string]$Container,[string]$Sql,[switch]$Redact) {
@@ -185,7 +263,7 @@ select jsonb_build_object(
 
     if($Lane -eq 'failure-cleanup'){
       $probe=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
-      $bytes=[IO.File]::ReadAllBytes((Join-Path $probe.capsuleDirectory 'history.dpapi'));$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes((Join-Path $probe.capsuleDirectory 'history.dpapi'),$bytes);[Array]::Clear($bytes,0,$bytes.Length)
+      $bytes=[IO.File]::ReadAllBytes($probe.capsulePath);$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes($probe.capsulePath,$bytes);[Array]::Clear($bytes,0,$bytes.Length)
       try { & (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $probe.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $probe.contractPath -RepositoryRoot $repo|Out-Null;throw 'Corrupted failure-cleanup capsule unexpectedly restored.' }
       catch { if($_.Exception.Message -notmatch 'hash mismatch'){throw} }
       if([int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;') -ne 0){throw 'Failure-cleanup probe changed migration history.'}
@@ -210,7 +288,7 @@ select jsonb_build_object(
 
     $corrupt=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
     try {
-      $bytes=[IO.File]::ReadAllBytes((Join-Path $corrupt.capsuleDirectory 'history.dpapi'));$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes((Join-Path $corrupt.capsuleDirectory 'history.dpapi'),$bytes);[Array]::Clear($bytes,0,$bytes.Length)
+      $bytes=[IO.File]::ReadAllBytes($corrupt.capsulePath);$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes($corrupt.capsulePath,$bytes);[Array]::Clear($bytes,0,$bytes.Length)
       try { & (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $corrupt.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $corrupt.contractPath -RepositoryRoot $repo|Out-Null;throw 'Corrupted ciphertext unexpectedly restored.' } catch { if($_.Exception.Message -notmatch 'hash mismatch'){throw} }
     } finally { Remove-CapsuleResult $corrupt }
     $negative.corruptCiphertext=([int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;') -eq 0)
@@ -311,18 +389,23 @@ try {
       throw 'External authentic capsule is outside the approved task-owned temporary location.'
     }
   } elseif($ExternalCapsuleDirectory -or $AuthorizeExternalAuthenticCapsule){throw 'External authentic inputs are forbidden for synthetic history modes.'}
+  foreach($name in $sensitiveNames){$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$null,'Process')}
+  $cli=Get-PinnedSupabaseCliVersion;if($cli -ne $requiredCli){throw "Supabase CLI $requiredCli is required; found $cli."}
+  if($CliPreflightOnly){
+    [pscustomobject]@{ok=$true;schema='forge.gate6p-cli-preflight.v1';cliVersion=$cli;executable=$supabaseExecutable;workingDirectory=[IO.Path]::GetTempPath();repositoryCacheUntouched=$true}|ConvertTo-Json -Compress
+    return
+  }
   if($HistoryMode -eq 'SharedSynthetic'){
     $sharedSyntheticRoot=Join-Path ([IO.Path]::GetTempPath()) "forge-gate5d-shared-$([guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $sharedSyntheticRoot|Out-Null
   }
-  foreach($name in $sensitiveNames){$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$null,'Process')}
-  $cli=(& supabase --version 2>$null|Select-Object -First 1).Trim();if($cli -ne $requiredCli){throw "Supabase CLI $requiredCli is required; found $cli."}
   & docker info *> $null;if($LASTEXITCODE -ne 0){throw 'Docker Desktop is unavailable. Start it manually.'}
   & (Join-Path $PSScriptRoot 'verify-canonical-database-artifacts.ps1') -RepositoryRoot $repo|Out-Null
   & (Join-Path $PSScriptRoot 'verify-pre-slice-a-fixture.ps1') -RepositoryRoot $repo|Out-Null
   & (Join-Path $PSScriptRoot 'verify-database-documentation-contract.ps1') -RepositoryRoot $repo|Out-Null
-  $branch=(git -C $repo branch --show-current).Trim();$head=(git -C $repo rev-parse HEAD).Trim()
-  $protectedDiff=(git -C $repo diff --name-only HEAD -- supabase/migrations database/canonical-baseline-v1 database/historical-pre-slice-a-v1 docs/database/baseline/v1-gate1/historical-migrations.sha256.json)
+  $branch=((Invoke-RepositoryGit branch --show-current)|Out-String).Trim();$head=((Invoke-RepositoryGit rev-parse HEAD)|Out-String).Trim()
+  $deploymentNoteIntegrity=Test-DeploymentNoteLineEndingIntegrity
+  $protectedDiff=@(Invoke-RepositoryGit diff --name-only HEAD -- ':(glob)supabase/migrations/*.sql' database/canonical-baseline-v1 database/historical-pre-slice-a-v1 docs/database/baseline/v1-gate1/historical-migrations.sha256.json)
   if($protectedDiff){throw 'Frozen database evidence differs from HEAD.'}
   $nurseryBeforeAll=Get-NurseryResources
   $failureCleanup=$false
@@ -335,7 +418,8 @@ try {
     ok=$true;schema='forge.gate6p-successor-two-lineage-certification.v1';historyMode=$HistoryMode
     syntheticOnly=($HistoryMode -ne 'ExternalAuthentic');authenticHistory=($HistoryMode -eq 'ExternalAuthentic');authenticRequestMade=$false
     cliVersion=$cli;gitBranch=$branch;gitHead=$head;failureCleanupVerified=$failureCleanup
-    nurseryResourcesUnchanged=$nurseryUnchanged;hostingCharges=0;productionMetadataTransferred=$false;lanes=$lanes
+    nurseryResourcesUnchanged=$nurseryUnchanged;hostingCharges=0;productionMetadataTransferred=$false
+    deploymentNoteIntegrity=$deploymentNoteIntegrity;lanes=$lanes
   }|ConvertTo-Json -Depth 12 -Compress
 }
 finally {

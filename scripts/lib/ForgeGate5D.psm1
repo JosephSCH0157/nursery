@@ -119,10 +119,54 @@ function New-ForgeGate5DRestrictedDirectory {
   }
   if (Test-Path -LiteralPath $full) { throw 'Capsule directory already exists.' }
   New-Item -ItemType Directory -Path $full | Out-Null
-  $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  & icacls.exe $full '/inheritance:r' '/grant:r' "*$sid`:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Unable to restrict the capsule directory ACL.' }
+  if ($IsWindows) {
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    & icacls.exe $full '/inheritance:r' '/grant:r' "*$sid`:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to restrict the capsule directory ACL.' }
+  }
+  else {
+    [IO.File]::SetUnixFileMode($full, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor [IO.UnixFileMode]::UserExecute)
+    Assert-ForgeGate5DUnixPathProtection -Path $full -ExpectedMode '700' -ExpectedType 'directory'
+  }
   return $full
+}
+
+function Assert-ForgeGate5DUnixPathProtection {
+  param(
+    [Parameter(Mandatory)][string]$Path,
+    [Parameter(Mandatory)][ValidateSet('600','700')][string]$ExpectedMode,
+    [Parameter(Mandatory)][ValidateSet('file','directory')][string]$ExpectedType
+  )
+  if ($IsWindows) { throw 'Unix capsule protection cannot be evaluated on Windows.' }
+  if (-not (Test-Path -LiteralPath $Path)) { throw 'Capsule protection target is missing.' }
+  $item = Get-Item -LiteralPath $Path -Force
+  if ($item.LinkType) { throw 'Capsule protection target must not be a symbolic link.' }
+  if (($ExpectedType -eq 'directory') -ne $item.PSIsContainer) { throw 'Capsule protection target has the wrong type.' }
+  $identity = @(& stat --format='%u:%a' -- $item.FullName 2>$null)
+  $currentUid = @(& id -u 2>$null)
+  if ($LASTEXITCODE -ne 0 -or $identity.Count -ne 1 -or $currentUid.Count -ne 1) {
+    throw 'Unable to verify Unix capsule ownership and permissions.'
+  }
+  $parts = [string]$identity[0] -split ':', 2
+  if ($parts.Count -ne 2 -or $parts[0] -cne [string]$currentUid[0] -or $parts[1] -cne $ExpectedMode) {
+    throw 'Unix capsule ownership or permissions are broader than the current user.'
+  }
+}
+
+function Get-ForgeGate5DLinuxAdditionalData {
+  param(
+    [Parameter(Mandatory)][string]$ProjectRefHash,
+    [Parameter(Mandatory)][string]$PayloadHash,
+    [Parameter(Mandatory)]$Contract,
+    [Parameter(Mandatory)][long]$CreatedAtUnixMilliseconds
+  )
+  $value = @(
+    'forge.gate5d-aes-gcm-capsule.v1', 'AES-256-GCM owner-only key file',
+    $ProjectRefHash, $PayloadHash, [string][int]$Contract.history.rowCount,
+    [string]$Contract.history.minimumVersion, [string]$Contract.history.maximumVersion,
+    $CreatedAtUnixMilliseconds.ToString([Globalization.CultureInfo]::InvariantCulture)
+  ) -join "`n"
+  return Get-ForgeGate5DUtf8Bytes -Value $value
 }
 
 function Protect-ForgeGate5DCapsule {
@@ -133,45 +177,105 @@ function Protect-ForgeGate5DCapsule {
     [Parameter(Mandatory)][string]$ProjectRefHash
   )
   if (-not (Test-ForgeGate5DHash $ProjectRefHash)) { throw 'Project reference hash is invalid.' }
-  $entropy = [byte[]]::new(32)
-  [Security.Cryptography.RandomNumberGenerator]::Fill($entropy)
-  $protected = [Security.Cryptography.ProtectedData]::Protect($Payload, $entropy, [Security.Cryptography.DataProtectionScope]::CurrentUser)
-  $capsulePath = Join-Path $Directory 'history.dpapi'
   $manifestPath = Join-Path $Directory 'manifest.json'
-  # The encrypted payload is deliberately the first filesystem write.
-  [IO.File]::WriteAllBytes($capsulePath, $protected)
-  $manifest = [ordered]@{
-    schema = 'forge.gate5d-dpapi-capsule.v1'
-    encryption = 'Windows DPAPI CurrentUser'
-    projectRefSha256 = $ProjectRefHash
-    payloadSha256 = (Get-ForgeGate5DSha256Hex $Payload)
-    encryptedSha256 = (Get-ForgeGate5DSha256Hex $protected)
-    rowCount = [int]$Contract.history.rowCount
-    minimumVersion = [string]$Contract.history.minimumVersion
-    maximumVersion = [string]$Contract.history.maximumVersion
-    entropyBase64 = [Convert]::ToBase64String($entropy)
-    createdAtUtc = [DateTime]::UtcNow.ToString('o')
+  $payloadHash = Get-ForgeGate5DSha256Hex $Payload
+  $createdAtUnixMilliseconds = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $createdAtUtc = [DateTimeOffset]::FromUnixTimeMilliseconds($createdAtUnixMilliseconds).UtcDateTime.ToString('o')
+  if ($IsWindows) {
+    $entropy = [byte[]]::new(32)
+    [Security.Cryptography.RandomNumberGenerator]::Fill($entropy)
+    $protected = [Security.Cryptography.ProtectedData]::Protect($Payload, $entropy, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+    $capsulePath = Join-Path $Directory 'history.dpapi'
+    # The encrypted payload is deliberately the first filesystem write.
+    [IO.File]::WriteAllBytes($capsulePath, $protected)
+    $manifest = [ordered]@{
+      schema = 'forge.gate5d-dpapi-capsule.v1'; encryption = 'Windows DPAPI CurrentUser'
+      projectRefSha256 = $ProjectRefHash; payloadSha256 = $payloadHash
+      encryptedSha256 = (Get-ForgeGate5DSha256Hex $protected)
+      rowCount = [int]$Contract.history.rowCount; minimumVersion = [string]$Contract.history.minimumVersion
+      maximumVersion = [string]$Contract.history.maximumVersion
+      entropyBase64 = [Convert]::ToBase64String($entropy); createdAtUtc = $createdAtUtc
+    }
+    [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+    [Array]::Clear($protected, 0, $protected.Length)
+    [Array]::Clear($entropy, 0, $entropy.Length)
   }
-  [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
-  [Array]::Clear($protected, 0, $protected.Length)
-  [Array]::Clear($entropy, 0, $entropy.Length)
+  else {
+    Assert-ForgeGate5DUnixPathProtection -Path $Directory -ExpectedMode '700' -ExpectedType 'directory'
+    $key = [byte[]]::new(32); $nonce = [byte[]]::new(12); $tag = [byte[]]::new(16)
+    [Security.Cryptography.RandomNumberGenerator]::Fill($key)
+    [Security.Cryptography.RandomNumberGenerator]::Fill($nonce)
+    $protected = [byte[]]::new($Payload.Length)
+    $additionalData = Get-ForgeGate5DLinuxAdditionalData -ProjectRefHash $ProjectRefHash -PayloadHash $payloadHash -Contract $Contract -CreatedAtUnixMilliseconds $createdAtUnixMilliseconds
+    $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+    try { $aes.Encrypt($nonce, $Payload, $protected, $tag, $additionalData) }
+    finally { $aes.Dispose() }
+    $capsulePath = Join-Path $Directory 'history.aesgcm'
+    $keyPath = Join-Path $Directory 'history.key'
+    # Directory mode 0700 prevents access while each file is created and sealed to 0600.
+    [IO.File]::WriteAllBytes($capsulePath, $protected)
+    [IO.File]::SetUnixFileMode($capsulePath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    [IO.File]::WriteAllBytes($keyPath, $key)
+    [IO.File]::SetUnixFileMode($keyPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    $manifest = [ordered]@{
+      schema = 'forge.gate5d-aes-gcm-capsule.v1'; encryption = 'AES-256-GCM owner-only key file'
+      projectRefSha256 = $ProjectRefHash; payloadSha256 = $payloadHash
+      encryptedSha256 = (Get-ForgeGate5DSha256Hex $protected); keySha256 = (Get-ForgeGate5DSha256Hex $key)
+      rowCount = [int]$Contract.history.rowCount; minimumVersion = [string]$Contract.history.minimumVersion
+      maximumVersion = [string]$Contract.history.maximumVersion
+      nonceBase64 = [Convert]::ToBase64String($nonce); tagBase64 = [Convert]::ToBase64String($tag)
+      createdAtUnixMilliseconds = $createdAtUnixMilliseconds; createdAtUtc = $createdAtUtc
+    }
+    [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+    [IO.File]::SetUnixFileMode($manifestPath, [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+    foreach ($path in @($capsulePath,$keyPath,$manifestPath)) { Assert-ForgeGate5DUnixPathProtection -Path $path -ExpectedMode '600' -ExpectedType 'file' }
+    [Array]::Clear($key,0,$key.Length); [Array]::Clear($nonce,0,$nonce.Length)
+    [Array]::Clear($tag,0,$tag.Length); [Array]::Clear($additionalData,0,$additionalData.Length)
+    [Array]::Clear($protected,0,$protected.Length)
+  }
   return [pscustomobject]@{ CapsulePath=$capsulePath; ManifestPath=$manifestPath; Manifest=$manifest }
 }
 
 function Unprotect-ForgeGate5DCapsule {
   param([Parameter(Mandatory)][string]$Directory)
   $manifest = Get-Content -LiteralPath (Join-Path $Directory 'manifest.json') -Raw | ConvertFrom-Json
-  if ($manifest.schema -ne 'forge.gate5d-dpapi-capsule.v1' -or $manifest.encryption -ne 'Windows DPAPI CurrentUser') { throw 'Unexpected capsule contract.' }
-  $protected = [IO.File]::ReadAllBytes((Join-Path $Directory 'history.dpapi'))
-  if ((Get-ForgeGate5DSha256Hex $protected) -cne [string]$manifest.encryptedSha256) { throw 'Encrypted capsule hash mismatch.' }
-  $entropy = [Convert]::FromBase64String([string]$manifest.entropyBase64)
-  $payload = [Security.Cryptography.ProtectedData]::Unprotect($protected, $entropy, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+  if ($manifest.schema -eq 'forge.gate5d-dpapi-capsule.v1' -and $manifest.encryption -eq 'Windows DPAPI CurrentUser') {
+    if (-not $IsWindows) { throw 'Windows DPAPI capsule requires the originating Windows user context.' }
+    $protected = [IO.File]::ReadAllBytes((Join-Path $Directory 'history.dpapi'))
+    if ((Get-ForgeGate5DSha256Hex $protected) -cne [string]$manifest.encryptedSha256) { throw 'Encrypted capsule hash mismatch.' }
+    $entropy = [Convert]::FromBase64String([string]$manifest.entropyBase64)
+    $payload = [Security.Cryptography.ProtectedData]::Unprotect($protected, $entropy, [Security.Cryptography.DataProtectionScope]::CurrentUser)
+    [Array]::Clear($entropy,0,$entropy.Length)
+  }
+  elseif ($manifest.schema -eq 'forge.gate5d-aes-gcm-capsule.v1' -and $manifest.encryption -eq 'AES-256-GCM owner-only key file') {
+    if ($IsWindows) { throw 'Unix AES-GCM capsule requires its originating Unix owner context.' }
+    Assert-ForgeGate5DUnixPathProtection -Path $Directory -ExpectedMode '700' -ExpectedType 'directory'
+    $capsulePath = Join-Path $Directory 'history.aesgcm'; $keyPath = Join-Path $Directory 'history.key'
+    foreach ($path in @($capsulePath,$keyPath,(Join-Path $Directory 'manifest.json'))) { Assert-ForgeGate5DUnixPathProtection -Path $path -ExpectedMode '600' -ExpectedType 'file' }
+    $protected = [IO.File]::ReadAllBytes($capsulePath); $key = [IO.File]::ReadAllBytes($keyPath)
+    if ($key.Length -ne 32 -or (Get-ForgeGate5DSha256Hex $key) -cne [string]$manifest.keySha256) { throw 'Capsule key hash mismatch.' }
+    if ((Get-ForgeGate5DSha256Hex $protected) -cne [string]$manifest.encryptedSha256) { throw 'Encrypted capsule hash mismatch.' }
+    $nonce = [Convert]::FromBase64String([string]$manifest.nonceBase64); $tag = [Convert]::FromBase64String([string]$manifest.tagBase64)
+    if ($nonce.Length -ne 12 -or $tag.Length -ne 16) { throw 'Unexpected AES-GCM nonce or tag size.' }
+    $payload = [byte[]]::new($protected.Length)
+    $contractShape = [pscustomobject]@{ history = [pscustomobject]@{
+      rowCount=[int]$manifest.rowCount; minimumVersion=[string]$manifest.minimumVersion; maximumVersion=[string]$manifest.maximumVersion
+    }}
+    if ($null -eq $manifest.createdAtUnixMilliseconds) { throw 'AES-GCM capsule omitted authenticated creation time.' }
+    $additionalData = Get-ForgeGate5DLinuxAdditionalData -ProjectRefHash ([string]$manifest.projectRefSha256) -PayloadHash ([string]$manifest.payloadSha256) -Contract $contractShape -CreatedAtUnixMilliseconds ([long]$manifest.createdAtUnixMilliseconds)
+    $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+    try { $aes.Decrypt($nonce, $protected, $tag, $payload, $additionalData) }
+    catch { [Array]::Clear($payload,0,$payload.Length); throw 'Capsule authentication failed.' }
+    finally { $aes.Dispose() }
+    [Array]::Clear($key,0,$key.Length); [Array]::Clear($nonce,0,$nonce.Length)
+    [Array]::Clear($tag,0,$tag.Length); [Array]::Clear($additionalData,0,$additionalData.Length)
+  }
+  else { throw 'Unexpected capsule contract.' }
   if ((Get-ForgeGate5DSha256Hex $payload) -cne [string]$manifest.payloadSha256) {
     [Array]::Clear($payload,0,$payload.Length)
     throw 'Decrypted capsule hash mismatch.'
   }
   [Array]::Clear($protected,0,$protected.Length)
-  [Array]::Clear($entropy,0,$entropy.Length)
   return [pscustomobject]@{ Payload=$payload; Manifest=$manifest }
 }
 

@@ -23,8 +23,7 @@ $expectedVersions = [System.Collections.Generic.HashSet[string]]::new([System.St
 $previousVersion = ''
 $failures = [System.Collections.Generic.List[string]]::new()
 
-$canonicalOutput = (& node $canonicalVerifier --repository-root $RepositoryRoot --scope historical 2>&1 | Out-String).Trim()
-if ($LASTEXITCODE -ne 0) { throw $canonicalOutput }
+$canonicalOutput = (& (Join-Path $PSScriptRoot 'invoke-frozen-git-evidence.ps1') -RepositoryRoot $RepositoryRoot -Scope historical | Out-String).Trim()
 $canonical = $canonicalOutput | ConvertFrom-Json
 if (-not $canonical.ok -or $canonical.certifiedSourceCommit -ne '87524f872e76f24de631d1cbf58580674c9df2a9') {
   throw 'Canonical historical Git-object verification did not establish the approved source contract.'

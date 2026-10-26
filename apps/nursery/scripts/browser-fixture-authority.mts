@@ -249,28 +249,86 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
     if (review.error || !review.data || !["reviewed", "duplicate"].includes(String((review.data as Record<string, unknown>).disposition ?? ""))) throw new Error(`Ready preflight review ${index + 1}: ${review.error?.message ?? "not reviewed"}`);
     const sequence = await userTongs.from("workpiece_script_approval_sequences").select("current_revision,current_approval_id").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
     if (sequence.error) throw new Error(`Ready approval sequence ${index + 1}: ${sequence.error.message}`);
-    let approvalId = String(sequence.data?.current_approval_id ?? "");
-    let approvalDisposition = "malformed";
-    let approvalReason = "unspecified";
-    if (approvalId) {
-      const current = await userTongs.from("script_approval_revisions").select("script_content_hash").eq("id", approvalId).maybeSingle();
-      if (current.error || current.data?.script_content_hash !== hashes[`${workpieceId}:script/script.md`]) approvalId = "";
+    const expectedApprovalRevision = Number(sequence.data?.current_revision ?? 0);
+    const expectedSourceRevision = Number(scriptFile.data.revision);
+    const expectedSourceHash = hashes[`${workpieceId}:script/script.md`];
+    const approvalBase = {
+      p_workpiece_id: workpieceId,
+      p_expected_current_approval_revision: expectedApprovalRevision,
+      p_expected_source_file_revision: expectedSourceRevision,
+      p_expected_source_content_hash: expectedSourceHash,
+      p_script_text: scriptText,
+      p_creator_version_label: "Authenticated browser fixture",
+    };
+
+    const legacyDenial = await userTongs.rpc("approve_canonical_script_v3", {
+      ...approvalBase,
+      p_workspace_id: workspaceId,
+      p_preflight_report_id: preflightReportId,
+      p_operation_id: `forge:script-approval:browser-fixture-v3-denied-${deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:legacy-denial`)}`,
+    });
+    if (!legacyDenial.error || !/permission denied/iu.test(legacyDenial.error.message)) {
+      throw new Error(`Ready legacy authority ${index + 1} did not remain denied to the authenticated creator.`);
     }
-    if (!approvalId) {
-      const approvalOperationId = `forge:script-approval:browser-fixture-${deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:approval:${sequence.data?.current_revision ?? 0}:${scriptFile.data.revision}:${hashes[`${workpieceId}:script/script.md`]}`)}`;
-      const approval = await userTongs.rpc("approve_canonical_script_v3", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_expected_current_approval_revision: sequence.data?.current_revision ?? 0, p_expected_source_file_revision: scriptFile.data.revision, p_expected_source_content_hash: hashes[`${workpieceId}:script/script.md`], p_script_text: scriptText, p_creator_version_label: "Authenticated browser fixture", p_preflight_report_id: preflightReportId, p_operation_id: approvalOperationId });
-      if (approval.error || !approval.data || typeof approval.data !== "object") throw new Error(`Ready approval ${index + 1}: ${approval.error?.message ?? "malformed receipt"}`);
-      approvalDisposition = String((approval.data as Record<string, unknown>).disposition ?? "malformed");
-      approvalReason = String((approval.data as Record<string, unknown>).reason ?? "unspecified");
-      const approvalRow = (approval.data as Record<string, unknown>).approval;
-      approvalId = String(approvalRow && typeof approvalRow === "object" ? (approvalRow as Record<string, unknown>).id ?? "" : "");
+
+    const unauthorized = await userTongs.rpc("approve_canonical_script_v4", {
+      ...approvalBase,
+      p_workspace_id: deterministicFixtureUuid(`${config.projectRef}:unauthorized-workspace`),
+      p_operation_id: `forge:script-approval:browser-fixture-v4-denied-${deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:unauthorized`)}`,
+    });
+    if (unauthorized.error || !unauthorized.data || typeof unauthorized.data !== "object" ||
+      String((unauthorized.data as Record<string, unknown>).disposition ?? "") !== "denied" ||
+      String((unauthorized.data as Record<string, unknown>).reason ?? "") !== "editor_required") {
+      throw new Error(`Ready unauthorized creator probe ${index + 1} did not fail closed.`);
     }
-    if (!approvalId) {
-      throw new Error(`Ready approval ${index + 1} returned no approval identity (${approvalDisposition}:${approvalReason}).`);
+
+    const stale = await userTongs.rpc("approve_canonical_script_v4", {
+      ...approvalBase,
+      p_workspace_id: workspaceId,
+      p_expected_source_file_revision: expectedSourceRevision + 1,
+      p_operation_id: `forge:script-approval:browser-fixture-v4-stale-${deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:stale`)}`,
+    });
+    if (stale.error || !stale.data || typeof stale.data !== "object" ||
+      String((stale.data as Record<string, unknown>).disposition ?? "") !== "stale_source" ||
+      String((stale.data as Record<string, unknown>).reason ?? "") !== "source_revision_changed") {
+      throw new Error(`Ready stale creator probe ${index + 1} did not fail closed.`);
     }
-    const transition = await userTongs.rpc("hearth_transition_preflighted_script_ready_v3", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_script_approval_id: approvalId, p_preflight_report_id: preflightReportId, p_idempotency_key: deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:transition:${approvalId}:${preflightReportId}`), p_publish_evidence: { transition: "hearth.preflighted-script.ready.v3", script_approval_id: approvalId, script_approval_hash: hashes[`${workpieceId}:script/script.md`], preflight_report_id: preflightReportId, fixture_namespace: BROWSER_FIXTURE_NAMESPACE, ordinal: index + 1 } });
-    if (transition.error) throw new Error(`Ready transition ${index + 1}: ${transition.error.message}`);
-    if (!transition.data || !["saved", "duplicate"].includes(String((transition.data as Record<string, unknown>).outcome ?? ""))) throw new Error(`Ready transition ${index + 1} was not accepted.`);
+
+    const approval = await userTongs.rpc("approve_canonical_script_v4", {
+      ...approvalBase,
+      p_workspace_id: workspaceId,
+      p_operation_id: `forge:script-approval:browser-fixture-v4-${deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:approval:${expectedApprovalRevision}:${expectedSourceRevision}:${expectedSourceHash}`)}`,
+    });
+    if (approval.error || !approval.data || typeof approval.data !== "object") throw new Error(`Ready approval ${index + 1}: ${approval.error?.message ?? "malformed receipt"}`);
+    const approvalData = approval.data as Record<string, unknown>;
+    const approvalDisposition = String(approvalData.disposition ?? "malformed");
+    const approvalReason = String(approvalData.reason ?? "unspecified");
+    const approvalRow = approvalData.approval;
+    const approvalRecord = approvalRow && typeof approvalRow === "object" ? approvalRow as Record<string, unknown> : null;
+    const approvalId = String(approvalRecord?.id ?? "");
+    const approvalRevision = Number(approvalRecord?.approval_revision);
+    const recordingReadiness = approvalData.recording_readiness;
+    const readinessRecord = recordingReadiness && typeof recordingReadiness === "object" ? recordingReadiness as Record<string, unknown> : null;
+    const readyValue = readinessRecord?.ready;
+    const readyRecord = readyValue && typeof readyValue === "object" ? readyValue as Record<string, unknown> : null;
+    const transitionId = String(readyRecord?.transition_id ?? "");
+    if (!["committed", "no_change"].includes(approvalDisposition) || !approvalId || !Number.isInteger(approvalRevision) ||
+      String(approvalRecord?.script_content_hash ?? "") !== expectedSourceHash ||
+      Number(approvalRecord?.source_file_revision) !== expectedSourceRevision ||
+      readinessRecord?.state !== "ready" || readinessRecord?.basis !== "current_script_approval" || !transitionId) {
+      throw new Error(`Ready approval ${index + 1} returned incomplete v4 authority (${approvalDisposition}:${approvalReason}).`);
+    }
+
+    const persistedReady = await userTongs.from("current_workpiece_ready_scripts")
+      .select("script_revision,script_hash,script_approval_id,script_approval_revision,script_approval_hash,transition_id,preflight_report_id")
+      .eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).eq("script_path", "script/script.md").maybeSingle();
+    if (persistedReady.error || !persistedReady.data ||
+      persistedReady.data.script_revision !== expectedSourceRevision || persistedReady.data.script_hash !== expectedSourceHash ||
+      persistedReady.data.script_approval_id !== approvalId || persistedReady.data.script_approval_revision !== approvalRevision ||
+      persistedReady.data.script_approval_hash !== expectedSourceHash || persistedReady.data.transition_id !== transitionId ||
+      persistedReady.data.preflight_report_id !== null) {
+      throw new Error(`Ready approval ${index + 1} did not persist the exact creator-readiness v4 authority.`);
+    }
   }
   const transcriptPath = `hammer/revisions/${revisionId}/transcript.v1.json`; const editorPath = `hammer/revisions/${revisionId}/editor-session.v1.json`; const timelinePath = `hammer/revisions/${revisionId}/visual-timeline.v2.json`; const placementsPath = `hammer/revisions/${revisionId}/visual-placements.v1.json`; const audioPath = `hammer/revisions/${revisionId}/audio-polish.v1.json`; const authorityPath = `hammer/revisions/${revisionId}/editorial-authority.v1.json`; const historyPath = `hammer/revisions/${revisionId}/history.v1.json`; const mediaPath = "recordings/browser-fixture.wav";
   const wav = makeSilentWav();

@@ -181,7 +181,7 @@ select jsonb_build_object(
 
     if($Lane -eq 'failure-cleanup'){
       $probe=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
-      $bytes=[IO.File]::ReadAllBytes((Join-Path $probe.capsuleDirectory 'history.dpapi'));$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes((Join-Path $probe.capsuleDirectory 'history.dpapi'),$bytes);[Array]::Clear($bytes,0,$bytes.Length)
+      $bytes=[IO.File]::ReadAllBytes($probe.capsulePath);$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes($probe.capsulePath,$bytes);[Array]::Clear($bytes,0,$bytes.Length)
       try { & (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $probe.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $probe.contractPath -RepositoryRoot $repo|Out-Null;throw 'Corrupted failure-cleanup capsule unexpectedly restored.' }
       catch { if($_.Exception.Message -notmatch 'hash mismatch'){throw} }
       if([int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;') -ne 0){throw 'Failure-cleanup probe changed migration history.'}
@@ -206,7 +206,7 @@ select jsonb_build_object(
 
     $corrupt=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $temporaryRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
     try {
-      $bytes=[IO.File]::ReadAllBytes((Join-Path $corrupt.capsuleDirectory 'history.dpapi'));$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes((Join-Path $corrupt.capsuleDirectory 'history.dpapi'),$bytes);[Array]::Clear($bytes,0,$bytes.Length)
+      $bytes=[IO.File]::ReadAllBytes($corrupt.capsulePath);$bytes[0]=$bytes[0]-bxor 0xFF;[IO.File]::WriteAllBytes($corrupt.capsulePath,$bytes);[Array]::Clear($bytes,0,$bytes.Length)
       try { & (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $corrupt.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $corrupt.contractPath -RepositoryRoot $repo|Out-Null;throw 'Corrupted ciphertext unexpectedly restored.' } catch { if($_.Exception.Message -notmatch 'hash mismatch'){throw} }
     } finally { Remove-CapsuleResult $corrupt }
     $negative.corruptCiphertext=([int](Invoke-Psql $container 'select count(*) from supabase_migrations.schema_migrations;') -eq 0)

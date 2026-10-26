@@ -65,11 +65,9 @@ if (Test-Path -LiteralPath $canonicalContractPath -PathType Leaf) {
     [string]$configuration.databaseMarker.table -eq [string]$canonicalContract.databaseMarker.table
 }
 if ($canonicalHistoricalRuntime) {
-  $frozenVerifier = Join-Path $repo 'scripts/verify-frozen-git-evidence.mjs'
-  $frozenArguments = @($frozenVerifier,'--repository-root',$repo,'--scope','historical','--details')
-  if ($resolvedWorkdir -eq $repo) { $frozenArguments += '--require-exact-worktree-bytes' }
-  $frozenOutput = (& node @frozenArguments 2>&1 | Out-String).Trim()
-  if ($LASTEXITCODE -ne 0) { throw $frozenOutput }
+  $frozenArguments = @{RepositoryRoot=$repo;Scope='historical';Details=$true}
+  if ($resolvedWorkdir -eq $repo) { $frozenArguments.RequireExactWorktreeBytes=$true }
+  $frozenOutput = (& (Join-Path $PSScriptRoot 'invoke-frozen-git-evidence.ps1') @frozenArguments | Out-String).Trim()
   $frozen = $frozenOutput | ConvertFrom-Json
   foreach ($record in $frozen.records) {
     if ([string]$record.path -like 'supabase/migrations/*.sql') {
