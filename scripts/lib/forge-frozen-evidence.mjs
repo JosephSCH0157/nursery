@@ -7,6 +7,8 @@ export const CERTIFIED_SOURCE_COMMIT = "87524f872e76f24de631d1cbf58580674c9df2a9
 export const CERTIFIED_SOURCE_TREE = "85816e221aa31e05f2ce634a5ee785ae00db20f5";
 export const FROZEN_EVIDENCE_TRUST_ANCHOR_PATH = "docs/database/baseline/v1-gate6b/frozen-evidence-trust-anchor.v1.json";
 export const FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256 = "fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb";
+export const GATE6T_FROZEN_SUCCESSOR_PATH = "docs/database/baseline/v1-gate6t/frozen-evidence-successor.v1.json";
+export const GATE6T_FROZEN_SUCCESSOR_SHA256 = "a78a66f7495958c172b477391507af643539af80dc184b87794e2ceaf62df838";
 export const GATE6H_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-gate6h/successor-contract.v1.json";
 export const GATE6H_SUCCESSOR_CONTRACT_SHA256 = "a424d05912c808467dd13957d0690d3f95a3f11cafe0089bcd7f87712cc8fd32";
 export const GATE6O_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-gate6o/successor-contract.v1.json";
@@ -202,6 +204,71 @@ function loadTrustAnchor(root, head, expectedSha256 = FROZEN_EVIDENCE_TRUST_ANCH
   return validateTrustAnchor(JSON.parse(bytes.toString("utf8")));
 }
 
+function loadGate6TFrozenSuccessor(root, head, anchor, expectedSha256 = GATE6T_FROZEN_SUCCESSOR_SHA256) {
+  if (expectedSha256 !== GATE6T_FROZEN_SUCCESSOR_SHA256) throw new Error("Unapproved Gate 6T frozen-evidence successor commitment.");
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [GATE6T_FROZEN_SUCCESSOR_PATH]).get(GATE6T_FROZEN_SUCCESSOR_PATH);
+  if (!bytes || sha256(bytes) !== expectedSha256) throw new Error("Gate 6T frozen-evidence successor SHA-256 mismatch.");
+  const contract = JSON.parse(bytes.toString("utf8"));
+  if (contract.schema !== "forge.gate6t-frozen-evidence-successor.v1" || contract.repository !== "JosephSCH0157/nursery") {
+    throw new Error("Gate 6T frozen-evidence successor has an unexpected identity.");
+  }
+  if (contract.predecessor?.path !== FROZEN_EVIDENCE_TRUST_ANCHOR_PATH ||
+      contract.predecessor?.sha256 !== FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256 ||
+      contract.authorizedSource?.commit !== "5316868a9148b89847c3289fc2acc5353642d4c4" ||
+      contract.authorizedSource?.tree !== "036742b686befbdce218f27c90f3b4c78e916593" ||
+      contract.rejectAdditionalProtectedChanges !== true ||
+      contract.preserveProtectedPathMembership !== true) {
+    throw new Error("Gate 6T frozen-evidence successor has an invalid predecessor, source identity, or fail-closed contract.");
+  }
+  const source = resolveCommit(root, contract.authorizedSource.commit, "Gate 6T authorized source");
+  if (source !== contract.authorizedSource.commit || git(root, ["rev-parse", `${source}^{tree}`]).trim() !== contract.authorizedSource.tree) {
+    throw new Error("Gate 6T frozen-evidence successor authorized source identity differs.");
+  }
+  if (!Array.isArray(contract.protectedChanges) || contract.protectedChanges.length !== 8) {
+    throw new Error("Gate 6T frozen-evidence successor must authorize exactly eight protected changes.");
+  }
+  const anchorFiles = new Map(anchor.files.map((item) => [item.path, item]));
+  const sourceTree = readTree(root, source);
+  const sourceBlobs = readBlobs(root, source, contract.protectedChanges.map((item) => item.path));
+  const changes = new Map();
+  let previous = "";
+  for (const item of contract.protectedChanges) {
+    const normalized = normalizePath(item.path ?? "");
+    if (!normalized || normalized !== item.path || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..") ||
+        (previous && previous.localeCompare(normalized) >= 0) || changes.has(normalized)) {
+      throw new Error(`Gate 6T frozen-evidence successor contains an unsafe, duplicate, or unsorted path: ${item.path}`);
+    }
+    if (!/^(100644|100755)$/.test(item.mode ?? "") || !/^[0-9a-f]{40}$/.test(item.predecessorOid ?? "") ||
+        !/^[0-9a-f]{40}$/.test(item.successorOid ?? "") || !/^[0-9a-f]{64}$/.test(item.sha256 ?? "")) {
+      throw new Error(`Gate 6T frozen-evidence successor has an invalid object identity: ${normalized}`);
+    }
+    const predecessor = anchorFiles.get(normalized);
+    if (!predecessor || predecessor.mode !== item.mode || predecessor.oid !== item.predecessorOid) {
+      throw new Error(`Gate 6T frozen-evidence successor does not match its pinned predecessor: ${normalized}`);
+    }
+    const successor = sourceTree.get(normalized);
+    if (!successor || successor.type !== "blob" || successor.mode !== item.mode || successor.oid !== item.successorOid ||
+        sha256(sourceBlobs.get(normalized)) !== item.sha256) {
+      throw new Error(`Gate 6T frozen-evidence successor does not match its authorized source: ${normalized}`);
+    }
+    changes.set(normalized, item);
+    previous = normalized;
+  }
+  const entry = headTree.get(GATE6T_FROZEN_SUCCESSOR_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") throw new Error("Gate 6T frozen-evidence successor is missing or has an unsupported mode.");
+  checkAttributes(root, [GATE6T_FROZEN_SUCCESSOR_PATH]);
+  const target = path.join(root, ...GATE6T_FROZEN_SUCCESSOR_PATH.split("/"));
+  const workingPath = fs.lstatSync(target);
+  if (!workingPath.isFile() || workingPath.isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Gate 6T frozen-evidence successor working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", GATE6T_FROZEN_SUCCESSOR_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) throw new Error("Gate 6T frozen-evidence successor staged content differs from HEAD.");
+  return { contract, changes };
+}
+
 function loadGate6HSuccessorContract(root, head) {
   const headTree = readTree(root, head);
   const bytes = readBlobs(root, head, [GATE6H_SUCCESSOR_CONTRACT_PATH]).get(GATE6H_SUCCESSOR_CONTRACT_PATH);
@@ -382,7 +449,7 @@ function assertRepository(repositoryRoot, verifiedTree, certifiedSourceTree) {
   return { root, head, source };
 }
 
-function verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireExactWorktreeBytes = false }) {
+function verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes = false }) {
   if (!["historical", "canonical", "pre-slice", "gate5d", "all"].includes(scope)) throw new Error(`Unknown frozen-evidence scope: ${scope}`);
   const files = anchor.files.filter((item) => scope === "all" || item.scopes.includes(scope));
   if (!files.length) throw new Error(`Frozen evidence trust anchor has no records for scope: ${scope}`);
@@ -397,7 +464,10 @@ function verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireE
   }));
   for (const item of files) {
     const current = headTree.get(item.path);
-    if (!current || current.type !== "blob" || current.mode !== item.mode || current.oid !== item.oid) {
+    const authorizedChange = trustSuccessor.changes.get(item.path);
+    const expectedMode = authorizedChange?.mode ?? item.mode;
+    const expectedOid = authorizedChange?.successorOid ?? item.oid;
+    if (!current || current.type !== "blob" || current.mode !== expectedMode || current.oid !== expectedOid) {
       throw new Error(`Protected Git object differs from pinned trust anchor: ${item.path}`);
     }
   }
@@ -426,9 +496,13 @@ function verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireE
   const records = files.map((item) => {
     const bytes = blobs.get(item.path);
     const blobSha256 = sha256(bytes);
-    if (blobSha256 !== item.blobSha256) throw new Error(`Protected blob SHA-256 differs from pinned trust anchor: ${item.path}`);
-    const expectedMode = classifyLegacyExpected(bytes, item.expectedSha256);
-    if (expectedMode !== item.expectedMode || (item.expectedSha256 && expectedMode === "unexplained")) {
+    const authorizedChange = trustSuccessor.changes.get(item.path);
+    const expectedBlobSha256 = authorizedChange?.sha256 ?? item.blobSha256;
+    const legacyExpectedSha256 = authorizedChange?.sha256 ?? item.expectedSha256;
+    const pinnedExpectedMode = authorizedChange ? "git-blob" : item.expectedMode;
+    if (blobSha256 !== expectedBlobSha256) throw new Error(`Protected blob SHA-256 differs from approved trust chain: ${item.path}`);
+    const expectedMode = classifyLegacyExpected(bytes, legacyExpectedSha256);
+    if (expectedMode !== pinnedExpectedMode || (legacyExpectedSha256 && expectedMode === "unexplained")) {
       throw new Error(`Frozen expected hash classification differs from pinned trust anchor: ${item.path}`);
     }
     const fullPath = path.join(root, ...item.path.split("/"));
@@ -436,12 +510,12 @@ function verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireE
     if (!workingPath.isFile() || workingPath.isSymbolicLink()) throw new Error(`Protected working path is not a regular file: ${item.path}`);
     return {
       path: item.path,
-      oid: item.oid,
+      oid: authorizedChange?.successorOid ?? item.oid,
       blobSha256,
-      expectedSha256: item.expectedSha256,
+      expectedSha256: legacyExpectedSha256,
       expectedMode,
       worktreeSha256: sha256(fs.readFileSync(fullPath)),
-      contracts: item.contracts,
+      contracts: authorizedChange ? [...item.contracts, "gate6t-trust-successor"] : item.contracts,
     };
   });
   checkWorktree(root, headTree, [...files, ...successorFiles], protectedRoots);
@@ -460,6 +534,11 @@ function verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireE
     certifiedSourceTree: anchor.certifiedSourceTree,
     trustAnchorPath: FROZEN_EVIDENCE_TRUST_ANCHOR_PATH,
     trustAnchorSha256: FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256,
+    trustSuccessorPath: GATE6T_FROZEN_SUCCESSOR_PATH,
+    trustSuccessorSha256: GATE6T_FROZEN_SUCCESSOR_SHA256,
+    trustSuccessorAuthorizedSourceCommit: trustSuccessor.contract.authorizedSource.commit,
+    trustSuccessorAuthorizedSourceTree: trustSuccessor.contract.authorizedSource.tree,
+    trustSuccessorProtectedChangeCount: trustSuccessor.changes.size,
     scope,
     fileCount: records.length,
     successorFileCount: successorRecords.length,
@@ -606,10 +685,12 @@ export function verifyFrozenEvidence({
   scope = "all",
   verifiedTree = "HEAD",
   trustAnchorSha256 = FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256,
+  trustSuccessorSha256 = GATE6T_FROZEN_SUCCESSOR_SHA256,
   requireExactWorktreeBytes = false,
 } = {}) {
   const { root, head } = assertCurrentRepository(repositoryRoot, verifiedTree);
   const anchor = loadTrustAnchor(root, head, trustAnchorSha256);
+  const trustSuccessor = loadGate6TFrozenSuccessor(root, head, anchor, trustSuccessorSha256);
   const gate6h = loadGate6HSuccessorContract(root, head);
   const gate6o = loadGate6OSuccessorContract(root, head);
   const gate6p = loadGate6PSuccessorContract(root, head);
@@ -618,7 +699,7 @@ export function verifyFrozenEvidence({
     { gate: "gate6o", contract: gate6o },
     { gate: "gate6p", contract: gate6p },
   ];
-  return verifyAnchoredFileSet({ root, head, anchor, successors, scope, requireExactWorktreeBytes });
+  return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }
 
 export function materializeFrozenEvidence(options = {}) {

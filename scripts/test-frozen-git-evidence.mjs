@@ -8,6 +8,8 @@ import { execFileSync } from "node:child_process";
 import {
   FROZEN_EVIDENCE_TRUST_ANCHOR_PATH,
   FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256,
+  GATE6T_FROZEN_SUCCESSOR_PATH,
+  GATE6T_FROZEN_SUCCESSOR_SHA256,
   verifyFrozenEvidence,
   verifyFrozenPathSet,
 } from "./lib/forge-frozen-evidence.mjs";
@@ -100,16 +102,44 @@ try {
   git(publishedRoot, ["init", "--quiet"]);
   git(publishedRoot, ["config", "user.name", "Forge certification"]);
   git(publishedRoot, ["config", "user.email", "forge-certification@example.invalid"]);
-  git(publishedRoot, ["fetch", "--quiet", "--depth=1", repositoryRoot, "HEAD"]);
+  // The trust-successor contract is bound to the certified predecessor commit.
+  // Two published commits are sufficient to prove that chain without relying on
+  // the older local-only Gate 5F source history.
+  git(publishedRoot, ["fetch", "--quiet", "--depth=2", repositoryRoot, "HEAD"]);
   git(publishedRoot, ["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   const published = verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all", requireExactWorktreeBytes: true });
   assert.equal(published.fileCount, 451);
   assert.equal(published.successorFileCount, 3);
   assert.equal(published.trustAnchorSha256, FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256);
+  assert.equal(published.trustSuccessorSha256, GATE6T_FROZEN_SUCCESSOR_SHA256);
+  assert.equal(published.trustSuccessorProtectedChangeCount, 8);
   assert.throws(
     () => git(publishedRoot, ["cat-file", "-e", `${published.certifiedSourceCommit}^{commit}`]),
     "fresh published-history fixture must not contain the local-only certified source commit",
   );
+
+  fs.appendFileSync(path.join(publishedRoot, ...GATE6T_FROZEN_SUCCESSOR_PATH.split("/")), "\n", "utf8");
+  expectFailure("unstaged trust successor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /successor working bytes differ/);
+  git(publishedRoot, ["restore", "--worktree", GATE6T_FROZEN_SUCCESSOR_PATH]);
+  fs.appendFileSync(path.join(publishedRoot, ...GATE6T_FROZEN_SUCCESSOR_PATH.split("/")), "\n", "utf8");
+  git(publishedRoot, ["add", GATE6T_FROZEN_SUCCESSOR_PATH]);
+  git(publishedRoot, ["commit", "--quiet", "-m", "tamper successor contract"]);
+  expectFailure("committed trust successor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /successor SHA-256 mismatch/);
+  git(publishedRoot, ["reset", "--hard", "--quiet", "HEAD^"]);
+
+  const unauthorizedProtectedPath = published.records.find((item) => !item.contracts.includes("gate6t-trust-successor")).path;
+  fs.appendFileSync(path.join(publishedRoot, ...unauthorizedProtectedPath.split("/")), "\n", "utf8");
+  git(publishedRoot, ["add", unauthorizedProtectedPath]);
+  git(publishedRoot, ["commit", "--quiet", "-m", "tamper unapproved protected object"]);
+  expectFailure("unapproved protected change", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /Protected Git object differs/);
+  git(publishedRoot, ["reset", "--hard", "--quiet", "HEAD^"]);
+
+  const approvedProtectedPath = published.records.find((item) => item.contracts.includes("gate6t-trust-successor")).path;
+  fs.appendFileSync(path.join(publishedRoot, ...approvedProtectedPath.split("/")), "\n", "utf8");
+  git(publishedRoot, ["add", approvedProtectedPath]);
+  git(publishedRoot, ["commit", "--quiet", "-m", "tamper approved protected successor"]);
+  expectFailure("changed approved successor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /Protected Git object differs/);
+  git(publishedRoot, ["reset", "--hard", "--quiet", "HEAD^"]);
 
   fs.appendFileSync(path.join(publishedRoot, ...FROZEN_EVIDENCE_TRUST_ANCHOR_PATH.split("/")), "\n", "utf8");
   expectFailure("unstaged trust anchor", () => verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all" }), /trust anchor working bytes differ/);
@@ -141,6 +171,9 @@ try {
       executionByteIdentity: true,
       freshPublishedHistory: true,
       trustAnchorTamper: true,
+      trustSuccessorTamper: true,
+      unapprovedProtectedChange: true,
+      changedApprovedSuccessor: true,
       missingTrustAnchor: true,
     },
   })}\n`);

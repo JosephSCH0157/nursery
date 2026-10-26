@@ -40,7 +40,7 @@ jobs:
 
       - name: Verify canonical Git objects and regression cases
         run: |
-          node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes --trust-anchor-sha256 fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb
+          node scripts/verify-frozen-git-evidence.mjs --scope all --require-exact-worktree-bytes --trust-anchor-sha256 fca1dbd9f8d582db01a3cd03720b8feffb75ec243340f042b9df08adbb41ebcb --trust-successor-sha256 a78a66f7495958c172b477391507af643539af80dc184b87794e2ceaf62df838
           node scripts/test-frozen-git-evidence.mjs
 
       - name: Prove explicit materialization is idempotent
