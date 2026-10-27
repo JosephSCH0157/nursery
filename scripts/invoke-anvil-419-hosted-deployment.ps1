@@ -13,6 +13,7 @@ $projectRef='wtvdjndyxegudufrompx'
 $targetVersion='20261027030139'
 $targetSha256='876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa'
 $statePath=$null
+. (Join-Path $PSScriptRoot 'lib/forge-managed-credential.ps1')
 
 function Invoke-Supabase([string[]]$Arguments) {
   $output=@(& supabase @Arguments 2>&1)
@@ -27,7 +28,6 @@ function Assert-StaticPrerequisites {
   if(-not(Test-Path -LiteralPath $linkedPath -PathType Leaf)){throw 'Linked project reference is unavailable.'}
   $linked=((Get-Content -LiteralPath $linkedPath -Raw).Trim())
   if($linked -cne $projectRef){throw 'Linked project does not match the pinned Forge project.'}
-  if([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('SUPABASE_DB_PASSWORD','Process'))){throw 'SUPABASE_DB_PASSWORD is required in the process environment.'}
   $cli=((& supabase --version 2>$null|Select-Object -First 1).Trim())
   if($cli -cne '2.84.2'){throw 'Supabase CLI 2.84.2 is required.'}
   $migrationPath=Join-Path $repo 'supabase/migrations/20261027030139_anvil_recording_authority_repair.sql'
@@ -63,29 +63,39 @@ function Assert-PostApply {
   [pscustomobject]@{ok=$true;schema='forge.anvil-419-hosted-postverify.v1';projectRef=$projectRef;installedCount=419;hostedHead=$targetVersion;lineage='historical-v1';customerDataReturned=$false;credentialsReturned=$false}|ConvertTo-Json -Compress
 }
 if($Action -eq 'PostVerify'){
-  Assert-PostApply
+  Assert-StaticPrerequisites|Out-Null
+  Invoke-WithForgeManagedDatabaseCredential -Operation { Assert-PostApply }
   exit 0
 }
 if(-not $RecoveryEvidencePath -or -not(Test-Path -LiteralPath $RecoveryEvidencePath -PathType Leaf)){throw 'A recovery-readiness evidence file is required.'}
 if(-not $Operator){throw 'Operator identity is required.'}
+if($Action -eq 'Apply' -and $Authorization -cne 'APPLY-ANVIL-419'){throw 'Exact operator authorization is required.'}
+
+# All repository, recovery, and operator authorization checks must pass before the
+# managed credential is read from Windows Credential Manager.
+Assert-StaticPrerequisites|Out-Null
+$localPolicyArgs=@((Join-Path $PSScriptRoot 'verify-anvil-419-hosted-deployment-policy.mjs'),'--local-only','--action',$Action,'--recovery',([IO.Path]::GetFullPath($RecoveryEvidencePath)),'--operator',$Operator)
+if($Authorization){$localPolicyArgs+=@('--authorization',$Authorization)}
+& node @localPolicyArgs | Out-Null
+if($LASTEXITCODE -ne 0){throw 'Local hosted deployment policy rejected the operation.'}
 
 try{
-  $state=Get-HostedState
-  $statePath=Join-Path ([IO.Path]::GetTempPath()) ('forge-anvil-419-state-'+[guid]::NewGuid().ToString('N')+'.json')
-  [IO.File]::WriteAllText($statePath,($state|ConvertTo-Json -Depth 5 -Compress),[Text.UTF8Encoding]::new($false))
-  $policyArgs=@((Join-Path $PSScriptRoot 'verify-anvil-419-hosted-deployment-policy.mjs'),'--action',$Action,'--state',$statePath,'--recovery',([IO.Path]::GetFullPath($RecoveryEvidencePath)),'--operator',$Operator)
-  if($Authorization){$policyArgs+=@('--authorization',$Authorization)}
-  $audit=@(& node @policyArgs)
-  if($LASTEXITCODE -ne 0){throw 'Hosted deployment policy rejected the operation.'}
-  if($Action -eq 'Preflight'){
-    Invoke-Supabase @('migration','list','--linked','--workdir',$repo,'--agent=no')|Out-Null
-    Invoke-Supabase @('db','push','--linked','--dry-run','--workdir',$repo,'--agent=no')|Out-Null
-    $audit
-    exit 0
+  Invoke-WithForgeManagedDatabaseCredential -Operation {
+    $state=Get-HostedState
+    $script:statePath=Join-Path ([IO.Path]::GetTempPath()) ('forge-anvil-419-state-'+[guid]::NewGuid().ToString('N')+'.json')
+    [IO.File]::WriteAllText($script:statePath,($state|ConvertTo-Json -Depth 5 -Compress),[Text.UTF8Encoding]::new($false))
+    $policyArgs=@((Join-Path $PSScriptRoot 'verify-anvil-419-hosted-deployment-policy.mjs'),'--action',$Action,'--state',$script:statePath,'--recovery',([IO.Path]::GetFullPath($RecoveryEvidencePath)),'--operator',$Operator)
+    if($Authorization){$policyArgs+=@('--authorization',$Authorization)}
+    $audit=@(& node @policyArgs)
+    if($LASTEXITCODE -ne 0){throw 'Hosted deployment policy rejected the operation.'}
+    if($Action -eq 'Preflight'){
+      Invoke-Supabase @('migration','list','--linked','--workdir',$repo,'--agent=no')|Out-Null
+      Invoke-Supabase @('db','push','--linked','--dry-run','--workdir',$repo,'--agent=no')|Out-Null
+      return $audit
+    }
+    Invoke-Supabase @('db','push','--linked','--workdir',$repo,'--agent=no')|Out-Null
+    Assert-PostApply
   }
-  if($Authorization -cne 'APPLY-ANVIL-419'){throw 'Exact operator authorization is required.'}
-  Invoke-Supabase @('db','push','--linked','--workdir',$repo,'--agent=no')|Out-Null
-  Assert-PostApply
 } finally {
   if($statePath -and (Test-Path -LiteralPath $statePath)){Remove-Item -LiteralPath $statePath -Force}
 }

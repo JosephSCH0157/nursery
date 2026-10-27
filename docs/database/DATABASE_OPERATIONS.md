@@ -164,8 +164,13 @@ authorizer, reference the owner-approved change window, and explicitly
 acknowledge that an in-place restore affects the whole hosted database. Never
 commit this operational evidence file.
 
-Load the existing database password into `SUPABASE_DB_PASSWORD` in the current
-process without printing it or putting it on a command line. Then run:
+Confirm that the existing database password has already been enrolled for the
+current Windows operator with `invoke-forge-managed-credential.ps1 -Action
+Status`. The governed wrapper validates the local project, migration bytes,
+recovery evidence, operator, and Apply authorization before it retrieves the
+credential. It exposes the password only as process-scoped
+`SUPABASE_DB_PASSWORD` around the authorized Supabase operation and clears it
+afterward. Then run:
 
 ```powershell
 ./scripts/invoke-anvil-419-hosted-deployment.ps1 `

@@ -7,6 +7,7 @@ import {
   TARGET_SHA256,
   TARGET_VERSION,
   validateHostedState,
+  validateOperatorAuthorization,
   validateRecoveryEvidence,
 } from "./lib/anvil-419-hosted-deployment-policy.mjs";
 
@@ -31,6 +32,10 @@ for (const [name, mutate] of [
 ]) test(`rejects wrong ${name}`, () => { const state=goodState(); mutate(state); assert.throws(() => validateHostedState(state,{action:"Apply",authorization:APPLY_AUTHORIZATION,operator:"operator"})); });
 
 test("rejects missing operator authorization", () => assert.throws(() => validateHostedState(goodState(), { action:"Apply", operator:"operator" })));
+test("local authorization rejects Apply before hosted credential access", () => {
+  assert.throws(() => validateOperatorAuthorization({ action:"Apply", operator:"operator" }), /operator_authorization/);
+  assert.deepEqual(validateOperatorAuthorization({ action:"Apply", operator:"operator", authorization:APPLY_AUTHORIZATION }), { operator:"operator" });
+});
 test("rejects missing or stale recovery evidence", () => {
   assert.throws(() => validateRecoveryEvidence(null));
   assert.throws(() => validateRecoveryEvidence(goodRecovery(), new Date("2026-10-29T16:30:00Z")));
@@ -43,4 +48,16 @@ test("actual entrypoint is bounded to normal linked migration push", () => {
   assert.match(source,/@\('db','push','--linked','--dry-run','--workdir',\$repo,'--agent=no'\)/);
   assert.doesNotMatch(source,/--include-all|migration['\"]?\s*,?['\"]?repair|insert\s+into\s+supabase_migrations/i);
   assert.match(source,/Assert-PostApply/);
+  assert.match(source,/Invoke-WithForgeManagedDatabaseCredential/);
+  assert.doesNotMatch(source,/SUPABASE_DB_PASSWORD is required/);
+  const localPolicy = source.indexOf("--local-only");
+  const credentialRead = source.indexOf("Invoke-WithForgeManagedDatabaseCredential -Operation", localPolicy);
+  assert.ok(localPolicy >= 0 && credentialRead > localPolicy, "local policy must run before managed credential access");
+});
+
+test("managed credential provider covers retrieval, missing credential, and cleanup", () => {
+  const source=readFileSync(new URL("./lib/forge-managed-credential.ps1",import.meta.url),"utf8");
+  assert.match(source,/WindowsCredentialNative\]::Read/);
+  assert.match(source,/finally\s*\{[\s\S]*SetEnvironmentVariable\('SUPABASE_DB_PASSWORD', \$null, 'Process'\)/);
+  assert.match(source,/Forge database credential is not enrolled/);
 });

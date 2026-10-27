@@ -4,6 +4,7 @@ import {
   FORGE_PROJECT_REF,
   TARGET_VERSION,
   validateHostedState,
+  validateOperatorAuthorization,
   validateRecoveryEvidence,
 } from "./lib/anvil-419-hosted-deployment-policy.mjs";
 
@@ -14,13 +15,16 @@ function argument(name) {
 
 const action = argument("action");
 if (!new Set(["Preflight", "Apply"]).has(action)) throw new Error("action_invalid");
-const state = JSON.parse(readFileSync(argument("state"), "utf8"));
 const recovery = JSON.parse(readFileSync(argument("recovery"), "utf8"));
-const stateResult = validateHostedState(state, {
+const options = {
   action,
   authorization: argument("authorization"),
   operator: argument("operator"),
-});
+};
+const localOnly = process.argv.includes("--local-only");
+const stateResult = localOnly
+  ? validateOperatorAuthorization(options)
+  : validateHostedState(JSON.parse(readFileSync(argument("state"), "utf8")), options);
 const recoveryResult = validateRecoveryEvidence(recovery);
 
 process.stdout.write(`${JSON.stringify({
@@ -33,4 +37,5 @@ process.stdout.write(`${JSON.stringify({
   recovery: recoveryResult,
   customerDataReturned: false,
   credentialsReturned: false,
+  localOnly,
 })}\n`);

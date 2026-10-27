@@ -59,6 +59,10 @@ export function validateHostedState(state, options = {}) {
     throw new Error("pending_versions_mismatch");
   }
   requireExact(state.databasePasswordAvailable, true, "database_password");
+  return validateOperatorAuthorization(options);
+}
+
+export function validateOperatorAuthorization(options = {}) {
   const operator = requireString(options.operator, "operator");
   if (options.action === "Apply") requireExact(options.authorization, APPLY_AUTHORIZATION, "operator_authorization");
   return { operator };
