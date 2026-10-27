@@ -86,4 +86,3 @@ try{
 } finally {
   if($statePath -and (Test-Path -LiteralPath $statePath)){Remove-Item -LiteralPath $statePath -Force}
 }
-

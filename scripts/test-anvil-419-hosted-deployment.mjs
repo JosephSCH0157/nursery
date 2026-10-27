@@ -44,4 +44,3 @@ test("actual entrypoint is bounded to normal linked migration push", () => {
   assert.doesNotMatch(source,/--include-all|migration['\"]?\s*,?['\"]?repair|insert\s+into\s+supabase_migrations/i);
   assert.match(source,/Assert-PostApply/);
 });
-
