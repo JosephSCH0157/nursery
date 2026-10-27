@@ -219,8 +219,9 @@ jobs:
             if pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
               echo 'Disposable Supabase startup succeeded.'
               break
+            else
+              status=$?
             fi
-            status=$?
             echo "Disposable Supabase startup failed (exit $status). Credential-safe diagnostic follows:"
             node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" "$FORGE_BROWSER_SUPABASE_WORKDIR/supabase/migrations" > "$RUNNER_TEMP/browser-supabase-diagnostic.json"
             cat "$RUNNER_TEMP/browser-supabase-diagnostic.json"
