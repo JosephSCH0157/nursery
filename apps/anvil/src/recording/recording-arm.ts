@@ -3,6 +3,7 @@ import {
   readSavedRecordingConfiguration,
   type SavedRecordingConfiguration,
 } from './recording-settings';
+import { setRecorderEnabled } from '../state/recorder-settings';
 
 export type RecordingArmState = 'idle' | 'arming' | 'armed' | 'recording' | 'error';
 export type RecordingArmFailure =
@@ -14,7 +15,10 @@ export type RecordingArmFailure =
   | 'microphone_denied'
   | 'camera_denied'
   | 'microphone_failed'
-  | 'camera_failed';
+  | 'camera_failed'
+  | 'obs_unavailable'
+  | 'obs_failed'
+  | 'obs_disconnected';
 
 export type RecordingArmSnapshot = {
   state: RecordingArmState;
@@ -33,6 +37,15 @@ type CameraApi = {
   setDevice?: (deviceId: string | null) => Promise<boolean> | boolean;
   start?: () => Promise<boolean> | boolean;
   stop?: () => void;
+  getLastStartFailure?: () => 'permission_denied' | 'failed' | null;
+};
+
+type ObsApi = {
+  armed?: () => boolean;
+  setArmed?: (on: boolean) => void | boolean | Promise<void | boolean>;
+  maybeConnect?: () => void | boolean | Promise<void | boolean>;
+  disconnect?: () => void | Promise<void>;
+  on?: (event: string, callback: () => void) => void | (() => void);
 };
 
 export type RecordingArmDependencies = {
@@ -40,6 +53,8 @@ export type RecordingArmDependencies = {
   enumerateDevices: () => Promise<MediaDeviceInfo[]>;
   getMicApi: () => MicApi | null;
   getCameraApi: () => CameraApi | null;
+  getObsApi: () => ObsApi | null;
+  setObsEnabled: (enabled: boolean) => void;
   readSavedMicDeviceId: () => string | null;
   readSavedCameraDeviceId: () => string | null;
   isRecording: () => boolean;
@@ -68,6 +83,23 @@ function defaultDependencies(): RecordingArmDependencies {
     },
     getMicApi: () => (window as any).__tpMic || null,
     getCameraApi: () => (window as any).__tpCamera || null,
+    getObsApi: () => {
+      const controller = (window as any).__tpObs;
+      if (!controller) return null;
+      const events = (window as any).__obsBridge;
+      return {
+        armed: typeof controller.armed === 'function' ? () => controller.armed() : undefined,
+        setArmed: typeof controller.setArmed === 'function' ? (on) => controller.setArmed(on) : undefined,
+        maybeConnect: typeof controller.maybeConnect === 'function' ? () => controller.maybeConnect() : undefined,
+        disconnect: typeof controller.disconnect === 'function'
+          ? () => controller.disconnect()
+          : typeof events?.disconnect === 'function'
+            ? () => events.disconnect()
+            : undefined,
+        on: typeof events?.on === 'function' ? (event, callback) => events.on(event, callback) : undefined,
+      };
+    },
+    setObsEnabled: (enabled) => setRecorderEnabled('obs', enabled),
     readSavedMicDeviceId: () => readStored('tp_mic_device_v1'),
     readSavedCameraDeviceId: () => readStored('tp_camera_device_v1'),
     isRecording: isSessionRecording,
@@ -82,6 +114,8 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
   let snapshot: RecordingArmSnapshot = { state: 'idle', configuration: null, failure: null };
   let ownsMic = false;
   let ownsCamera = false;
+  let ownsObsArm = false;
+  let removeObsDisconnectListener: (() => void) | null = null;
   const listeners = new Set<(next: RecordingArmSnapshot) => void>();
 
   const publish = (next: RecordingArmSnapshot) => {
@@ -91,6 +125,15 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
   };
 
   const cleanupOwnedMedia = async () => {
+    removeObsDisconnectListener?.();
+    removeObsDisconnectListener = null;
+    if (ownsObsArm) {
+      const obs = deps.getObsApi();
+      try { await obs?.setArmed?.(false); } catch {}
+      try { await obs?.disconnect?.(); } catch {}
+      try { deps.setObsEnabled(false); } catch {}
+      ownsObsArm = false;
+    }
     if (ownsCamera) {
       try { deps.getCameraApi()?.stop?.(); } catch {}
       ownsCamera = false;
@@ -126,8 +169,33 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
       // OBS owns its capture devices outside the browser. Arming it must not open
       // browser media or start an OBS recording.
       if (configuration.engine === 'obs') {
-        publish({ state: 'armed', configuration, failure: null });
-        return { ok: true as const };
+        const obs = deps.getObsApi();
+        if (!obs?.setArmed || !obs.armed) return fail('obs_unavailable', configuration);
+        if (obs.armed()) {
+          deps.setObsEnabled(true);
+          publish({ state: 'armed', configuration, failure: null });
+          return { ok: true as const };
+        }
+        try {
+          deps.setObsEnabled(true);
+          const armResult = await obs.setArmed(true);
+          if (armResult === false) return fail('obs_failed', configuration);
+          ownsObsArm = obs.armed();
+          const connectResult = await obs.maybeConnect?.();
+          if (connectResult === false || !obs.armed()) return fail('obs_failed', configuration);
+          if (obs.on) {
+            const cleanup = obs.on('disconnect', () => {
+              if (!ownsObsArm || snapshot.configuration?.engine !== 'obs') return;
+              ownsObsArm = false;
+              publish({ state: 'error', configuration, failure: 'obs_disconnected' });
+            });
+            if (typeof cleanup === 'function') removeObsDisconnectListener = cleanup;
+          }
+          publish({ state: 'armed', configuration, failure: null });
+          return { ok: true as const };
+        } catch {
+          return fail('obs_failed', configuration);
+        }
       }
 
       if (!navigator.mediaDevices?.getUserMedia) return fail('media_unsupported', configuration);
@@ -171,7 +239,12 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
               if (selected === false) return fail('camera_failed', configuration);
             }
             const started = await camera.start();
-            if (started === false) return fail('camera_failed', configuration);
+            if (started === false) {
+              const failure = camera.getLastStartFailure?.() === 'permission_denied'
+                ? 'camera_denied'
+                : 'camera_failed';
+              return fail(failure, configuration);
+            }
             ownsCamera = true;
           } catch (error) {
             return fail(permissionDenied(error) ? 'camera_denied' : 'camera_failed', configuration);
@@ -193,7 +266,9 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
         publish({ state: 'recording', configuration: snapshot.configuration, failure: null });
       } else if (snapshot.state === 'recording') {
         publish({
-          state: ownsMic || ownsCamera || snapshot.configuration?.engine === 'obs' ? 'armed' : 'idle',
+          state: ownsMic || ownsCamera || ownsObsArm || snapshot.configuration?.engine === 'obs' && !!deps.getObsApi()?.armed?.()
+            ? 'armed'
+            : 'idle',
           configuration: snapshot.configuration,
           failure: null,
         });
