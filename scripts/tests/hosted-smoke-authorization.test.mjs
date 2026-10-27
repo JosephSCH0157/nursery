@@ -55,6 +55,9 @@ test("ordinary PR workflows contain no hosted Supabase credentials or write smok
     "registry authentication must precede disposable Supabase startup",
   );
   assert.doesNotMatch(prWorkflow, /docker login[^\n]*--password(?:\s|=)/);
+  assert.match(prWorkflow, /diagnostic\.errorCategories\?\.includes\('registry_rate_limit'\)/);
+  assert.match(prWorkflow, /for attempt in 1 2 3/);
+  assert.doesNotMatch(prWorkflow, /includes\('image_pull_failed'\)/);
 });
 
 test("database-only PR workflow is credential-free and local", () => {

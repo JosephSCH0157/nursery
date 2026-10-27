@@ -213,14 +213,28 @@ jobs:
         run: |
           umask 077
           # CLI startup prints local keys: retain its output privately, never echo it.
-          if pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
-            echo 'Disposable Supabase startup succeeded.'
-          else
+          # Retry only the sanitized registry-throttling category; every other
+          # startup failure remains an immediate hard stop.
+          for attempt in 1 2 3; do
+            if pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
+              echo 'Disposable Supabase startup succeeded.'
+              break
+            fi
             status=$?
             echo "Disposable Supabase startup failed (exit $status). Credential-safe diagnostic follows:"
-            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" "$FORGE_BROWSER_SUPABASE_WORKDIR/supabase/migrations"
-            exit "$status"
-          fi
+            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" "$FORGE_BROWSER_SUPABASE_WORKDIR/supabase/migrations" > "$RUNNER_TEMP/browser-supabase-diagnostic.json"
+            cat "$RUNNER_TEMP/browser-supabase-diagnostic.json"
+            if [ "$attempt" -ge 3 ] || ! node --input-type=module - "$RUNNER_TEMP/browser-supabase-diagnostic.json" <<'NODE'
+            import fs from 'node:fs';
+            const diagnostic = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+            process.exit(diagnostic.errorCategories?.includes('registry_rate_limit') ? 0 : 1);
+          NODE
+            then
+              exit "$status"
+            fi
+            pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Stop -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > /dev/null 2>&1 || true
+            sleep "$((attempt * 20))"
+          done
       - name: Configure disposable credentials without logging values
         run: |
           umask 077
