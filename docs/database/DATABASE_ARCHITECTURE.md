@@ -30,6 +30,8 @@ Gate 6O adds `20261025070300_tongs_episode_storage_tier_parity.sql` after Gate 6
 
 Gate 6P adds `20261025080943_provision_required_storage_buckets.sql` after Gate 6O. It provisions the two deterministic private Storage bucket records already required by B1's frozen `storage.objects` policies and application code: `forge-workpieces` and `bellows-capture`. It never copies objects, customer identity, credentials, activation state, or financial data. Compatible rows are unchanged, missing rows are inserted, and any conflicting visibility, size, MIME, AVIF, name, or type aborts the transaction. The record-level authority and successor chronology are [storage-bucket-contract.v1.json](baseline/v1-gate6p/storage-bucket-contract.v1.json) and [Gate 6P successor-contract.v1.json](baseline/v1-gate6p/successor-contract.v1.json).
 
+The recording-authority successor adds `20261027030139_anvil_recording_authority_repair.sql` after Gate 6P. It backfills immutable Keep/Discard receipt authority from canonical completions, makes legacy Anvil execution identity optional for venue-neutral decisions, and preserves legacy receipt fingerprints. The byte-locked chronology and structure are [recording authority successor-contract.v1.json](baseline/v1-recording-authority/successor-contract.v1.json) and its [successor catalog fingerprint](baseline/v1-recording-authority/successor-catalog-fingerprint.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future

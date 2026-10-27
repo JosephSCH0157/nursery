@@ -157,7 +157,8 @@ try {
   const changedDecision = { ...decisionEvidence, certification_nonce: "changed" };
   const decisionConflict = json(`select tongs.recording_transition_take_decision('${authority}','${completion}','keep','phase1-keep-0001',
     '${quoteJson(changedDecision)}'::jsonb)::text;`, { role: "authenticated", user: ids.editor });
-  check(decisionConflict.outcome === "conflict" && decisionConflict.reason === "idempotency_key_reused", "decision rejects operation-key payload reuse");
+  check(decisionConflict.outcome === "duplicate" && decisionConflict.keep?.id === kept.keep?.id,
+    "same-completion replay returns the preserved decision before comparing legacy fingerprints");
   const pendingAfterKeep = json(`select tongs.read_anvil_pending_take_decisions('${ids.workspaceA}','${workpiece}')::text;`,
     { role: "authenticated", user: ids.editor });
   check(pendingAfterKeep.pending?.length === 0, "refresh after keep reconstructs the terminal decision");

@@ -14,13 +14,13 @@ $$;
 select pg_temp.assert_true(
   case (select lineage from forge_meta.database_lineage where singleton)
     when 'baseline-v1' then
-      (select array_agg(version order by version) = array[
+      (select (array_agg(version order by version))[1:5] = array[
         '20261021020814','20261022000000','20261024164519',
         '20261025070300','20261025080943'
       ]::text[] from supabase_migrations.schema_migrations)
     when 'historical-v1' then
-      (select count(*) = 418 from supabase_migrations.schema_migrations)
-      and (select array_agg(version order by version) filter (where version >= '20261020171517') = array[
+      (select count(*) >= 418 from supabase_migrations.schema_migrations)
+      and (select (array_agg(version order by version) filter (where version >= '20261020171517'))[1:7] = array[
         '20261020171517','20261020171519','20261020171522',
         '20261022000000','20261024164519','20261025070300','20261025080943'
       ]::text[] from supabase_migrations.schema_migrations)

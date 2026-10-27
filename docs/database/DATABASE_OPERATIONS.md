@@ -139,6 +139,43 @@ pnpm certify:db:gate6p-successor
 
 It must preserve all seven authentic-prefix hashes, reach `historical-v1`, retain the unchanged 15,903-entry Gate 6O catalog contract, and prove exact, private, idempotent provisioning of `forge-workpieces` and `bellows-capture` without changing Storage objects, policies, RLS, ACLs, or existing compatible rows.
 
+The recording-authority successor preserves the Gate 6P harness unchanged and
+normally extends its certified historical chain from the authentic Gate 5F
+foundation through the 418-row Gate 6P predecessor and then to 419 rows. Its
+static tooling test is always safe to run:
+
+```powershell
+pnpm test:db:anvil-recording:historical-tooling
+```
+
+The normal two-lane successor command is credential-free and makes no hosted
+request:
+
+```powershell
+pnpm certify:db:anvil-recording:historical
+```
+
+It reconstructs the protected 411-row Gate 5F foundation, verifies and applies
+the seven immutable Gate 6H, Gate 6O, and Gate 6P successor versions to the
+418-row predecessor, then applies only `20261027030139` and requires 419 rows
+plus `historical-v1`. A newly authorized encrypted capsule is reserved for
+exceptional re-anchoring with the explicit Authentic mode:
+
+```powershell
+pnpm certify:db:anvil-recording:historical -- `
+  -Mode Authentic `
+  -ProjectRef $projectRef `
+  -ScopeAttestationPath $scopeAttestationPath `
+  -AuthorizeAuthenticHistoryTransfer
+```
+
+Both modes restore only into isolated disposable databases, verify the certified
+prefix and 418-row `historical-v1` predecessor, apply only `20261027030139`,
+requires 419 rows, proves existing recording-receipt bytes unchanged, and runs
+the authority, immutability, Hammer projection, catalog, rejection, rollback,
+financial-isolation, and teardown checks. See the [recording-authority historical
+successor contract](baseline/v1-recording-authority/HISTORICAL_UPGRADE_CERTIFICATION.md).
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell
