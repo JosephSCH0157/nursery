@@ -34,4 +34,3 @@ process.stdout.write(`${JSON.stringify({
   customerDataReturned: false,
   credentialsReturned: false,
 })}\n`);
-

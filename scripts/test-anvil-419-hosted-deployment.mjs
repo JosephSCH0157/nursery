@@ -23,7 +23,6 @@ test("exact 418 to 419 deployment state is accepted", () => {
   assert.doesNotThrow(() => validateHostedState(goodState(), { action: "Apply", authorization: APPLY_AUTHORIZATION, operator: "operator" }));
   assert.doesNotThrow(() => validateRecoveryEvidence(goodRecovery(), new Date("2026-10-27T16:30:00Z")));
 });
-
 for (const [name, mutate] of [
   ["project", s => s.projectRef="other"], ["lineage", s => s.lineage="baseline-v1"],
   ["count", s => s.installedCount=417], ["head", s => s.hostedHead="20261024164519"],

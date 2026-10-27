@@ -58,7 +58,6 @@ function Assert-PostApply {
   if($contract.Count -ne 1 -or [string]$contract[0].lineage -cne 'historical-v1' -or @('keep_authority','discard_authority','keep_session_nullable','discard_session_nullable')|Where-Object{[string]$contract[0].$_ -notmatch '^(t|true)$'}){throw 'Post-apply recording-authority contract verification failed.'}
   [pscustomobject]@{ok=$true;schema='forge.anvil-419-hosted-postverify.v1';projectRef=$projectRef;installedCount=419;hostedHead=$targetVersion;lineage='historical-v1';customerDataReturned=$false;credentialsReturned=$false}|ConvertTo-Json -Compress
 }
-
 if($Action -eq 'PostVerify'){
   if([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('SUPABASE_DB_PASSWORD','Process'))){throw 'SUPABASE_DB_PASSWORD is required in the process environment.'}
   Assert-PostApply

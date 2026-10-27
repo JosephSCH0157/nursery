@@ -13,7 +13,6 @@ function requireString(value, name) {
   if (!normalized) throw new Error(`${name}_missing`);
   return normalized;
 }
-
 function requireExact(actual, expected, name) {
   if (actual !== expected) throw new Error(`${name}_mismatch`);
 }
