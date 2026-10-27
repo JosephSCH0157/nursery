@@ -12,7 +12,6 @@ $repo=[IO.Path]::GetFullPath($RepositoryRoot)
 $projectRef='wtvdjndyxegudufrompx'
 $targetVersion='20261027030139'
 $targetSha256='876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa'
-$expectedHead='20261025080943'
 $statePath=$null
 
 function Invoke-Supabase([string[]]$Arguments) {
@@ -21,10 +20,9 @@ function Invoke-Supabase([string[]]$Arguments) {
   return $output
 }
 function Read-LinkedCsv([string]$Sql) {
-  $rows=@((Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,$Sql))|ConvertFrom-Csv)
-  return $rows
+  return @((Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,$Sql))|ConvertFrom-Csv)
 }
-function Get-HostedState {
+function Assert-StaticPrerequisites {
   $linkedPath=Join-Path $repo 'supabase/.temp/project-ref'
   if(-not(Test-Path -LiteralPath $linkedPath -PathType Leaf)){throw 'Linked project reference is unavailable.'}
   $linked=((Get-Content -LiteralPath $linkedPath -Raw).Trim())
@@ -36,6 +34,10 @@ function Get-HostedState {
   if(-not(Test-Path -LiteralPath $migrationPath -PathType Leaf)){throw 'Migration 419 is missing.'}
   $sha=(Get-FileHash -LiteralPath $migrationPath -Algorithm SHA256).Hash.ToLowerInvariant()
   if($sha -cne $targetSha256){throw 'Migration 419 SHA-256 mismatch.'}
+  return [ordered]@{linked=$linked;sha=$sha}
+}
+function Get-HostedState {
+  $static=Assert-StaticPrerequisites
   & (Join-Path $PSScriptRoot 'verify-canonical-database-artifacts.ps1') -RepositoryRoot $repo|Out-Null
   & (Join-Path $PSScriptRoot 'verify-supabase-lineage.ps1') -Lineage historical -Workdir $repo -DatabaseTarget linked -Mode preflight -RepositoryRoot $repo|Out-Null
   $history=@(Read-LinkedCsv 'select version from supabase_migrations.schema_migrations order by version')
@@ -45,21 +47,22 @@ function Get-HostedState {
   $localVersions=@(Get-ChildItem -LiteralPath (Join-Path $repo 'supabase/migrations') -Filter '*.sql' -File|Sort-Object Name|ForEach-Object{if($_.BaseName -match '^(\d{8,14})_'){$Matches[1]}})
   $pending=@($localVersions|Where-Object{$_ -notin $versions})
   return [ordered]@{
-    projectRef=$linked;lineage=[string]$lineageRows[0].lineage;installedCount=$versions.Count
+    projectRef=$static.linked;lineage=[string]$lineageRows[0].lineage;installedCount=$versions.Count
     hostedHead=$(if($versions.Count){$versions[-1]}else{$null});pendingVersions=$pending
-    migrationSha256=$sha;databasePasswordAvailable=$true
+    migrationSha256=$static.sha;databasePasswordAvailable=$true
   }
 }
 function Assert-PostApply {
+  Assert-StaticPrerequisites|Out-Null
   $history=@(Read-LinkedCsv 'select version from supabase_migrations.schema_migrations order by version')
   $versions=@($history|ForEach-Object{[string]$_.version})
   if($versions.Count -ne 419 -or $versions[-1] -cne $targetVersion -or @($versions|Where-Object{$_ -eq $targetVersion}).Count -ne 1){throw 'Post-apply migration history verification failed.'}
   $contract=@(Read-LinkedCsv "select (select lineage from forge_meta.database_lineage where singleton=true) as lineage, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_keep_requests' and column_name='recording_capture_authority_id' and is_nullable='NO') as keep_authority, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_discard_requests' and column_name='recording_capture_authority_id' and is_nullable='NO') as discard_authority, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_keep_requests' and column_name='capture_session_id' and is_nullable='YES') as keep_session_nullable, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_discard_requests' and column_name='capture_session_id' and is_nullable='YES') as discard_session_nullable")
-  if($contract.Count -ne 1 -or [string]$contract[0].lineage -cne 'historical-v1' -or @('keep_authority','discard_authority','keep_session_nullable','discard_session_nullable')|Where-Object{[string]$contract[0].$_ -notmatch '^(t|true)$'}){throw 'Post-apply recording-authority contract verification failed.'}
+  $invalidContract=@('keep_authority','discard_authority','keep_session_nullable','discard_session_nullable')|Where-Object{[string]$contract[0].$_ -notmatch '^(t|true)$'}
+  if($contract.Count -ne 1 -or [string]$contract[0].lineage -cne 'historical-v1' -or $invalidContract.Count -ne 0){throw 'Post-apply recording-authority contract verification failed.'}
   [pscustomobject]@{ok=$true;schema='forge.anvil-419-hosted-postverify.v1';projectRef=$projectRef;installedCount=419;hostedHead=$targetVersion;lineage='historical-v1';customerDataReturned=$false;credentialsReturned=$false}|ConvertTo-Json -Compress
 }
 if($Action -eq 'PostVerify'){
-  if([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('SUPABASE_DB_PASSWORD','Process'))){throw 'SUPABASE_DB_PASSWORD is required in the process environment.'}
   Assert-PostApply
   exit 0
 }
