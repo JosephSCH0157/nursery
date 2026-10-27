@@ -150,6 +150,7 @@ jobs:
     timeout-minutes: 60
     env:
       CI: "true"
+      COMPOSE_PARALLEL_LIMIT: "1"
       # No remote fixture or provider secrets enter this job.
       FORGE_NONPROD_SUPABASE_PROJECT_REFS: ""
     steps:

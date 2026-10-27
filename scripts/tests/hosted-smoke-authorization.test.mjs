@@ -57,6 +57,7 @@ test("ordinary PR workflows contain no hosted Supabase credentials or write smok
   assert.doesNotMatch(prWorkflow, /docker login[^\n]*--password(?:\s|=)/);
   assert.match(prWorkflow, /diagnostic\.errorCategories\?\.includes\('registry_rate_limit'\)/);
   assert.match(prWorkflow, /for attempt in 1 2 3/);
+  assert.match(prWorkflow, /COMPOSE_PARALLEL_LIMIT: "1"/);
   assert.doesNotMatch(prWorkflow, /includes\('image_pull_failed'\)/);
 });
 
