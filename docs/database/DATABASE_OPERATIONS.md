@@ -96,7 +96,16 @@ pnpm certify:db:canonical-baseline
 
 For a disposable B1 workdir created before the new migration existed, destroy it and create a new one rather than copying the file by hand.
 
-**Not yet implemented/certified:** there is no authorized hosted “apply T” command. An H deployment must first pass genuine historical-upgrade certification and owner review. Do not use `--include-all`, `migration repair`, direct history writes, or B1 to force discovery.
+The only governed hosted shared-tail application currently implemented is the
+single-purpose Anvil recording-authority 418 to 419 entrypoint. It pins the
+Forge project and migration bytes, requires fresh owner-reviewed recovery
+evidence, an existing process-scoped database password, exact operator
+authorization, and exactly one pending version. It is not a general hosted SQL
+or migration executor. See section 6 for its preflight and apply commands.
+
+All other hosted T applications remain unimplemented and unauthorized. Do not
+use `--include-all`, `migration repair`, direct history writes, or B1 to force
+discovery.
 
 ## 4. Create a disposable fresh database
 
@@ -143,6 +152,53 @@ The available read-only preflight is:
 ```
 
 Record its lineage result, hosted history range/digest, migration list, and dry-run order.
+
+### Anvil recording-authority migration 419
+
+Create a recovery-readiness evidence JSON file outside the repository after an
+authorized owner verifies **Database > Backups** in the Supabase Dashboard. It
+must use schema `forge.hosted-recovery-readiness.v1`, pin project
+`wtvdjndyxegudufrompx`, identify `daily` or `pitr`, record fresh verification
+and latest-restorable timestamps, name the recovery operator and restore
+authorizer, reference the owner-approved change window, and explicitly
+acknowledge that an in-place restore affects the whole hosted database. Never
+commit this operational evidence file.
+
+Confirm that the existing database password has already been enrolled for the
+current Windows operator with `invoke-forge-managed-credential.ps1 -Action
+Status`. The governed wrapper validates the local project, migration bytes,
+recovery evidence, operator, and Apply authorization before it retrieves the
+credential. It exposes the password only as process-scoped
+`SUPABASE_DB_PASSWORD` around the authorized Supabase operation and clears it
+afterward. Then run:
+
+```powershell
+./scripts/invoke-anvil-419-hosted-deployment.ps1 `
+  -Action Preflight `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+After reviewing the sanitized preflight receipt and obtaining separate owner
+authorization for the hosted write, the exact application command is:
+
+```powershell
+./scripts/invoke-anvil-419-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-ANVIL-419
+```
+
+The entrypoint rejects any project, lineage, installed count, hosted head,
+migration hash, or pending-version mismatch. It uses only normal
+password-authenticated `supabase db push --linked`, never retries silently, and
+immediately verifies the 419-row lineage and venue-neutral decision columns.
+For a later independent read-only check, run `-Action PostVerify` with the same
+process-scoped password. Application failure or failed post-verification is a
+hard stop: retain sanitized evidence, do not repair history, do not submit a
+recording decision, and obtain owner direction for PITR/backup recovery or a
+reviewed forward correction.
 
 Authentic-history H upgrade certification completed under the one-time Gate 5F owner authorization. The dedicated read-only endpoint returned the authentic 411-row six-column history into an encrypted local capsule; both disposable privilege lanes restored it transactionally, discovered exactly four migrations normally, applied them, and reached 415 rows plus `historical-v1` with the original records unchanged. See the [Gate 5F authentic closeout](baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md).
 
