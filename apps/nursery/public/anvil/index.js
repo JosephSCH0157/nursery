@@ -32385,8 +32385,8 @@ function getMountEntry(registry3, role) {
   }
   return null;
 }
-function buildFallbackVaultKey(workspaceId, role) {
-  return `mount:${workspaceId ?? "default"}:${role}:local`;
+function buildFallbackVaultKey(workspaceId, role, side = "local") {
+  return `mount:${workspaceId ?? "default"}:${role}:${side}`;
 }
 function pickVaultAndHint(role, workspaceId, entry) {
   const localVaultKey = readString(entry?.local?.vaultKey);
@@ -32394,15 +32394,27 @@ function pickVaultAndHint(role, workspaceId, entry) {
   const mirrorVaultKey = readString(entry?.mirror?.vaultKey);
   const mirrorHint = readString(entry?.mirror?.hint) ?? void 0;
   const mirrorEnabled = entry?.mirror?.enabled === true;
+  const target = readString(entry?.target);
+  if (role === "recordings" && target === "tongs_cloud") {
+    if (!mirrorEnabled) {
+      return { localPersistenceExpected: false };
+    }
+    return {
+      vaultKey: mirrorVaultKey ?? buildFallbackVaultKey(workspaceId, role, "mirror"),
+      hint: mirrorHint,
+      localPersistenceExpected: true
+    };
+  }
   if (localVaultKey) {
-    return { vaultKey: localVaultKey, hint: localHint ?? mirrorHint };
+    return { vaultKey: localVaultKey, hint: localHint ?? mirrorHint, localPersistenceExpected: true };
   }
   if (role === "scripts" && mirrorVaultKey && (mirrorEnabled || !localVaultKey)) {
-    return { vaultKey: mirrorVaultKey, hint: mirrorHint ?? localHint };
+    return { vaultKey: mirrorVaultKey, hint: mirrorHint ?? localHint, localPersistenceExpected: true };
   }
   return {
     vaultKey: buildFallbackVaultKey(workspaceId, role),
-    hint: localHint ?? mirrorHint
+    hint: localHint ?? mirrorHint,
+    localPersistenceExpected: true
   };
 }
 function openVaultDb() {
@@ -32459,6 +32471,7 @@ async function getNurseryManagedDirectory(role) {
   if (!registry3) {
     return {
       managed: false,
+      localPersistenceExpected: false,
       role,
       workspaceId: null,
       handle: null
@@ -32466,10 +32479,11 @@ async function getNurseryManagedDirectory(role) {
   }
   const workspaceId = getActiveWorkspaceId(registry3);
   const entry = getMountEntry(registry3, role);
-  const { vaultKey, hint } = pickVaultAndHint(role, workspaceId, entry);
-  const handle = await getHandleFromVault(vaultKey);
+  const { vaultKey, hint, localPersistenceExpected } = pickVaultAndHint(role, workspaceId, entry);
+  const handle = vaultKey ? await getHandleFromVault(vaultKey) : null;
   return {
     managed: true,
+    localPersistenceExpected,
     role,
     workspaceId,
     vaultKey,
@@ -76703,114 +76717,1109 @@ var init_workpiece_context = __esm({
   }
 });
 
-// ../../packages/tongs/src/customer-spending-confirmation.ts
-function object(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+// src/forge/workpiece-commit.ts
+function readString4(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
 }
-function string(value) {
-  return typeof value === "string" ? value.trim() : "";
+function normalizeUuid2(value) {
+  const str = readString4(value);
+  if (!str) return null;
+  return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
-function readCustomerSpendingQuote(payload) {
-  const root = object(payload);
-  const error = object(root?.error);
-  const details = object(error?.details);
-  const row = object(error?.billing_quote) ?? object(details?.billing_quote) ?? object(root?.billing_quote);
-  if (!row) return null;
-  const maximum = Number(row.maximum_customer_charge_micros);
-  const failure = Number(row.failure_customer_charge_micros);
-  const expiresAt2 = string(row.expires_at);
-  if (!string(row.quote_id) || !string(row.operation_id) || !string(row.quote_hash) || !string(row.request_fingerprint) || row.currency !== "USD" || !Number.isSafeInteger(maximum) || maximum < 0 || failure !== 0 || !expiresAt2) return null;
-  return {
-    quote_id: string(row.quote_id),
-    operation_id: string(row.operation_id),
-    quote_hash: string(row.quote_hash),
-    request_fingerprint: string(row.request_fingerprint),
-    currency: "USD",
-    maximum_customer_charge_micros: maximum,
-    failure_customer_charge_micros: 0,
-    failure_terms: string(row.failure_terms) || "Forge-caused and provider-caused failures cost you $0.",
-    funding_eligible: row.funding_eligible === true,
-    funding_source: string(row.funding_source) || "none",
-    funding_label: string(row.funding_label) || "No verified eligible funds",
-    model_display_name: string(row.model_display_name) || null,
-    provider_model_id: string(row.provider_model_id) || null,
-    model_tradeoff_summary: string(row.model_tradeoff_summary) || null,
-    catalog_revision: Number.isSafeInteger(Number(row.catalog_revision)) ? Number(row.catalog_revision) : null,
-    estimated_customer_charge_micros: Number.isSafeInteger(Number(row.estimated_customer_charge_micros)) ? Number(row.estimated_customer_charge_micros) : maximum,
-    ...Number.isSafeInteger(Number(row.maximum_owner_commitment_micros)) && Number(row.maximum_owner_commitment_micros) >= 0 ? { maximum_owner_commitment_micros: Number(row.maximum_owner_commitment_micros) } : {},
-    ...object(row.cost_components) ? { cost_components: Object.fromEntries(Object.entries(object(row.cost_components)).flatMap(([key, value]) => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : [])) } : {},
-    ...object(row.limits) ? { limits: Object.fromEntries(Object.entries(object(row.limits)).flatMap(([key, value]) => Number.isSafeInteger(Number(value)) && Number(value) >= 0 ? [[key, Number(value)]] : [])) } : {},
-    expires_at: expiresAt2
-  };
-}
-function customerSpendingAcceptance(quote) {
-  return {
-    quote_id: quote.quote_id,
-    operation_id: quote.operation_id,
-    quote_hash: quote.quote_hash,
-    request_fingerprint: quote.request_fingerprint
-  };
-}
-function confirmCustomerSpendingQuote(quote) {
-  if (!quote.funding_eligible) return false;
-  const maximum = (quote.maximum_customer_charge_micros / 1e6).toLocaleString("en-US", {
-    style: "currency",
-    currency: quote.currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6
-  });
-  const estimate = (quote.estimated_customer_charge_micros / 1e6).toLocaleString("en-US", {
-    style: "currency",
-    currency: quote.currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6
-  });
-  const ownerMaximum = quote.maximum_owner_commitment_micros == null ? null : (quote.maximum_owner_commitment_micros / 1e6).toLocaleString("en-US", {
-    style: "currency",
-    currency: quote.currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6
-  });
-  const componentLines = quote.cost_components ? Object.entries(quote.cost_components).map(([key, micros]) => `${key === "aggregate_risk_micros" ? "shared aggregate risk exposure (not an owner expense)" : key.replaceAll("_", " ")}: ${(micros / 1e6).toLocaleString("en-US", {
-    style: "currency",
-    currency: quote.currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6
-  })}`) : [];
-  return globalThis.confirm([
-    quote.model_display_name ? `Model: ${quote.model_display_name}` : null,
-    quote.model_tradeoff_summary || null,
-    `Conservative estimate: ${estimate}`,
-    `Maximum charge: ${maximum}`,
-    ownerMaximum ? `Maximum owner research commitment: ${ownerMaximum}` : null,
-    ...componentLines,
-    `Funding: ${quote.funding_label}`,
-    quote.failure_terms,
-    `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,
-    "Continue with this exact request?"
-  ].filter(Boolean).join("\n\n"));
-}
-function requestCustomerSpendingAcceptance(quote) {
-  if (quote.funding_eligible) {
-    return confirmCustomerSpendingQuote(quote) ? customerSpendingAcceptance(quote) : null;
+function readLocalStorage2(key) {
+  try {
+    return readString4(localStorage.getItem(key));
+  } catch {
+    return null;
   }
-  const shouldOpenBilling = globalThis.confirm([
-    "This operation needs verified purchased credits or a funded paid-plan allowance.",
-    quote.funding_label,
-    "Stripe Test credits and legacy compatibility balances cannot fund a real provider call.",
-    "Open Account & Billing to add credits? You will need to retry this action and accept a fresh quote after the payment is recorded."
-  ].join("\n\n"));
-  if (!shouldOpenBilling) return null;
-  const location2 = globalThis.location;
-  if (location2 && typeof location2.assign === "function") {
-    const returnTo = `${location2.pathname || "/"}${location2.search || ""}${location2.hash || ""}`;
-    location2.assign(`/app/subscriptions?funding=required&return_to=${encodeURIComponent(returnTo)}`);
+}
+function readSessionStorage(key) {
+  try {
+    return readString4(sessionStorage.getItem(key));
+  } catch {
+    return null;
+  }
+}
+function writeSessionStorage(key, value) {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+  }
+}
+function getQueryParam2(...keys) {
+  try {
+    const q3 = new URLSearchParams(window.location.search || "");
+    for (const key of keys) {
+      const value = readString4(q3.get(key));
+      if (value) return value;
+    }
+  } catch {
   }
   return null;
 }
-var init_customer_spending_confirmation = __esm({
-  "../../packages/tongs/src/customer-spending-confirmation.ts"() {
+function toPositiveNumber(raw) {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+function readNumericConfig(key) {
+  const fromQuery = toPositiveNumber(getQueryParam2(key, key.toLowerCase()));
+  if (fromQuery != null) return fromQuery;
+  try {
+    const fromWindow = toPositiveNumber(window?.[key]);
+    if (fromWindow != null) return fromWindow;
+  } catch {
+  }
+  const fromStorage = toPositiveNumber(readLocalStorage2(key) ?? readLocalStorage2(key.toLowerCase()));
+  if (fromStorage != null) return fromStorage;
+  return null;
+}
+function mbToBytes(mb) {
+  return Math.max(1, Math.floor(mb * 1024 * 1024));
+}
+function resolveUploadStrategyConfig() {
+  const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
+  const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
+  const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
+  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
+  return {
+    largeUploadWarnMb,
+    chunkUploadThresholdMb,
+    chunkSizeMb
+  };
+}
+function selectUploadStrategyForBytes(byteLength, config) {
+  const cfg = {
+    ...resolveUploadStrategyConfig(),
+    ...config
+  };
+  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
+  return byteLength > thresholdBytes ? "chunked" : "single";
+}
+function buildRecordingChunks(totalBytes, chunkSizeBytes) {
+  const normalizedTotal = Math.max(0, Math.floor(totalBytes));
+  const normalizedChunkSize = Math.max(1, Math.floor(chunkSizeBytes));
+  const totalChunks = Math.max(1, Math.ceil(normalizedTotal / normalizedChunkSize));
+  const chunks = [];
+  for (let index = 0; index < totalChunks; index += 1) {
+    const startByte = index * normalizedChunkSize;
+    const endByte = Math.min(normalizedTotal, startByte + normalizedChunkSize);
+    chunks.push({
+      index,
+      startByte,
+      endByte,
+      size: Math.max(0, endByte - startByte),
+      totalChunks
+    });
+  }
+  return chunks;
+}
+function deriveRecordingTitleFromName(name) {
+  const normalized = String(name || "").trim();
+  if (!normalized) return "Untitled";
+  const noPath = normalized.split(/[\\/]/).pop() || normalized;
+  const noExt = noPath.replace(/\.[^.]+$/, "").trim();
+  return noExt || noPath || "Untitled";
+}
+function resolveLane() {
+  const w3 = window;
+  const fromQuery = readString4(getQueryParam2("forge_lane", "lane"));
+  if (fromQuery) return fromQuery;
+  const fromWindow = readString4(w3.__forgeLane ?? w3.__tpLane);
+  if (fromWindow) return fromWindow;
+  const fromStorage = readString4(readLocalStorage2("forge_lane_v1"));
+  if (fromStorage) return fromStorage;
+  return DEFAULT_LANE;
+}
+function getWrittenBy() {
+  const version5 = readString4(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  return {
+    tool: "anvil",
+    tool_version: version5,
+    lane: resolveLane()
+  };
+}
+function getApiToken() {
+  const fromQuery = readString4(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  if (fromQuery) return fromQuery;
+  const fromWindow = readString4(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  if (fromWindow) return fromWindow;
+  return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
+}
+function getOrCreateCaptureSessionId() {
+  const existing = readSessionStorage(CAPTURE_SESSION_KEY);
+  if (existing) {
+    window.__tpAnvilCaptureSessionId = existing;
+    return existing;
+  }
+  let next = "";
+  try {
+    const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
+    next = readString4(randomUuid) || "";
+  } catch {
+  }
+  if (!next) {
+    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  window.__tpAnvilCaptureSessionId = next;
+  return next;
+}
+function beginRecordingCaptureSession() {
+  activeCaptureAuthority = null;
+  let next = "";
+  try {
+    const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
+    next = readString4(randomUuid) || "";
+  } catch {
+  }
+  if (!next) {
+    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  writeSessionStorage(CAPTURE_AUTHORITY_KEY, "");
+  window.__tpAnvilCaptureSessionId = next;
+  const identity = window.__forgeCanonicalScriptIdentity;
+  if (identity && typeof identity === "object") {
+    window.__forgeRecordingScriptIdentityByCapture ??= {};
+    window.__forgeRecordingScriptIdentityByCapture[next] = { ...identity };
+  }
+  return next;
+}
+function nextCorrelationId(prefix) {
+  correlationSeq += 1;
+  return `${prefix}:${getOrCreateCaptureSessionId()}:${correlationSeq}`;
+}
+function resolvePlannerRecordingSessionId() {
+  return normalizeUuid2(readLocalStorage2(PLANNER_RECORDING_SESSION_KEY));
+}
+function resolveActiveRecordingCostAttribution() {
+  return {
+    recordingSessionId: activeCaptureAuthority?.recordingSessionId ?? resolvePlannerRecordingSessionId(),
+    recordingCaptureAuthorityId: activeCaptureAuthority?.id ?? null,
+    anvilCaptureExecutionId: activeCaptureAuthority?.captureSessionId ?? null
+  };
+}
+function resolveWorkspaceId2() {
+  const fromQuery = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId", "workspace"));
+  if (fromQuery) return fromQuery;
+  const w3 = window;
+  const fromWindow = normalizeUuid2(
+    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
+  );
+  if (fromWindow) return fromWindow;
+  for (const key of WORKSPACE_STORAGE_KEYS2) {
+    const value = normalizeUuid2(readLocalStorage2(key));
+    if (value) return value;
+  }
+  return null;
+}
+function inferContentType(contentType, name) {
+  const fromInput = readString4(contentType);
+  if (fromInput) return fromInput;
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".wav")) return "audio/wav";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".mp3")) return "audio/mpeg";
+  return "application/octet-stream";
+}
+function sanitizeFilename(name) {
+  const trimmed = String(name || "").trim();
+  const collapsed = trimmed.replace(/[\\\/]/g, "-").replace(/\s+/g, "_").replace(/_+/g, "_");
+  const safe = collapsed.slice(0, 128).replace(/^_+|_+$/g, "");
+  if (safe) return safe;
+  return `Recording_${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.webm`;
+}
+async function buildHeaders(apiToken) {
+  const headers = new Headers({
+    "content-type": "application/json"
+  });
+  if (apiToken) {
+    headers.set("authorization", `Bearer ${apiToken}`);
+  }
+  return appendForgeUserAuthorization(headers);
+}
+async function readBodyAsJson(response) {
+  const text = await response.text();
+  const raw = readString4(text);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { raw };
+  }
+}
+function isCommitAck(body) {
+  const row = body;
+  if (row?.error) return false;
+  return row?.ok === true || row?.success === true || row?.data?.ok === true || row?.data?.success === true;
+}
+function extractApiError(body) {
+  if (!body || typeof body !== "object") return {};
+  const root = body;
+  const code = readString4(root.error?.code);
+  const message = readString4(root.error?.message);
+  return {
+    ...code ? { code } : {},
+    ...message ? { message } : {}
+  };
+}
+function encodeBase64(bytes) {
+  if (!bytes.length) return "";
+  const globalWithBuffer = globalThis;
+  if (globalWithBuffer.Buffer?.from) {
+    return globalWithBuffer.Buffer.from(bytes).toString("base64");
+  }
+  if (typeof btoa !== "function") {
+    throw new Error("No base64 encoder available in runtime");
+  }
+  const CHUNK = 32768;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify(payload)
+  });
+  const body = await readBodyAsJson(response);
+  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
+}
+async function beginChunkedRecordingUpload(workpieceId, payload, apiToken) {
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/begin`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify(payload)
+  });
+  const body = await readBodyAsJson(response);
+  const data = body?.data ?? null;
+  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
+}
+async function uploadChunkToSession(workpieceId, uploadId, payload, apiToken) {
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/chunk`,
+    {
+      method: "POST",
+      headers: await buildHeaders(apiToken),
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await readBodyAsJson(response);
+  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
+}
+async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, apiToken) {
+  const response = await fetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/finalize`,
+    {
+      method: "POST",
+      headers: await buildHeaders(apiToken),
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await readBodyAsJson(response);
+  const data = body?.data ?? null;
+  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
+}
+function readScriptHash2() {
+  try {
+    const raw = window.__TP_LAST_APPLIED_HASH;
+    return readString4(raw);
+  } catch {
+    return null;
+  }
+}
+function readSessionRunKey(captureSessionId) {
+  try {
+    return readString4(window.__tpAsrRunKey) || captureSessionId;
+  } catch {
+    return captureSessionId;
+  }
+}
+function emitLargeUploadWarning(detail) {
+  try {
+    console.warn("[recording/upload] large-upload-warning", detail);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-warning", { detail }));
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("recording:upload:large-warning", detail);
+  } catch {
+  }
+}
+function emitRecordingUploadStatus(detail) {
+  try {
+    console.info("[recording/upload] status", detail);
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+  }
+  try {
+    document.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
+  } catch {
+  }
+  try {
+    window.HUD?.log?.("recording:upload:status", detail);
+  } catch {
+  }
+}
+function sleep2(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+async function resolveRecordingCaptureTarget() {
+  const apiToken = getApiToken();
+  const workspaceId = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid2(getQueryParam2("workpiece_id", "workpieceId"));
+  const plannerRecordingSessionId = resolvePlannerRecordingSessionId();
+  if (!workspaceId || !workpieceId) {
+    return { ok: false, reason: "explicit_episode_context_required", workspaceId, workpieceId };
+  }
+  const identity = window.__forgeCanonicalScriptIdentity;
+  const captureSessionId = getOrCreateCaptureSessionId();
+  if (activeCaptureAuthority?.captureSessionId === captureSessionId) {
+    return { ok: true, workspaceId, workpieceId, createdCradle: false, plannerRecordingSessionId, captureSessionId, captureAuthority: activeCaptureAuthority };
+  }
+  const operationKey = `anvil-capture:${captureSessionId}`;
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-capture-authority`, {
+    method: "POST",
+    headers: await buildHeaders(apiToken),
+    body: JSON.stringify({
+      workspace_id: workspaceId,
+      capture_session_id: captureSessionId,
+      operation_key: operationKey,
+      recording_session_id: plannerRecordingSessionId,
+      venue_version: getWrittenBy().tool_version
+    })
+  });
+  const body = await readBodyAsJson(response);
+  const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+  const row = data?.capture_authority;
+  const execution = data?.venue_execution;
+  const authorityId = normalizeUuid2(row?.id);
+  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString4(data?.outcome) ?? "")) {
+    const apiError = extractApiError(body);
+    return { ok: false, reason: readString4(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
+  }
+  const authority = Object.freeze({
+    id: authorityId,
+    captureSessionId: normalizeUuid2(execution?.execution_id),
+    workspaceId: normalizeUuid2(row?.workspace_id),
+    workpieceId: normalizeUuid2(row?.workpiece_id),
+    recordingSessionId: normalizeUuid2(row?.recording_session_id),
+    readyTransitionId: normalizeUuid2(row?.ready_transition_id),
+    scriptBindingKind: row?.script_binding_kind === "approved_canonical_script" ? "approved_canonical_script" : "none",
+    scriptPath: readString4(row?.script_path),
+    scriptRevision: row?.script_revision != null && Number.isInteger(Number(row.script_revision)) ? Number(row.script_revision) : null,
+    scriptHash: readString4(row?.script_hash)?.toLowerCase() ?? null,
+    scriptApprovalId: normalizeUuid2(row?.script_approval_id),
+    scriptApprovalRevision: row?.script_approval_revision != null && Number.isInteger(Number(row.script_approval_revision)) ? Number(row.script_approval_revision) : null,
+    scriptApprovalHash: readString4(row?.script_approval_hash)?.toLowerCase() ?? null,
+    operationKey: readString4(row?.operation_key),
+    provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established"
+  });
+  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId) {
+    return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
+  }
+  if (authority.scriptBindingKind === "approved_canonical_script" && (!authority.scriptPath || !authority.scriptRevision || !authority.scriptHash || !authority.scriptApprovalId || !authority.scriptApprovalRevision || authority.scriptApprovalHash !== authority.scriptHash || normalizeUuid2(identity?.scriptApprovalId) !== authority.scriptApprovalId || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision || readString4(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash)) {
+    return { ok: false, reason: "displayed_script_approval_mismatch", status: 409, details: body, workspaceId, workpieceId };
+  }
+  activeCaptureAuthority = authority;
+  writeSessionStorage(CAPTURE_AUTHORITY_KEY, authority.id);
+  return {
+    ok: true,
+    workspaceId,
+    workpieceId,
+    createdCradle: false,
+    plannerRecordingSessionId,
+    captureSessionId,
+    captureAuthority: authority
+  };
+}
+async function ensureRecordingCaptureTarget() {
+  return resolveRecordingCaptureTarget();
+}
+async function commitRecordingJsonArtifactToTongs(input) {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const commit = await commitFileToWorkpiece(
+    input.workpieceId,
+    {
+      path: input.path,
+      content_type: "application/json",
+      written_by: writtenBy,
+      bytes_base64: encodeBase64(new TextEncoder().encode(JSON.stringify(input.data))),
+      event_name: input.eventName,
+      event_payload: input.eventPayload ?? null,
+      correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
+    },
+    apiToken
+  );
+  if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
+    return {
+      ok: false,
+      reason: "commit_json_artifact_failed",
+      status: commit.status,
+      details: commit.body,
+      ...apiError.code ? { errorCode: apiError.code } : {},
+      ...apiError.message ? { errorMessage: apiError.message } : {},
+      workpieceId: input.workpieceId,
+      path: input.path
+    };
+  }
+  return {
+    ok: true,
+    status: commit.status,
+    workpieceId: input.workpieceId,
+    path: input.path
+  };
+}
+async function uploadRecordingWithStrategy(args) {
+  if (args.strategy === "single") {
+    args.onStatus?.({
+      phase: "uploading",
+      chunkIndex: 1,
+      totalChunks: 1,
+      chunkBytes: args.source.size,
+      progressPct: 0
+    });
+    return commitFileToWorkpiece(
+      args.workpieceId,
+      {
+        ...args.commitPayloadBase,
+        bytes_base64: encodeBase64(await args.source.read(0, args.source.size))
+      },
+      args.apiToken
+    );
+  }
+  const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
+  const chunks = buildRecordingChunks(args.source.size, chunkSizeBytes);
+  const begin = await beginChunkedRecordingUpload(
+    args.workpieceId,
+    {
+      ...args.commitPayloadBase,
+      ...args.uploadId ? { upload_id: args.uploadId } : {},
+      total_bytes: args.source.size,
+      total_chunks: chunks.length,
+      chunk_size_bytes: chunkSizeBytes,
+      strategy: "chunked"
+    },
+    args.apiToken
+  );
+  if (!begin.ok || !begin.data?.upload_id) {
+    return {
+      status: begin.status,
+      body: begin.body,
+      ok: false
+    };
+  }
+  if (begin.data.finalized_result) {
+    return { status: begin.status, body: { ok: true, data: begin.data.finalized_result }, ok: true };
+  }
+  const uploadId = begin.data.upload_id;
+  const uploadedChunks = new Set(
+    (begin.data.uploaded_chunks || []).filter((value) => Number.isInteger(value) && value >= 0)
+  );
+  const progressPctFor = (uploadedCount, totalChunks) => Math.max(0, Math.min(100, Math.round(uploadedCount / Math.max(1, totalChunks) * 100)));
+  args.onStatus?.({
+    phase: "uploading",
+    chunkIndex: uploadedChunks.size > 0 ? uploadedChunks.size : 1,
+    totalChunks: chunks.length,
+    chunkBytes: chunks[0]?.size ?? null,
+    progressPct: progressPctFor(uploadedChunks.size, chunks.length)
+  });
+  for (const chunk of chunks) {
+    if (uploadedChunks.has(chunk.index)) {
+      try {
+        console.info("[recording/upload] chunk-complete", {
+          index: chunk.index + 1,
+          total: chunk.totalChunks,
+          bytes: chunk.size,
+          skipped: true
+        });
+      } catch {
+      }
+      args.onStatus?.({
+        phase: "uploading",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
+      });
+      continue;
+    }
+    try {
+      console.info("[recording/upload] chunk-start", {
+        index: chunk.index + 1,
+        total: chunk.totalChunks,
+        bytes: chunk.size
+      });
+    } catch {
+    }
+    let completed = false;
+    let lastFailure = null;
+    for (let attempt = 1; attempt <= CHUNK_UPLOAD_RETRY_ATTEMPTS; attempt += 1) {
+      const payload = {
+        index: chunk.index,
+        total_chunks: chunk.totalChunks,
+        bytes_base64: encodeBase64(await args.source.read(chunk.startByte, chunk.endByte))
+      };
+      const chunkResult = await uploadChunkToSession(args.workpieceId, uploadId, payload, args.apiToken);
+      if (chunkResult.ok) {
+        completed = true;
+        uploadedChunks.add(chunk.index);
+        try {
+          console.info("[recording/upload] chunk-complete", {
+            index: chunk.index + 1,
+            total: chunk.totalChunks,
+            bytes: chunk.size
+          });
+        } catch {
+        }
+        args.onStatus?.({
+          phase: "uploading",
+          chunkIndex: chunk.index + 1,
+          totalChunks: chunk.totalChunks,
+          chunkBytes: chunk.size,
+          progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
+        });
+        break;
+      }
+      lastFailure = { status: chunkResult.status, body: chunkResult.body };
+      try {
+        console.warn("[recording/upload] chunk-failed", {
+          index: chunk.index + 1,
+          total: chunk.totalChunks,
+          attempt,
+          status: chunkResult.status,
+          error: chunkResult.body
+        });
+      } catch {
+      }
+      if (attempt < CHUNK_UPLOAD_RETRY_ATTEMPTS) {
+        await sleep2(CHUNK_UPLOAD_RETRY_BACKOFF_MS * attempt);
+      }
+    }
+    if (!completed) {
+      const apiError = extractApiError(lastFailure?.body ?? null);
+      args.onStatus?.({
+        phase: "failed",
+        chunkIndex: chunk.index + 1,
+        totalChunks: chunk.totalChunks,
+        chunkBytes: chunk.size,
+        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
+        errorCode: apiError.code ?? "chunk_upload_failed",
+        errorMessage: apiError.message ?? "Failed uploading chunk"
+      });
+      return {
+        status: lastFailure?.status ?? 500,
+        body: {
+          ok: false,
+          error: {
+            code: "chunk_upload_failed",
+            message: "Failed uploading chunk",
+            index: chunk.index,
+            total_chunks: chunk.totalChunks,
+            details: lastFailure?.body ?? null
+          }
+        },
+        ok: false
+      };
+    }
+  }
+  try {
+    console.info("[recording/upload] finalize-start", {
+      totalChunks: chunks.length,
+      totalBytes: args.source.size
+    });
+  } catch {
+  }
+  args.onStatus?.({
+    phase: "finalizing",
+    chunkIndex: chunks.length,
+    totalChunks: chunks.length,
+    chunkBytes: null,
+    progressPct: 100
+  });
+  const finalize = await finalizeChunkedRecordingUpload(
+    args.workpieceId,
+    uploadId,
+    {
+      correlation_id: nextCorrelationId("anvil-recording-finalize")
+    },
+    args.apiToken
+  );
+  if (finalize.ok) {
+    try {
+      console.info("[recording/upload] finalize-complete", {
+        objectId: finalize.data?.path ?? null,
+        totalChunks: chunks.length,
+        totalBytes: args.source.size
+      });
+    } catch {
+    }
+  }
+  return {
+    status: finalize.status,
+    body: finalize.body,
+    ok: finalize.ok
+  };
+}
+async function commitRecordingSourceToTongs(input) {
+  const apiToken = getApiToken();
+  const writtenBy = getWrittenBy();
+  const authority = input.captureAuthority;
+  const workspaceId = authority.workspaceId;
+  const workpieceId = authority.workpieceId;
+  const createdCradle = false;
+  const plannerRecordingSessionId = authority.recordingSessionId;
+  const name = sanitizeFilename(input.originalName);
+  const path = `recordings/${name}`;
+  const contentType = inferContentType(input.contentType, name);
+  const captureSessionId = authority.captureSessionId;
+  const uploadConfig = resolveUploadStrategyConfig();
+  const strategy = input.uploadId ? "chunked" : selectUploadStrategyForBytes(input.source.size, uploadConfig);
+  const bytesMb = Number((input.source.size / (1024 * 1024)).toFixed(2));
+  const thresholdExceeded = input.source.size > mbToBytes(uploadConfig.largeUploadWarnMb);
+  const sessionRunKey = readSessionRunKey(captureSessionId);
+  const title = deriveRecordingTitleFromName(input.originalName);
+  const scriptHash = readScriptHash2();
+  const commitPathMode = strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single";
+  const emitUploadStatus = (phase, patch = {}) => {
+    emitRecordingUploadStatus({
+      phase,
+      strategy,
+      bytes: input.source.size,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded,
+      ...patch
+    });
+  };
+  try {
+    console.info("[recording/upload] blob-summary", {
+      bytes: input.source.size,
+      mb: bytesMb,
+      sessionRunKey,
+      workpieceId,
+      workspaceId,
+      title,
+      scriptHash,
+      strategy,
+      destinationPath: path,
+      commitPathMode,
+      warningThresholdMb: uploadConfig.largeUploadWarnMb,
+      warningThresholdExceeded: thresholdExceeded
+    });
+  } catch {
+  }
+  if (thresholdExceeded) {
+    emitLargeUploadWarning({
+      bytes: input.source.size,
+      mb: bytesMb,
+      thresholdMb: uploadConfig.largeUploadWarnMb,
+      strategy,
+      path
+    });
+  }
+  emitUploadStatus("preflight", {
+    progressPct: 0,
+    safeToLeave: false,
+    chunkIndex: 0,
+    totalChunks: strategy === "chunked" ? null : 1
+  });
+  const commitPayloadBase = {
+    capture_authority_id: authority.id,
+    path,
+    content_type: contentType,
+    written_by: writtenBy,
+    event_name: "anvil.recording.artifact.saved.v1",
+    event_payload: {
+      source: input.recordingMedium === "obs" ? "anvil.obs" : "anvil.local-auto",
+      file_path: path,
+      original_name: input.originalName,
+      bytes: input.source.size,
+      content_type: contentType,
+      created_cradle: createdCradle,
+      recording_session_id: plannerRecordingSessionId,
+      anvil_capture_session_id: captureSessionId,
+      transcript_path: input.transcriptPath ?? null,
+      transcript_status: input.transcriptStatus ?? null,
+      recording_medium: input.recordingMedium ?? null,
+      requires_post_normalization: input.requiresPostNormalization === true,
+      upload_strategy: strategy
+    },
+    correlation_id: nextCorrelationId("anvil-recording")
+  };
+  const commit = await uploadRecordingWithStrategy({
+    strategy,
+    workpieceId,
+    source: input.source,
+    uploadId: input.uploadId,
+    chunkSizeMb: uploadConfig.chunkSizeMb,
+    commitPayloadBase,
+    apiToken,
+    onStatus: (status2) => {
+      emitUploadStatus(status2.phase, {
+        chunkIndex: status2.chunkIndex ?? null,
+        totalChunks: status2.totalChunks ?? null,
+        chunkBytes: status2.chunkBytes ?? null,
+        progressPct: status2.progressPct ?? null,
+        safeToLeave: false,
+        errorCode: status2.errorCode ?? null,
+        errorMessage: status2.errorMessage ?? null
+      });
+    }
+  });
+  if (!commit.ok) {
+    const apiError = extractApiError(commit.body);
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      progressPct: null,
+      errorCode: apiError.code ?? null,
+      errorMessage: apiError.message ?? "Canonical upload failed"
+    });
+    return {
+      ok: false,
+      reason: "commit_failed_same_episode_recoverable",
+      status: commit.status,
+      ...apiError.code ? { errorCode: apiError.code } : {},
+      ...apiError.message ? { errorMessage: apiError.message } : {},
+      details: commit.body,
+      workspaceId,
+      workpieceId
+    };
+  }
+  const commitEnvelope = commit.body && typeof commit.body === "object" && !Array.isArray(commit.body) ? commit.body : {};
+  const commitData = commitEnvelope.data && typeof commitEnvelope.data === "object" && !Array.isArray(commitEnvelope.data) ? commitEnvelope.data : {};
+  const fileRow = commitData.file_row && typeof commitData.file_row === "object" && !Array.isArray(commitData.file_row) ? commitData.file_row : {};
+  const mediaRevision = typeof fileRow.revision === "number" && Number.isInteger(fileRow.revision) && fileRow.revision > 0 ? fileRow.revision : null;
+  const mediaHash = typeof commitData.hash === "string" && /^[0-9a-f]{64}$/i.test(commitData.hash) ? commitData.hash.toLowerCase() : null;
+  if (!mediaRevision || !mediaHash) {
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      errorCode: "canonical_recording_contract_malformed",
+      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash."
+    });
+    return {
+      ok: false,
+      reason: "canonical_recording_contract_malformed",
+      status: 502,
+      errorCode: "canonical_recording_contract_malformed",
+      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash.",
+      details: commit.body,
+      workspaceId,
+      workpieceId
+    };
+  }
+  emitUploadStatus("done", {
+    safeToLeave: true,
+    progressPct: 100,
+    chunkIndex: strategy === "chunked" ? null : 1,
+    totalChunks: strategy === "chunked" ? null : 1,
+    chunkBytes: strategy === "chunked" ? null : input.source.size,
+    finalStorageKey: path
+  });
+  return {
+    ok: true,
+    workpieceId,
+    path,
+    createdCradle,
+    plannerRecordingSessionId,
+    captureSessionId,
+    captureAuthorityId: authority.id,
+    mediaRevision,
+    mediaHash,
+    mediaBytes: input.source.size,
+    mediaContentType: contentType,
+    status: commit.status
+  };
+}
+function readAuthorityRowId(value, key) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value[key];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  return normalizeUuid2(row.id);
+}
+async function transitionRecordingCompleted(input) {
+  const asr = window.__tpCanonicalAsrAuthority;
+  if (!input.commit.captureAuthorityId || input.commit.mediaBytes <= 0) {
+    return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
+  }
+  const evidence = {
+    schema: "forge.recording-completion.v1",
+    completed: true,
+    recording_capture_authority_id: input.commit.captureAuthorityId,
+    venue_version: getWrittenBy().tool_version,
+    asr_diagnostics: {
+      terminal_line_completed: asr?.terminalCompleted === true,
+      unresolved_skipped_line_count: Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines.length : null,
+      covered_lines: Array.isArray(asr?.coveredLines) ? asr.coveredLines : []
+    },
+    artifact_validation: {
+      ok: true,
+      sha256: input.commit.mediaHash,
+      bytes: input.commit.mediaBytes,
+      content_type: input.commit.mediaContentType,
+      duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
+      path: input.commit.path
+    }
+  };
+  const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
+  const requestBody = JSON.stringify({
+    capture_authority_id: input.commit.captureAuthorityId,
+    media_path: input.commit.path,
+    expected_media_revision: input.commit.mediaRevision,
+    expected_media_hash: input.commit.mediaHash,
+    expected_media_bytes: input.commit.mediaBytes,
+    expected_media_content_type: input.commit.mediaContentType,
+    idempotency_key: idempotencyKey,
+    completion_evidence: evidence
+  });
+  try {
+    let response = null;
+    let lastNetworkError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v3`, {
+          method: "POST",
+          headers: await buildHeaders(getApiToken()),
+          body: requestBody
+        });
+        if (response.status < 500 || attempt === 1) break;
+      } catch (error) {
+        lastNetworkError = error;
+        if (attempt === 1) throw error;
+      }
+    }
+    if (!response) throw lastNetworkError ?? new Error("recording_completion_unavailable");
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) {
+      const apiError = extractApiError(body);
+      return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
+    }
+    const outcome = readString4(data?.outcome);
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
+      return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
+    }
+    const completionId = readAuthorityRowId(data, "completion");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
+    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString4(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
+  }
+}
+async function transitionRecordingKept(input) {
+  if (input.commit.captureAuthorityId) return transitionRecordingDecisionV2(input.commit, input.completionId, "keep");
+  const identities = window.__forgeRecordingScriptIdentityByCapture;
+  const currentIdentity = window.__forgeCanonicalScriptIdentity;
+  const ready = window.__forgeCanonicalReadyScript;
+  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
+  const identityWorkpieceId = normalizeUuid2(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid2(decisionIdentity?.workspaceId) ?? resolveWorkspaceId2() : resolveWorkspaceId2();
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-keep`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId,
+        idempotency_key: `anvil-keep:${input.completionId}`,
+        decision_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
+    const outcome = readString4(data?.outcome);
+    const keepId = readAuthorityRowId(data, "keep");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
+    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString4(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
+  }
+}
+async function commitRecordingBytesToTongs(input) {
+  return commitRecordingSourceToTongs({
+    ...input,
+    source: {
+      size: input.bytes.byteLength,
+      async read(startByte, endByte) {
+        return input.bytes.subarray(startByte, endByte);
+      }
+    }
+  });
+}
+async function commitRecordingFileToTongs(input) {
+  const identityBytes = new TextEncoder().encode([
+    input.captureAuthority.id,
+    input.file.name,
+    input.file.size,
+    input.file.lastModified
+  ].join("|"));
+  const digest = await crypto.subtle.digest("SHA-256", identityBytes);
+  const uploadId = `obs_${Array.from(new Uint8Array(digest)).slice(0, 20).map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+  return commitRecordingSourceToTongs({
+    captureAuthority: input.captureAuthority,
+    originalName: input.originalName ?? input.file.name,
+    contentType: input.file.type || void 0,
+    transcriptPath: input.transcriptPath,
+    transcriptStatus: input.transcriptStatus,
+    recordingMedium: "obs",
+    uploadId,
+    source: {
+      size: input.file.size,
+      async read(startByte, endByte) {
+        return new Uint8Array(await input.file.slice(startByte, endByte).arrayBuffer());
+      }
+    }
+  });
+}
+async function transitionRecordingDecisionV2(commit, completionId, decision) {
+  if (!commit.captureAuthorityId) return { ok: false, outcome: "malformed", reason: "capture_authority_missing" };
+  const evidence = {
+    schema: "anvil.take-decision.v2",
+    decision,
+    completion_id: completionId,
+    recording_capture_authority_id: commit.captureAuthorityId
+  };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(commit.workpieceId)}/recording-decision-v2`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        capture_authority_id: commit.captureAuthorityId,
+        completion_id: completionId,
+        decision,
+        idempotency_key: `anvil-${decision}:${completionId}`,
+        decision_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? `recording_${decision}_unavailable`, details: body };
+    const outcome = readString4(data?.outcome);
+    const rowKey = decision === "keep" ? "keep" : "discard";
+    const rowId = readAuthorityRowId(data, rowKey);
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!rowId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: `recording_${decision}_response_malformed`, details: body };
+    return {
+      ok: accepted,
+      outcome,
+      ...decision === "keep" && rowId ? { keepId: rowId } : {},
+      ...decision === "discard" && rowId ? { discardId: rowId } : {},
+      reason: readString4(data?.reason) ?? void 0,
+      details: data
+    };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : `recording_${decision}_unavailable` };
+  }
+}
+async function transitionRecordingDiscarded(input) {
+  if (input.commit.captureAuthorityId) return transitionRecordingDecisionV2(input.commit, input.completionId, "discard");
+  const identities = window.__forgeRecordingScriptIdentityByCapture;
+  const currentIdentity = window.__forgeCanonicalScriptIdentity;
+  const ready = window.__forgeCanonicalReadyScript;
+  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
+  const identityWorkpieceId = normalizeUuid2(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid2(decisionIdentity?.workspaceId) ?? resolveWorkspaceId2() : resolveWorkspaceId2();
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-discard`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId,
+        idempotency_key: `anvil-discard:${input.completionId}`,
+        decision_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_discard_unavailable", details: body };
+    const outcome = readString4(data?.outcome);
+    const discardId = readAuthorityRowId(data, "discard");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!discardId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_discard_response_malformed", details: body };
+    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString4(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_discard_unavailable" };
+  }
+}
+async function readPendingRecordingDecisions() {
+  const ready = window.__forgeCanonicalReadyScript;
+  const workspaceId = normalizeUuid2(ready?.workspaceId) ?? normalizeUuid2(getQueryParam2("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid2(ready?.workpieceId) ?? normalizeUuid2(getQueryParam2("workpiece_id", "workpieceId"));
+  if (!workspaceId || !workpieceId) return [];
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok || data?.outcome !== "ok" || !Array.isArray(data.pending)) return [];
+    return data.pending.flatMap((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return [];
+      const value = row;
+      const completionId = normalizeUuid2(value.completion_id);
+      const captureSessionId = normalizeUuid2(value.capture_session_id);
+      const captureAuthorityId = normalizeUuid2(value.recording_capture_authority_id);
+      const rowWorkpieceId = normalizeUuid2(value.workpiece_id);
+      const mediaPath = readString4(value.media_path);
+      return completionId && captureSessionId && captureAuthorityId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, captureAuthorityId, workpieceId, mediaPath }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, CAPTURE_SESSION_KEY, CAPTURE_AUTHORITY_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq, activeCaptureAuthority;
+var init_workpiece_commit = __esm({
+  "src/forge/workpiece-commit.ts"() {
     "use strict";
+    init_tongs_user_auth();
+    UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    DEFAULT_TOOL_VERSION = "1.8.5";
+    DEFAULT_LANE = "forge-managed";
+    WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
+    CAPTURE_AUTHORITY_KEY = "forge_anvil_capture_authority_id_v1";
+    PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
+    LARGE_UPLOAD_WARN_MB_KEY = "ANVIL_LARGE_UPLOAD_WARN_MB";
+    CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
+    CHUNK_SIZE_MB_KEY = "ANVIL_CHUNK_SIZE_MB";
+    DEFAULT_LARGE_UPLOAD_WARN_MB = 100;
+    DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 32;
+    DEFAULT_CHUNK_SIZE_MB = 8;
+    CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
+    CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
+    correlationSeq = 0;
+    activeCaptureAuthority = null;
   }
 });
 
@@ -77130,7 +78139,7 @@ var init_whisper_bridge = __esm({
     init_active_profile();
     init_recorderRegistry();
     init_workpiece_context();
-    init_customer_spending_confirmation();
+    init_workpiece_commit();
     WhisperBridgeHttpError = class extends Error {
       status;
       payload;
@@ -78560,7 +79569,18 @@ var init_whisper_bridge = __esm({
         const workpieceId = resolveActiveWorkpieceId();
         if (workspaceId) form.set("workspace_id", workspaceId);
         if (workpieceId) form.set("workpiece_id", workpieceId);
+        const recordingAttribution = resolveActiveRecordingCostAttribution();
+        if (recordingAttribution.recordingSessionId) {
+          form.set("recording_session_id", recordingAttribution.recordingSessionId);
+        }
+        if (recordingAttribution.recordingCaptureAuthorityId) {
+          form.set("recording_capture_authority_id", recordingAttribution.recordingCaptureAuthorityId);
+        }
+        if (recordingAttribution.anvilCaptureExecutionId) {
+          form.set("anvil_capture_execution_id", recordingAttribution.anvilCaptureExecutionId);
+        }
         form.set("source_asset_revision", `${this.readRunMeta().runKey ?? "anvil-session"}:generation:${requestGeneration}:chunk:${seq}`);
+        form.set("operation_created_at", new Date(chunk.captureStartedAtMs ?? chunk.enqueueTs).toISOString());
         if (typeof durationMs === "number" && Number.isFinite(durationMs)) {
           form.set("duration_ms", String(Math.max(0, Math.round(durationMs))));
         }
@@ -78641,15 +79661,6 @@ var init_whisper_bridge = __esm({
           } catch {
           }
           response = await submit(form);
-          if (response.status === 409 || response.status === 402) {
-            const quoted = await response.clone().json().catch(() => null);
-            const quote = readCustomerSpendingQuote(quoted);
-            const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
-            if (acceptance) {
-              form.set("spending_acceptance", JSON.stringify(acceptance));
-              response = await submit(form);
-            }
-          }
         } finally {
           this.inFlightTranscriptionControllers.delete(abortController);
         }
@@ -88307,7 +89318,7 @@ var init_authProfile = __esm({
 });
 
 // src/forge/forge-nav.ts
-function readString4(value) {
+function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
@@ -88320,17 +89331,17 @@ function normalizePayload(raw) {
   const tree = [];
   for (const section of raw.tree) {
     if (!isRecord(section)) continue;
-    const id = readString4(section.id);
-    const title = readString4(section.title) ?? void 0;
+    const id = readString5(section.id);
+    const title = readString5(section.title) ?? void 0;
     const rawItems = Array.isArray(section.items) ? section.items : [];
     if (!id || rawItems.length === 0) continue;
     const items = [];
     for (const item of rawItems) {
       if (!isRecord(item)) continue;
-      const itemId = readString4(item.id);
-      const label = readString4(item.label);
-      const to = readString4(item.to) ?? void 0;
-      const href = readString4(item.href) ?? void 0;
+      const itemId = readString5(item.id);
+      const label = readString5(item.label);
+      const to = readString5(item.to) ?? void 0;
+      const href = readString5(item.href) ?? void 0;
       if (!itemId || !label || !to && !href) continue;
       items.push({ id: itemId, label, to, href });
     }
@@ -88340,16 +89351,16 @@ function normalizePayload(raw) {
   if (!tree.length) return null;
   return {
     schema: typeof raw.schema === "number" ? raw.schema : 1,
-    generated_at: readString4(raw.generated_at),
+    generated_at: readString5(raw.generated_at),
     tree
   };
 }
 function getForgeHubOrigin2() {
   const win = window;
-  const fromEnv = readString4(win.FORGE_HUB_ORIGIN);
+  const fromEnv = readString5(win.FORGE_HUB_ORIGIN);
   if (fromEnv) return fromEnv;
-  const fromForgeConfig = readString4(win.__forgeAppOrigin);
-  const currentOrigin = readString4(window.location.origin);
+  const fromForgeConfig = readString5(win.__forgeAppOrigin);
+  const currentOrigin = readString5(window.location.origin);
   if (!fromForgeConfig) return currentOrigin ?? "";
   try {
     const current2 = new URL(currentOrigin ?? "http://localhost");
@@ -88363,9 +89374,9 @@ function getForgeHubOrigin2() {
 }
 function getBuildId() {
   const win = window;
-  const explicit = readString4(win.FORGE_BUILD_ID);
+  const explicit = readString5(win.FORGE_BUILD_ID);
   if (explicit) return explicit;
-  return readString4(win.APP_VERSION) ?? null;
+  return readString5(win.APP_VERSION) ?? null;
 }
 function buildNavUrl() {
   const base = getForgeHubOrigin2() || window.location.origin;
@@ -88739,7 +89750,7 @@ function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
     const actionTrigger = target.closest("[data-forge-nav-action-id]");
     if (actionTrigger) {
       event.preventDefault();
-      const actionId = readString4(actionTrigger.dataset.forgeNavActionId) ?? null;
+      const actionId = readString5(actionTrigger.dataset.forgeNavActionId) ?? null;
       if (!actionId) return;
       const action2 = extraActionHandlers.get(actionId);
       if (!action2) return;
@@ -88753,7 +89764,7 @@ function wireOverlayLinks(panel, closeOverlay, extraActionHandlers) {
     const action = target.closest("[data-forge-nav-href]");
     if (!action) return;
     event.preventDefault();
-    const targetHref = readString4(action.dataset.forgeNavHref) ?? null;
+    const targetHref = readString5(action.dataset.forgeNavHref) ?? null;
     if (!targetHref || targetHref === "#") return;
     closeOverlay();
     navigateFromOverlay(targetHref);
@@ -88779,7 +89790,7 @@ async function openForgeMenuOverlay() {
   wireOverlayLinks(panel, closeOverlay, extraActionHandlers);
 }
 function initForgeMenu(opts = {}) {
-  const mountId = readString4(opts.mountId) ?? DEFAULT_MOUNT_ID;
+  const mountId = readString5(opts.mountId) ?? DEFAULT_MOUNT_ID;
   const mount = document.getElementById(mountId);
   if (!mount) return;
   const win = window;
@@ -89966,7 +90977,7 @@ var init_presentation_scroll_mode_authority = __esm({
 });
 
 // src/net/display-ws-endpoint.ts
-function readString5(value) {
+function readString6(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -89974,7 +90985,7 @@ function readString5(value) {
 function resolveConfiguredBase() {
   const w3 = typeof window !== "undefined" ? window : {};
   const metaEnv3 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
-  return readString5(w3.__TP_DISPLAY_WS_URL) || readString5(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
+  return readString6(w3.__TP_DISPLAY_WS_URL) || readString6(metaEnv3.VITE_DISPLAY_WS_URL) || DEFAULT_DISPLAY_WS_BASE;
 }
 function normalizeWsBase(candidate) {
   try {
@@ -89996,7 +91007,7 @@ function resolveDisplayWsBase() {
   return normalizeWsBase(resolveConfiguredBase()) || DEFAULT_DISPLAY_WS_BASE;
 }
 function buildDisplayWsUrl(pairToken) {
-  const token = readString5(pairToken);
+  const token = readString6(pairToken);
   if (!token) return null;
   try {
     const url = new URL(resolveDisplayWsBase());
@@ -91391,19 +92402,19 @@ var init_workpiece_performance_entrypoint = __esm({
 });
 
 // src/forge/workpiece-script-handoff.ts
-function readString6(value) {
+function readString7(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid2(value) {
-  const str = readString6(value);
+function normalizeUuid3(value) {
+  const str = readString7(value);
   if (!str) return null;
-  return UUID_RE2.test(str) ? str.toLowerCase() : null;
+  return UUID_RE3.test(str) ? str.toLowerCase() : null;
 }
-function readLocalStorage2(key) {
+function readLocalStorage3(key) {
   try {
-    return readString6(window.localStorage.getItem(key));
+    return readString7(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -91414,43 +92425,43 @@ function writeLocalStorage2(key, value) {
   } catch {
   }
 }
-function getQueryParam2(...keys) {
+function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString6(q3.get(key));
+      const value = readString7(q3.get(key));
       if (value) return value;
     }
   } catch {
   }
   return null;
 }
-function resolveWorkspaceId2() {
-  const fromQuery = normalizeUuid2(getQueryParam2("workspace_id", "workspaceId", "workspace"));
+function resolveWorkspaceId3() {
+  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid2(
+  const fromWindow = normalizeUuid3(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS2) {
-    const value = normalizeUuid2(readLocalStorage2(key));
+  for (const key of WORKSPACE_STORAGE_KEYS3) {
+    const value = normalizeUuid3(readLocalStorage3(key));
     if (value) return value;
   }
   return null;
 }
 function resolveWorkpieceId() {
-  const fromQuery = normalizeUuid2(
-    getQueryParam2("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  const fromQuery = normalizeUuid3(
+    getQueryParam3("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
   );
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid2(
+  const fromWindow = normalizeUuid3(
     w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
   );
   if (fromWindow) return fromWindow;
   for (const key of WORKPIECE_STORAGE_KEYS2) {
-    const value = normalizeUuid2(readLocalStorage2(key));
+    const value = normalizeUuid3(readLocalStorage3(key));
     if (value) return value;
   }
   return null;
@@ -91462,29 +92473,29 @@ function persistWorkpiece(workspaceId, workpieceId) {
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString6(getQueryParam2("open", "intent", "action"))?.toLowerCase();
+  const open = readString7(getQueryParam3("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString6(getQueryParam2("script_path", "path")));
+  return Boolean(readString7(getQueryParam3("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString6(getQueryParam2("script_path", "path"));
+  const fromQuery = readString7(getQueryParam3("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString6(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString7(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString7(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta2 = import.meta;
-    const fromEnv = readString6(meta2.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString7(meta2.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
-  return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
+  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
 }
 function fileNameFromPath(path) {
   const idx = path.lastIndexOf("/");
@@ -91551,9 +92562,9 @@ async function readWorkpieceScript(workpieceId, path) {
   const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
   const text = typeof data?.script_text === "string" ? data.script_text : "";
   const revision = Number(data?.source_file_revision);
-  const hash = readString6(data?.script_content_hash)?.toLowerCase() ?? "";
-  const readyTransitionId = normalizeUuid2(data?.ready_transition_id);
-  const scriptApprovalId = normalizeUuid2(data?.script_approval_id);
+  const hash = readString7(data?.script_content_hash)?.toLowerCase() ?? "";
+  const readyTransitionId = normalizeUuid3(data?.ready_transition_id);
+  const scriptApprovalId = normalizeUuid3(data?.script_approval_id);
   const scriptApprovalRevision = Number(data?.script_approval_revision);
   if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) return { ok: false, reason: "invalid_response", status: response.status };
   return { ok: true, text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
@@ -91564,7 +92575,7 @@ async function loadWorkpieceScriptOnBoot() {
   if (!shouldAutoloadWorkpieceScript()) return;
   const workpieceId = resolveWorkpieceId();
   if (!workpieceId) return;
-  const workspaceId = resolveWorkspaceId2();
+  const workspaceId = resolveWorkspaceId3();
   persistWorkpiece(workspaceId, workpieceId);
   const path = resolveScriptPath();
   const readResult = await readWorkpieceScript(workpieceId, path);
@@ -91638,7 +92649,7 @@ function bootstrapWorkpieceScriptHandoff() {
     run();
   }
 }
-var UUID_RE2, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, booted;
+var UUID_RE3, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS3, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, booted;
 var init_workpiece_script_handoff = __esm({
   "src/forge/workpiece-script-handoff.ts"() {
     "use strict";
@@ -91646,9 +92657,9 @@ var init_workpiece_script_handoff = __esm({
     init_app_store();
     init_workpiece_performance_entrypoint();
     init_tongs_user_auth();
-    UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_SCRIPT_PATH = "script/script.md";
-    WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
+    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
     WORKPIECE_STORAGE_KEYS2 = [
       "forge_active_workpiece_id_v1",
       "forge_workpiece_id_v1",
@@ -92030,7 +93041,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString7(value, fallback) {
+function readString8(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -92039,14 +93050,14 @@ function readString7(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString7(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString8(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString7(src.color, fallback.color),
-    background: readString7(src.background, fallback.background),
+    color: readString8(src.color, fallback.color),
+    background: readString8(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -93725,1105 +94736,6 @@ var init_rec_pills = __esm({
   }
 });
 
-// src/forge/workpiece-commit.ts
-function readString8(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-function normalizeUuid3(value) {
-  const str = readString8(value);
-  if (!str) return null;
-  return UUID_RE3.test(str) ? str.toLowerCase() : null;
-}
-function readLocalStorage3(key) {
-  try {
-    return readString8(localStorage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-function readSessionStorage(key) {
-  try {
-    return readString8(sessionStorage.getItem(key));
-  } catch {
-    return null;
-  }
-}
-function writeSessionStorage(key, value) {
-  try {
-    sessionStorage.setItem(key, value);
-  } catch {
-  }
-}
-function getQueryParam3(...keys) {
-  try {
-    const q3 = new URLSearchParams(window.location.search || "");
-    for (const key of keys) {
-      const value = readString8(q3.get(key));
-      if (value) return value;
-    }
-  } catch {
-  }
-  return null;
-}
-function toPositiveNumber(raw) {
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-function readNumericConfig(key) {
-  const fromQuery = toPositiveNumber(getQueryParam3(key, key.toLowerCase()));
-  if (fromQuery != null) return fromQuery;
-  try {
-    const fromWindow = toPositiveNumber(window?.[key]);
-    if (fromWindow != null) return fromWindow;
-  } catch {
-  }
-  const fromStorage = toPositiveNumber(readLocalStorage3(key) ?? readLocalStorage3(key.toLowerCase()));
-  if (fromStorage != null) return fromStorage;
-  return null;
-}
-function mbToBytes(mb) {
-  return Math.max(1, Math.floor(mb * 1024 * 1024));
-}
-function resolveUploadStrategyConfig() {
-  const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
-  const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
-  const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
-  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
-  return {
-    largeUploadWarnMb,
-    chunkUploadThresholdMb,
-    chunkSizeMb
-  };
-}
-function selectUploadStrategyForBytes(byteLength, config) {
-  const cfg = {
-    ...resolveUploadStrategyConfig(),
-    ...config
-  };
-  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
-  return byteLength > thresholdBytes ? "chunked" : "single";
-}
-function buildRecordingChunks(totalBytes, chunkSizeBytes) {
-  const normalizedTotal = Math.max(0, Math.floor(totalBytes));
-  const normalizedChunkSize = Math.max(1, Math.floor(chunkSizeBytes));
-  const totalChunks = Math.max(1, Math.ceil(normalizedTotal / normalizedChunkSize));
-  const chunks = [];
-  for (let index = 0; index < totalChunks; index += 1) {
-    const startByte = index * normalizedChunkSize;
-    const endByte = Math.min(normalizedTotal, startByte + normalizedChunkSize);
-    chunks.push({
-      index,
-      startByte,
-      endByte,
-      size: Math.max(0, endByte - startByte),
-      totalChunks
-    });
-  }
-  return chunks;
-}
-function deriveRecordingTitleFromName(name) {
-  const normalized = String(name || "").trim();
-  if (!normalized) return "Untitled";
-  const noPath = normalized.split(/[\\/]/).pop() || normalized;
-  const noExt = noPath.replace(/\.[^.]+$/, "").trim();
-  return noExt || noPath || "Untitled";
-}
-function resolveLane() {
-  const w3 = window;
-  const fromQuery = readString8(getQueryParam3("forge_lane", "lane"));
-  if (fromQuery) return fromQuery;
-  const fromWindow = readString8(w3.__forgeLane ?? w3.__tpLane);
-  if (fromWindow) return fromWindow;
-  const fromStorage = readString8(readLocalStorage3("forge_lane_v1"));
-  if (fromStorage) return fromStorage;
-  return DEFAULT_LANE;
-}
-function getWrittenBy() {
-  const version5 = readString8(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
-  return {
-    tool: "anvil",
-    tool_version: version5,
-    lane: resolveLane()
-  };
-}
-function getApiToken() {
-  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
-  if (fromQuery) return fromQuery;
-  const fromWindow = readString8(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
-  if (fromWindow) return fromWindow;
-  return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
-}
-function getOrCreateCaptureSessionId() {
-  const existing = readSessionStorage(CAPTURE_SESSION_KEY);
-  if (existing) {
-    window.__tpAnvilCaptureSessionId = existing;
-    return existing;
-  }
-  let next = "";
-  try {
-    const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString8(randomUuid) || "";
-  } catch {
-  }
-  if (!next) {
-    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-  writeSessionStorage(CAPTURE_SESSION_KEY, next);
-  window.__tpAnvilCaptureSessionId = next;
-  return next;
-}
-function beginRecordingCaptureSession() {
-  activeCaptureAuthority = null;
-  let next = "";
-  try {
-    const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString8(randomUuid) || "";
-  } catch {
-  }
-  if (!next) {
-    next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  }
-  writeSessionStorage(CAPTURE_SESSION_KEY, next);
-  writeSessionStorage(CAPTURE_AUTHORITY_KEY, "");
-  window.__tpAnvilCaptureSessionId = next;
-  const identity = window.__forgeCanonicalScriptIdentity;
-  if (identity && typeof identity === "object") {
-    window.__forgeRecordingScriptIdentityByCapture ??= {};
-    window.__forgeRecordingScriptIdentityByCapture[next] = { ...identity };
-  }
-  return next;
-}
-function nextCorrelationId(prefix) {
-  correlationSeq += 1;
-  return `${prefix}:${getOrCreateCaptureSessionId()}:${correlationSeq}`;
-}
-function resolvePlannerRecordingSessionId() {
-  return normalizeUuid3(readLocalStorage3(PLANNER_RECORDING_SESSION_KEY));
-}
-function resolveWorkspaceId3() {
-  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = normalizeUuid3(
-    w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
-  );
-  if (fromWindow) return fromWindow;
-  for (const key of WORKSPACE_STORAGE_KEYS3) {
-    const value = normalizeUuid3(readLocalStorage3(key));
-    if (value) return value;
-  }
-  return null;
-}
-function inferContentType(contentType, name) {
-  const fromInput = readString8(contentType);
-  if (fromInput) return fromInput;
-  const lower = name.toLowerCase();
-  if (lower.endsWith(".wav")) return "audio/wav";
-  if (lower.endsWith(".webm")) return "video/webm";
-  if (lower.endsWith(".mp4")) return "video/mp4";
-  if (lower.endsWith(".mp3")) return "audio/mpeg";
-  return "application/octet-stream";
-}
-function sanitizeFilename(name) {
-  const trimmed = String(name || "").trim();
-  const collapsed = trimmed.replace(/[\\\/]/g, "-").replace(/\s+/g, "_").replace(/_+/g, "_");
-  const safe = collapsed.slice(0, 128).replace(/^_+|_+$/g, "");
-  if (safe) return safe;
-  return `Recording_${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}.webm`;
-}
-async function buildHeaders(apiToken) {
-  const headers = new Headers({
-    "content-type": "application/json"
-  });
-  if (apiToken) {
-    headers.set("authorization", `Bearer ${apiToken}`);
-  }
-  return appendForgeUserAuthorization(headers);
-}
-async function readBodyAsJson(response) {
-  const text = await response.text();
-  const raw = readString8(text);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return { raw };
-  }
-}
-function isCommitAck(body) {
-  const row = body;
-  if (row?.error) return false;
-  return row?.ok === true || row?.success === true || row?.data?.ok === true || row?.data?.success === true;
-}
-function extractApiError(body) {
-  if (!body || typeof body !== "object") return {};
-  const root = body;
-  const code = readString8(root.error?.code);
-  const message = readString8(root.error?.message);
-  return {
-    ...code ? { code } : {},
-    ...message ? { message } : {}
-  };
-}
-function encodeBase64(bytes) {
-  if (!bytes.length) return "";
-  const globalWithBuffer = globalThis;
-  if (globalWithBuffer.Buffer?.from) {
-    return globalWithBuffer.Buffer.from(bytes).toString("base64");
-  }
-  if (typeof btoa !== "function") {
-    throw new Error("No base64 encoder available in runtime");
-  }
-  const CHUNK = 32768;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
-async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
-    method: "POST",
-    headers: await buildHeaders(apiToken),
-    body: JSON.stringify(payload)
-  });
-  const body = await readBodyAsJson(response);
-  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
-}
-async function beginChunkedRecordingUpload(workpieceId, payload, apiToken) {
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/begin`, {
-    method: "POST",
-    headers: await buildHeaders(apiToken),
-    body: JSON.stringify(payload)
-  });
-  const body = await readBodyAsJson(response);
-  const data = body?.data ?? null;
-  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
-}
-async function uploadChunkToSession(workpieceId, uploadId, payload, apiToken) {
-  const response = await fetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/chunk`,
-    {
-      method: "POST",
-      headers: await buildHeaders(apiToken),
-      body: JSON.stringify(payload)
-    }
-  );
-  const body = await readBodyAsJson(response);
-  return { status: response.status, body, ok: response.ok && isCommitAck(body) };
-}
-async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, apiToken) {
-  const response = await fetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/finalize`,
-    {
-      method: "POST",
-      headers: await buildHeaders(apiToken),
-      body: JSON.stringify(payload)
-    }
-  );
-  const body = await readBodyAsJson(response);
-  const data = body?.data ?? null;
-  return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
-}
-function readScriptHash2() {
-  try {
-    const raw = window.__TP_LAST_APPLIED_HASH;
-    return readString8(raw);
-  } catch {
-    return null;
-  }
-}
-function readSessionRunKey(captureSessionId) {
-  try {
-    return readString8(window.__tpAsrRunKey) || captureSessionId;
-  } catch {
-    return captureSessionId;
-  }
-}
-function emitLargeUploadWarning(detail) {
-  try {
-    console.warn("[recording/upload] large-upload-warning", detail);
-  } catch {
-  }
-  try {
-    window.dispatchEvent(new CustomEvent("tp:recording:upload-warning", { detail }));
-  } catch {
-  }
-  try {
-    window.HUD?.log?.("recording:upload:large-warning", detail);
-  } catch {
-  }
-}
-function emitRecordingUploadStatus(detail) {
-  try {
-    console.info("[recording/upload] status", detail);
-  } catch {
-  }
-  try {
-    window.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
-  } catch {
-  }
-  try {
-    document.dispatchEvent(new CustomEvent("tp:recording:upload-status", { detail }));
-  } catch {
-  }
-  try {
-    window.HUD?.log?.("recording:upload:status", detail);
-  } catch {
-  }
-}
-function sleep2(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-async function resolveRecordingCaptureTarget() {
-  const apiToken = getApiToken();
-  const workspaceId = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId"));
-  const workpieceId = normalizeUuid3(getQueryParam3("workpiece_id", "workpieceId"));
-  const plannerRecordingSessionId = resolvePlannerRecordingSessionId();
-  if (!workspaceId || !workpieceId) {
-    return { ok: false, reason: "explicit_episode_context_required", workspaceId, workpieceId };
-  }
-  const identity = window.__forgeCanonicalScriptIdentity;
-  const captureSessionId = getOrCreateCaptureSessionId();
-  if (activeCaptureAuthority?.captureSessionId === captureSessionId) {
-    return { ok: true, workspaceId, workpieceId, createdCradle: false, plannerRecordingSessionId, captureSessionId, captureAuthority: activeCaptureAuthority };
-  }
-  const operationKey = `anvil-capture:${captureSessionId}`;
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-capture-authority`, {
-    method: "POST",
-    headers: await buildHeaders(apiToken),
-    body: JSON.stringify({
-      workspace_id: workspaceId,
-      capture_session_id: captureSessionId,
-      operation_key: operationKey,
-      recording_session_id: plannerRecordingSessionId,
-      venue_version: getWrittenBy().tool_version
-    })
-  });
-  const body = await readBodyAsJson(response);
-  const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-  const row = data?.capture_authority;
-  const execution = data?.venue_execution;
-  const authorityId = normalizeUuid3(row?.id);
-  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString8(data?.outcome) ?? "")) {
-    const apiError = extractApiError(body);
-    return { ok: false, reason: readString8(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
-  }
-  const authority = Object.freeze({
-    id: authorityId,
-    captureSessionId: normalizeUuid3(execution?.execution_id),
-    workspaceId: normalizeUuid3(row?.workspace_id),
-    workpieceId: normalizeUuid3(row?.workpiece_id),
-    recordingSessionId: normalizeUuid3(row?.recording_session_id),
-    readyTransitionId: normalizeUuid3(row?.ready_transition_id),
-    scriptBindingKind: row?.script_binding_kind === "approved_canonical_script" ? "approved_canonical_script" : "none",
-    scriptPath: readString8(row?.script_path),
-    scriptRevision: row?.script_revision != null && Number.isInteger(Number(row.script_revision)) ? Number(row.script_revision) : null,
-    scriptHash: readString8(row?.script_hash)?.toLowerCase() ?? null,
-    scriptApprovalId: normalizeUuid3(row?.script_approval_id),
-    scriptApprovalRevision: row?.script_approval_revision != null && Number.isInteger(Number(row.script_approval_revision)) ? Number(row.script_approval_revision) : null,
-    scriptApprovalHash: readString8(row?.script_approval_hash)?.toLowerCase() ?? null,
-    operationKey: readString8(row?.operation_key),
-    provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established"
-  });
-  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId) {
-    return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
-  }
-  if (authority.scriptBindingKind === "approved_canonical_script" && (!authority.scriptPath || !authority.scriptRevision || !authority.scriptHash || !authority.scriptApprovalId || !authority.scriptApprovalRevision || authority.scriptApprovalHash !== authority.scriptHash || normalizeUuid3(identity?.scriptApprovalId) !== authority.scriptApprovalId || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision || readString8(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash)) {
-    return { ok: false, reason: "displayed_script_approval_mismatch", status: 409, details: body, workspaceId, workpieceId };
-  }
-  activeCaptureAuthority = authority;
-  writeSessionStorage(CAPTURE_AUTHORITY_KEY, authority.id);
-  return {
-    ok: true,
-    workspaceId,
-    workpieceId,
-    createdCradle: false,
-    plannerRecordingSessionId,
-    captureSessionId,
-    captureAuthority: authority
-  };
-}
-async function ensureRecordingCaptureTarget() {
-  return resolveRecordingCaptureTarget();
-}
-async function commitRecordingJsonArtifactToTongs(input) {
-  const apiToken = getApiToken();
-  const writtenBy = getWrittenBy();
-  const commit = await commitFileToWorkpiece(
-    input.workpieceId,
-    {
-      path: input.path,
-      content_type: "application/json",
-      written_by: writtenBy,
-      bytes_base64: encodeBase64(new TextEncoder().encode(JSON.stringify(input.data))),
-      event_name: input.eventName,
-      event_payload: input.eventPayload ?? null,
-      correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
-    },
-    apiToken
-  );
-  if (!commit.ok) {
-    const apiError = extractApiError(commit.body);
-    return {
-      ok: false,
-      reason: "commit_json_artifact_failed",
-      status: commit.status,
-      details: commit.body,
-      ...apiError.code ? { errorCode: apiError.code } : {},
-      ...apiError.message ? { errorMessage: apiError.message } : {},
-      workpieceId: input.workpieceId,
-      path: input.path
-    };
-  }
-  return {
-    ok: true,
-    status: commit.status,
-    workpieceId: input.workpieceId,
-    path: input.path
-  };
-}
-async function uploadRecordingWithStrategy(args) {
-  if (args.strategy === "single") {
-    args.onStatus?.({
-      phase: "uploading",
-      chunkIndex: 1,
-      totalChunks: 1,
-      chunkBytes: args.source.size,
-      progressPct: 0
-    });
-    return commitFileToWorkpiece(
-      args.workpieceId,
-      {
-        ...args.commitPayloadBase,
-        bytes_base64: encodeBase64(await args.source.read(0, args.source.size))
-      },
-      args.apiToken
-    );
-  }
-  const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
-  const chunks = buildRecordingChunks(args.source.size, chunkSizeBytes);
-  const begin = await beginChunkedRecordingUpload(
-    args.workpieceId,
-    {
-      ...args.commitPayloadBase,
-      ...args.uploadId ? { upload_id: args.uploadId } : {},
-      total_bytes: args.source.size,
-      total_chunks: chunks.length,
-      chunk_size_bytes: chunkSizeBytes,
-      strategy: "chunked"
-    },
-    args.apiToken
-  );
-  if (!begin.ok || !begin.data?.upload_id) {
-    return {
-      status: begin.status,
-      body: begin.body,
-      ok: false
-    };
-  }
-  if (begin.data.finalized_result) {
-    return { status: begin.status, body: { ok: true, data: begin.data.finalized_result }, ok: true };
-  }
-  const uploadId = begin.data.upload_id;
-  const uploadedChunks = new Set(
-    (begin.data.uploaded_chunks || []).filter((value) => Number.isInteger(value) && value >= 0)
-  );
-  const progressPctFor = (uploadedCount, totalChunks) => Math.max(0, Math.min(100, Math.round(uploadedCount / Math.max(1, totalChunks) * 100)));
-  args.onStatus?.({
-    phase: "uploading",
-    chunkIndex: uploadedChunks.size > 0 ? uploadedChunks.size : 1,
-    totalChunks: chunks.length,
-    chunkBytes: chunks[0]?.size ?? null,
-    progressPct: progressPctFor(uploadedChunks.size, chunks.length)
-  });
-  for (const chunk of chunks) {
-    if (uploadedChunks.has(chunk.index)) {
-      try {
-        console.info("[recording/upload] chunk-complete", {
-          index: chunk.index + 1,
-          total: chunk.totalChunks,
-          bytes: chunk.size,
-          skipped: true
-        });
-      } catch {
-      }
-      args.onStatus?.({
-        phase: "uploading",
-        chunkIndex: chunk.index + 1,
-        totalChunks: chunk.totalChunks,
-        chunkBytes: chunk.size,
-        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
-      });
-      continue;
-    }
-    try {
-      console.info("[recording/upload] chunk-start", {
-        index: chunk.index + 1,
-        total: chunk.totalChunks,
-        bytes: chunk.size
-      });
-    } catch {
-    }
-    let completed = false;
-    let lastFailure = null;
-    for (let attempt = 1; attempt <= CHUNK_UPLOAD_RETRY_ATTEMPTS; attempt += 1) {
-      const payload = {
-        index: chunk.index,
-        total_chunks: chunk.totalChunks,
-        bytes_base64: encodeBase64(await args.source.read(chunk.startByte, chunk.endByte))
-      };
-      const chunkResult = await uploadChunkToSession(args.workpieceId, uploadId, payload, args.apiToken);
-      if (chunkResult.ok) {
-        completed = true;
-        uploadedChunks.add(chunk.index);
-        try {
-          console.info("[recording/upload] chunk-complete", {
-            index: chunk.index + 1,
-            total: chunk.totalChunks,
-            bytes: chunk.size
-          });
-        } catch {
-        }
-        args.onStatus?.({
-          phase: "uploading",
-          chunkIndex: chunk.index + 1,
-          totalChunks: chunk.totalChunks,
-          chunkBytes: chunk.size,
-          progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks)
-        });
-        break;
-      }
-      lastFailure = { status: chunkResult.status, body: chunkResult.body };
-      try {
-        console.warn("[recording/upload] chunk-failed", {
-          index: chunk.index + 1,
-          total: chunk.totalChunks,
-          attempt,
-          status: chunkResult.status,
-          error: chunkResult.body
-        });
-      } catch {
-      }
-      if (attempt < CHUNK_UPLOAD_RETRY_ATTEMPTS) {
-        await sleep2(CHUNK_UPLOAD_RETRY_BACKOFF_MS * attempt);
-      }
-    }
-    if (!completed) {
-      const apiError = extractApiError(lastFailure?.body ?? null);
-      args.onStatus?.({
-        phase: "failed",
-        chunkIndex: chunk.index + 1,
-        totalChunks: chunk.totalChunks,
-        chunkBytes: chunk.size,
-        progressPct: progressPctFor(uploadedChunks.size, chunk.totalChunks),
-        errorCode: apiError.code ?? "chunk_upload_failed",
-        errorMessage: apiError.message ?? "Failed uploading chunk"
-      });
-      return {
-        status: lastFailure?.status ?? 500,
-        body: {
-          ok: false,
-          error: {
-            code: "chunk_upload_failed",
-            message: "Failed uploading chunk",
-            index: chunk.index,
-            total_chunks: chunk.totalChunks,
-            details: lastFailure?.body ?? null
-          }
-        },
-        ok: false
-      };
-    }
-  }
-  try {
-    console.info("[recording/upload] finalize-start", {
-      totalChunks: chunks.length,
-      totalBytes: args.source.size
-    });
-  } catch {
-  }
-  args.onStatus?.({
-    phase: "finalizing",
-    chunkIndex: chunks.length,
-    totalChunks: chunks.length,
-    chunkBytes: null,
-    progressPct: 100
-  });
-  const finalize = await finalizeChunkedRecordingUpload(
-    args.workpieceId,
-    uploadId,
-    {
-      correlation_id: nextCorrelationId("anvil-recording-finalize")
-    },
-    args.apiToken
-  );
-  if (finalize.ok) {
-    try {
-      console.info("[recording/upload] finalize-complete", {
-        objectId: finalize.data?.path ?? null,
-        totalChunks: chunks.length,
-        totalBytes: args.source.size
-      });
-    } catch {
-    }
-  }
-  return {
-    status: finalize.status,
-    body: finalize.body,
-    ok: finalize.ok
-  };
-}
-async function commitRecordingSourceToTongs(input) {
-  const apiToken = getApiToken();
-  const writtenBy = getWrittenBy();
-  const authority = input.captureAuthority;
-  const workspaceId = authority.workspaceId;
-  const workpieceId = authority.workpieceId;
-  const createdCradle = false;
-  const plannerRecordingSessionId = authority.recordingSessionId;
-  const name = sanitizeFilename(input.originalName);
-  const path = `recordings/${name}`;
-  const contentType = inferContentType(input.contentType, name);
-  const captureSessionId = authority.captureSessionId;
-  const uploadConfig = resolveUploadStrategyConfig();
-  const strategy = input.uploadId ? "chunked" : selectUploadStrategyForBytes(input.source.size, uploadConfig);
-  const bytesMb = Number((input.source.size / (1024 * 1024)).toFixed(2));
-  const thresholdExceeded = input.source.size > mbToBytes(uploadConfig.largeUploadWarnMb);
-  const sessionRunKey = readSessionRunKey(captureSessionId);
-  const title = deriveRecordingTitleFromName(input.originalName);
-  const scriptHash = readScriptHash2();
-  const commitPathMode = strategy === "chunked" ? "recording-upload.chunked" : "commit-file.single";
-  const emitUploadStatus = (phase, patch = {}) => {
-    emitRecordingUploadStatus({
-      phase,
-      strategy,
-      bytes: input.source.size,
-      mb: bytesMb,
-      sessionRunKey,
-      workpieceId,
-      workspaceId,
-      title,
-      scriptHash,
-      destinationPath: path,
-      commitPathMode,
-      warningThresholdMb: uploadConfig.largeUploadWarnMb,
-      warningThresholdExceeded: thresholdExceeded,
-      ...patch
-    });
-  };
-  try {
-    console.info("[recording/upload] blob-summary", {
-      bytes: input.source.size,
-      mb: bytesMb,
-      sessionRunKey,
-      workpieceId,
-      workspaceId,
-      title,
-      scriptHash,
-      strategy,
-      destinationPath: path,
-      commitPathMode,
-      warningThresholdMb: uploadConfig.largeUploadWarnMb,
-      warningThresholdExceeded: thresholdExceeded
-    });
-  } catch {
-  }
-  if (thresholdExceeded) {
-    emitLargeUploadWarning({
-      bytes: input.source.size,
-      mb: bytesMb,
-      thresholdMb: uploadConfig.largeUploadWarnMb,
-      strategy,
-      path
-    });
-  }
-  emitUploadStatus("preflight", {
-    progressPct: 0,
-    safeToLeave: false,
-    chunkIndex: 0,
-    totalChunks: strategy === "chunked" ? null : 1
-  });
-  const commitPayloadBase = {
-    capture_authority_id: authority.id,
-    path,
-    content_type: contentType,
-    written_by: writtenBy,
-    event_name: "anvil.recording.artifact.saved.v1",
-    event_payload: {
-      source: input.recordingMedium === "obs" ? "anvil.obs" : "anvil.local-auto",
-      file_path: path,
-      original_name: input.originalName,
-      bytes: input.source.size,
-      content_type: contentType,
-      created_cradle: createdCradle,
-      recording_session_id: plannerRecordingSessionId,
-      anvil_capture_session_id: captureSessionId,
-      transcript_path: input.transcriptPath ?? null,
-      transcript_status: input.transcriptStatus ?? null,
-      recording_medium: input.recordingMedium ?? null,
-      requires_post_normalization: input.requiresPostNormalization === true,
-      upload_strategy: strategy
-    },
-    correlation_id: nextCorrelationId("anvil-recording")
-  };
-  const commit = await uploadRecordingWithStrategy({
-    strategy,
-    workpieceId,
-    source: input.source,
-    uploadId: input.uploadId,
-    chunkSizeMb: uploadConfig.chunkSizeMb,
-    commitPayloadBase,
-    apiToken,
-    onStatus: (status2) => {
-      emitUploadStatus(status2.phase, {
-        chunkIndex: status2.chunkIndex ?? null,
-        totalChunks: status2.totalChunks ?? null,
-        chunkBytes: status2.chunkBytes ?? null,
-        progressPct: status2.progressPct ?? null,
-        safeToLeave: false,
-        errorCode: status2.errorCode ?? null,
-        errorMessage: status2.errorMessage ?? null
-      });
-    }
-  });
-  if (!commit.ok) {
-    const apiError = extractApiError(commit.body);
-    emitUploadStatus("failed", {
-      safeToLeave: false,
-      progressPct: null,
-      errorCode: apiError.code ?? null,
-      errorMessage: apiError.message ?? "Canonical upload failed"
-    });
-    return {
-      ok: false,
-      reason: "commit_failed_same_episode_recoverable",
-      status: commit.status,
-      ...apiError.code ? { errorCode: apiError.code } : {},
-      ...apiError.message ? { errorMessage: apiError.message } : {},
-      details: commit.body,
-      workspaceId,
-      workpieceId
-    };
-  }
-  const commitEnvelope = commit.body && typeof commit.body === "object" && !Array.isArray(commit.body) ? commit.body : {};
-  const commitData = commitEnvelope.data && typeof commitEnvelope.data === "object" && !Array.isArray(commitEnvelope.data) ? commitEnvelope.data : {};
-  const fileRow = commitData.file_row && typeof commitData.file_row === "object" && !Array.isArray(commitData.file_row) ? commitData.file_row : {};
-  const mediaRevision = typeof fileRow.revision === "number" && Number.isInteger(fileRow.revision) && fileRow.revision > 0 ? fileRow.revision : null;
-  const mediaHash = typeof commitData.hash === "string" && /^[0-9a-f]{64}$/i.test(commitData.hash) ? commitData.hash.toLowerCase() : null;
-  if (!mediaRevision || !mediaHash) {
-    emitUploadStatus("failed", {
-      safeToLeave: false,
-      errorCode: "canonical_recording_contract_malformed",
-      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash."
-    });
-    return {
-      ok: false,
-      reason: "canonical_recording_contract_malformed",
-      status: 502,
-      errorCode: "canonical_recording_contract_malformed",
-      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash.",
-      details: commit.body,
-      workspaceId,
-      workpieceId
-    };
-  }
-  emitUploadStatus("done", {
-    safeToLeave: true,
-    progressPct: 100,
-    chunkIndex: strategy === "chunked" ? null : 1,
-    totalChunks: strategy === "chunked" ? null : 1,
-    chunkBytes: strategy === "chunked" ? null : input.source.size,
-    finalStorageKey: path
-  });
-  return {
-    ok: true,
-    workpieceId,
-    path,
-    createdCradle,
-    plannerRecordingSessionId,
-    captureSessionId,
-    captureAuthorityId: authority.id,
-    mediaRevision,
-    mediaHash,
-    mediaBytes: input.source.size,
-    mediaContentType: contentType,
-    status: commit.status
-  };
-}
-function readAuthorityRowId(value, key) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const row = value[key];
-  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
-  return normalizeUuid3(row.id);
-}
-async function transitionRecordingCompleted(input) {
-  const asr = window.__tpCanonicalAsrAuthority;
-  if (!input.commit.captureAuthorityId || input.commit.mediaBytes <= 0) {
-    return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
-  }
-  const evidence = {
-    schema: "forge.recording-completion.v1",
-    completed: true,
-    recording_capture_authority_id: input.commit.captureAuthorityId,
-    venue_version: getWrittenBy().tool_version,
-    asr_diagnostics: {
-      terminal_line_completed: asr?.terminalCompleted === true,
-      unresolved_skipped_line_count: Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines.length : null,
-      covered_lines: Array.isArray(asr?.coveredLines) ? asr.coveredLines : []
-    },
-    artifact_validation: {
-      ok: true,
-      sha256: input.commit.mediaHash,
-      bytes: input.commit.mediaBytes,
-      content_type: input.commit.mediaContentType,
-      duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
-      path: input.commit.path
-    }
-  };
-  const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
-  const requestBody = JSON.stringify({
-    capture_authority_id: input.commit.captureAuthorityId,
-    media_path: input.commit.path,
-    expected_media_revision: input.commit.mediaRevision,
-    expected_media_hash: input.commit.mediaHash,
-    expected_media_bytes: input.commit.mediaBytes,
-    expected_media_content_type: input.commit.mediaContentType,
-    idempotency_key: idempotencyKey,
-    completion_evidence: evidence
-  });
-  try {
-    let response = null;
-    let lastNetworkError = null;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v3`, {
-          method: "POST",
-          headers: await buildHeaders(getApiToken()),
-          body: requestBody
-        });
-        if (response.status < 500 || attempt === 1) break;
-      } catch (error) {
-        lastNetworkError = error;
-        if (attempt === 1) throw error;
-      }
-    }
-    if (!response) throw lastNetworkError ?? new Error("recording_completion_unavailable");
-    const body = await readBodyAsJson(response);
-    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-    if (!response.ok) {
-      const apiError = extractApiError(body);
-      return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
-    }
-    const outcome = readString8(data?.outcome);
-    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
-      return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
-    }
-    const completionId = readAuthorityRowId(data, "completion");
-    const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
-    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
-  } catch (error) {
-    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
-  }
-}
-async function transitionRecordingKept(input) {
-  if (input.commit.captureAuthorityId) return transitionRecordingDecisionV2(input.commit, input.completionId, "keep");
-  const identities = window.__forgeRecordingScriptIdentityByCapture;
-  const currentIdentity = window.__forgeCanonicalScriptIdentity;
-  const ready = window.__forgeCanonicalReadyScript;
-  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
-  const identityWorkpieceId = normalizeUuid3(decisionIdentity?.workpieceId);
-  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid3(decisionIdentity?.workspaceId) ?? resolveWorkspaceId3() : resolveWorkspaceId3();
-  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
-  const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
-  try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-keep`, {
-      method: "POST",
-      headers: await buildHeaders(getApiToken()),
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        capture_session_id: input.commit.captureSessionId,
-        completion_id: input.completionId,
-        idempotency_key: `anvil-keep:${input.completionId}`,
-        decision_evidence: evidence
-      })
-    });
-    const body = await readBodyAsJson(response);
-    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
-    const outcome = readString8(data?.outcome);
-    const keepId = readAuthorityRowId(data, "keep");
-    const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
-    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
-    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
-  } catch (error) {
-    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
-  }
-}
-async function commitRecordingBytesToTongs(input) {
-  return commitRecordingSourceToTongs({
-    ...input,
-    source: {
-      size: input.bytes.byteLength,
-      async read(startByte, endByte) {
-        return input.bytes.subarray(startByte, endByte);
-      }
-    }
-  });
-}
-async function commitRecordingFileToTongs(input) {
-  const identityBytes = new TextEncoder().encode([
-    input.captureAuthority.id,
-    input.file.name,
-    input.file.size,
-    input.file.lastModified
-  ].join("|"));
-  const digest = await crypto.subtle.digest("SHA-256", identityBytes);
-  const uploadId = `obs_${Array.from(new Uint8Array(digest)).slice(0, 20).map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-  return commitRecordingSourceToTongs({
-    captureAuthority: input.captureAuthority,
-    originalName: input.originalName ?? input.file.name,
-    contentType: input.file.type || void 0,
-    transcriptPath: input.transcriptPath,
-    transcriptStatus: input.transcriptStatus,
-    recordingMedium: "obs",
-    uploadId,
-    source: {
-      size: input.file.size,
-      async read(startByte, endByte) {
-        return new Uint8Array(await input.file.slice(startByte, endByte).arrayBuffer());
-      }
-    }
-  });
-}
-async function transitionRecordingDecisionV2(commit, completionId, decision) {
-  if (!commit.captureAuthorityId) return { ok: false, outcome: "malformed", reason: "capture_authority_missing" };
-  const evidence = {
-    schema: "anvil.take-decision.v2",
-    decision,
-    completion_id: completionId,
-    recording_capture_authority_id: commit.captureAuthorityId
-  };
-  try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(commit.workpieceId)}/recording-decision-v2`, {
-      method: "POST",
-      headers: await buildHeaders(getApiToken()),
-      body: JSON.stringify({
-        capture_authority_id: commit.captureAuthorityId,
-        completion_id: completionId,
-        decision,
-        idempotency_key: `anvil-${decision}:${completionId}`,
-        decision_evidence: evidence
-      })
-    });
-    const body = await readBodyAsJson(response);
-    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? `recording_${decision}_unavailable`, details: body };
-    const outcome = readString8(data?.outcome);
-    const rowKey = decision === "keep" ? "keep" : "discard";
-    const rowId = readAuthorityRowId(data, rowKey);
-    const accepted = (outcome === "saved" || outcome === "duplicate") && !!rowId;
-    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: `recording_${decision}_response_malformed`, details: body };
-    return {
-      ok: accepted,
-      outcome,
-      ...decision === "keep" && rowId ? { keepId: rowId } : {},
-      ...decision === "discard" && rowId ? { discardId: rowId } : {},
-      reason: readString8(data?.reason) ?? void 0,
-      details: data
-    };
-  } catch (error) {
-    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : `recording_${decision}_unavailable` };
-  }
-}
-async function transitionRecordingDiscarded(input) {
-  if (input.commit.captureAuthorityId) return transitionRecordingDecisionV2(input.commit, input.completionId, "discard");
-  const identities = window.__forgeRecordingScriptIdentityByCapture;
-  const currentIdentity = window.__forgeCanonicalScriptIdentity;
-  const ready = window.__forgeCanonicalReadyScript;
-  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
-  const identityWorkpieceId = normalizeUuid3(decisionIdentity?.workpieceId);
-  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid3(decisionIdentity?.workspaceId) ?? resolveWorkspaceId3() : resolveWorkspaceId3();
-  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
-  const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
-  try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-discard`, {
-      method: "POST",
-      headers: await buildHeaders(getApiToken()),
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        capture_session_id: input.commit.captureSessionId,
-        completion_id: input.completionId,
-        idempotency_key: `anvil-discard:${input.completionId}`,
-        decision_evidence: evidence
-      })
-    });
-    const body = await readBodyAsJson(response);
-    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_discard_unavailable", details: body };
-    const outcome = readString8(data?.outcome);
-    const discardId = readAuthorityRowId(data, "discard");
-    const accepted = (outcome === "saved" || outcome === "duplicate") && !!discardId;
-    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_discard_response_malformed", details: body };
-    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
-  } catch (error) {
-    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_discard_unavailable" };
-  }
-}
-async function readPendingRecordingDecisions() {
-  const ready = window.__forgeCanonicalReadyScript;
-  const workspaceId = normalizeUuid3(ready?.workspaceId) ?? normalizeUuid3(getQueryParam3("workspace_id", "workspaceId"));
-  const workpieceId = normalizeUuid3(ready?.workpieceId) ?? normalizeUuid3(getQueryParam3("workpiece_id", "workpieceId"));
-  if (!workspaceId || !workpieceId) return [];
-  try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
-    const body = await readBodyAsJson(response);
-    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-    if (!response.ok || data?.outcome !== "ok" || !Array.isArray(data.pending)) return [];
-    return data.pending.flatMap((row) => {
-      if (!row || typeof row !== "object" || Array.isArray(row)) return [];
-      const value = row;
-      const completionId = normalizeUuid3(value.completion_id);
-      const captureSessionId = normalizeUuid3(value.capture_session_id);
-      const captureAuthorityId = normalizeUuid3(value.recording_capture_authority_id);
-      const rowWorkpieceId = normalizeUuid3(value.workpiece_id);
-      const mediaPath = readString8(value.media_path);
-      return completionId && captureSessionId && captureAuthorityId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, captureAuthorityId, workpieceId, mediaPath }] : [];
-    });
-  } catch {
-    return [];
-  }
-}
-var UUID_RE3, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS3, CAPTURE_SESSION_KEY, CAPTURE_AUTHORITY_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq, activeCaptureAuthority;
-var init_workpiece_commit = __esm({
-  "src/forge/workpiece-commit.ts"() {
-    "use strict";
-    init_tongs_user_auth();
-    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    DEFAULT_TOOL_VERSION = "1.8.5";
-    DEFAULT_LANE = "forge-managed";
-    WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
-    CAPTURE_AUTHORITY_KEY = "forge_anvil_capture_authority_id_v1";
-    PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
-    LARGE_UPLOAD_WARN_MB_KEY = "ANVIL_LARGE_UPLOAD_WARN_MB";
-    CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
-    CHUNK_SIZE_MB_KEY = "ANVIL_CHUNK_SIZE_MB";
-    DEFAULT_LARGE_UPLOAD_WARN_MB = 100;
-    DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 32;
-    DEFAULT_CHUNK_SIZE_MB = 8;
-    CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
-    CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
-    correlationSeq = 0;
-    activeCaptureAuthority = null;
-  }
-});
-
 // src/forge/ready-scripts.ts
 function readString9(value) {
   if (typeof value !== "string") return null;
@@ -95954,6 +95866,10 @@ var init_recording_name = __esm({
 });
 
 // src/recording/recordingTranscriptController.ts
+function normalizeRecordingSpeechMode(value) {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return mode === "asr" || mode === "hybrid" ? mode : null;
+}
 function readText(value) {
   if (typeof value !== "string") return null;
   const normalized = value.replace(/\s+/g, " ").trim();
@@ -96252,6 +96168,7 @@ var init_recordingTranscriptController = __esm({
       async startSession(args) {
         await this.disposeSession();
         const target = await this.deps.ensureCaptureTarget();
+        const speechMode = normalizeRecordingSpeechMode(args.speechMode);
         const livePath = this.persistenceMode === "live_noncanonical_asr_debug" ? `${DEBUG_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json` : `${LIVE_SNAPSHOT_PREFIX}/${args.captureSessionId}.snapshot.v1.json`;
         const finalPath = this.persistenceMode === "live_noncanonical_asr_debug" ? `${DEBUG_FINAL_PREFIX}/${args.captureSessionId}.final.v1.json` : `${FINAL_TRANSCRIPT_PREFIX}/${args.captureSessionId}.structured.v1.json`;
         this.session = {
@@ -96261,7 +96178,7 @@ var init_recordingTranscriptController = __esm({
           startedAtIso: new Date(args.recordingStartedAtMs).toISOString(),
           livePath,
           finalPath,
-          status: "starting",
+          status: speechMode ? "starting" : "ready",
           degradedReason: null,
           target,
           segments: [],
@@ -96272,14 +96189,24 @@ var init_recordingTranscriptController = __esm({
           lastFinalHypothesisAtMs: 0,
           eventCount: 0,
           lastPersistedAtMs: 0,
-          finalized: false
+          finalized: false,
+          speechMode
         };
         this.emitState();
+        if (!speechMode) {
+          return {
+            captureSessionId: args.captureSessionId,
+            workpieceId: target.ok ? target.workpieceId : null,
+            status: "ready",
+            degradedReason: null,
+            livePath: null
+          };
+        }
         window.addEventListener("tp:speech:transcript", this.transcriptListener);
         void this.persistSnapshot(true);
         const started = await this.deps.startSpeech({
           reason: "recording-transcript",
-          mode: "asr"
+          mode: speechMode
         }).catch(() => false);
         const session = this.session;
         if (!session) {
@@ -96317,6 +96244,28 @@ var init_recordingTranscriptController = __esm({
             captureSessionId: "",
             workpieceId: null,
             status: "idle",
+            degradedReason: null,
+            livePath: null,
+            finalPath: null,
+            finalArtifact: null,
+            segmentCount: 0
+          };
+        }
+        if (!session.speechMode) {
+          session.finalized = true;
+          session.status = "ready";
+          session.degradedReason = null;
+          emitTranscriptDiag("anvil:transcript:finalize_skipped_reason", {
+            capture_session_id: session.captureSessionId,
+            workpiece_id: session.target?.ok ? session.target.workpieceId : null,
+            reason: "speech_mode_not_selected",
+            segment_count: 0
+          });
+          this.emitState();
+          return {
+            captureSessionId: session.captureSessionId,
+            workpieceId: session.target?.ok ? session.target.workpieceId : null,
+            status: "ready",
             degradedReason: null,
             livePath: null,
             finalPath: null,
@@ -96694,17 +96643,20 @@ var init_recording_dir = __esm({
       }
       let _dir2 = null;
       let _managedByNursery2 = false;
+      let _localPersistenceExpected = false;
       let _managedHint2 = null;
       async function syncManagedRecordingDir() {
         try {
           const managed = await getNurseryManagedDirectory("recordings");
           if (!managed.managed) {
             _managedByNursery2 = false;
+            _localPersistenceExpected = false;
             _managedHint2 = null;
             _dir2 = null;
             return false;
           }
           _managedByNursery2 = true;
+          _localPersistenceExpected = managed.localPersistenceExpected;
           _managedHint2 = managed.hint ?? null;
           _dir2 = managed.handle ?? null;
           return true;
@@ -96761,6 +96713,7 @@ var init_recording_dir = __esm({
         pick: pickRecordingDir,
         supported: hasFsApi,
         isManaged: () => _managedByNursery2,
+        localPersistenceExpected: () => _localPersistenceExpected,
         managedHint: () => _managedHint2
       };
       try {
@@ -96935,6 +96888,12 @@ var init_local_auto = __esm({
       function emitLocalSafetyCopyStatus(detail) {
         try {
           window.dispatchEvent(new CustomEvent("tp:recording:local-safety-copy", { detail }));
+        } catch {
+        }
+      }
+      function emitRecordingDestinationStatus(detail) {
+        try {
+          window.dispatchEvent(new CustomEvent("tp:recording:destination-status", { detail }));
         } catch {
         }
       }
@@ -97459,6 +97418,7 @@ var init_local_auto = __esm({
           } catch {
           }
           const strategy = selectBestRecordingStrategy({ mode: recordingMode });
+          const speechMode = window.__tpStore?.get?.("scrollMode") ?? null;
           const captureSessionId = beginRecordingCaptureSession();
           const captureTarget = await ensureRecordingCaptureTarget();
           if (!captureTarget.ok) {
@@ -97479,7 +97439,8 @@ var init_local_auto = __esm({
             void transcriptController.startSession({
               captureSessionId,
               recordingStartedAtMs,
-              strategy
+              strategy,
+              speechMode
             }).catch((error) => {
               try {
                 console.warn("[auto-rec] transcript start failed", error);
@@ -97499,7 +97460,8 @@ var init_local_auto = __esm({
           void transcriptController.startSession({
             captureSessionId,
             recordingStartedAtMs,
-            strategy
+            strategy,
+            speechMode
           }).catch((error) => {
             try {
               console.warn("[auto-rec] transcript start failed", error);
@@ -97607,14 +97569,51 @@ var init_local_auto = __esm({
         let commitResultOk = null;
         let acceptedCompletionId = null;
         let canonicalAttempted = false;
+        let canonicalUploadSucceeded = false;
+        let canonicalCompletionAttempted = false;
         let canonicalErrorCode = null;
         let canonicalErrorMessage = null;
         let localMirrorExpected = false;
         let localMirrorAttempted = false;
         let localMirrorSucceeded = false;
+        let localMirrorHandleAvailable = false;
+        let localMirrorConfiguredPath = null;
+        let localMirrorErrorCode = null;
+        let localMirrorErrorMessage = null;
         let downloadFallbackAttempted = false;
         let downloadFallbackSucceeded = false;
         let downloadFallbackSkippedReason = null;
+        let downloadFallbackErrorMessage = null;
+        const emitDestinationStatus = () => {
+          emitRecordingDestinationStatus({
+            fileName: name,
+            cloudUpload: {
+              state: canonicalUploadSucceeded ? "succeeded" : canonicalAttempted ? "failed" : "not_attempted",
+              path: commitResultOk?.path ?? null,
+              errorCode: canonicalUploadSucceeded ? null : canonicalErrorCode,
+              errorMessage: canonicalUploadSucceeded ? null : canonicalErrorMessage
+            },
+            canonicalCompletion: {
+              state: committed ? "succeeded" : canonicalCompletionAttempted ? "failed" : "not_attempted",
+              completionId: acceptedCompletionId,
+              errorCode: committed ? null : canonicalErrorCode,
+              errorMessage: committed ? null : canonicalErrorMessage
+            },
+            configuredFolder: {
+              state: !localMirrorExpected ? "not_configured" : localMirrorSucceeded ? "succeeded" : localMirrorAttempted ? "failed" : "not_attempted",
+              configuredPath: localMirrorConfiguredPath,
+              handleAvailable: localMirrorHandleAvailable,
+              errorCode: localMirrorErrorCode,
+              errorMessage: localMirrorErrorMessage
+            },
+            browserDownload: {
+              state: downloadFallbackSucceeded ? "succeeded" : downloadFallbackAttempted ? "failed" : downloadFallbackSkippedReason ? "skipped" : "not_attempted",
+              fileName: downloadFallbackAttempted ? name : null,
+              errorCode: downloadFallbackAttempted && !downloadFallbackSucceeded ? "browser_download_failed" : downloadFallbackSkippedReason,
+              errorMessage: downloadFallbackErrorMessage
+            }
+          });
+        };
         const presentCanonicalTakeDecision = async () => {
           if (!commitResultOk || !acceptedCompletionId) return;
           hideRecordingFinalizeIndicator();
@@ -97728,6 +97727,8 @@ var init_local_auto = __esm({
               const commitResultSuccess = readCommitResultSuccess(commitResult);
               if (commitResultSuccess) {
                 commitResultOk = commitResultSuccess;
+                canonicalUploadSucceeded = true;
+                canonicalCompletionAttempted = true;
                 const completion = await transitionRecordingCompleted({
                   commit: commitResultSuccess,
                   durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null
@@ -97783,9 +97784,12 @@ var init_local_auto = __esm({
               }
               const dir = window.__tpRecDir?.get?.() || null;
               const managed = !!window.__tpRecDir?.isManaged?.();
+              const managedLocalPersistenceExpected = managed ? typeof window.__tpRecDir?.localPersistenceExpected === "function" ? !!window.__tpRecDir.localPersistenceExpected() : true : false;
               const hint = window.__tpRecDir?.managedHint?.();
-              const configuredPath = managed ? typeof hint === "string" && hint.trim() ? hint.trim() : "managed:recordings" : dir && typeof dir.name === "string" ? String(dir.name).trim() : null;
-              localMirrorExpected = managed || !!configuredPath || !!dir;
+              const configuredPath = managed && managedLocalPersistenceExpected ? typeof hint === "string" && hint.trim() ? hint.trim() : "managed:recordings" : dir && typeof dir.name === "string" ? String(dir.name).trim() : null;
+              localMirrorConfiguredPath = configuredPath || null;
+              localMirrorExpected = managedLocalPersistenceExpected || !!configuredPath || !!dir;
+              localMirrorHandleAvailable = !!dir && typeof dir.getFileHandle === "function";
               const safetyEnabled = !!dir;
               emitLocalSafetyCopyStatus({
                 enabled: safetyEnabled,
@@ -97809,6 +97813,7 @@ var init_local_auto = __esm({
                 downloadFallbackSkippedReason
               });
               if (dir && typeof dir.getFileHandle === "function") {
+                let folderWriteStage = "permission";
                 try {
                   localMirrorAttempted = true;
                   try {
@@ -97830,11 +97835,17 @@ var init_local_auto = __esm({
                     }
                     throw permErr;
                   }
+                  folderWriteStage = "file";
                   const fh = await dir.getFileHandle(name, { create: true });
+                  folderWriteStage = "writable";
                   const w3 = await fh.createWritable();
+                  folderWriteStage = "write";
                   await w3.write(localWritePayload);
+                  folderWriteStage = "close";
                   await w3.close();
                   localMirrorSucceeded = true;
+                  localMirrorErrorCode = null;
+                  localMirrorErrorMessage = null;
                   emitLocalSafetyCopyStatus({
                     enabled: true,
                     configuredPath: configuredPath || null,
@@ -97860,6 +97871,7 @@ var init_local_auto = __esm({
                     console.log("[core-recorder] saved file mirror", name);
                   } catch {
                   }
+                  emitDestinationStatus();
                   if (commitResultOk && acceptedCompletionId) {
                     await presentCanonicalTakeDecision();
                   }
@@ -97886,6 +97898,15 @@ var init_local_auto = __esm({
                   }
                   return true;
                 } catch (err) {
+                  const folderErrorCodes = {
+                    permission: "directory_permission_not_granted",
+                    file: "directory_file_creation_failed",
+                    writable: "directory_writable_open_failed",
+                    write: "directory_write_failed",
+                    close: "directory_close_failed"
+                  };
+                  localMirrorErrorCode = folderErrorCodes[folderWriteStage];
+                  localMirrorErrorMessage = String(err?.message || err || "configured_folder_write_failed");
                   emitLocalSafetyCopyStatus({
                     enabled: true,
                     configuredPath: configuredPath || null,
@@ -97893,8 +97914,8 @@ var init_local_auto = __esm({
                     success: false,
                     bytesWritten: 0,
                     finalPath: null,
-                    errorCode: "local_safety_copy_write_failed",
-                    errorMessage: String(err?.message || err || "local_safety_copy_failed"),
+                    errorCode: localMirrorErrorCode,
+                    errorMessage: localMirrorErrorMessage,
                     safeToLeave: false,
                     localCopySecured: false,
                     localMirrorExpected,
@@ -97909,12 +97930,12 @@ var init_local_auto = __esm({
                   });
                   if (committed) {
                     showRecorderToast(
-                      "Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.",
+                      `Recording was saved to Forge, but the configured folder copy failed (${localMirrorErrorCode}).`,
                       "warning"
                     );
                   } else {
                     showRecorderToast(
-                      "Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.",
+                      `Configured folder copy failed (${localMirrorErrorCode}). Keep this screen open until the browser download finishes.`,
                       "error"
                     );
                   }
@@ -97925,6 +97946,8 @@ var init_local_auto = __esm({
                 }
               } else {
                 localMirrorAttempted = localMirrorExpected;
+                localMirrorErrorCode = localMirrorExpected ? "missing_directory_handle" : null;
+                localMirrorErrorMessage = localMirrorExpected ? `The configured recording folder is not linked for ${window.location.origin}.` : null;
                 try {
                   const managed2 = !!window.__tpRecDir?.isManaged?.();
                   const hint2 = window.__tpRecDir?.managedHint?.();
@@ -97941,8 +97964,8 @@ var init_local_auto = __esm({
                   success: false,
                   bytesWritten: 0,
                   finalPath: null,
-                  errorCode: "missing_directory_handle",
-                  errorMessage: "Recording folder handle is unavailable.",
+                  errorCode: localMirrorErrorCode,
+                  errorMessage: localMirrorErrorMessage,
                   safeToLeave: false,
                   localCopySecured: false,
                   localMirrorExpected,
@@ -97958,12 +97981,12 @@ var init_local_auto = __esm({
                 if (localMirrorExpected) {
                   if (committed) {
                     showRecorderToast(
-                      "Recording was saved to Forge, but the local mirror copy was not saved because the recording folder is unavailable.",
+                      `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
                       "warning"
                     );
                   } else {
                     showRecorderToast(
-                      "Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.",
+                      `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
                       "error"
                     );
                   }
@@ -97998,6 +98021,7 @@ var init_local_auto = __esm({
                   downloadFallbackSkippedReason
                 });
               }
+              emitDestinationStatus();
               if (commitResultOk && acceptedCompletionId) {
                 await presentCanonicalTakeDecision();
               }
@@ -98025,7 +98049,8 @@ var init_local_auto = __esm({
                 }
               }, 2e3);
               downloadFallbackSucceeded = true;
-            } catch {
+            } catch (error) {
+              downloadFallbackErrorMessage = String(error?.message || error || "browser_download_failed");
             }
             emitUploadFallbackAudit({
               saveIdentity: opts.saveIdentity ?? null,
@@ -98046,10 +98071,18 @@ var init_local_auto = __esm({
               downloadFallbackSucceeded,
               downloadFallbackSkippedReason
             });
-            showRecorderToast(
-              "Recording finished, but the local safety copy was not saved. Do not leave this screen until the recording is verified or downloaded.",
-              "error"
-            );
+            if (downloadFallbackSucceeded) {
+              showRecorderToast(
+                `Browser download succeeded for "${name}". Canonical completion${localMirrorExpected ? " and the configured folder copy" : ""} did not succeed.`,
+                "warning"
+              );
+            } else {
+              showRecorderToast(
+                "Canonical completion and browser download both failed. Do not leave this screen.",
+                "error"
+              );
+            }
+            emitDestinationStatus();
             return false;
           } finally {
             hideRecordingFinalizeIndicator();
