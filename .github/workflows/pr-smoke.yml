@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
   pull-requests: write
 
 concurrency:
@@ -204,6 +205,10 @@ jobs:
           NODE
       - name: Verify credential-safe startup diagnostics
         run: pnpm --filter nursery exec tsx --test tests/browser-supabase-diagnostics.test.mts
+      - name: Authenticate public-image pulls to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Start certified baseline Supabase
         run: |
           umask 077

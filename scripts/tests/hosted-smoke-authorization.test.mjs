@@ -47,6 +47,14 @@ test("ordinary PR workflows contain no hosted Supabase credentials or write smok
   assert.doesNotMatch(prWorkflow, /smoke:team/);
   assert.doesNotMatch(prWorkflow, /smoke:hearth-phase4/);
   assert.doesNotMatch(prWorkflow, /pull_request_target:/);
+  assert.match(prWorkflow, /packages: read/);
+  assert.match(prWorkflow, /docker login ghcr\.io --username "\$GITHUB_ACTOR" --password-stdin/);
+  assert.ok(
+    prWorkflow.indexOf("Authenticate public-image pulls to GHCR") <
+      prWorkflow.indexOf("Start certified baseline Supabase"),
+    "registry authentication must precede disposable Supabase startup",
+  );
+  assert.doesNotMatch(prWorkflow, /docker login[^\n]*--password(?:\s|=)/);
 });
 
 test("database-only PR workflow is credential-free and local", () => {
