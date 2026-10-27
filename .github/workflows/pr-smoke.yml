@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
   pull-requests: write
 
 concurrency:
@@ -149,6 +150,7 @@ jobs:
     timeout-minutes: 60
     env:
       CI: "true"
+      COMPOSE_PARALLEL_LIMIT: "1"
       # No remote fixture or provider secrets enter this job.
       FORGE_NONPROD_SUPABASE_PROJECT_REFS: ""
     steps:
@@ -204,18 +206,37 @@ jobs:
           NODE
       - name: Verify credential-safe startup diagnostics
         run: pnpm --filter nursery exec tsx --test tests/browser-supabase-diagnostics.test.mts
+      - name: Authenticate public-image pulls to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Start certified baseline Supabase
         run: |
           umask 077
           # CLI startup prints local keys: retain its output privately, never echo it.
-          if pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
-            echo 'Disposable Supabase startup succeeded.'
-          else
-            status=$?
+          # Retry only the sanitized registry-throttling category; every other
+          # startup failure remains an immediate hard stop.
+          for attempt in 1 2 3; do
+            if pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Start -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > "$RUNNER_TEMP/browser-supabase-start.log" 2>&1; then
+              echo 'Disposable Supabase startup succeeded.'
+              break
+            else
+              status=$?
+            fi
             echo "Disposable Supabase startup failed (exit $status). Credential-safe diagnostic follows:"
-            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" "$FORGE_BROWSER_SUPABASE_WORKDIR/supabase/migrations"
-            exit "$status"
-          fi
+            node apps/nursery/scripts/browser-supabase-diagnostics.mjs "$RUNNER_TEMP/browser-supabase-start.log" "$FORGE_BROWSER_SUPABASE_WORKDIR/supabase/migrations" > "$RUNNER_TEMP/browser-supabase-diagnostic.json"
+            cat "$RUNNER_TEMP/browser-supabase-diagnostic.json"
+            if [ "$attempt" -ge 3 ] || ! node --input-type=module - "$RUNNER_TEMP/browser-supabase-diagnostic.json" <<'NODE'
+            import fs from 'node:fs';
+            const diagnostic = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+            process.exit(diagnostic.errorCategories?.includes('registry_rate_limit') ? 0 : 1);
+          NODE
+            then
+              exit "$status"
+            fi
+            pwsh -NoProfile -File scripts/invoke-forge-database.ps1 -Lineage baseline -Action Stop -Workdir "$FORGE_BROWSER_SUPABASE_WORKDIR" > /dev/null 2>&1 || true
+            sleep "$((attempt * 20))"
+          done
       - name: Configure disposable credentials without logging values
         run: |
           umask 077

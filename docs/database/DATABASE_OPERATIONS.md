@@ -38,6 +38,37 @@ For a running local B1 database, `Start`, `Reset`, and `Types` validate both its
 
 This checks that hosted history is a chronological prefix of H, reads the marker if present, lists migrations, and runs `db push --linked --dry-run`. It performs no migration. It now requires `SUPABASE_DB_PASSWORD` to already be present in the process environment: passwordless linked commands in Supabase CLI 2.84.2 create or rotate a write-capable temporary login role and are rejected by Forge. Never print, persist, or pass the password on the command line. Never guess a lineage from schema shape alone.
 
+That process variable is a CLI safety boundary, not a requirement for routine
+development or read-only investigation. Local development and both historical
+certification lanes remain credential-free. Bounded hosted reads should use the
+existing authorized Supabase MCP connection and return only sanitized project,
+lineage, migration-history, and contract results. They must not invoke a
+passwordless linked CLI command, because CLI 2.84.2 may create or rotate a
+temporary write-capable role.
+
+For an owner-authorized hosted deployment, Forge stores the existing database
+password once in Windows Credential Manager under the current Windows user. The
+governed deployment entrypoint retrieves it only around the authorized
+operation, exposes it only as process-scoped `SUPABASE_DB_PASSWORD`, and clears
+that variable in `finally`. Enrollment, rotation, and revocation are exceptional
+administrative actions:
+
+```powershell
+./scripts/invoke-forge-managed-credential.ps1 -Action Status
+./scripts/invoke-forge-managed-credential.ps1 -Action Enroll -Authorization ENROLL-FORGE-DATABASE-CREDENTIAL
+./scripts/invoke-forge-managed-credential.ps1 -Action Rotate -Authorization ENROLL-FORGE-DATABASE-CREDENTIAL
+./scripts/invoke-forge-managed-credential.ps1 -Action Revoke -Authorization REVOKE-FORGE-DATABASE-CREDENTIAL
+```
+
+`Enroll` and `Rotate` read the existing password through a non-echoing secure
+prompt. The secret is never accepted as an argument, printed, written to the
+repository, or made available to PR jobs. `Status` reports presence only.
+Deployment-specific wrappers must dot-source
+`scripts/lib/forge-managed-credential.ps1` and call
+`Invoke-WithForgeManagedDatabaseCredential` only after their project, migration,
+recovery, and explicit owner-authorization checks pass. This credential provider
+does not itself authorize or select a migration.
+
 ## 2. Create a migration
 
 All new migrations are T migrations in `supabase/migrations`; B1 and the first 414 H files are immutable.
