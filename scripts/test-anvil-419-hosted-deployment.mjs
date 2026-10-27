@@ -49,6 +49,8 @@ test("actual entrypoint is bounded to normal linked migration push", () => {
   assert.doesNotMatch(source,/--include-all|migration['\"]?\s*,?['\"]?repair|insert\s+into\s+supabase_migrations/i);
   assert.match(source,/Assert-PostApply/);
   assert.match(source,/Invoke-WithForgeManagedDatabaseCredential/);
+  assert.match(source,/forge-supabase-cli\.ps1/);
+  assert.doesNotMatch(source,/2>&1|ConvertFrom-Csv/);
   assert.doesNotMatch(source,/SUPABASE_DB_PASSWORD is required/);
   const localPolicy = source.indexOf("--local-only");
   const credentialRead = source.indexOf("Invoke-WithForgeManagedDatabaseCredential -Operation", localPolicy);

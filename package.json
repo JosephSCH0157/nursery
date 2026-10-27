@@ -65,7 +65,7 @@
     "certify:db:gate6p-successor": "pwsh -NoProfile -File scripts/certify-gate6h-successor.ps1",
     "certify:db:anvil-recording:historical": "pwsh -NoProfile -File scripts/invoke-anvil-recording-authority-historical-certification.ps1",
     "test:db:anvil-recording:historical-tooling": "node --test scripts/test-anvil-recording-authority-historical-successor.mjs",
-    "test:db:anvil-recording:hosted-deployment": "node --test scripts/test-anvil-419-hosted-deployment.mjs",
+    "test:db:anvil-recording:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-anvil-419-hosted-deployment.mjs",
     "preflight:db:anvil-recording:hosted": "pwsh -NoProfile -File scripts/invoke-anvil-419-hosted-deployment.ps1 -Action Preflight",
     "test:db:managed-credential": "pwsh -NoProfile -File scripts/test-forge-managed-credential.ps1",
     "certify:db:gate6p-browser": "pwsh -NoProfile -File scripts/certify-gate6o-browser.ps1",

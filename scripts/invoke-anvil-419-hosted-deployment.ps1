@@ -14,21 +14,21 @@ $targetVersion='20261027030139'
 $targetSha256='876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa'
 $statePath=$null
 . (Join-Path $PSScriptRoot 'lib/forge-managed-credential.ps1')
+. (Join-Path $PSScriptRoot 'lib/forge-supabase-cli.ps1')
 
 function Invoke-Supabase([string[]]$Arguments) {
-  $output=@(& supabase @Arguments 2>&1)
-  if($LASTEXITCODE -ne 0){throw 'Supabase command failed; output suppressed.'}
-  return $output
+  return Invoke-ForgeSupabaseCli -Arguments $Arguments
 }
-function Read-LinkedCsv([string]$Sql) {
-  return @((Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,$Sql))|ConvertFrom-Csv)
+function Read-LinkedCsv([string]$Sql,[string[]]$ExpectedColumns,[string]$Context) {
+  $result=Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,$Sql)
+  return @(ConvertFrom-ForgeSupabaseCsv -StandardOutput $result.StandardOutput -ExpectedColumns $ExpectedColumns -Context $Context)
 }
 function Assert-StaticPrerequisites {
   $linkedPath=Join-Path $repo 'supabase/.temp/project-ref'
   if(-not(Test-Path -LiteralPath $linkedPath -PathType Leaf)){throw 'Linked project reference is unavailable.'}
   $linked=((Get-Content -LiteralPath $linkedPath -Raw).Trim())
   if($linked -cne $projectRef){throw 'Linked project does not match the pinned Forge project.'}
-  $cli=((& supabase --version 2>$null|Select-Object -First 1).Trim())
+  $cli=(Invoke-Supabase @('--version')).StandardOutput.Trim()
   if($cli -cne '2.84.2'){throw 'Supabase CLI 2.84.2 is required.'}
   $migrationPath=Join-Path $repo 'supabase/migrations/20261027030139_anvil_recording_authority_repair.sql'
   if(-not(Test-Path -LiteralPath $migrationPath -PathType Leaf)){throw 'Migration 419 is missing.'}
@@ -40,9 +40,9 @@ function Get-HostedState {
   $static=Assert-StaticPrerequisites
   & (Join-Path $PSScriptRoot 'verify-canonical-database-artifacts.ps1') -RepositoryRoot $repo|Out-Null
   & (Join-Path $PSScriptRoot 'verify-supabase-lineage.ps1') -Lineage historical -Workdir $repo -DatabaseTarget linked -Mode preflight -RepositoryRoot $repo|Out-Null
-  $history=@(Read-LinkedCsv 'select version from supabase_migrations.schema_migrations order by version')
+  $history=@(Read-LinkedCsv 'select version from supabase_migrations.schema_migrations order by version' @('version') 'hosted migration history')
   $versions=@($history|ForEach-Object{[string]$_.version})
-  $lineageRows=@(Read-LinkedCsv "select lineage from forge_meta.database_lineage where singleton=true")
+  $lineageRows=@(Read-LinkedCsv "select lineage from forge_meta.database_lineage where singleton=true" @('lineage') 'hosted lineage')
   if($lineageRows.Count -ne 1){throw 'Hosted lineage singleton is unavailable.'}
   $localVersions=@(Get-ChildItem -LiteralPath (Join-Path $repo 'supabase/migrations') -Filter '*.sql' -File|Sort-Object Name|ForEach-Object{if($_.BaseName -match '^(\d{8,14})_'){$Matches[1]}})
   $pending=@($localVersions|Where-Object{$_ -notin $versions})
@@ -54,10 +54,10 @@ function Get-HostedState {
 }
 function Assert-PostApply {
   Assert-StaticPrerequisites|Out-Null
-  $history=@(Read-LinkedCsv 'select version from supabase_migrations.schema_migrations order by version')
+  $history=@(Read-LinkedCsv 'select version from supabase_migrations.schema_migrations order by version' @('version') 'post-apply migration history')
   $versions=@($history|ForEach-Object{[string]$_.version})
   if($versions.Count -ne 419 -or $versions[-1] -cne $targetVersion -or @($versions|Where-Object{$_ -eq $targetVersion}).Count -ne 1){throw 'Post-apply migration history verification failed.'}
-  $contract=@(Read-LinkedCsv "select (select lineage from forge_meta.database_lineage where singleton=true) as lineage, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_keep_requests' and column_name='recording_capture_authority_id' and is_nullable='NO') as keep_authority, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_discard_requests' and column_name='recording_capture_authority_id' and is_nullable='NO') as discard_authority, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_keep_requests' and column_name='capture_session_id' and is_nullable='YES') as keep_session_nullable, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_discard_requests' and column_name='capture_session_id' and is_nullable='YES') as discard_session_nullable")
+  $contract=@(Read-LinkedCsv "select (select lineage from forge_meta.database_lineage where singleton=true) as lineage, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_keep_requests' and column_name='recording_capture_authority_id' and is_nullable='NO') as keep_authority, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_discard_requests' and column_name='recording_capture_authority_id' and is_nullable='NO') as discard_authority, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_keep_requests' and column_name='capture_session_id' and is_nullable='YES') as keep_session_nullable, exists(select 1 from information_schema.columns where table_schema='tongs' and table_name='anvil_recording_discard_requests' and column_name='capture_session_id' and is_nullable='YES') as discard_session_nullable" @('lineage','keep_authority','discard_authority','keep_session_nullable','discard_session_nullable') 'post-apply recording authority contract')
   $invalidContract=@('keep_authority','discard_authority','keep_session_nullable','discard_session_nullable')|Where-Object{[string]$contract[0].$_ -notmatch '^(t|true)$'}
   if($contract.Count -ne 1 -or [string]$contract[0].lineage -cne 'historical-v1' -or $invalidContract.Count -ne 0){throw 'Post-apply recording-authority contract verification failed.'}
   [pscustomobject]@{ok=$true;schema='forge.anvil-419-hosted-postverify.v1';projectRef=$projectRef;installedCount=419;hostedHead=$targetVersion;lineage='historical-v1';customerDataReturned=$false;credentialsReturned=$false}|ConvertTo-Json -Compress
