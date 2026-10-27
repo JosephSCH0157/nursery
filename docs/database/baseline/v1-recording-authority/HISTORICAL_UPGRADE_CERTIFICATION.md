@@ -26,7 +26,7 @@ Without a newly authorized capsule, only the non-secret CLI preflight and the
 static tooling tests may run:
 
 ```powershell
-pwsh -NoProfile -File scripts/certify-anvil-recording-authority-historical-successor.ps1 -CliPreflightOnly
+pwsh -NoProfile -File scripts/invoke-anvil-recording-authority-historical-certification.ps1 -Mode ToolingPreflight
 pnpm test:db:anvil-recording:historical-tooling
 ```
 
@@ -36,12 +36,17 @@ After a newly authorized Gate 5F-compatible capsule has been created in the
 same execution context, run:
 
 ```powershell
-pwsh -NoProfile -File scripts/certify-anvil-recording-authority-historical-successor.ps1 `
-  -ExternalCapsuleDirectory $capsuleDirectory `
-  -AuthorizeExternalAuthenticCapsule
+pwsh -NoProfile -File scripts/invoke-anvil-recording-authority-historical-certification.ps1 `
+  -Mode Authentic `
+  -ProjectRef $projectRef `
+  -ScopeAttestationPath $scopeAttestationPath `
+  -AuthorizeAuthenticHistoryTransfer
 ```
 
-The harness restores only into task-created, internal-network disposable
+The coordinator calls the frozen Gate 5F read-only exporter, keeps the encrypted
+capsule only in the operating-system temporary directory, passes it directly to
+the successor, and clears the process token, capsule, and attestation directory
+in `finally`. The harness restores only into task-created, internal-network disposable
 databases. It verifies the authentic 411-row frozen prefix, normally constructs
 the reviewed seven-migration Gate 6P predecessor, requires 418 rows and
 `historical-v1`, and then stages only `20261027030139`. It requires that exact

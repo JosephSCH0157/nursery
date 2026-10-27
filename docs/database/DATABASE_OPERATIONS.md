@@ -153,8 +153,10 @@ reusable:
 
 ```powershell
 pnpm certify:db:anvil-recording:historical -- `
-  -ExternalCapsuleDirectory $capsuleDirectory `
-  -AuthorizeExternalAuthenticCapsule
+  -Mode Authentic `
+  -ProjectRef $projectRef `
+  -ScopeAttestationPath $scopeAttestationPath `
+  -AuthorizeAuthenticHistoryTransfer
 ```
 
 It restores only into isolated disposable databases, verifies the authentic

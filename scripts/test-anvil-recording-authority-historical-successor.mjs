@@ -5,8 +5,10 @@ import test from "node:test";
 
 const originalPath = new URL("./certify-gate6h-successor.ps1", import.meta.url);
 const successorPath = new URL("./certify-anvil-recording-authority-historical-successor.ps1", import.meta.url);
+const coordinatorPath = new URL("./invoke-anvil-recording-authority-historical-certification.ps1", import.meta.url);
 const original = readFileSync(originalPath);
 const successor = readFileSync(successorPath, "utf8");
+const coordinator = readFileSync(coordinatorPath, "utf8");
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
 test("Gate 6P harness remains byte-for-byte preserved", () => {
@@ -42,4 +44,15 @@ test("successor verifies preservation, authority behavior, catalog, and rollback
     "productionShapedRollbackVerified=$true",
     "originalHistoryUnchanged=$true",
   ]) assert.ok(successor.includes(required), `missing certification evidence: ${required}`);
+});
+
+test("bounded coordinator owns export, successor execution, and confidential cleanup", () => {
+  for (const required of [
+    "AuthorizeAuthenticHistoryTransfer",
+    "export-gate5d-authentic-history-read-only.ps1",
+    "certify-anvil-recording-authority-historical-successor.ps1",
+    "Remove-ForgeGate5DCapsule -Directory $capsuleDirectory",
+    "SetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN',$null,'Process')",
+    "successorHistoryRows -ne 419",
+  ]) assert.ok(coordinator.includes(required), `missing coordinator boundary: ${required}`);
 });
