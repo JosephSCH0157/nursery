@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet('ToolingPreflight','Authentic')][string]$Mode='ToolingPreflight',
+  [ValidateSet('ToolingPreflight','CertifiedChain','Authentic')][string]$Mode='CertifiedChain',
   [ValidatePattern('^[a-z0-9]{20}$')][string]$ProjectRef,
   [string]$ScopeAttestationPath,
   [switch]$AuthorizeAuthenticHistoryTransfer,
@@ -14,6 +14,17 @@ $capsuleDirectory=$null
 $attestationDirectory=$null
 $hostedRequestMade=$false
 $completed=$false
+if($IsWindows){
+  $supabaseExecutable=(Get-Command 'supabase.exe' -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+}else{
+  $supabaseExecutable=@(Get-Command 'supabase' -CommandType Application -All -ErrorAction Stop|ForEach-Object{
+    $candidate=$_.Source;$stream=[IO.File]::OpenRead($candidate);$magic=[byte[]]::new(4)
+    try{$read=$stream.Read($magic,0,4)}finally{$stream.Dispose()}
+    if($read -eq 4 -and $magic[0]-eq 0x7f -and $magic[1]-eq 0x45 -and $magic[2]-eq 0x4c -and $magic[3]-eq 0x46){$candidate}
+  }|Select-Object -Unique)
+  if($supabaseExecutable.Count -ne 1){throw 'Expected exactly one authorized native Linux Supabase CLI executable.'}
+  $supabaseExecutable=$supabaseExecutable[0]
+}
 
 function Get-NurseryInventory {
   [pscustomobject]@{
@@ -30,7 +41,10 @@ function Test-SameInventory($Before,$After) {
 }
 
 try {
-  $cli=(& supabase --version 2>$null|Select-Object -First 1).Trim()
+  Push-Location ([IO.Path]::GetTempPath())
+  try{$cliOutput=@(& $supabaseExecutable --version 2>$null);$cliExit=$LASTEXITCODE}finally{Pop-Location}
+  if($cliExit -ne 0 -or $cliOutput.Count -lt 1 -or [string]::IsNullOrWhiteSpace([string]$cliOutput[0])){throw 'Unable to read the pinned Supabase CLI version.'}
+  $cli=([string]$cliOutput[0]).Trim()
   if($cli -cne '2.84.2'){throw "Supabase CLI 2.84.2 is required; found $cli."}
   & docker info *> $null
   if($LASTEXITCODE -ne 0){throw 'Docker Desktop is unavailable. Start it manually.'}
@@ -53,6 +67,14 @@ try {
     if(-not $adapter.ok -or $adapter.capsuleAccessed){throw 'Recording-authority successor tooling preflight failed.'}
     & node (Join-Path $PSScriptRoot 'test-anvil-recording-authority-historical-successor.mjs')|Out-Null
     if($LASTEXITCODE -ne 0){throw 'Recording-authority successor static tests failed.'}
+  } elseif($Mode -eq 'CertifiedChain') {
+    if($ProjectRef -or $ScopeAttestationPath -or $AuthorizeAuthenticHistoryTransfer){throw 'Authentic inputs are forbidden during certified-chain certification.'}
+    if(-not[string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN','Process'))){throw 'A real Gate 5D token must not be loaded during certified-chain certification.'}
+    $twoLane=& (Join-Path $PSScriptRoot 'certify-anvil-recording-authority-historical-successor.ps1') -HistoryMode CertifiedChain -RepositoryRoot $repo|ConvertFrom-Json
+    if(-not $twoLane.ok -or $twoLane.historyMode -cne 'CertifiedChain' -or -not $twoLane.certifiedAuthenticFoundation -or
+       $twoLane.authenticRequestMade -or $twoLane.predecessorHistoryRows -ne 418 -or $twoLane.successorHistoryRows -ne 419 -or @($twoLane.lanes).Count -ne 2){
+      throw 'Recording-authority certified-chain two-lane certification failed.'
+    }
   } else {
     if(-not $AuthorizeAuthenticHistoryTransfer){throw 'Authentic history transfer requires a separate explicit owner authorization switch.'}
     if(-not $ProjectRef -or -not $ScopeAttestationPath){throw 'Authentic history transfer requires the reviewed project and owner attestation.'}
@@ -61,7 +83,7 @@ try {
     $hostedRequestMade=[bool]$export.hostedRequestMade
     if(-not $export.ok -or -not $hostedRequestMade -or $export.rowCount -ne 411){throw 'Authentic read-only export did not satisfy the frozen contract.'}
     $capsuleDirectory=[string]$export.capsuleDirectory
-    $twoLane=& (Join-Path $PSScriptRoot 'certify-anvil-recording-authority-historical-successor.ps1') -ExternalCapsuleDirectory $capsuleDirectory -AuthorizeExternalAuthenticCapsule -RepositoryRoot $repo|ConvertFrom-Json
+    $twoLane=& (Join-Path $PSScriptRoot 'certify-anvil-recording-authority-historical-successor.ps1') -HistoryMode ExternalAuthentic -ExternalCapsuleDirectory $capsuleDirectory -AuthorizeExternalAuthenticCapsule -RepositoryRoot $repo|ConvertFrom-Json
     if(-not $twoLane.ok -or -not $twoLane.authenticHistory -or $twoLane.successorHistoryRows -ne 419 -or @($twoLane.lanes).Count -ne 2){throw 'Recording-authority authentic two-lane certification failed.'}
   }
 
@@ -75,6 +97,7 @@ try {
   }|ConvertTo-Json -Depth 14 -Compress
 }
 catch {
+  if($Mode -eq 'CertifiedChain'){throw}
   if($_.Exception.Message -match 'token|authorization|attestation|credential|export|response|payload|capsule|history|migration|catalog|lineage|cleanup|Nursery|Docker|Supabase CLI|frozen|contract|Stage A|two-lane') { throw }
   throw 'Recording-authority historical certification failed; confidential details are suppressed.'
 }

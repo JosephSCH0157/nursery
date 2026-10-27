@@ -15,9 +15,13 @@ test("Gate 6P harness remains byte-for-byte preserved", () => {
   assert.equal(sha256(original), "ca46cf852d98ce601cf91fcda0c2374d7ebf216a51b4bbafa882a673a2ff6c07");
 });
 
-test("recording authority successor is authentic-capsule-only and exact-target", () => {
+test("recording authority successor defaults to the certified chain and exact target", () => {
   for (const required of [
-    "$HistoryMode='ExternalAuthentic'",
+    "[ValidateSet('CertifiedChain','ExternalAuthentic')][string]$HistoryMode='CertifiedChain'",
+    "$HistoryMode -eq 'CertifiedChain'",
+    "certifiedAuthenticFoundation=$true",
+    "gate5fAnchorRows=411",
+    "gate6pPredecessorRows=418",
     "AuthorizeExternalAuthenticCapsule",
     "forge-gate5d-read-only-*",
     "$targetMigration='20261027030139'",
@@ -30,7 +34,7 @@ test("recording authority successor is authentic-capsule-only and exact-target",
     "hostedRequests=0",
   ]) assert.ok(successor.includes(required), `missing fail-closed successor assertion: ${required}`);
 
-  assert.doesNotMatch(successor, /HistoryMode='SharedSynthetic'/);
+  assert.doesNotMatch(successor, /\$HistoryMode='ExternalAuthentic'/);
   assert.match(successor, /if\(-not \$CliPreflightOnly\).*External authentic history requires an explicitly authorized encrypted capsule/s);
 });
 
@@ -46,11 +50,23 @@ test("successor verifies preservation, authority behavior, catalog, and rollback
   ]) assert.ok(successor.includes(required), `missing certification evidence: ${required}`);
 });
 
-test("bounded coordinator owns export, successor execution, and confidential cleanup", () => {
+test("ordinary successor certification forbids fresh credentials and capsules", () => {
+  for (const required of [
+    "[ValidateSet('ToolingPreflight','CertifiedChain','Authentic')][string]$Mode='CertifiedChain'",
+    "$Mode -eq 'CertifiedChain'",
+    "Authentic inputs are forbidden during certified-chain certification.",
+    "A real Gate 5D token must not be loaded during certified-chain certification.",
+    "-HistoryMode CertifiedChain",
+    "authenticRequestMade",
+  ]) assert.ok(coordinator.includes(required), `missing certified-chain boundary: ${required}`);
+});
+
+test("exceptional authentic mode retains export and confidential cleanup", () => {
   for (const required of [
     "AuthorizeAuthenticHistoryTransfer",
     "export-gate5d-authentic-history-read-only.ps1",
     "certify-anvil-recording-authority-historical-successor.ps1",
+    "-HistoryMode ExternalAuthentic",
     "Remove-ForgeGate5DCapsule -Directory $capsuleDirectory",
     "SetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN',$null,'Process')",
     "successorHistoryRows -ne 419",

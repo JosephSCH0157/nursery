@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$RepositoryRoot,
+  [ValidateSet('CertifiedChain','ExternalAuthentic')][string]$HistoryMode='CertifiedChain',
   [string]$ExternalCapsuleDirectory,
   [switch]$AuthorizeExternalAuthenticCapsule,
   [switch]$CliPreflightOnly
@@ -36,7 +37,6 @@ if($windowsManagedWslWorktree){
 }
 if(-not(Test-Path -LiteralPath $repositoryGitExecutable -PathType Leaf) -or -not $repositoryGitRoot){throw 'Repository Git executable is unavailable.'}
 $requiredCli='2.84.2'
-$HistoryMode='ExternalAuthentic'
 $fixture=Join-Path $repo 'database/historical-pre-slice-a-v1/pre-slice-a-schema.sql'
 $excludedDbOnly='gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
 $excludedApi='realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor'
@@ -143,8 +143,8 @@ function Invoke-PsqlFile([string]$Container,[string]$Path) {
   try {
     & docker cp $Path "${Container}:$target" 2>$null
     if($LASTEXITCODE -ne 0){throw 'Unable to copy a reviewed SQL file into the disposable database.'}
-    $output=(& docker exec $Container psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target 2>$null|Out-String)
-    if($LASTEXITCODE -ne 0){throw "Disposable SQL-file operation failed.`n$output"}
+    $output=(& docker exec $Container psql -X -q -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target 2>&1|Out-String)
+    if($LASTEXITCODE -ne 0){throw "Disposable SQL-file operation failed during $script:sqlPhase for $(Split-Path -Leaf $Path).`n$output"}
   }
   finally {
     & docker exec $Container rm -f $target 2>$null|Out-Null
@@ -251,6 +251,7 @@ alter default privileges for role postgres in schema public $ambient on sequence
 alter default privileges for role postgres in schema public $ambient on functions $direction anon,authenticated,service_role;
 "@
     Invoke-PsqlFile $container $fixture
+    $script:sqlPhase='predecessor-fixture verification'
     foreach($test in @('supabase/tests/public_slice_a_catalog_parity.sql','supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/pre_slice_a_fixture_behavior.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
     $null=Invoke-Psql $container @'
 begin;
@@ -334,7 +335,7 @@ select jsonb_build_object(
       $removeValid=$true
       $historyContract=Get-Content -LiteralPath $valid.contractPath -Raw|ConvertFrom-Json
       try { $restore=& (Join-Path $PSScriptRoot 'restore-gate5d-authentic-history.ps1') -CapsuleDirectory $valid.capsuleDirectory -ProjectId $projectId -Workdir $workdir -SyntheticTest -SyntheticContractPath $valid.contractPath -RepositoryRoot $repo|ConvertFrom-Json } finally { if($removeValid){Remove-CapsuleResult $valid} }
-    } elseif($HistoryMode -eq 'SharedSynthetic') {
+    } elseif($HistoryMode -eq 'CertifiedChain') {
       if(-not $script:sharedSyntheticCapsule){
         $script:sharedSyntheticCapsule=& (Join-Path $PSScriptRoot 'new-gate5d-synthetic-history-capsule.ps1') -DatabaseContainer $container -OutputRoot $sharedSyntheticRoot -Variant Valid -RepositoryRoot $repo|ConvertFrom-Json
       }
@@ -381,7 +382,8 @@ select jsonb_build_object(
     $receiptHashesAfter=Get-RecordingReceiptHashes $container
     foreach($name in @('completion','keep','discard')){if([string]$receiptHashesAfter.$name -cne [string]$receiptHashesBefore.$name){throw "Existing recording receipt bytes changed: $name"}}
 
-    foreach($test in @('supabase/tests/public_slice_a_catalog_parity.sql','supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate6o_episode_storage_tier_contract.sql','supabase/tests/gate6p_storage_bucket_contract.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
+    $script:sqlPhase='post-successor verification'
+    foreach($test in @('supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate6o_episode_storage_tier_contract.sql','supabase/tests/gate6p_storage_bucket_contract.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
     $savedContainer=$env:SUPABASE_DB_CONTAINER
     try {
       $env:SUPABASE_DB_CONTAINER=$container
@@ -391,6 +393,8 @@ select jsonb_build_object(
       if($LASTEXITCODE -ne 0){throw 'Recording-authority successor verification failed.'}
     }
     finally { $env:SUPABASE_DB_CONTAINER=$savedContainer }
+    $null=Invoke-Psql $container 'drop table public.recording_authority_upgrade_preimage;'
+    Invoke-PsqlFile $container (Join-Path $repo 'supabase/tests/public_slice_a_catalog_parity.sql')
     $apiStop=(& supabase stop --workdir $workdir --yes --agent=no 2>&1|Out-String)
     if($LASTEXITCODE -ne 0){throw "Unable to preserve and stop the disposable DB-only stack before Data API testing.`n$apiStop"}
     $started=$false;$defaultAttached=$false
@@ -435,14 +439,14 @@ try {
         throw 'External authentic capsule is outside the approved task-owned temporary location.'
       }
     }
-  } elseif($ExternalCapsuleDirectory -or $AuthorizeExternalAuthenticCapsule){throw 'External authentic inputs are forbidden for synthetic history modes.'}
+  } elseif($ExternalCapsuleDirectory -or $AuthorizeExternalAuthenticCapsule){throw 'External authentic inputs are forbidden in CertifiedChain mode.'}
   foreach($name in $sensitiveNames){$savedEnvironment[$name]=[Environment]::GetEnvironmentVariable($name,'Process');[Environment]::SetEnvironmentVariable($name,$null,'Process')}
   $cli=Get-PinnedSupabaseCliVersion;if($cli -ne $requiredCli){throw "Supabase CLI $requiredCli is required; found $cli."}
   if($CliPreflightOnly){
     [pscustomobject]@{ok=$true;schema='forge.recording-authority-historical-successor-cli-preflight.v1';cliVersion=$cli;executable=$supabaseExecutable;workingDirectory=[IO.Path]::GetTempPath();repositoryCacheUntouched=$true;capsuleAccessed=$false}|ConvertTo-Json -Compress
     return
   }
-  if($HistoryMode -eq 'SharedSynthetic'){
+  if($HistoryMode -eq 'CertifiedChain'){
     $sharedSyntheticRoot=Join-Path ([IO.Path]::GetTempPath()) "forge-gate5d-shared-$([guid]::NewGuid().ToString('N'))"
     New-Item -ItemType Directory -Path $sharedSyntheticRoot|Out-Null
   }
@@ -466,8 +470,9 @@ try {
   $nurseryUnchanged=(($nurseryBeforeAll.containers-join ',') -eq ($nurseryAfterAll.containers-join ',') -and ($nurseryBeforeAll.volumes-join ',') -eq ($nurseryAfterAll.volumes-join ','))
   if(-not $nurseryUnchanged -or @($lanes|Where-Object{-not $_.cleanupVerified -or -not $_.nurseryResourcesUnchanged}).Count){throw 'Final isolation verification failed.'}
   [pscustomobject]@{
-    ok=$true;schema='forge.recording-authority-authentic-historical-successor-certification.v1';historyMode=$HistoryMode
-    syntheticOnly=$false;authenticHistory=$true;authenticRequestMade=$true
+    ok=$true;schema='forge.recording-authority-historical-successor-certification.v2';historyMode=$HistoryMode
+    syntheticOnly=($HistoryMode -eq 'CertifiedChain');authenticHistory=($HistoryMode -eq 'ExternalAuthentic');authenticRequestMade=($HistoryMode -eq 'ExternalAuthentic')
+    certifiedAuthenticFoundation=$true;gate5fAnchorRows=411;gate6pPredecessorRows=418
     cliVersion=$cli;gitBranch=$branch;gitHead=$head;failureCleanupVerified=$failureCleanup
     nurseryResourcesUnchanged=$nurseryUnchanged;hostingCharges=0;productionMetadataTransferred=$false
     targetMigration=$targetMigration;predecessorHistoryRows=$predecessorHistoryRows;successorHistoryRows=$successorHistoryRows
