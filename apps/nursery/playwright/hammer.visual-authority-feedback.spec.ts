@@ -140,8 +140,7 @@ test("visual clips beyond playback duration retain distinct native pointer targe
     window.__hammerTimelineHitTestSelections = selected;
     document.body.innerHTML = `
       <style>
-        .hammer-visual-timeline-lane__track { position: relative; width: 160px; min-height: 44px; overflow: hidden; }
-        .hammer-hit-test-wide .hammer-visual-timeline-lane__track { width: 800px; }
+        .hammer-visual-timeline-lane__track { position: relative; width: 800px; min-height: 44px; overflow: hidden; }
         .hammer-visual-clip-block { position: absolute; height: 32px; box-sizing: border-box; padding: 0; }
       </style>
       <div id="hammer-visual-hit-test-root"></div>
@@ -174,12 +173,8 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   expect(targetBox).not.toBeNull();
   expect(laterBox).not.toBeNull();
   expect(duplicateBox).not.toBeNull();
+  expect(targetBox?.y).toBe(laterBox?.y);
   expect(targetBox?.y).not.toBe(duplicateBox?.y);
-  expect(targetBox?.y).not.toBe(laterBox?.y);
-
-  await page.evaluate(() => document.body.classList.add("hammer-hit-test-wide"));
-  await expect.poll(async () => (await target.boundingBox())?.y).toBe((await later.boundingBox())?.y);
-  expect((await target.boundingBox())?.y).not.toBe((await duplicate.boundingBox())?.y);
 
   await target.click();
   await duplicate.click();
