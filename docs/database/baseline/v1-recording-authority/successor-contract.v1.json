@@ -33,6 +33,12 @@
       "20261027030139"
     ]
   },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-recording-authority/successor-catalog-fingerprint.json",
+    "fileSha256": "a46bb67287868b8f7f568b75962593cd2b367d5395865d9c63e0870b85e1e5ae",
+    "objectCount": 15910,
+    "normalizedContractSha256": "38f8a14b90e52ee876e0615084c036d286e0e280832685e07e20dcbabf86ae47"
+  },
   "repairContract": {
     "authorityColumnBackfillPreservesExistingReceiptBytes": true,
     "legacyFingerprintsRemainImmutable": true,

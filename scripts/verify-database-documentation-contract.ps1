@@ -24,7 +24,7 @@ $gate6pSha256 = 'dc27fb7a84a6cbeb44bc9af91f1db51a6c82ff6fa7db32863a6f32e9c296321
 $gate6p = Get-Content -LiteralPath $gate6pPath -Raw | ConvertFrom-Json
 $recordingAuthorityRelativePath = 'docs/database/baseline/v1-recording-authority/successor-contract.v1.json'
 $recordingAuthorityPath = Join-Path $repo $recordingAuthorityRelativePath
-$recordingAuthoritySha256 = '24a6e2c7039f723ac6a61e236da961f7c11c7a98a18e202a184630e281aa2625'
+$recordingAuthoritySha256 = '0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f'
 $recordingAuthority = Get-Content -LiteralPath $recordingAuthorityPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -114,7 +114,9 @@ if ((Get-FileHash -LiteralPath $recordingAuthorityPath -Algorithm SHA256).Hash.T
 if ($recordingAuthority.predecessor.contractSha256 -ne $gate6pSha256 -or
     $recordingAuthority.sharedTailAddition.version -ne '20261027030139' -or
     $recordingAuthority.historicalSuccessor.finalRows -ne 419 -or
-    $recordingAuthority.sharedTailAddition.sha256 -ne '876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa') {
+    $recordingAuthority.sharedTailAddition.sha256 -ne '876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa' -or
+    $recordingAuthority.catalogSuccessor.fileSha256 -ne 'a46bb67287868b8f7f568b75962593cd2b367d5395865d9c63e0870b85e1e5ae' -or
+    $recordingAuthority.catalogSuccessor.normalizedContractSha256 -ne '38f8a14b90e52ee876e0615084c036d286e0e280832685e07e20dcbabf86ae47') {
   $failures.Add('Recording authority successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {

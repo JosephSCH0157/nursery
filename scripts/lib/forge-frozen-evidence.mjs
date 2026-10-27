@@ -16,7 +16,7 @@ export const GATE6O_SUCCESSOR_CONTRACT_SHA256 = "6faf15bd24a3b9b398ffd42027bdb7a
 export const GATE6P_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-gate6p/successor-contract.v1.json";
 export const GATE6P_SUCCESSOR_CONTRACT_SHA256 = "dc27fb7a84a6cbeb44bc9af91f1db51a6c82ff6fa7db32863a6f32e9c2963219";
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-recording-authority/successor-contract.v1.json";
-export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "24a6e2c7039f723ac6a61e236da961f7c11c7a98a18e202a184630e281aa2625";
+export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -380,6 +380,8 @@ function loadRecordingAuthoritySuccessorContract(root, head) {
       addition?.version !== "20261027030139" ||
       addition?.path !== "supabase/migrations/20261027030139_anvil_recording_authority_repair.sql" ||
       addition?.sha256 !== "876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa" ||
+      contract.catalogSuccessor?.fileSha256 !== "a46bb67287868b8f7f568b75962593cd2b367d5395865d9c63e0870b85e1e5ae" ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "38f8a14b90e52ee876e0615084c036d286e0e280832685e07e20dcbabf86ae47" ||
       contract.rejectAdditionalProtectedPathChanges !== true) {
     throw new Error("Recording authority successor contract has an invalid predecessor or shared-tail addition.");
   }
