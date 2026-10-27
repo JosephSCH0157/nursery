@@ -139,6 +139,31 @@ pnpm certify:db:gate6p-successor
 
 It must preserve all seven authentic-prefix hashes, reach `historical-v1`, retain the unchanged 15,903-entry Gate 6O catalog contract, and prove exact, private, idempotent provisioning of `forge-workpieces` and `bellows-capture` without changing Storage objects, policies, RLS, ACLs, or existing compatible rows.
 
+The recording-authority successor preserves the Gate 6P harness unchanged and
+adds an authentic-capsule-only 418-to-419 certification path. Its static tooling
+test is always safe to run:
+
+```powershell
+pnpm test:db:anvil-recording:historical-tooling
+```
+
+The full command requires a newly owner-authorized encrypted capsule and the
+explicit authorization switch; the completed Gate 5F authorization is not
+reusable:
+
+```powershell
+pnpm certify:db:anvil-recording:historical -- `
+  -ExternalCapsuleDirectory $capsuleDirectory `
+  -AuthorizeExternalAuthenticCapsule
+```
+
+It restores only into isolated disposable databases, verifies the authentic
+prefix and 418-row `historical-v1` predecessor, applies only `20261027030139`,
+requires 419 rows, proves existing recording-receipt bytes unchanged, and runs
+the authority, immutability, Hammer projection, catalog, rejection, rollback,
+financial-isolation, and teardown checks. See the [recording-authority historical
+successor contract](baseline/v1-recording-authority/HISTORICAL_UPGRADE_CERTIFICATION.md).
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell
