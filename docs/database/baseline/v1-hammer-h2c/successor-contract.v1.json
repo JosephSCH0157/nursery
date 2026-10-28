@@ -34,6 +34,12 @@
       "20261028092438"
     ]
   },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-h2c/successor-catalog-fingerprint.json",
+    "fileSha256": "84eba2e4ead2c2372dce6626eac1918be4afb6b78cb2f975728aa69c801ee333",
+    "objectCount": 16129,
+    "normalizedContractSha256": "803e02df1c18228aee39f5e56b9158f74c6c370386fcd2cafd1552314a288807"
+  },
   "inactivityContract": {
     "providerAuthorityRowsCreated": 0,
     "customerPriceRowsCreated": 0,

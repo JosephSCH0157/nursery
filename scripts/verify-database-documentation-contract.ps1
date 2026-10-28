@@ -28,7 +28,7 @@ $recordingAuthoritySha256 = '0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f283
 $recordingAuthority = Get-Content -LiteralPath $recordingAuthorityPath -Raw | ConvertFrom-Json
 $hammerH2CRelativePath = 'docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json'
 $hammerH2CPath = Join-Path $repo $hammerH2CRelativePath
-$hammerH2CSha256 = 'e2103bc09452d83bdd5068a4c2f6851f16c07dca1f49f5e8ceea5a96aa4d6895'
+$hammerH2CSha256 = '945872c2516e433e0526f08c4ca531f4b3bb46fbb5806c501166a21b11781e17'
 $hammerH2C = Get-Content -LiteralPath $hammerH2CPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -130,7 +130,9 @@ if ((Get-FileHash -LiteralPath $hammerH2CPath -Algorithm SHA256).Hash.ToLowerInv
 if ($hammerH2C.predecessor.contractSha256 -ne $recordingAuthoritySha256 -or
     $hammerH2C.sharedTailAddition.version -ne '20261028092438' -or
     $hammerH2C.historicalSuccessor.finalRows -ne 420 -or
-    $hammerH2C.sharedTailAddition.sha256 -ne 'df8988b8bb12e17cc7113d116e3cbc89397b7d9dec6de4c2ec92f979bbf1dcf1') {
+    $hammerH2C.sharedTailAddition.sha256 -ne 'df8988b8bb12e17cc7113d116e3cbc89397b7d9dec6de4c2ec92f979bbf1dcf1' -or
+    $hammerH2C.catalogSuccessor.fileSha256 -ne '84eba2e4ead2c2372dce6626eac1918be4afb6b78cb2f975728aa69c801ee333' -or
+    $hammerH2C.catalogSuccessor.normalizedContractSha256 -ne '803e02df1c18228aee39f5e56b9158f74c6c370386fcd2cafd1552314a288807') {
   $failures.Add('Hammer H2-C successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
@@ -167,6 +169,10 @@ foreach ($command in @(
   'pnpm certify:db:gate6o-successor',
   'pnpm certify:db:gate6p-successor',
   'pnpm certify:db:gate6p-browser',
+  'pnpm certify:db:hammer-h2c:historical',
+  'pnpm test:db:hammer-h2c:historical-tooling',
+  'pnpm test:db:hammer-h2c:hosted-deployment',
+  'invoke-hammer-h2c-420-hosted-deployment.ps1',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {

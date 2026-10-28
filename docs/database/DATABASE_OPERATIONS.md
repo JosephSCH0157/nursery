@@ -96,16 +96,20 @@ pnpm certify:db:canonical-baseline
 
 For a disposable B1 workdir created before the new migration existed, destroy it and create a new one rather than copying the file by hand.
 
-The only governed hosted shared-tail application currently implemented is the
-single-purpose Anvil recording-authority 418 to 419 entrypoint. It pins the
-Forge project and migration bytes, requires fresh owner-reviewed recovery
-evidence, an existing process-scoped database password, exact operator
-authorization, and exactly one pending version. It is not a general hosted SQL
-or migration executor. See section 6 for its preflight and apply commands.
+Governed hosted shared-tail applications use single-purpose entrypoints. The
+Anvil recording-authority entrypoint is bounded to 418 to 419; the Hammer H2-C
+entrypoint is bounded to 419 to 420. Each pins the Forge project and migration
+bytes, requires fresh owner-reviewed recovery evidence, an enrolled managed
+database password, exact operator authorization, and exactly one pending
+version. Neither is a general hosted SQL or migration executor. See section 6
+for their preflight and apply commands.
 
 All other hosted T applications remain unimplemented and unauthorized. Do not
 use `--include-all`, `migration repair`, direct history writes, or B1 to force
 discovery.
+
+**Not yet implemented/certified:** any unbounded or general historical-upgrade
+executor. Only the version-specific entrypoints named here are governed.
 
 ## 4. Create a disposable fresh database
 
@@ -139,7 +143,14 @@ pnpm verify:db:historical-integrity
 pnpm certify:db:canonical-baseline
 ```
 
-Certification creates disposable databases, executes B1 plus T, runs catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, Bar Stock lifecycle, episode storage-tier parity, Storage bucket provisioning and cross-user isolation, pairing, subscription/billing, Quench, Data API, and financial-inactivity tests, compares the normalized catalog and provisioning contract, and tears the databases down. The current Gate 6P successor must report 15,903 catalog entries, production-normalized contract hash `766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd`, local `wrappers` 0.5.7 hash `37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef`, exactly the two approved private Storage bucket records, and only the approved hosted `wrappers` 0.5.6 versus local 0.5.7 difference. Gate 6P does not change catalog entries; its provisioning evidence is recorded separately. The earlier Gate 5F, Gate 6H, and Gate 6O contracts remain frozen predecessors, not the current tail target.
+Certification creates disposable databases, executes B1 plus T, runs catalog/ACL, RLS/isolation, signup/profile/workspace, Anvil, Bar Stock lifecycle, episode storage-tier parity, Storage bucket provisioning and cross-user isolation, Hammer H2-C inactivity, pairing, subscription/billing, Quench, Data API, and financial-inactivity tests, compares the normalized catalog and provisioning contract, and tears the databases down. The current Hammer H2-C successor must report 16,129 catalog entries and normalized contract hash `803e02df1c18228aee39f5e56b9158f74c6c370386fcd2cafd1552314a288807`. The earlier Gate 5F, Gate 6H, Gate 6O, Gate 6P, and recording-authority contracts remain frozen predecessors, not the current tail target.
+
+Gate 6O predecessor continuity remains 15,903 entries with production-normalized
+hash `766361f8b22a131952808335ca0719c8ddccff8f15ba50a0f348b32e88f489cd`
+and local `wrappers` 0.5.7 hash
+`37c7bb1483dfa11f7aaf32ce5071d8614074b64e488bad074e028935453714ef`.
+The only approved environmental difference remains hosted `wrappers` 0.5.6
+versus local 0.5.7.
 
 For evidence continuity, Gate 5F recorded 15,901 entries at `49d06bfb75f11053662c5966e021b13e96ac78006759ca39b33bede71db7266f`. Gate 6H also recorded 15,901 entries after its three Bar Stock definition changes, with production-normalized hash `6953a105d5f7fbfe2813c5e3349cd5364ba9c273f3dc023f042f86c6e7c9c5d5` and approved local `wrappers` 0.5.7 hash `dd364abfe6fcdb726148d209431d2476461b040d17cfd1c8bc45e23c8785bb9e`.
 
@@ -199,6 +210,48 @@ process-scoped password. Application failure or failed post-verification is a
 hard stop: retain sanitized evidence, do not repair history, do not submit a
 recording decision, and obtain owner direction for PITR/backup recovery or a
 reviewed forward correction.
+
+### Hammer H2-C inactive transcription migration 420
+
+Migration 420 uses the same recovery-readiness evidence schema and managed
+credential boundary described above. Before any hosted request, run the local
+wrapper tests and verify the Dashboard backup/PITR evidence is less than 24
+hours old, names both the recovery operator and restore authorizer, references
+the owner-approved change window, and acknowledges whole-database restore
+impact:
+
+```powershell
+pnpm test:db:hammer-h2c:hosted-deployment
+./scripts/invoke-hammer-h2c-420-hosted-deployment.ps1 `
+  -Action Preflight `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+The preflight must report `historical-v1`, exactly 419 installed migrations,
+hosted head `20261027030139`, and exactly one pending version,
+`20261028092438`. After the owner separately authorizes the hosted schema
+write, the exact application command is:
+
+```powershell
+./scripts/invoke-hammer-h2c-420-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-HAMMER-H2C-420
+```
+
+The wrapper uses only normal password-authenticated `supabase db push
+--linked`. Post-application verification requires 420 history rows, the exact
+target as hosted head, five forced-RLS Hammer tables, zero newly installed
+authority/operation rows, the `execution_authorized=false` hard stop, no
+authenticated table writes, and a fail-closed transcript-prep route. Then the
+operator must review Supabase Security and Performance Advisors and retain
+sanitized results. A failed apply or post-verification is a hard stop: do not
+repair migration history or manually reverse DDL. Preserve evidence and obtain
+owner and recovery-operator direction for PITR/backup restoration or a reviewed
+forward migration. Restoration can affect unrelated hosted data and therefore
+requires a separate restore authorization.
 
 Authentic-history H upgrade certification completed under the one-time Gate 5F owner authorization. The dedicated read-only endpoint returned the authentic 411-row six-column history into an encrypted local capsule; both disposable privilege lanes restored it transactionally, discovered exactly four migrations normally, applied them, and reached 415 rows plus `historical-v1` with the original records unchanged. See the [Gate 5F authentic closeout](baseline/v1-gate5f/AUTHENTIC_CERTIFICATION_CLOSEOUT.md).
 
@@ -263,6 +316,23 @@ the authority, immutability, Hammer projection, catalog, rejection, rollback,
 financial-isolation, and teardown checks. See the [recording-authority historical
 successor contract](baseline/v1-recording-authority/HISTORICAL_UPGRADE_CERTIFICATION.md).
 
+The Hammer H2-C successor preserves the recording-authority harness unchanged
+and extends the certified chain from 419 to 420. Its safe static tooling and
+credential-free two-lane certification commands are:
+
+```powershell
+pnpm test:db:hammer-h2c:historical-tooling
+pnpm certify:db:hammer-h2c:historical
+```
+
+The successor replay reconstructs the protected 411-row Gate 5F foundation,
+applies the eight predecessor versions through `20261027030139`, verifies the
+419-row `historical-v1` predecessor, then discovers and applies only
+`20261028092438`. Both privilege lanes must reach 420 rows with every original
+history digest and existing recording receipt unchanged, catalog equality at
+16,129 objects, forced RLS, authenticated write denial, zero Hammer H2-C data
+rows, no provider or financial calls, and complete scoped teardown.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell
@@ -271,7 +341,13 @@ pnpm certify:db:gate6p-browser
 
 This runs Gate 6P fresh missing-row provisioning through the normal B1-plus-tail path, repeated-provisioning idempotency, incompatible-configuration rollback, the bucket/RLS contract, browser fixture authority, and disposable-isolation tests before `pnpm gate:browser`, then removes only its task-created local stack and temporary files. It makes no hosted request and does not invoke a paid provider. The Gate 6O browser command remains predecessor evidence; use the Gate 6P command for the current tail.
 
-**Not yet implemented/certified:** a production hosted-apply command. Gate 5F did not migrate production or exercise production customer/financial rows. Schema-equivalent B1 certification, manually synthesized history, SQL wrapped in a rollback, and linked dry-run remain distinct evidence and are not substitutes for the recorded authentic-history run. Every hosted migration still requires backup/PITR verification, read-only production preflight, exact pending-version review, and separate owner authorization.
+The single-purpose Hammer H2-C hosted entrypoint in section 6 is preparation,
+not deployment authorization. Gate 5F did not migrate production or exercise
+production customer/financial rows. Schema-equivalent B1 certification,
+synthetic history, SQL wrapped in a rollback, and linked dry-run remain distinct
+evidence and are not substitutes for the recorded authentic-history run. Every
+hosted migration still requires backup/PITR verification, read-only production
+preflight, exact pending-version review, and separate owner authorization.
 
 Gate 5D Stage 1 provides a synthetic-only guardrail run:
 

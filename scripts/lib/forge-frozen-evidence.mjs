@@ -18,7 +18,7 @@ export const GATE6P_SUCCESSOR_CONTRACT_SHA256 = "dc27fb7a84a6cbeb44bc9af91f1db51
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-recording-authority/successor-contract.v1.json";
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f";
 export const HAMMER_H2C_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json";
-export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "e2103bc09452d83bdd5068a4c2f6851f16c07dca1f49f5e8ceea5a96aa4d6895";
+export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "945872c2516e433e0526f08c4ca531f4b3bb46fbb5806c501166a21b11781e17";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
