@@ -1,0 +1,50 @@
+{
+  "schema": "forge.hammer-h2c-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Recording authority",
+    "contractPath": "docs/database/baseline/v1-recording-authority/successor-contract.v1.json",
+    "contractSha256": "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f",
+    "historicalRows": 419
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "recordingAuthoritySuccessorContractSha256": "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f"
+  },
+  "sharedTailAddition": {
+    "version": "20261028092438",
+    "path": "supabase/migrations/20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql",
+    "sha256": "26790d12848ac96d3b7772b6c9bc6bc9de8a415417c8b23c769f0e8c7c9a2ac7"
+  },
+  "historicalSuccessor": {
+    "finalRows": 420,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438"
+    ]
+  },
+  "inactivityContract": {
+    "providerAuthorityRowsCreated": 0,
+    "customerPriceRowsCreated": 0,
+    "spendingScopeRowsCreated": 0,
+    "reservationRowsCreated": 0,
+    "providerAttemptRowsCreated": 0,
+    "transcriptionOperationRowsCreated": 0,
+    "executionAuthorizedMustRemainFalse": true,
+    "hammerRouteMustRemainHaltNew": true,
+    "liveAuthorityCreated": false,
+    "authenticatedWritesDenied": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

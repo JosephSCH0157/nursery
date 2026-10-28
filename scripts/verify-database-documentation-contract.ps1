@@ -26,6 +26,10 @@ $recordingAuthorityRelativePath = 'docs/database/baseline/v1-recording-authority
 $recordingAuthorityPath = Join-Path $repo $recordingAuthorityRelativePath
 $recordingAuthoritySha256 = '0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f'
 $recordingAuthority = Get-Content -LiteralPath $recordingAuthorityPath -Raw | ConvertFrom-Json
+$hammerH2CRelativePath = 'docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json'
+$hammerH2CPath = Join-Path $repo $hammerH2CRelativePath
+$hammerH2CSha256 = '8d814b590370103b49bb963e7ab91405884f65baf2040e0bffba9b422f4f76d4'
+$hammerH2C = Get-Content -LiteralPath $hammerH2CPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -80,6 +84,7 @@ foreach ($reference in @(
   $gate6oRelativePath
   $gate6pRelativePath
   $recordingAuthorityRelativePath
+  $hammerH2CRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -118,6 +123,15 @@ if ($recordingAuthority.predecessor.contractSha256 -ne $gate6pSha256 -or
     $recordingAuthority.catalogSuccessor.fileSha256 -ne 'a46bb67287868b8f7f568b75962593cd2b367d5395865d9c63e0870b85e1e5ae' -or
     $recordingAuthority.catalogSuccessor.normalizedContractSha256 -ne '38f8a14b90e52ee876e0615084c036d286e0e280832685e07e20dcbabf86ae47') {
   $failures.Add('Recording authority successor contract has unexpected predecessor, chronology, or migration evidence.')
+}
+if ((Get-FileHash -LiteralPath $hammerH2CPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hammerH2CSha256) {
+  $failures.Add('Hammer H2-C successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($hammerH2C.predecessor.contractSha256 -ne $recordingAuthoritySha256 -or
+    $hammerH2C.sharedTailAddition.version -ne '20261028092438' -or
+    $hammerH2C.historicalSuccessor.finalRows -ne 420 -or
+    $hammerH2C.sharedTailAddition.sha256 -ne '26790d12848ac96d3b7772b6c9bc6bc9de8a415417c8b23c769f0e8c7c9a2ac7') {
+  $failures.Add('Hammer H2-C successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")

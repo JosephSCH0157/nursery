@@ -32,6 +32,8 @@ Gate 6P adds `20261025080943_provision_required_storage_buckets.sql` after Gate 
 
 The recording-authority successor adds `20261027030139_anvil_recording_authority_repair.sql` after Gate 6P. It backfills immutable Keep/Discard receipt authority from canonical completions, makes legacy Anvil execution identity optional for venue-neutral decisions, and preserves legacy receipt fingerprints. The byte-locked chronology and structure are [recording authority successor-contract.v1.json](baseline/v1-recording-authority/successor-contract.v1.json) and its [successor catalog fingerprint](baseline/v1-recording-authority/successor-catalog-fingerprint.json).
 
+The Hammer H2-C successor adds `20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql` after the recording-authority successor. It installs private, RLS-forced transcription evidence structures and service-only functions while creating no provider authority, customer price, spending scope, reservation, operation, attempt, transcript, or Live authority. The byte-locked chronology is [Hammer H2-C successor-contract.v1.json](baseline/v1-hammer-h2c/successor-contract.v1.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future

@@ -17,6 +17,8 @@ export const GATE6P_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-gate6p/
 export const GATE6P_SUCCESSOR_CONTRACT_SHA256 = "dc27fb7a84a6cbeb44bc9af91f1db51a6c82ff6fa7db32863a6f32e9c2963219";
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-recording-authority/successor-contract.v1.json";
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f";
+export const HAMMER_H2C_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json";
+export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "8d814b590370103b49bb963e7ab91405884f65baf2040e0bffba9b422f4f76d4";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -398,6 +400,33 @@ function loadRecordingAuthoritySuccessorContract(root, head) {
   return contract;
 }
 
+function loadHammerH2CSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [HAMMER_H2C_SUCCESSOR_CONTRACT_PATH]).get(HAMMER_H2C_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256) throw new Error("Hammer H2-C successor-contract SHA-256 mismatch.");
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.hammer-h2c-successor-contract.v1" || contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261028092438" ||
+      addition?.path !== "supabase/migrations/20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql" ||
+      addition?.sha256 !== "26790d12848ac96d3b7772b6c9bc6bc9de8a415417c8b23c769f0e8c7c9a2ac7" ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Hammer H2-C successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(HAMMER_H2C_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") throw new Error("Hammer H2-C successor contract is missing or has an unsupported mode.");
+  checkAttributes(root, [HAMMER_H2C_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...HAMMER_H2C_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Hammer H2-C successor-contract working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", HAMMER_H2C_SUCCESSOR_CONTRACT_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) throw new Error("Hammer H2-C successor-contract staged content differs from HEAD.");
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -584,10 +613,10 @@ function verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors,
     scope,
     fileCount: records.length,
     successorFileCount: successorRecords.length,
-    successorContractPath: RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH,
-    successorContractSha256: RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256,
-    predecessorSuccessorContractPath: GATE6P_SUCCESSOR_CONTRACT_PATH,
-    predecessorSuccessorContractSha256: GATE6P_SUCCESSOR_CONTRACT_SHA256,
+    successorContractPath: HAMMER_H2C_SUCCESSOR_CONTRACT_PATH,
+    successorContractSha256: HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256,
+    predecessorSuccessorContractPath: RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH,
+    predecessorSuccessorContractSha256: RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256,
     expectedModes: modes,
     requireExactWorktreeBytes,
     worktreeByteDifferences,
@@ -737,11 +766,13 @@ export function verifyFrozenEvidence({
   const gate6o = loadGate6OSuccessorContract(root, head);
   const gate6p = loadGate6PSuccessorContract(root, head);
   const recordingAuthority = loadRecordingAuthoritySuccessorContract(root, head);
+  const hammerH2C = loadHammerH2CSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
     { gate: "gate6p", contract: gate6p },
     { gate: "recording-authority", contract: recordingAuthority },
+    { gate: "hammer-h2c", contract: hammerH2C },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }
