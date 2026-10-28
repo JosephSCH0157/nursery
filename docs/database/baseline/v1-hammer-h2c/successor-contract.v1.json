@@ -16,7 +16,7 @@
   "sharedTailAddition": {
     "version": "20261028092438",
     "path": "supabase/migrations/20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql",
-    "sha256": "26790d12848ac96d3b7772b6c9bc6bc9de8a415417c8b23c769f0e8c7c9a2ac7"
+    "sha256": "df8988b8bb12e17cc7113d116e3cbc89397b7d9dec6de4c2ec92f979bbf1dcf1"
   },
   "historicalSuccessor": {
     "finalRows": 420,

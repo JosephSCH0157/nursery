@@ -28,7 +28,7 @@ $recordingAuthoritySha256 = '0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f283
 $recordingAuthority = Get-Content -LiteralPath $recordingAuthorityPath -Raw | ConvertFrom-Json
 $hammerH2CRelativePath = 'docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json'
 $hammerH2CPath = Join-Path $repo $hammerH2CRelativePath
-$hammerH2CSha256 = '8d814b590370103b49bb963e7ab91405884f65baf2040e0bffba9b422f4f76d4'
+$hammerH2CSha256 = 'e2103bc09452d83bdd5068a4c2f6851f16c07dca1f49f5e8ceea5a96aa4d6895'
 $hammerH2C = Get-Content -LiteralPath $hammerH2CPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -130,7 +130,7 @@ if ((Get-FileHash -LiteralPath $hammerH2CPath -Algorithm SHA256).Hash.ToLowerInv
 if ($hammerH2C.predecessor.contractSha256 -ne $recordingAuthoritySha256 -or
     $hammerH2C.sharedTailAddition.version -ne '20261028092438' -or
     $hammerH2C.historicalSuccessor.finalRows -ne 420 -or
-    $hammerH2C.sharedTailAddition.sha256 -ne '26790d12848ac96d3b7772b6c9bc6bc9de8a415417c8b23c769f0e8c7c9a2ac7') {
+    $hammerH2C.sharedTailAddition.sha256 -ne 'df8988b8bb12e17cc7113d116e3cbc89397b7d9dec6de4c2ec92f979bbf1dcf1') {
   $failures.Add('Hammer H2-C successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {

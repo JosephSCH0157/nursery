@@ -18,7 +18,7 @@ export const GATE6P_SUCCESSOR_CONTRACT_SHA256 = "dc27fb7a84a6cbeb44bc9af91f1db51
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-recording-authority/successor-contract.v1.json";
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f";
 export const HAMMER_H2C_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json";
-export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "8d814b590370103b49bb963e7ab91405884f65baf2040e0bffba9b422f4f76d4";
+export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "e2103bc09452d83bdd5068a4c2f6851f16c07dca1f49f5e8ceea5a96aa4d6895";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -410,7 +410,7 @@ function loadHammerH2CSuccessorContract(root, head) {
       contract.predecessor?.contractSha256 !== RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 ||
       addition?.version !== "20261028092438" ||
       addition?.path !== "supabase/migrations/20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql" ||
-      addition?.sha256 !== "26790d12848ac96d3b7772b6c9bc6bc9de8a415417c8b23c769f0e8c7c9a2ac7" ||
+      addition?.sha256 !== "df8988b8bb12e17cc7113d116e3cbc89397b7d9dec6de4c2ec92f979bbf1dcf1" ||
       contract.rejectAdditionalProtectedPathChanges !== true) {
     throw new Error("Hammer H2-C successor contract has an invalid predecessor or shared-tail addition.");
   }

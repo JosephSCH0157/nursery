@@ -245,7 +245,8 @@ create policy hammer_transcription_attempts_customer_read
 on tongs.hammer_transcription_provider_attempts for select to authenticated
 using (exists (
   select 1 from tongs.hammer_transcription_operations operation
-  where operation.id = operation_id and operation.user_id = (select auth.uid())
+  where operation.id = hammer_transcription_provider_attempts.operation_id
+    and operation.user_id = (select auth.uid())
     and tongs.has_workspace_role(operation.workspace_id, 'viewer')
 ));
 
@@ -253,7 +254,8 @@ create policy hammer_transcription_stages_customer_read
 on tongs.hammer_transcription_stage_receipts for select to authenticated
 using (exists (
   select 1 from tongs.hammer_transcription_operations operation
-  where operation.id = operation_id and operation.user_id = (select auth.uid())
+  where operation.id = hammer_transcription_stage_receipts.operation_id
+    and operation.user_id = (select auth.uid())
     and tongs.has_workspace_role(operation.workspace_id, 'viewer')
 ));
 

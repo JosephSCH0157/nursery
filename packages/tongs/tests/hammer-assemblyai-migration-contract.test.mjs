@@ -19,6 +19,8 @@ test("migration is forward-only, RLS-complete, and financially inactive", () => 
   assert.match(migration, /alter table tongs\.%I enable row level security/);
   assert.match(migration, /force row level security/);
   assert.match(migration, /\(select auth\.uid\(\)\) = user_id/);
+  assert.match(migration, /operation\.id = hammer_transcription_provider_attempts\.operation_id/);
+  assert.match(migration, /operation\.id = hammer_transcription_stage_receipts\.operation_id/);
   assert.match(migration, /canonical transcript persistence is required before settlement/i);
   assert.doesNotMatch(migration, /insert into tongs\.hammer_transcription_provider_authorities/i);
   assert.doesNotMatch(migration, /insert into tongs\.(customer_spending_quotes|funding_reservations|supplier_expenses)/i);
