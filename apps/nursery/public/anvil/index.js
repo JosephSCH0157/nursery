@@ -92401,20 +92401,73 @@ var init_workpiece_performance_entrypoint = __esm({
   }
 });
 
-// src/forge/workpiece-script-handoff.ts
+// src/forge/workpiece-script-handoff-policy.ts
 function readString7(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid3(value) {
-  const str = readString7(value);
+  const candidate = readString7(value);
+  return candidate && UUID_RE3.test(candidate) ? candidate.toLowerCase() : null;
+}
+function shouldAutoloadWorkpieceScript(search) {
+  const params = new URLSearchParams(search || "");
+  const readParam = (...keys) => {
+    for (const key of keys) {
+      const value = readString7(params.get(key));
+      if (value) return value;
+    }
+    return null;
+  };
+  const open = readParam("open", "intent", "action")?.toLowerCase();
+  if (open === "script" || open === "script_primary") return true;
+  if (readParam("script_path", "path")) return true;
+  return Boolean(normalizeUuid3(
+    readParam("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
+  ));
+}
+function classifyProductionScriptHttpFailure(status2, responseOk) {
+  if (responseOk) return null;
+  if (status2 === 404) return "not_found";
+  if (status2 === 401 || status2 === 403) return "unauthorized";
+  return "request_failed";
+}
+function parseProductionScriptPayload(body) {
+  const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
+  const text = typeof data?.script_text === "string" ? data.script_text : "";
+  const revision = Number(data?.source_file_revision);
+  const hash = readString7(data?.script_content_hash)?.toLowerCase() ?? "";
+  const readyTransitionId = normalizeUuid3(data?.ready_transition_id);
+  const scriptApprovalId = normalizeUuid3(data?.script_approval_id);
+  const scriptApprovalRevision = Number(data?.script_approval_revision);
+  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) {
+    return null;
+  }
+  return { text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
+}
+var UUID_RE3;
+var init_workpiece_script_handoff_policy = __esm({
+  "src/forge/workpiece-script-handoff-policy.ts"() {
+    "use strict";
+    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  }
+});
+
+// src/forge/workpiece-script-handoff.ts
+function readString8(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+function normalizeUuid4(value) {
+  const str = readString8(value);
   if (!str) return null;
-  return UUID_RE3.test(str) ? str.toLowerCase() : null;
+  return UUID_RE4.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage3(key) {
   try {
-    return readString7(window.localStorage.getItem(key));
+    return readString8(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -92429,7 +92482,7 @@ function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString7(q3.get(key));
+      const value = readString8(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -92437,31 +92490,31 @@ function getQueryParam3(...keys) {
   return null;
 }
 function resolveWorkspaceId3() {
-  const fromQuery = normalizeUuid3(getQueryParam3("workspace_id", "workspaceId", "workspace"));
+  const fromQuery = normalizeUuid4(getQueryParam3("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid3(
+  const fromWindow = normalizeUuid4(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
   for (const key of WORKSPACE_STORAGE_KEYS3) {
-    const value = normalizeUuid3(readLocalStorage3(key));
+    const value = normalizeUuid4(readLocalStorage3(key));
     if (value) return value;
   }
   return null;
 }
 function resolveWorkpieceId() {
-  const fromQuery = normalizeUuid3(
+  const fromQuery = normalizeUuid4(
     getQueryParam3("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
   );
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid3(
+  const fromWindow = normalizeUuid4(
     w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
   );
   if (fromWindow) return fromWindow;
   for (const key of WORKPIECE_STORAGE_KEYS2) {
-    const value = normalizeUuid3(readLocalStorage3(key));
+    const value = normalizeUuid4(readLocalStorage3(key));
     if (value) return value;
   }
   return null;
@@ -92472,26 +92525,21 @@ function persistWorkpiece(workspaceId, workpieceId) {
     writeLocalStorage2(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`, workpieceId);
   }
 }
-function shouldAutoloadWorkpieceScript() {
-  const open = readString7(getQueryParam3("open", "intent", "action"))?.toLowerCase();
-  if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString7(getQueryParam3("script_path", "path")));
-}
 function resolveScriptPath() {
-  const fromQuery = readString7(getQueryParam3("script_path", "path"));
+  const fromQuery = readString8(getQueryParam3("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString7(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString7(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta2 = import.meta;
-    const fromEnv = readString7(meta2.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString8(meta2.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -92538,7 +92586,7 @@ function reportScriptHandoffError(args) {
   } catch {
   }
 }
-async function readWorkpieceScript(workpieceId, path) {
+async function readWorkpieceScript(workpieceId) {
   const headers = new Headers();
   const token = resolveTongsApiToken();
   if (token) {
@@ -92550,35 +92598,28 @@ async function readWorkpieceScript(workpieceId, path) {
   } catch (error) {
     return error instanceof ForgeUserAuthorizationError ? { ok: false, reason: "unauthorized", status: 401 } : { ok: false, reason: "request_failed" };
   }
-  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
-  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
-  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
+  const httpFailure = classifyProductionScriptHttpFailure(response.status, response.ok);
+  if (httpFailure) return { ok: false, reason: httpFailure, status: response.status };
   let body;
   try {
     body = await response.json();
   } catch {
     return { ok: false, reason: "invalid_response", status: response.status };
   }
-  const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
-  const text = typeof data?.script_text === "string" ? data.script_text : "";
-  const revision = Number(data?.source_file_revision);
-  const hash = readString7(data?.script_content_hash)?.toLowerCase() ?? "";
-  const readyTransitionId = normalizeUuid3(data?.ready_transition_id);
-  const scriptApprovalId = normalizeUuid3(data?.script_approval_id);
-  const scriptApprovalRevision = Number(data?.script_approval_revision);
-  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) return { ok: false, reason: "invalid_response", status: response.status };
-  return { ok: true, text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
+  const parsed = parseProductionScriptPayload(body);
+  if (!parsed) return { ok: false, reason: "invalid_response", status: response.status };
+  return { ok: true, ...parsed };
 }
 async function loadWorkpieceScriptOnBoot() {
   if (booted) return;
   booted = true;
-  if (!shouldAutoloadWorkpieceScript()) return;
+  if (!shouldAutoloadWorkpieceScript(window.location.search || "")) return;
   const workpieceId = resolveWorkpieceId();
   if (!workpieceId) return;
   const workspaceId = resolveWorkspaceId3();
   persistWorkpiece(workspaceId, workpieceId);
   const path = resolveScriptPath();
-  const readResult = await readWorkpieceScript(workpieceId, path);
+  const readResult = await readWorkpieceScript(workpieceId);
   if (!readResult.ok) {
     reportScriptHandoffError({
       workpieceId,
@@ -92649,7 +92690,7 @@ function bootstrapWorkpieceScriptHandoff() {
     run();
   }
 }
-var UUID_RE3, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS3, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, booted;
+var UUID_RE4, DEFAULT_SCRIPT_PATH, WORKSPACE_STORAGE_KEYS3, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, booted;
 var init_workpiece_script_handoff = __esm({
   "src/forge/workpiece-script-handoff.ts"() {
     "use strict";
@@ -92657,7 +92698,8 @@ var init_workpiece_script_handoff = __esm({
     init_app_store();
     init_workpiece_performance_entrypoint();
     init_tongs_user_auth();
-    UUID_RE3 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    init_workpiece_script_handoff_policy();
+    UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_SCRIPT_PATH = "script/script.md";
     WORKSPACE_STORAGE_KEYS3 = ["forge_workspace_id_v1", "barstock_workspace_id"];
     WORKPIECE_STORAGE_KEYS2 = [
@@ -93041,7 +93083,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString8(value, fallback) {
+function readString9(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -93050,14 +93092,14 @@ function readString8(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString8(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString9(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString8(src.color, fallback.color),
-    background: readString8(src.background, fallback.background),
+    color: readString9(src.color, fallback.color),
+    background: readString9(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -94737,19 +94779,19 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/ready-scripts.ts
-function readString9(value) {
+function readString10(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function normalizeUuid4(value) {
-  const str = readString9(value);
+function normalizeUuid5(value) {
+  const str = readString10(value);
   if (!str) return null;
-  return UUID_RE4.test(str) ? str.toLowerCase() : null;
+  return UUID_RE5.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage4(key) {
   try {
-    return readString9(window.localStorage.getItem(key));
+    return readString10(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -94758,7 +94800,7 @@ function getQueryParam4(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString9(q3.get(key));
+      const value = readString10(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -94766,24 +94808,24 @@ function getQueryParam4(...keys) {
   return null;
 }
 function resolveWorkspaceId4() {
-  const fromQuery = normalizeUuid4(getQueryParam4("workspace_id", "workspaceId", "workspace"));
+  const fromQuery = normalizeUuid5(getQueryParam4("workspace_id", "workspaceId", "workspace"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = normalizeUuid4(
+  const fromWindow = normalizeUuid5(
     w3.__forgeWorkspaceId ?? w3.__tpWorkspaceId ?? w3.__forgeWorkspace ?? w3.__tpWorkspace
   );
   if (fromWindow) return fromWindow;
   for (const key of WORKSPACE_STORAGE_KEYS4) {
-    const value = normalizeUuid4(readLocalStorage4(key));
+    const value = normalizeUuid5(readLocalStorage4(key));
     if (value) return value;
   }
   return null;
 }
 function resolveTongsApiToken2() {
-  const fromQuery = readString9(getQueryParam4("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString10(getQueryParam4("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString9(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString10(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   return readLocalStorage4("forge_tongs_api_token_v1") ?? void 0;
 }
@@ -94796,13 +94838,13 @@ function withApiHeaders() {
   return headers;
 }
 function normalizeScriptPath(value) {
-  const path = readString9(value);
+  const path = readString10(value);
   if (!path) return null;
   if (path.startsWith("/") || path.includes("..")) return null;
   return path;
 }
 function normalizeIso(value) {
-  const iso = readString9(value);
+  const iso = readString10(value);
   if (!iso) return void 0;
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return void 0;
@@ -94832,17 +94874,17 @@ function parseReadyScriptsPayload(payload, workspaceId) {
   for (const row of rowsMaybe) {
     if (!row || typeof row !== "object") continue;
     const item = row;
-    const rowWorkspace = normalizeUuid4(item.workspace_id) ?? workspaceId;
-    const workpieceId = normalizeUuid4(item.workpiece_id);
+    const rowWorkspace = normalizeUuid5(item.workspace_id) ?? workspaceId;
+    const workpieceId = normalizeUuid5(item.workpiece_id);
     const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
     const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0 ? item.script_revision : null;
-    const scriptHash = readString9(item.script_hash)?.toLowerCase() ?? null;
-    const transitionId = normalizeUuid4(item.transition_id);
+    const scriptHash = readString10(item.script_hash)?.toLowerCase() ?? null;
+    const transitionId = normalizeUuid5(item.transition_id);
     if (!rowWorkspace || !workpieceId || !path || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString9(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    const title = readString10(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
       id: toReadyScriptId(workpieceId, path),
       workspaceId: rowWorkspace,
@@ -94852,7 +94894,7 @@ function parseReadyScriptsPayload(payload, workspaceId) {
       scriptPaths: normalizedScriptPaths,
       title,
       updatedAt: normalizeIso(item.updated_at),
-      markedReadyBy: normalizeUuid4(item.marked_ready_by) ?? void 0,
+      markedReadyBy: normalizeUuid5(item.marked_ready_by) ?? void 0,
       markedReadyAt: normalizeIso(item.marked_ready_at),
       scriptRevision,
       scriptHash,
@@ -94878,17 +94920,17 @@ function parseRecordingSessionsPayload(payload, workspaceId) {
   for (const row of rowsMaybe) {
     if (!row || typeof row !== "object") continue;
     const item = row;
-    const id = normalizeUuid4(item.id);
-    const rowWorkspace = normalizeUuid4(item.workspace_id) ?? workspaceId;
+    const id = normalizeUuid5(item.id);
+    const rowWorkspace = normalizeUuid5(item.workspace_id) ?? workspaceId;
     if (!id || !rowWorkspace) continue;
-    const title = readString9(item.title) ?? "Recording Session";
+    const title = readString10(item.title) ?? "Recording Session";
     out.push({
       id,
       workspaceId: rowWorkspace,
       title,
       createdAt: normalizeIso(item.created_at),
       updatedAt: normalizeIso(item.updated_at),
-      calendarEventId: normalizeUuid4(item.calendar_event_id)
+      calendarEventId: normalizeUuid5(item.calendar_event_id)
     });
   }
   out.sort((a, b) => {
@@ -94908,7 +94950,7 @@ function parseRecordingSessionDetailPayload(payload) {
   return root.data;
 }
 function toScriptReferenceFromSessionItem(args) {
-  const workpieceId = normalizeUuid4(args.item.episode_id);
+  const workpieceId = normalizeUuid5(args.item.episode_id);
   const path = normalizeScriptPath(args.item.script_path);
   if (!workpieceId || !path) return null;
   const key = `${workpieceId}::${path}`;
@@ -94973,7 +95015,7 @@ async function listRecordingSessionsForWorkspace() {
   return parseRecordingSessionsPayload(body, workspaceId);
 }
 async function readRecordingSessionScripts(sessionId) {
-  const safeSessionId = normalizeUuid4(sessionId);
+  const safeSessionId = normalizeUuid5(sessionId);
   if (!safeSessionId) return null;
   const response = await fetchAuthenticatedTongs(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
     method: "GET",
@@ -94988,10 +95030,10 @@ async function readRecordingSessionScripts(sessionId) {
   }
   const detail = parseRecordingSessionDetailPayload(body);
   if (!detail) return null;
-  const workspaceId = normalizeUuid4(detail.workspace_id);
-  const parsedSessionId = normalizeUuid4(detail.id);
+  const workspaceId = normalizeUuid5(detail.workspace_id);
+  const parsedSessionId = normalizeUuid5(detail.id);
   if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString9(detail.title) ?? "Recording Session";
+  const sessionTitle = readString10(detail.title) ?? "Recording Session";
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = /* @__PURE__ */ new Map();
   const readyByKey = /* @__PURE__ */ new Map();
@@ -95043,13 +95085,13 @@ async function readRecordingSessionScripts(sessionId) {
       id: parsedSessionId,
       workspaceId,
       title: sessionTitle,
-      calendarEventId: normalizeUuid4(detail.calendar_event_id)
+      calendarEventId: normalizeUuid5(detail.calendar_event_id)
     },
     scripts
   };
 }
 async function readReadyScriptText(workpieceId, path) {
-  const safeWorkpieceId = normalizeUuid4(workpieceId);
+  const safeWorkpieceId = normalizeUuid5(workpieceId);
   const safePath = normalizeScriptPath(path);
   if (!safeWorkpieceId || !safePath) return null;
   const response = await fetchAuthenticatedTongs(
@@ -95080,12 +95122,12 @@ async function readReadyScriptText(workpieceId, path) {
   }
   return row.script_text;
 }
-var UUID_RE4, WORKSPACE_STORAGE_KEYS4;
+var UUID_RE5, WORKSPACE_STORAGE_KEYS4;
 var init_ready_scripts = __esm({
   "src/forge/ready-scripts.ts"() {
     "use strict";
     init_tongs_user_auth();
-    UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    UUID_RE5 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     WORKSPACE_STORAGE_KEYS4 = ["forge_workspace_id_v1", "barstock_workspace_id"];
   }
 });
@@ -95826,7 +95868,7 @@ var init_recording_decision_dialog = __esm({
 });
 
 // src/recording/recording-name.ts
-function readString10(value) {
+function readString11(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -95838,7 +95880,7 @@ function sanitizeRecordingTitle(title) {
   return sliced || "Script";
 }
 function pickRecordingBaseTitle(args) {
-  return readString10(args.inputTitle) ?? readString10(args.routeEpisodeTitle) ?? readString10(args.storedTitle) ?? "Script";
+  return readString11(args.inputTitle) ?? readString11(args.routeEpisodeTitle) ?? readString11(args.storedTitle) ?? "Script";
 }
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -96764,7 +96806,7 @@ var init_local_auto = __esm({
       });
       const pad = (n) => String(n).padStart(2, "0");
       const READY_SCRIPT_PREFIX = "ready:";
-      const UUID_RE6 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const UUID_RE7 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       function parseReadyScriptWorkpieceId2(scriptId) {
         const raw = String(scriptId || "").trim();
         if (!raw.toLowerCase().startsWith(READY_SCRIPT_PREFIX)) return null;
@@ -96772,7 +96814,7 @@ var init_local_auto = __esm({
         const separator = rest.indexOf(":");
         if (separator <= 0) return null;
         const candidate = rest.slice(0, separator).trim().toLowerCase();
-        return UUID_RE6.test(candidate) ? candidate : null;
+        return UUID_RE7.test(candidate) ? candidate : null;
       }
       async function recoverPendingTakeDecision() {
         if (isRecordingDecisionPending()) return;
@@ -101294,14 +101336,14 @@ var init_mic_gate = __esm({
 });
 
 // src/forge/script-source.ts
-function readString11(value) {
+function readString12(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 function readLocalStorage5(key) {
   try {
-    return readString11(window.localStorage.getItem(key));
+    return readString12(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -105700,13 +105742,13 @@ function initNewRecordingWorkpieceEntry() {
     }
   });
 }
-var UUID_RE5, uuid;
+var UUID_RE6, uuid;
 var init_new_recording_workpiece = __esm({
   "src/features/new-recording-workpiece.ts"() {
     "use strict";
     init_tongs_user_auth();
-    UUID_RE5 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    uuid = (value) => typeof value === "string" && UUID_RE5.test(value.trim()) ? value.trim().toLowerCase() : null;
+    UUID_RE6 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    uuid = (value) => typeof value === "string" && UUID_RE6.test(value.trim()) ? value.trim().toLowerCase() : null;
   }
 });
 
@@ -113829,7 +113871,7 @@ var init_dom = __esm({
 });
 
 // src/pairing/pairing-api.ts
-function readString12(value) {
+function readString13(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -113904,9 +113946,9 @@ var init_pairing_api = __esm({
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
     DEFAULT_PAIR_QR_URL = "https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr";
-    PAIR_QR_URL = readString12(w2.__TP_PAIR_QR_URL) || readString12(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
-    SUPABASE_ANON_KEY2 = readString12(w2.__forgeSupabaseAnonKey) || readString12(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
-    PAIR_BASE_URL_OVERRIDE = readString12(w2.__TP_PAIR_BASE_URL) || readString12(metaEnv2.VITE_PAIR_BASE_URL) || null;
+    PAIR_QR_URL = readString13(w2.__TP_PAIR_QR_URL) || readString13(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
+    SUPABASE_ANON_KEY2 = readString13(w2.__forgeSupabaseAnonKey) || readString13(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
+    PAIR_BASE_URL_OVERRIDE = readString13(w2.__TP_PAIR_BASE_URL) || readString13(metaEnv2.VITE_PAIR_BASE_URL) || null;
     DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };

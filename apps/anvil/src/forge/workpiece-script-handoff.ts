@@ -2,6 +2,11 @@ import { applyScript } from "../features/apply-script";
 import { appStore } from "../state/app-store";
 import { dispatchAuthenticatedWorkpieceScript } from "./workpiece-performance-entrypoint";
 import { fetchAuthenticatedTongs, ForgeUserAuthorizationError } from "./tongs-user-auth";
+import {
+  classifyProductionScriptHttpFailure,
+  parseProductionScriptPayload,
+  shouldAutoloadWorkpieceScript,
+} from "./workpiece-script-handoff-policy";
 
 type ForgeWindow = Window & typeof globalThis & {
   __tpWorkpieceScriptBootLoaded?: boolean;
@@ -142,12 +147,6 @@ function persistWorkpiece(workspaceId: string | null, workpieceId: string): void
   }
 }
 
-function shouldAutoloadWorkpieceScript(): boolean {
-  const open = readString(getQueryParam("open", "intent", "action"))?.toLowerCase();
-  if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString(getQueryParam("script_path", "path")));
-}
-
 function resolveScriptPath(): string {
   const fromQuery = readString(getQueryParam("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
@@ -226,7 +225,7 @@ function reportScriptHandoffError(args: {
   try { (window as any).toast?.(message, { type: "warning" }); } catch {}
 }
 
-async function readWorkpieceScript(workpieceId: string, path: string): Promise<ScriptReadResult> {
+async function readWorkpieceScript(workpieceId: string): Promise<ScriptReadResult> {
   const headers = new Headers();
   const token = resolveTongsApiToken();
   if (token) {
@@ -239,26 +238,20 @@ async function readWorkpieceScript(workpieceId: string, path: string): Promise<S
   } catch (error) {
     return error instanceof ForgeUserAuthorizationError ? { ok: false, reason: "unauthorized", status: 401 } : { ok: false, reason: "request_failed" };
   }
-  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
-  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
-  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
+  const httpFailure = classifyProductionScriptHttpFailure(response.status, response.ok);
+  if (httpFailure) return { ok: false, reason: httpFailure, status: response.status };
   let body: unknown;
   try { body = await response.json(); } catch { return { ok: false, reason: "invalid_response", status: response.status }; }
-  const data = body && typeof body === "object" && (body as { ok?: unknown }).ok === true && (body as { data?: unknown }).data && typeof (body as { data?: unknown }).data === "object"
-    ? (body as { data: Record<string, unknown> }).data : null;
-  const text = typeof data?.script_text === "string" ? data.script_text : "";
-  const revision = Number(data?.source_file_revision); const hash = readString(data?.script_content_hash)?.toLowerCase() ?? "";
-  const readyTransitionId = normalizeUuid(data?.ready_transition_id); const scriptApprovalId = normalizeUuid(data?.script_approval_id);
-  const scriptApprovalRevision = Number(data?.script_approval_revision);
-  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) return { ok: false, reason: "invalid_response", status: response.status };
-  return { ok: true, text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
+  const parsed = parseProductionScriptPayload(body);
+  if (!parsed) return { ok: false, reason: "invalid_response", status: response.status };
+  return { ok: true, ...parsed };
 }
 
 async function loadWorkpieceScriptOnBoot(): Promise<void> {
   if (booted) return;
   booted = true;
 
-  if (!shouldAutoloadWorkpieceScript()) return;
+  if (!shouldAutoloadWorkpieceScript(window.location.search || "")) return;
 
   const workpieceId = resolveWorkpieceId();
   if (!workpieceId) return;
@@ -267,7 +260,7 @@ async function loadWorkpieceScriptOnBoot(): Promise<void> {
   persistWorkpiece(workspaceId, workpieceId);
 
   const path = resolveScriptPath();
-  const readResult = await readWorkpieceScript(workpieceId, path);
+  const readResult = await readWorkpieceScript(workpieceId);
   if (!readResult.ok) {
     reportScriptHandoffError({
       workpieceId,

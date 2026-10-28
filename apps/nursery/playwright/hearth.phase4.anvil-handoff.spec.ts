@@ -46,4 +46,24 @@ test.describe("Hearth Phase 4 Anvil handoff", () => {
     await expect(page.locator("#script")).toContainText(artifact.handoff.script_snippet);
     await expectNoPasteFallback(page);
   });
+
+  test("Nursery workpiece-only launch loads the approved production script", async ({ page }) => {
+    const artifact = readHearthPhase4Artifact();
+    const params = new URLSearchParams({
+      workspace_id: artifact.workspace_id,
+      workpiece_id: artifact.workpiece_id,
+    });
+
+    await page.goto(`/app/anvil?${params.toString()}`, { waitUntil: "load" });
+
+    await expectCanonicalWorkpieceContext(page, {
+      workspaceId: artifact.workspace_id,
+      workpieceId: artifact.workpiece_id,
+      pathnamePrefix: "/anvil/teleprompter_pro.html",
+    });
+    expect(new URL(page.url()).searchParams.get("open")).toBeNull();
+    expect(new URL(page.url()).searchParams.get("script_path")).toBeNull();
+    await expect(page.locator("#script")).toContainText(artifact.handoff.script_snippet);
+    await expectNoPasteFallback(page);
+  });
 });
