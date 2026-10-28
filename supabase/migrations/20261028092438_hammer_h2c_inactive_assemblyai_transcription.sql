@@ -377,7 +377,8 @@ begin
   supporting_ceiling:=aggregate_binding.supporting_exposure_ceiling_micros;
   if supplier_ceiling<=0 or supplier_ceiling+supporting_ceiling<>quote.full_cost_ceiling_micros
      or quote.normal_maximum_charge_micros<>quote.customer_credit_units*5000
-     or quote.normal_maximum_charge_micros < ceil(quote.full_cost_ceiling_micros*133::numeric/100)::bigint
+     or quote.normal_maximum_charge_micros
+       <> ceil((quote.full_cost_ceiling_micros*133::numeric/100)/5000::numeric)::bigint*5000
   then raise exception 'fixed complete cost-plus quote mismatch' using errcode='22023'; end if;
   insert into tongs.hammer_transcription_operations(
     id,operation_id,request_fingerprint,route_code,financial_environment,user_id,workspace_id,

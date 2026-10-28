@@ -27,6 +27,7 @@ test("migration is forward-only, RLS-complete, and financially inactive", () => 
   assert.match(migration, /customer_spending_quote_acceptances/);
   assert.match(migration, /paid_operation_aggregate_bindings/);
   assert.match(migration, /quote\.normal_maximum_charge_micros<>quote\.customer_credit_units\*5000/);
+  assert.match(migration, /ceil\(\(quote\.full_cost_ceiling_micros\*133::numeric\/100\)\/5000::numeric\)::bigint\*5000/);
 });
 
 test("source duration is resolved from immutable server completion evidence", () => {
