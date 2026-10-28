@@ -5,7 +5,7 @@ export type HammerTranscriptionCostEvidence = {
   provider: HammerCertifiedTranscriptionProvider;
   model: string;
   currency: "USD";
-  supplierRateMicrosPerMinute: number;
+  supplierRateMicrosPerHour: number;
   billingIncrementMs: number;
   minimumBillableMs: number;
   supportingCostCeilingMicros: number;
@@ -51,6 +51,16 @@ function nonNegativeSafeInteger(value: number, field: string): number {
   return value;
 }
 
+function ceilDivide(numerator: bigint, denominator: bigint): bigint {
+  return (numerator + denominator - 1n) / denominator;
+}
+
+function safeNumber(value: bigint, field: string): number {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result)) throw new Error(`${field}_unsafe`);
+  return result;
+}
+
 export function buildInactiveHammerTranscriptionFinancialPlan(args: {
   recording: HammerCanonicalRecordingIdentityV2;
   provider: HammerCertifiedTranscriptionProvider;
@@ -63,13 +73,22 @@ export function buildInactiveHammerTranscriptionFinancialPlan(args: {
   const durationMs = positiveSafeInteger(args.recording.duration_ms, "recording_duration_ms");
   const incrementMs = positiveSafeInteger(args.costEvidence.billingIncrementMs, "billing_increment_ms");
   const minimumMs = positiveSafeInteger(args.costEvidence.minimumBillableMs, "minimum_billable_ms");
-  const rate = positiveSafeInteger(args.costEvidence.supplierRateMicrosPerMinute, "supplier_rate");
+  const rate = positiveSafeInteger(args.costEvidence.supplierRateMicrosPerHour, "supplier_rate_micros_per_hour");
   const supporting = nonNegativeSafeInteger(args.costEvidence.supportingCostCeilingMicros, "supporting_cost_ceiling");
-  const billableDurationMs = Math.max(minimumMs, Math.ceil(durationMs / incrementMs) * incrementMs);
-  const supplierCeilingMicros = Math.ceil((billableDurationMs * rate) / 60_000);
-  const completeWholesaleCeilingMicros = supplierCeilingMicros + supporting;
-  const targetCustomerValueMicros = Math.ceil((completeWholesaleCeilingMicros * 133) / 100);
-  const customerCreditUnits = Math.ceil(targetCustomerValueMicros / 5_000);
+  const duration = BigInt(durationMs);
+  const increment = BigInt(incrementMs);
+  const minimum = BigInt(minimumMs);
+  const roundedDuration = ceilDivide(duration, increment) * increment;
+  const billableDuration = roundedDuration > minimum ? roundedDuration : minimum;
+  const supplierCeiling = ceilDivide(billableDuration * BigInt(rate), 3_600_000n);
+  const completeWholesaleCeiling = supplierCeiling + BigInt(supporting);
+  const targetCustomerValue = ceilDivide(completeWholesaleCeiling * 133n, 100n);
+  const customerCredits = ceilDivide(targetCustomerValue, 5_000n);
+  const billableDurationMs = safeNumber(billableDuration, "billable_duration_ms");
+  const supplierCeilingMicros = safeNumber(supplierCeiling, "supplier_ceiling_micros");
+  const completeWholesaleCeilingMicros = safeNumber(completeWholesaleCeiling, "complete_wholesale_ceiling_micros");
+  const targetCustomerValueMicros = safeNumber(targetCustomerValue, "target_customer_value_micros");
+  const customerCreditUnits = safeNumber(customerCredits, "customer_credit_units");
   return {
     schema: "forge.hammer.single-provider-transcription.inactive.v1",
     activation: "inactive",
@@ -84,7 +103,7 @@ export function buildInactiveHammerTranscriptionFinancialPlan(args: {
     completeWholesaleCeilingMicros,
     targetCustomerValueMicros,
     customerCreditUnits,
-    customerChargeMicros: customerCreditUnits * 5_000,
+    customerChargeMicros: safeNumber(customerCredits * 5_000n, "customer_charge_micros"),
     markupNumerator: 133,
     markupDenominator: 100,
     maximumProviderAttempts: 1,

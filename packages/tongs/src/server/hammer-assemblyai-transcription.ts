@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 
+// Server-only provider boundary. Browser code must never import this module;
+// @forge/tongs exposes it only through the explicit server subpath.
+
 export const HAMMER_ASSEMBLYAI_MODEL = "universal-3-5-pro" as const;
 export const HAMMER_ASSEMBLYAI_OUTPUT_CONTRACT = "forge.hammer.canonical-transcript.v2" as const;
 export const HAMMER_ASSEMBLYAI_SECRET_NAME = "FORGE_HAMMER_ASSEMBLYAI_API_KEY" as const;

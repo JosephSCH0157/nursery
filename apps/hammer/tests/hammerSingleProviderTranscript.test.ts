@@ -162,7 +162,7 @@ test("inactive financial plan binds duration, one attempt, 33 percent markup, an
       provider: "assemblyai",
       model: "universal-3-5-pro",
       currency: "USD",
-      supplierRateMicrosPerMinute: 4_000,
+      supplierRateMicrosPerHour: 240_000,
       billingIncrementMs: 1_000,
       minimumBillableMs: 1_000,
       supportingCostCeilingMicros: 1_000,
@@ -185,6 +185,40 @@ test("inactive financial plan binds duration, one attempt, 33 percent markup, an
   );
 });
 
+test("inactive financial plan uses exact hourly micro arithmetic for short recordings", () => {
+  const sharedEvidence = {
+    evidenceId: "reviewed-hourly-cost-evidence",
+    provider: "assemblyai" as const,
+    model: "universal-3-5-pro",
+    currency: "USD" as const,
+    billingIncrementMs: 1_000,
+    minimumBillableMs: 1_000,
+    supportingCostCeilingMicros: 0,
+    effectiveAt: "2026-10-28T00:00:00.000Z",
+    reviewedAt: "2026-10-28T00:00:00.000Z",
+  };
+  const combined = buildInactiveHammerTranscriptionFinancialPlan({
+    recording: { ...recording, duration_ms: 47_279 },
+    provider: "assemblyai",
+    model: "universal-3-5-pro",
+    costEvidence: { ...sharedEvidence, supplierRateMicrosPerHour: 230_000 },
+  });
+  assert.equal(combined.billableDurationMs, 48_000);
+  assert.equal(combined.supplierCeilingMicros, 3_067);
+  assert.equal(combined.targetCustomerValueMicros, 4_080);
+  assert.equal(combined.customerCreditUnits, 1);
+
+  const subCentOperation = buildInactiveHammerTranscriptionFinancialPlan({
+    recording: { ...recording, duration_ms: 47_279 },
+    provider: "assemblyai",
+    model: "universal-3-5-pro",
+    costEvidence: { ...sharedEvidence, supplierRateMicrosPerHour: 20_000 },
+  });
+  assert.equal(subCentOperation.supplierCeilingMicros, 267);
+  assert.equal(subCentOperation.targetCustomerValueMicros, 356);
+  assert.equal(subCentOperation.customerCreditUnits, 1);
+});
+
 test("financial planning fails closed on provider evidence or duration mismatch", () => {
   assert.throws(() => buildInactiveHammerTranscriptionFinancialPlan({
     recording,
@@ -195,7 +229,7 @@ test("financial planning fails closed on provider evidence or duration mismatch"
       provider: "deepgram",
       model: "nova-3",
       currency: "USD",
-      supplierRateMicrosPerMinute: 4_300,
+      supplierRateMicrosPerHour: 258_000,
       billingIncrementMs: 1_000,
       minimumBillableMs: 1_000,
       supportingCostCeilingMicros: 0,
@@ -212,7 +246,7 @@ test("financial planning fails closed on provider evidence or duration mismatch"
       provider: "assemblyai",
       model: "universal-3-5-pro",
       currency: "USD",
-      supplierRateMicrosPerMinute: 4_000,
+      supplierRateMicrosPerHour: 240_000,
       billingIncrementMs: 1_000,
       minimumBillableMs: 1_000,
       supportingCostCeilingMicros: 0,

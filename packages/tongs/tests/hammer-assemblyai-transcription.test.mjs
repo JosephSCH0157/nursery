@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   HAMMER_ASSEMBLYAI_LEGACY_SECRET_NAME,
@@ -13,7 +14,7 @@ import {
   resolveHammerAssemblyAiSourceAuthority,
   submitHammerAssemblyAiOnce,
   verifyHammerAssemblyAiEvidence,
-} from "../dist/providers/hammer-assemblyai-transcription.js";
+} from "../dist/server/hammer-assemblyai-transcription.js";
 
 const SHA = "e909a63e45577e1b22901a8b88cf1c44a2a6a0f0e2ed277dd575e4e69a3117ed";
 const sourceEvidence = {
@@ -41,6 +42,19 @@ const sourceEvidence = {
     },
   },
 };
+
+test("browser-visible Tongs exports exclude the server-only AssemblyAI boundary", () => {
+  const sourceIndex = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  const builtIndex = readFileSync(new URL("../dist/index.js", import.meta.url), "utf8");
+  const packageManifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+
+  assert.doesNotMatch(sourceIndex, /hammer-assemblyai-transcription/);
+  assert.doesNotMatch(builtIndex, /hammer-assemblyai-transcription|node:crypto|ASSEMBLYAI_API_KEY/);
+  assert.equal(
+    packageManifest.exports["./server/hammer-assemblyai-transcription"].import,
+    "./dist/server/hammer-assemblyai-transcription.js",
+  );
+});
 
 test("trusted server readback is the only duration authority", () => {
   const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
