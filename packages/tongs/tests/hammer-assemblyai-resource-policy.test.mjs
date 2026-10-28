@@ -41,7 +41,67 @@ function isCode(code) {
   return (error) => error instanceof HammerAssemblyAiResourceBoundaryError && error.code === code;
 }
 
+function signedSourceUrl(expiresAt = "2026-10-28T13:00:00.000Z", objectPath = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageObjectPath) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const token = `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ exp: Math.floor(Date.parse(expiresAt) / 1_000) })}.fixture-signature`;
+  return `https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/${HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageBucket}/${objectPath}?token=${token}`;
+}
+
+function fullEpisodeFixture() {
+  const durationMs = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceDurationMs;
+  const wordCount = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.fixtureCertification.maximumWords;
+  const words = Array.from({ length: wordCount }, (_, index) => ({
+    text: `token${String(index).padStart(4, "0")}`,
+    start: Math.floor(index * durationMs / wordCount),
+    end: Math.floor((index + 1) * durationMs / wordCount),
+    confidence: 0.999,
+    speaker: String.fromCharCode(65 + (Math.floor(index / 12) % 8)),
+  }));
+  const utterances = [];
+  for (let index = 0; index < words.length; index += 12) {
+    const utteranceWords = words.slice(index, index + 12);
+    utterances.push({
+      speaker: utteranceWords[0].speaker,
+      start: utteranceWords[0].start,
+      end: utteranceWords.at(-1).end,
+      confidence: 0.999,
+      text: utteranceWords.map((word) => word.text).join(" "),
+      words: utteranceWords,
+    });
+  }
+  const text = words.map((word) => word.text).join(" ");
+  const provider = {
+    id: "fixture-full-episode",
+    status: "completed",
+    audio_duration: durationMs / 1_000,
+    speech_model: "universal-3-5-pro",
+    speaker_labels: true,
+    text,
+    words,
+    utterances,
+  };
+  const canonical = {
+    schema: "forge.hammer.canonical-transcript.v2",
+    duration_ms: durationMs,
+    text,
+    utterances: utterances.map((utterance) => ({
+      speaker: utterance.speaker,
+      start_ms: utterance.start,
+      end_ms: utterance.end,
+      text: utterance.text,
+      words: utterance.words.map((word) => ({
+        text: word.text,
+        start_ms: word.start,
+        end_ms: word.end,
+        confidence_micros: 999_000,
+      })),
+    })),
+  };
+  return { provider, canonical };
+}
+
 test("draft private policy stays inactive and preserves the owner-selected financial limits", () => {
+  assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.revision, 2);
   assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.lifecycleState, "draft_review");
   assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.supportingCostCeilingMicros, 6_000);
   assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.supportingFailureLossCeilingMicros, 6_000);
@@ -50,6 +110,10 @@ test("draft private policy stays inactive and preserves the owner-selected finan
   assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.automaticRetries, 0);
   assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.publishable, false);
   assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.providerExecutionAuthorized, false);
+  assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceBytes, 120_617_428);
+  assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceDurationMs, 603_848);
+  assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumSourceEgressBytes, 241_234_856);
+  assert.equal(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.requiredSupabaseEgressBytes, 243_332_008);
 });
 
 test("capacity evidence must be fresh, hashed, and sufficient for the complete operation", () => {
@@ -74,14 +138,36 @@ test("capacity evidence must be fresh, hashed, and sufficient for the complete o
 
 test("only an exact project-scoped signed Supabase source URL is accepted", () => {
   const accepted = assertHammerAssemblyAiDirectSourceUrl(
-    "https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/forge-workpieces/source.webm?token=opaque",
+    signedSourceUrl(),
     "wtvdjndyxegudufrompx",
+    now,
   );
   assert.equal(accepted.protocol, "https:");
   assert.throws(
     () => assertHammerAssemblyAiDirectSourceUrl("https://proxy.example/source.webm", "wtvdjndyxegudufrompx"),
     isCode("source_transport_not_direct"),
   );
+  assert.throws(
+    () => assertHammerAssemblyAiDirectSourceUrl(signedSourceUrl("2026-10-28T12:35:14.000Z"), "wtvdjndyxegudufrompx", now),
+    isCode("source_url_validity_insufficient"),
+  );
+  assert.throws(
+    () => assertHammerAssemblyAiDirectSourceUrl(signedSourceUrl(undefined, "workpieces/wrong/source.webm"), "wtvdjndyxegudufrompx", now),
+    isCode("source_transport_not_direct"),
+  );
+});
+
+test("full-episode provider and canonical fixtures fit the retained byte limits with measured headroom", () => {
+  const { provider, canonical } = fullEpisodeFixture();
+  const providerBytes = Buffer.byteLength(JSON.stringify(provider));
+  const canonicalBytes = Buffer.byteLength(JSON.stringify(canonical));
+  assert.equal(provider.words.length, 3_624);
+  assert.equal(provider.utterances.length, 302);
+  assert.equal(providerBytes, HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.fixtureCertification.measuredProviderPayloadBytes);
+  assert.equal(canonicalBytes, HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.fixtureCertification.measuredCanonicalTranscriptBytes);
+  assert.ok(providerBytes < HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumProviderPayloadBytes);
+  assert.ok(canonicalBytes < HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumCanonicalTranscriptBytes);
+  assert.ok(canonicalBytes * 20 < HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumPersistenceBytes);
 });
 
 test("source reads, invocations, polling, readback, and persistence fail closed at their bounds", () => {

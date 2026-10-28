@@ -45,6 +45,10 @@ export type HammerAssemblyAiExecutionAuthorization = {
   operationId: string;
   reservationId: string;
   requestFingerprint: string;
+  workspaceId: string;
+  workpieceId: string;
+  canonicalRecordingId: string;
+  recordingRevisionId: string;
   source: HammerAssemblyAiSourceAuthority;
   model: typeof HAMMER_ASSEMBLYAI_MODEL;
   maximumProviderAttempts: 1;
@@ -330,10 +334,26 @@ export async function submitBoundedHammerAssemblyAiOnce(args: {
 }): Promise<AssemblyAiSubmitResponse> {
   const now = args.now ?? new Date();
   certifyHammerAssemblyAiCapacity(args.capacityEvidence, now);
-  assertHammerAssemblyAiDirectSourceUrl(args.audioUrl, args.projectRef);
+  assertHammerAssemblyAiDirectSourceUrl(args.audioUrl, args.projectRef, now);
+  const certifiedRequestFingerprint = fingerprintHammerAssemblyAiRequest({
+    workspaceId: args.authorization.workspaceId,
+    workpieceId: args.authorization.workpieceId,
+    canonicalRecordingId: args.authorization.canonicalRecordingId,
+    recordingRevisionId: args.authorization.recordingRevisionId,
+    source: args.authorization.source,
+  });
   if (
-    args.authorization.source.mediaBytes !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceBytes
+    args.authorization.workspaceId !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactWorkspaceId
+    || args.authorization.workpieceId !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactWorkpieceId
+    || args.authorization.canonicalRecordingId !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactCanonicalRecordingId
+    || args.authorization.recordingRevisionId !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactRecordingRevisionId
+    || args.authorization.source.completionId !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactCompletionId
+    || args.authorization.source.mediaRevision !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaRevision
+    || args.authorization.source.mediaSha256 !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaSha256
+    || args.authorization.source.mediaPath !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaPath
+    || args.authorization.source.mediaBytes !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceBytes
     || args.authorization.source.durationMs !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceDurationMs
+    || args.authorization.requestFingerprint !== certifiedRequestFingerprint
   ) {
     throw new HammerAssemblyAiBoundaryError("uncertified_first_operation_source", "The operation is not bound to the certified first recording.");
   }

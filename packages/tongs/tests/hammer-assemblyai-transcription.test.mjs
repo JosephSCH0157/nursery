@@ -23,25 +23,31 @@ import {
   fingerprintHammerAssemblyAiCapacityEvidence,
 } from "../dist/server/hammer-assemblyai-resource-policy.js";
 
-const SHA = "e909a63e45577e1b22901a8b88cf1c44a2a6a0f0e2ed277dd575e4e69a3117ed";
+const WORKSPACE_ID = "cc5478ff-37be-403e-824c-467fa7da061e";
+const WORKPIECE_ID = "21d16d6a-905b-491e-8761-028789612ae5";
+const RECORDING_ID = "4cc846e3-187c-46d9-8733-e7402488236c";
+const REVISION_ID = "9c991aa7-f551-4f03-a4d6-41eb40ef81ec";
+const COMPLETION_ID = "bf67d649-1bc2-44ba-9a33-783b3ab523ea";
+const SHA = "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24";
+const MEDIA_PATH = "recordings/Episode_21d16d6a_2026-10-28_13-35-19.webm";
 const sourceEvidence = {
-  completionId: "0cb6a77c-0c15-49f0-99ac-8d15fdd515aa",
+  completionId: COMPLETION_ID,
   mediaRevision: 1,
-  mediaPath: "recordings/Episode_21d16d6a_2026-10-27_19-31-03.webm",
+  mediaPath: MEDIA_PATH,
   mediaHash: SHA,
   completionEvidence: {
     artifact_validation: {
-      path: "recordings/Episode_21d16d6a_2026-10-27_19-31-03.webm",
-      bytes: 5_341_606,
+      path: MEDIA_PATH,
+      bytes: 120_617_428,
       sha256: SHA,
-      duration_ms: 47_308,
+      duration_ms: 603_848,
       content_type: "video/webm;codecs=vp9,opus",
     },
     canonical_media_verification: {
-      bytes: 5_341_606,
+      bytes: 120_617_428,
       sha256: SHA,
       source: "trusted_tongs_storage_readback",
-      duration_ms: 47_279,
+      duration_ms: 603_848,
       content_type: "video/webm;codecs=vp9,opus",
       has_audio_stream: true,
       has_video_stream: true,
@@ -66,6 +72,33 @@ function currentCapacityEvidence() {
   return { ...evidence, evidenceSha256: fingerprintHammerAssemblyAiCapacityEvidence(evidence) };
 }
 
+function signedSourceUrl(expiresAt = "2026-10-28T13:00:00.000Z") {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const token = `${encode({ alg: "HS256", typ: "JWT" })}.${encode({ exp: Math.floor(Date.parse(expiresAt) / 1_000) })}.fixture-signature`;
+  return `https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/${HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageBucket}/${HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageObjectPath}?token=${token}`;
+}
+
+function executionAuthorization(source) {
+  const identity = {
+    workspaceId: WORKSPACE_ID,
+    workpieceId: WORKPIECE_ID,
+    canonicalRecordingId: RECORDING_ID,
+    recordingRevisionId: REVISION_ID,
+    source,
+  };
+  return {
+    activation: "authorized",
+    operationId: "assemblyai:bounded-operation",
+    reservationId: "11111111-1111-4111-8111-111111111111",
+    requestFingerprint: fingerprintHammerAssemblyAiRequest(identity),
+    ...identity,
+    model: HAMMER_ASSEMBLYAI_MODEL,
+    maximumProviderAttempts: 1,
+    acceptedCustomerChargeMicros: 10_000,
+    completeWholesaleCeilingMicros: 4_523,
+  };
+}
+
 test("browser-visible Tongs exports exclude the server-only AssemblyAI boundary", () => {
   const sourceIndex = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   const builtIndex = readFileSync(new URL("../dist/index.js", import.meta.url), "utf8");
@@ -81,7 +114,7 @@ test("browser-visible Tongs exports exclude the server-only AssemblyAI boundary"
 
 test("trusted server readback is the only duration authority", () => {
   const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
-  assert.equal(source.durationMs, 47_279);
+  assert.equal(source.durationMs, 603_848);
   assert.equal(source.mediaSha256, SHA);
   assert.equal(source.verificationSource, "trusted_tongs_storage_readback");
   assert.throws(
@@ -102,17 +135,17 @@ test("trusted server readback is the only duration authority", () => {
 test("request fingerprint binds exact recording and provider terms", () => {
   const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
   const first = fingerprintHammerAssemblyAiRequest({
-    workspaceId: "cc5478ff-37be-403e-824c-467fa7da061e",
-    workpieceId: "21d16d6a-905b-491e-8761-028789612ae5",
-    canonicalRecordingId: "ad411785-20a5-4305-9b89-9ae3c768e940",
-    recordingRevisionId: "b67d0986-178f-4fcc-be4a-0bb979cb77eb",
+    workspaceId: WORKSPACE_ID,
+    workpieceId: WORKPIECE_ID,
+    canonicalRecordingId: RECORDING_ID,
+    recordingRevisionId: REVISION_ID,
     source,
   });
   assert.match(first, /^[0-9a-f]{64}$/);
   assert.notEqual(first, fingerprintHammerAssemblyAiRequest({
-    workspaceId: "cc5478ff-37be-403e-824c-467fa7da061e",
-    workpieceId: "21d16d6a-905b-491e-8761-028789612ae5",
-    canonicalRecordingId: "ad411785-20a5-4305-9b89-9ae3c768e940",
+    workspaceId: WORKSPACE_ID,
+    workpieceId: WORKPIECE_ID,
+    canonicalRecordingId: RECORDING_ID,
     recordingRevisionId: "00000000-0000-4000-8000-000000000000",
     source,
   }));
@@ -176,24 +209,14 @@ test("server HTTP transport reads the opaque credential only at call time and ne
 
 test("bounded submission submits once and never retries an ambiguous request", async () => {
   const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
-  const authorization = {
-    activation: "authorized",
-    operationId: "assemblyai:operation",
-    reservationId: "11111111-1111-4111-8111-111111111111",
-    requestFingerprint: "a".repeat(64),
-    source,
-    model: HAMMER_ASSEMBLYAI_MODEL,
-    maximumProviderAttempts: 1,
-    acceptedCustomerChargeMicros: 10_000,
-    completeWholesaleCeilingMicros: 4_523,
-  };
+  const authorization = executionAuthorization(source);
   let calls = 0;
   let unknowns = 0;
   const resources = new HammerAssemblyAiResourceGuard(new Date("2026-10-28T12:00:00.000Z"));
   await assert.rejects(
     submitBoundedHammerAssemblyAiOnce({
       authorization,
-      audioUrl: "https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/forge-workpieces/source.webm?token=opaque",
+      audioUrl: signedSourceUrl(),
       projectRef: "wtvdjndyxegudufrompx",
       capacityEvidence: currentCapacityEvidence(),
       resources,
@@ -214,22 +237,12 @@ test("bounded submission submits once and never retries an ambiguous request", a
 
 test("bounded submission requires current capacity, direct source transport, and the certified recording", async () => {
   const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
-  const authorization = {
-    activation: "authorized",
-    operationId: "assemblyai:bounded-operation",
-    reservationId: "11111111-1111-4111-8111-111111111111",
-    requestFingerprint: "b".repeat(64),
-    source,
-    model: HAMMER_ASSEMBLYAI_MODEL,
-    maximumProviderAttempts: 1,
-    acceptedCustomerChargeMicros: 10_000,
-    completeWholesaleCeilingMicros: 4_523,
-  };
+  const authorization = executionAuthorization(source);
   const resources = new HammerAssemblyAiResourceGuard(new Date("2026-10-28T12:00:00.000Z"));
   let calls = 0;
   const response = await submitBoundedHammerAssemblyAiOnce({
     authorization,
-    audioUrl: "https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/forge-workpieces/source.webm?token=opaque",
+    audioUrl: signedSourceUrl(),
     projectRef: "wtvdjndyxegudufrompx",
     capacityEvidence: currentCapacityEvidence(),
     resources,
@@ -245,7 +258,7 @@ test("bounded submission requires current capacity, direct source transport, and
   assert.equal(calls, 1);
   assert.deepEqual(resources.snapshot(), {
     sourceReads: 1,
-    sourceEgressBytes: 5_341_606,
+    sourceEgressBytes: 120_617_428,
     functionInvocations: 1,
     aggregateFunctionDurationMs: 1,
     providerPolls: 0,
@@ -253,6 +266,32 @@ test("bounded submission requires current capacity, direct source transport, and
     transcriptReadbacks: 0,
     persistenceBytes: 0,
   });
+});
+
+test("bounded submission rejects a changed recording identity before provider execution", async () => {
+  const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
+  const authorization = {
+    ...executionAuthorization(source),
+    recordingRevisionId: "00000000-0000-4000-8000-000000000000",
+  };
+  let calls = 0;
+  await assert.rejects(
+    submitBoundedHammerAssemblyAiOnce({
+      authorization,
+      audioUrl: signedSourceUrl(),
+      projectRef: "wtvdjndyxegudufrompx",
+      capacityEvidence: currentCapacityEvidence(),
+      resources: new HammerAssemblyAiResourceGuard(new Date("2026-10-28T12:00:00.000Z")),
+      transport: {
+        async submit() { calls += 1; return { id: "must-not-run", status: "queued" }; },
+        async read() { throw new Error("not called"); },
+      },
+      now: new Date("2026-10-28T12:05:00.000Z"),
+      async onSubmissionUnknown() { throw new Error("not called"); },
+    }),
+    (error) => error instanceof HammerAssemblyAiBoundaryError && error.code === "uncertified_first_operation_source",
+  );
+  assert.equal(calls, 0);
 });
 
 test("bounded provider reads reject oversized evidence and consume one poll without retry", async () => {

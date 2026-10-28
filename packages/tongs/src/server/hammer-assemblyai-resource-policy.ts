@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 
 export const HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY = Object.freeze({
   schema: "forge.hammer.assemblyai-supporting-cost-policy.v1",
-  revision: 1,
+  revision: 2,
   lifecycleState: "draft_review",
   routeCode: "hammer.transcript_prep",
   financialEnvironment: "test",
@@ -13,22 +13,40 @@ export const HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY = Object.freeze({
   maximumConcurrentOperations: 1,
   maximumProviderAttempts: 1,
   automaticRetries: 0,
-  exactSourceBytes: 5_341_606,
-  exactSourceDurationMs: 47_279,
+  exactWorkspaceId: "cc5478ff-37be-403e-824c-467fa7da061e",
+  exactWorkpieceId: "21d16d6a-905b-491e-8761-028789612ae5",
+  exactCanonicalRecordingId: "4cc846e3-187c-46d9-8733-e7402488236c",
+  exactRecordingRevisionId: "9c991aa7-f551-4f03-a4d6-41eb40ef81ec",
+  exactCompletionId: "bf67d649-1bc2-44ba-9a33-783b3ab523ea",
+  exactMediaRevision: 1,
+  exactMediaSha256: "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24",
+  exactMediaPath: "recordings/Episode_21d16d6a_2026-10-28_13-35-19.webm",
+  exactSourceBytes: 120_617_428,
+  exactSourceDurationMs: 603_848,
+  exactStorageBucket: "forge-workpieces",
+  exactStorageObjectPath: "workpieces/21d16d6a-905b-491e-8761-028789612ae5/recordings/Episode_21d16d6a_2026-10-28_13-35-19.webm",
   maximumSourceReads: 2,
-  maximumSourceEgressBytes: 10_683_212,
+  maximumSourceEgressBytes: 241_234_856,
   maximumFunctionInvocations: 16,
   maximumFunctionDurationMs: 15_000,
   maximumAggregateFunctionDurationMs: 240_000,
   maximumProviderPolls: 12,
   maximumReconciliationWindowMs: 30 * 60 * 1_000,
+  minimumSignedUrlValidityMs: (30 * 60 * 1_000) + 15_000,
   maximumProviderPayloadBytes: 1_048_576,
   maximumCanonicalTranscriptBytes: 1_048_576,
   maximumCustomerResponseBytes: 65_536,
   maximumTranscriptReadbacks: 2,
   maximumPersistenceBytes: 8 * 1_048_576,
   requiredNetlifyCreditsMicrounits: 671_178,
-  requiredSupabaseEgressBytes: 12_780_364,
+  requiredSupabaseEgressBytes: 243_332_008,
+  fixtureCertification: Object.freeze({
+    basis: "603848ms-360wpm-8-speaker-duplicated-word-evidence",
+    maximumWords: 3_624,
+    utterances: 302,
+    measuredProviderPayloadBytes: 688_957,
+    measuredCanonicalTranscriptBytes: 389_128,
+  }),
   maximumCapacityEvidenceAgeMs: 24 * 60 * 60 * 1_000,
   providerMediaTransport: "direct_signed_supabase_url",
   publishable: false,
@@ -142,21 +160,59 @@ export function certifyHammerAssemblyAiCapacity(
   return Object.freeze(structuredClone(evidence));
 }
 
-export function assertHammerAssemblyAiDirectSourceUrl(url: string, projectRef: string): URL {
+function signedUrlExpiryMs(token: string): number {
+  const parts = token.split(".");
+  if (parts.length !== 3 || !parts[1]) {
+    throw new HammerAssemblyAiResourceBoundaryError("source_url_token_invalid", "The signed source URL token is malformed.");
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as unknown;
+  } catch {
+    throw new HammerAssemblyAiResourceBoundaryError("source_url_token_invalid", "The signed source URL token cannot be decoded.");
+  }
+  const exp = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as { exp?: unknown }).exp
+    : null;
+  if (typeof exp !== "number" || !Number.isSafeInteger(exp) || exp <= 0) {
+    throw new HammerAssemblyAiResourceBoundaryError("source_url_expiry_invalid", "The signed source URL requires a valid expiry.");
+  }
+  return exp * 1_000;
+}
+
+export function assertHammerAssemblyAiDirectSourceUrl(
+  url: string,
+  projectRef: string,
+  now = new Date(),
+): URL {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     throw new HammerAssemblyAiResourceBoundaryError("source_url_invalid", "The source URL is invalid.");
   }
-  if (
-    parsed.protocol !== "https:"
-    || parsed.hostname !== `${projectRef}.supabase.co`
-    || !parsed.pathname.startsWith("/storage/v1/object/sign/")
-  ) {
+  const expectedPath = `/storage/v1/object/sign/${HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageBucket}/${HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageObjectPath}`;
+  let decodedPath: string;
+  try {
+    decodedPath = decodeURIComponent(parsed.pathname);
+  } catch {
+    throw new HammerAssemblyAiResourceBoundaryError("source_url_invalid", "The source URL path is invalid.");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== `${projectRef}.supabase.co` || decodedPath !== expectedPath) {
     throw new HammerAssemblyAiResourceBoundaryError(
       "source_transport_not_direct",
       "The provider must retrieve the exact canonical object through a signed Supabase URL.",
+    );
+  }
+  const nowMs = now.getTime();
+  if (!Number.isFinite(nowMs)) {
+    throw new HammerAssemblyAiResourceBoundaryError("source_url_clock_invalid", "The signed source URL clock is invalid.");
+  }
+  const token = parsed.searchParams.get("token") ?? "";
+  if (signedUrlExpiryMs(token) - nowMs < HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.minimumSignedUrlValidityMs) {
+    throw new HammerAssemblyAiResourceBoundaryError(
+      "source_url_validity_insufficient",
+      "The signed source URL expires before the bounded retrieval window closes.",
     );
   }
   return parsed;
