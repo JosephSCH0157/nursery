@@ -1,4 +1,12 @@
 import { createHash } from "node:crypto";
+import {
+  HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY,
+  HammerAssemblyAiResourceGuard,
+  assertHammerAssemblyAiDirectSourceUrl,
+  assertHammerAssemblyAiPayloadSize,
+  certifyHammerAssemblyAiCapacity,
+  type HammerAssemblyAiCapacityEvidence,
+} from "./hammer-assemblyai-resource-policy.js";
 
 // Server-only provider boundary. Browser code must never import this module;
 // @forge/tongs exposes it only through the explicit server subpath.
@@ -192,13 +200,25 @@ export function createHammerAssemblyAiHttpTransport(args: {
   const request = async (url: string, init: RequestInit): Promise<unknown> => {
     const response = await fetchImpl(url, {
       ...init,
+      signal: init.signal ?? AbortSignal.timeout(HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumFunctionDurationMs),
       headers: {
         Authorization: args.credential.read(),
         "Content-Type": "application/json",
         ...(init.headers ?? {}),
       },
     });
-    const payload = await response.json().catch(() => null) as unknown;
+    const rawPayload = await response.text();
+    assertHammerAssemblyAiPayloadSize(
+      rawPayload,
+      HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumProviderPayloadBytes,
+      "provider_payload_size_exceeded",
+    );
+    let payload: unknown = null;
+    try {
+      payload = JSON.parse(rawPayload) as unknown;
+    } catch {
+      payload = null;
+    }
     if (!response.ok) {
       throw new HammerAssemblyAiBoundaryError(
         "provider_http_error",
@@ -263,7 +283,7 @@ export function assertHammerAssemblyAiExecutionInactive(): never {
  * One-shot primitive for a future authorized coordinator. It performs exactly
  * one submit call. Any thrown submit error is ambiguous and is never retried.
  */
-export async function submitHammerAssemblyAiOnce(args: {
+async function submitHammerAssemblyAiOnce(args: {
   authorization: HammerAssemblyAiExecutionAuthorization;
   audioUrl: string;
   transport: AssemblyAiTransport;
@@ -295,6 +315,74 @@ export async function submitHammerAssemblyAiOnce(args: {
     throw new HammerAssemblyAiSubmissionUnknownError("AssemblyAI returned no trustworthy submission receipt.");
   }
   return { id: response.id.trim(), status: response.status };
+}
+
+export async function submitBoundedHammerAssemblyAiOnce(args: {
+  authorization: HammerAssemblyAiExecutionAuthorization;
+  audioUrl: string;
+  projectRef: string;
+  capacityEvidence: HammerAssemblyAiCapacityEvidence;
+  resources: HammerAssemblyAiResourceGuard;
+  transport: AssemblyAiTransport;
+  now?: Date;
+  clock?: () => number;
+  onSubmissionUnknown: (error: unknown) => Promise<void>;
+}): Promise<AssemblyAiSubmitResponse> {
+  const now = args.now ?? new Date();
+  certifyHammerAssemblyAiCapacity(args.capacityEvidence, now);
+  assertHammerAssemblyAiDirectSourceUrl(args.audioUrl, args.projectRef);
+  if (
+    args.authorization.source.mediaBytes !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceBytes
+    || args.authorization.source.durationMs !== HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceDurationMs
+  ) {
+    throw new HammerAssemblyAiBoundaryError("uncertified_first_operation_source", "The operation is not bound to the certified first recording.");
+  }
+  args.resources.assertWithinReconciliationWindow(now);
+  args.resources.recordSourceRead(args.authorization.source.mediaBytes);
+  args.resources.recordProviderAttempt();
+  const clock = args.clock ?? Date.now;
+  const startedAt = clock();
+  try {
+    return await submitHammerAssemblyAiOnce({
+      authorization: args.authorization,
+      audioUrl: args.audioUrl,
+      transport: args.transport,
+      onSubmissionUnknown: args.onSubmissionUnknown,
+    });
+  } finally {
+    args.resources.recordFunctionInvocation(Math.max(1, Math.ceil(clock() - startedAt)));
+  }
+}
+
+export async function readBoundedHammerAssemblyAiResult(args: {
+  transcriptId: string;
+  resources: HammerAssemblyAiResourceGuard;
+  transport: AssemblyAiTransport;
+  now?: Date;
+  clock?: () => number;
+}): Promise<unknown> {
+  const now = args.now ?? new Date();
+  args.resources.recordProviderPoll(now);
+  const clock = args.clock ?? Date.now;
+  const startedAt = clock();
+  try {
+    const payload = await args.transport.read(args.transcriptId);
+    const serializedPayload = JSON.stringify(payload);
+    if (typeof serializedPayload !== "string") {
+      throw new HammerAssemblyAiBoundaryError(
+        "provider_payload_invalid",
+        "AssemblyAI returned a payload that cannot be measured safely.",
+      );
+    }
+    assertHammerAssemblyAiPayloadSize(
+      serializedPayload,
+      HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumProviderPayloadBytes,
+      "provider_payload_size_exceeded",
+    );
+    return payload;
+  } finally {
+    args.resources.recordFunctionInvocation(Math.max(1, Math.ceil(clock() - startedAt)));
+  }
 }
 
 export type HammerAssemblyAiEvidenceSnapshot = {

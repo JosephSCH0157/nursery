@@ -12,9 +12,16 @@ import {
   fingerprintHammerAssemblyAiRequest,
   resolveHammerAssemblyAiServerCredential,
   resolveHammerAssemblyAiSourceAuthority,
-  submitHammerAssemblyAiOnce,
+  readBoundedHammerAssemblyAiResult,
+  submitBoundedHammerAssemblyAiOnce,
   verifyHammerAssemblyAiEvidence,
 } from "../dist/server/hammer-assemblyai-transcription.js";
+import {
+  HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY,
+  HammerAssemblyAiResourceBoundaryError,
+  HammerAssemblyAiResourceGuard,
+  fingerprintHammerAssemblyAiCapacityEvidence,
+} from "../dist/server/hammer-assemblyai-resource-policy.js";
 
 const SHA = "e909a63e45577e1b22901a8b88cf1c44a2a6a0f0e2ed277dd575e4e69a3117ed";
 const sourceEvidence = {
@@ -43,13 +50,29 @@ const sourceEvidence = {
   },
 };
 
+function currentCapacityEvidence() {
+  const evidence = {
+    checkedAt: "2026-10-28T12:00:00.000Z",
+    expiresAt: "2026-10-28T13:00:00.000Z",
+    netlify: { plan: "pro", remainingCreditsMicrounits: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.requiredNetlifyCreditsMicrounits },
+    supabase: {
+      plan: "pro",
+      spendCapEnabled: true,
+      remainingUncachedEgressBytes: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.requiredSupabaseEgressBytes,
+      remainingDatabaseBytes: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.maximumPersistenceBytes,
+    },
+    activeHammerOperationCount: 0,
+  };
+  return { ...evidence, evidenceSha256: fingerprintHammerAssemblyAiCapacityEvidence(evidence) };
+}
+
 test("browser-visible Tongs exports exclude the server-only AssemblyAI boundary", () => {
   const sourceIndex = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   const builtIndex = readFileSync(new URL("../dist/index.js", import.meta.url), "utf8");
   const packageManifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
-  assert.doesNotMatch(sourceIndex, /hammer-assemblyai-transcription/);
-  assert.doesNotMatch(builtIndex, /hammer-assemblyai-transcription|node:crypto|ASSEMBLYAI_API_KEY/);
+  assert.doesNotMatch(sourceIndex, /hammer-assemblyai-(?:transcription|resource-policy)/);
+  assert.doesNotMatch(builtIndex, /hammer-assemblyai-(?:transcription|resource-policy)|node:(?:crypto|buffer)|ASSEMBLYAI_API_KEY/);
   assert.equal(
     packageManifest.exports["./server/hammer-assemblyai-transcription"].import,
     "./dist/server/hammer-assemblyai-transcription.js",
@@ -151,7 +174,7 @@ test("server HTTP transport reads the opaque credential only at call time and ne
   assert.equal(body.speaker_labels, true);
 });
 
-test("authorized primitive submits once and never retries an ambiguous request", async () => {
+test("bounded submission submits once and never retries an ambiguous request", async () => {
   const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
   const authorization = {
     activation: "authorized",
@@ -166,20 +189,91 @@ test("authorized primitive submits once and never retries an ambiguous request",
   };
   let calls = 0;
   let unknowns = 0;
+  const resources = new HammerAssemblyAiResourceGuard(new Date("2026-10-28T12:00:00.000Z"));
   await assert.rejects(
-    submitHammerAssemblyAiOnce({
+    submitBoundedHammerAssemblyAiOnce({
       authorization,
-      audioUrl: "https://signed.invalid/canonical.webm",
+      audioUrl: "https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/forge-workpieces/source.webm?token=opaque",
+      projectRef: "wtvdjndyxegudufrompx",
+      capacityEvidence: currentCapacityEvidence(),
+      resources,
       transport: {
         async submit() { calls += 1; throw new Error("socket_closed_after_write"); },
         async read() { throw new Error("not called"); },
       },
+      now: new Date("2026-10-28T12:05:00.000Z"),
+      clock: (() => { const values = [100, 101]; return () => values.shift() ?? 101; })(),
       async onSubmissionUnknown() { unknowns += 1; },
     }),
     HammerAssemblyAiSubmissionUnknownError,
   );
   assert.equal(calls, 1);
   assert.equal(unknowns, 1);
+  assert.equal(resources.snapshot().providerAttempts, 1);
+});
+
+test("bounded submission requires current capacity, direct source transport, and the certified recording", async () => {
+  const source = resolveHammerAssemblyAiSourceAuthority(sourceEvidence);
+  const authorization = {
+    activation: "authorized",
+    operationId: "assemblyai:bounded-operation",
+    reservationId: "11111111-1111-4111-8111-111111111111",
+    requestFingerprint: "b".repeat(64),
+    source,
+    model: HAMMER_ASSEMBLYAI_MODEL,
+    maximumProviderAttempts: 1,
+    acceptedCustomerChargeMicros: 10_000,
+    completeWholesaleCeilingMicros: 4_523,
+  };
+  const resources = new HammerAssemblyAiResourceGuard(new Date("2026-10-28T12:00:00.000Z"));
+  let calls = 0;
+  const response = await submitBoundedHammerAssemblyAiOnce({
+    authorization,
+    audioUrl: "https://wtvdjndyxegudufrompx.supabase.co/storage/v1/object/sign/forge-workpieces/source.webm?token=opaque",
+    projectRef: "wtvdjndyxegudufrompx",
+    capacityEvidence: currentCapacityEvidence(),
+    resources,
+    transport: {
+      async submit() { calls += 1; return { id: "transcript_1", status: "queued" }; },
+      async read() { throw new Error("not called"); },
+    },
+    now: new Date("2026-10-28T12:05:00.000Z"),
+    clock: (() => { const values = [100, 101]; return () => values.shift() ?? 101; })(),
+    async onSubmissionUnknown() { throw new Error("not called"); },
+  });
+  assert.deepEqual(response, { id: "transcript_1", status: "queued" });
+  assert.equal(calls, 1);
+  assert.deepEqual(resources.snapshot(), {
+    sourceReads: 1,
+    sourceEgressBytes: 5_341_606,
+    functionInvocations: 1,
+    aggregateFunctionDurationMs: 1,
+    providerPolls: 0,
+    providerAttempts: 1,
+    transcriptReadbacks: 0,
+    persistenceBytes: 0,
+  });
+});
+
+test("bounded provider reads reject oversized evidence and consume one poll without retry", async () => {
+  const resources = new HammerAssemblyAiResourceGuard(new Date("2026-10-28T12:00:00.000Z"));
+  let reads = 0;
+  await assert.rejects(
+    readBoundedHammerAssemblyAiResult({
+      transcriptId: "transcript_1",
+      resources,
+      transport: {
+        async submit() { throw new Error("not called"); },
+        async read() { reads += 1; return { text: "x".repeat(1_048_576) }; },
+      },
+      now: new Date("2026-10-28T12:05:00.000Z"),
+      clock: (() => { const values = [100, 101]; return () => values.shift() ?? 101; })(),
+    }),
+    (error) => error instanceof HammerAssemblyAiResourceBoundaryError && error.code === "provider_payload_size_exceeded",
+  );
+  assert.equal(reads, 1);
+  assert.equal(resources.snapshot().providerPolls, 1);
+  assert.equal(resources.snapshot().functionInvocations, 1);
 });
 
 test("evidence verifier rejects attempts while execution is inactive and settlement before persistence", () => {
