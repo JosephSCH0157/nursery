@@ -4,11 +4,52 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { createHash } from "node:crypto";
-import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis, resolveCanonicalGeneratedImageDimensions, resolvePriorCandidateAssetIdsToSupersede } from "../dist/workpiece-commit-api.js";
+import { HAMMER_TRANSCRIPT_CREATION_HALTED_MESSAGE, TongsCommitService, buildImageMapPromptSourceContext, classifyWorkpieceJobInsertError, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis, resolveCanonicalGeneratedImageDimensions, resolvePriorCandidateAssetIdsToSupersede } from "../dist/workpiece-commit-api.js";
 import { ImageProviderRequestError } from "../dist/providers/image-provider.js";
 import { deflateSync } from "node:zlib";
 
 const registryJsonSha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+test("workpiece job insert classifies only the exact financial halt as non-retryable", () => {
+  const classified = classifyWorkpieceJobInsertError({
+    code: "42501",
+    message: "paid_submissions_halted: existing evidence can reconcile; no transcription job may start",
+  });
+
+  assert.deepEqual(classified, {
+    status: 423,
+    code: "paid_submissions_halted",
+    message: HAMMER_TRANSCRIPT_CREATION_HALTED_MESSAGE,
+    details: {
+      financial_state: "halt_new",
+      retryable: false,
+      provider_execution_started: false,
+      customer_charge_created: false,
+    },
+  });
+});
+
+test("unrelated SQLSTATE 42501 remains a generic database write failure", () => {
+  const classified = classifyWorkpieceJobInsertError({
+    code: "42501",
+    message: "permission denied for relation workpiece_jobs",
+  });
+
+  assert.equal(classified.status, 502);
+  assert.equal(classified.code, "db_write_failed");
+  assert.equal(classified.message, "Failed to create workpiece job");
+});
+
+test("transient workpiece job database failures retain retryable 502 classification", () => {
+  const classified = classifyWorkpieceJobInsertError({
+    code: "08006",
+    message: "connection failure",
+  });
+
+  assert.equal(classified.status, 502);
+  assert.equal(classified.code, "db_write_failed");
+  assert.deepEqual(classified.details, { reason: "connection failure" });
+});
 
 // Real HTTP routing and lifecycle service, with deterministic canonical file IO
 // and conditional database writes. No provider, live database or wall-clock races.

@@ -4163,6 +4163,53 @@ class HttpError extends Error {
   }
 }
 
+const PAID_SUBMISSIONS_HALTED_DATABASE_MESSAGE =
+  "paid_submissions_halted: existing evidence can reconcile; no transcription job may start";
+
+export const HAMMER_TRANSCRIPT_CREATION_HALTED_MESSAGE =
+  "New transcript creation is not yet enabled for this recording. No charge was made.";
+
+export type WorkpieceJobInsertErrorContract = {
+  status: number;
+  code: string;
+  message: string;
+  details: Record<string, unknown>;
+};
+
+export function classifyWorkpieceJobInsertError(
+  error: unknown,
+): WorkpieceJobInsertErrorContract {
+  if (
+    isRecord(error) &&
+    error.code === "42501" &&
+    error.message === PAID_SUBMISSIONS_HALTED_DATABASE_MESSAGE
+  ) {
+    return {
+      status: 423,
+      code: "paid_submissions_halted",
+      message: HAMMER_TRANSCRIPT_CREATION_HALTED_MESSAGE,
+      details: {
+        financial_state: "halt_new",
+        retryable: false,
+        provider_execution_started: false,
+        customer_charge_created: false,
+      },
+    };
+  }
+
+  return {
+    status: 502,
+    code: "db_write_failed",
+    message: "Failed to create workpiece job",
+    details: {
+      reason:
+        isRecord(error) && typeof error.message === "string"
+          ? error.message
+          : "Unknown database write failure",
+    },
+  };
+}
+
 function throwOpenAiFundingHttpError(error: unknown): never {
   if (error instanceof OpenAiTextQuoteRequiredError) {
     const quote = error.quote;
@@ -15629,11 +15676,12 @@ export class TongsCommitService {
       .single();
 
     if (error) {
+      const classified = classifyWorkpieceJobInsertError(error);
       throw new HttpError(
-        502,
-        "db_write_failed",
-        "Failed to create workpiece job",
-        { reason: error.message },
+        classified.status,
+        classified.code,
+        classified.message,
+        classified.details,
       );
     }
     if (!data) {

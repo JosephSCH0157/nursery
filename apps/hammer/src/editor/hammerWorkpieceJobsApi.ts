@@ -4,6 +4,10 @@ import {
   readCustomerSpendingQuote,
   requestCustomerSpendingAcceptance,
 } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import {
+  isRetryableWorkpieceJobFailure,
+  readWorkpieceJobApiError,
+} from "./hammerWorkpieceJobErrors";
 
 export type HammerWorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration" | "hammer_final_video_render";
 export type HammerWorkpieceJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
@@ -32,7 +36,7 @@ export type HammerWorkpieceJob = {
 
 export type HammerWorkpieceJobsResult<T> =
   | { ok: true; status: number; data: T }
-  | { ok: false; status: number; error: string; retryAfterMs?: number };
+  | { ok: false; status: number; code?: string; error: string; retryAfterMs?: number };
 
 type HammerJobsBackoffState = {
   attempts: number;
@@ -40,10 +44,6 @@ type HammerJobsBackoffState = {
 };
 
 const jobsBackoffByKey = new Map<string, HammerJobsBackoffState>();
-
-function isRetryableJobsStatus(status: number): boolean {
-  return status === 502 || status === 503 || status === 504;
-}
 
 function computeBackoffDelayMs(attempts: number): number {
   const safeAttempts = Number.isFinite(attempts) && attempts > 0 ? Math.trunc(attempts) : 1;
@@ -70,18 +70,6 @@ function noteJobsFailure(key: string): number {
 
 function clearJobsBackoff(key: string): void {
   jobsBackoffByKey.delete(key);
-}
-
-function readErrorMessage(payload: unknown, fallback: string): string {
-  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    const row = payload as Record<string, unknown>;
-    const error = row.error && typeof row.error === "object" && !Array.isArray(row.error)
-      ? row.error as Record<string, unknown>
-      : null;
-    const message = typeof error?.message === "string" ? error.message : null;
-    if (message) return message;
-  }
-  return fallback;
 }
 
 export async function createWorkpieceJob(args: {
@@ -124,12 +112,12 @@ export async function createWorkpieceJob(args: {
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    const errorMessage = readErrorMessage(payload, "Failed to create job.");
-    if (isRetryableJobsStatus(response.status)) {
+    const apiError = readWorkpieceJobApiError(payload, "Failed to create job.");
+    if (isRetryableWorkpieceJobFailure({ status: response.status, code: apiError.code })) {
       const retryAfterMs = noteJobsFailure(backoffKey);
-      return { ok: false, status: response.status, error: errorMessage, retryAfterMs };
+      return { ok: false, status: response.status, ...(apiError.code ? { code: apiError.code } : {}), error: apiError.message, retryAfterMs };
     }
-    return { ok: false, status: response.status, error: errorMessage };
+    return { ok: false, status: response.status, ...(apiError.code ? { code: apiError.code } : {}), error: apiError.message };
   }
   clearJobsBackoff(backoffKey);
   const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
@@ -170,12 +158,12 @@ export async function fetchWorkpieceJob(args: {
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    const errorMessage = readErrorMessage(payload, "Failed to load job.");
-    if (isRetryableJobsStatus(response.status)) {
+    const apiError = readWorkpieceJobApiError(payload, "Failed to load job.");
+    if (isRetryableWorkpieceJobFailure({ status: response.status, code: apiError.code })) {
       const retryAfterMs = noteJobsFailure(backoffKey);
-      return { ok: false, status: response.status, error: errorMessage, retryAfterMs };
+      return { ok: false, status: response.status, ...(apiError.code ? { code: apiError.code } : {}), error: apiError.message, retryAfterMs };
     }
-    return { ok: false, status: response.status, error: errorMessage };
+    return { ok: false, status: response.status, ...(apiError.code ? { code: apiError.code } : {}), error: apiError.message };
   }
   clearJobsBackoff(backoffKey);
   const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;
@@ -221,12 +209,12 @@ export async function listWorkpieceJobs(args: {
 
   const payload = await readJsonBody(response);
   if (!response.ok) {
-    const errorMessage = readErrorMessage(payload, "Failed to list jobs.");
-    if (isRetryableJobsStatus(response.status)) {
+    const apiError = readWorkpieceJobApiError(payload, "Failed to list jobs.");
+    if (isRetryableWorkpieceJobFailure({ status: response.status, code: apiError.code })) {
       const retryAfterMs = noteJobsFailure(backoffKey);
-      return { ok: false, status: response.status, error: errorMessage, retryAfterMs };
+      return { ok: false, status: response.status, ...(apiError.code ? { code: apiError.code } : {}), error: apiError.message, retryAfterMs };
     }
-    return { ok: false, status: response.status, error: errorMessage };
+    return { ok: false, status: response.status, ...(apiError.code ? { code: apiError.code } : {}), error: apiError.message };
   }
   clearJobsBackoff(backoffKey);
   const root = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : null;

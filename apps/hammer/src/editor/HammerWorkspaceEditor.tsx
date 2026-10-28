@@ -114,6 +114,7 @@ import {
   listWorkpieceJobs,
   type HammerWorkpieceJob,
 } from "./hammerWorkpieceJobsApi";
+import { buildTranscriptJobFailureMessage } from "./hammerWorkpieceJobErrors";
 import {
   type HammerIngestDiagnosticV1,
   writeHammerIngestDiagnostics,
@@ -224,27 +225,6 @@ function isMissingTongsUserAccessTokenError(error: unknown): boolean {
   const message = toErrorMessage(error, "");
   return message.includes("[tongsFetch] BLOCKED")
     && message.includes("unauthenticated Tongs request");
-}
-
-function buildTranscriptJobFailureMessage(args: {
-  status: number;
-  error: string;
-  retryAfterMs?: number;
-}): string {
-  const retryHint = typeof args.retryAfterMs === "number" && args.retryAfterMs > 0
-    ? ` Retry in about ${Math.max(1, Math.ceil(args.retryAfterMs / 1000))}s.`
-    : "";
-
-  if (args.status === 503 || args.status === 504 || args.status === 502) {
-    return `Transcript service is temporarily unavailable.${retryHint} ${args.error}`.trim();
-  }
-  if (args.status === 401 || args.status === 403) {
-    return `Transcript job is blocked by auth or policy checks. ${args.error}`.trim();
-  }
-  if (args.status === 404) {
-    return `Transcript job route is unavailable for this workspace context. ${args.error}`.trim();
-  }
-  return args.error;
 }
 
 function withSessionId(launchContext?: HammerLaunchContext): HammerLaunchContext | undefined {
@@ -3306,6 +3286,7 @@ export default function HammerWorkspaceEditor(
         if (!jobCreate.ok) {
           const userMessage = buildTranscriptJobFailureMessage({
             status: jobCreate.status,
+            code: jobCreate.code,
             error: jobCreate.error,
             retryAfterMs: jobCreate.retryAfterMs,
           });
