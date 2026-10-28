@@ -60,3 +60,71 @@ export function shouldShowHammerPrepAiNotice(args: {
 }): boolean {
   return args.acknowledgedLaneSignature !== args.effectiveLane;
 }
+
+export function buildHammerPrepAiNoticeApprovalKey(
+  runKey: string,
+  lane: HammerPrepAiEffectiveLane,
+): string {
+  return `${runKey}:lane:${lane}`;
+}
+
+export type HammerPrepAiNoticeContinueResult =
+  | {
+      ok: true;
+      runKey: string;
+      approvalKey: string;
+    }
+  | {
+      ok: false;
+      reason: "missing_pending_attempt" | "pending_attempt_changed" | "acknowledgement_persistence_failed";
+      message: string;
+    };
+
+export async function continueHammerPrepAiNotice(args: {
+  pendingRunKey: string | null;
+  effectiveLane: HammerPrepAiEffectiveLane;
+  dontShowAgain: boolean;
+  persistAcknowledgedLane?: (lane: HammerPrepAiEffectiveLane) => void | Promise<void>;
+  isPendingRunKeyCurrent?: (runKey: string) => boolean;
+}): Promise<HammerPrepAiNoticeContinueResult> {
+  if (!args.pendingRunKey) {
+    return {
+      ok: false,
+      reason: "missing_pending_attempt",
+      message: "Hammer could not identify the preparation attempt to continue.",
+    };
+  }
+
+  if (args.dontShowAgain) {
+    if (!args.persistAcknowledgedLane) {
+      return {
+        ok: false,
+        reason: "acknowledgement_persistence_failed",
+        message: "Hammer could not save this AI notice preference. Try again or clear Don't show this again.",
+      };
+    }
+    try {
+      await args.persistAcknowledgedLane(args.effectiveLane);
+    } catch {
+      return {
+        ok: false,
+        reason: "acknowledgement_persistence_failed",
+        message: "Hammer could not save this AI notice preference. Try again or clear Don't show this again.",
+      };
+    }
+  }
+
+  if (args.isPendingRunKeyCurrent && !args.isPendingRunKeyCurrent(args.pendingRunKey)) {
+    return {
+      ok: false,
+      reason: "pending_attempt_changed",
+      message: "The preparation attempt changed before Hammer could continue.",
+    };
+  }
+
+  return {
+    ok: true,
+    runKey: args.pendingRunKey,
+    approvalKey: buildHammerPrepAiNoticeApprovalKey(args.pendingRunKey, args.effectiveLane),
+  };
+}

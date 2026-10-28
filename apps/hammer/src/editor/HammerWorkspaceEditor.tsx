@@ -87,7 +87,9 @@ import {
   findRecoveredAnvilSnapshotByWorkpieceId,
 } from "../transcript/hammerAnvilSnapshotRecovery";
 import {
+  buildHammerPrepAiNoticeApprovalKey,
   buildHammerPrepAiNoticeModel,
+  continueHammerPrepAiNotice,
   shouldShowHammerPrepAiNotice,
   type HammerPrepAiEffectiveLane,
 } from "../prep/hammerPrepAiNotice";
@@ -475,6 +477,7 @@ export default function HammerWorkspaceEditor(
   const [saveRetryNonce, setSaveRetryNonce] = useState(0);
   const [showPrepAiNotice, setShowPrepAiNotice] = useState(false);
   const [prepAiNoticeDontShowAgain, setPrepAiNoticeDontShowAgain] = useState(false);
+  const [prepAiNoticePersistenceError, setPrepAiNoticePersistenceError] = useState<string | null>(null);
   const [prepAiNoticeDecisionNonce, setPrepAiNoticeDecisionNonce] = useState(0);
   const [regenAiTranscriptOpen, setRegenAiTranscriptOpen] = useState(false);
   const [regenAiTranscriptRefreshPlacements, setRegenAiTranscriptRefreshPlacements] = useState(true);
@@ -540,6 +543,7 @@ export default function HammerWorkspaceEditor(
   const deferredAutosaveRef = useRef<NonNullable<typeof pendingSaveRef.current> | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeApprovedRunKeyRef = useRef<string | null>(null);
+  const prepAiNoticeContinueInFlightRef = useRef(false);
   const prepAiNoticeCancelledRunKeyRef = useRef<string | null>(null);
   const prepAiNoticePendingRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeShownRunKeyRef = useRef<string | null>(null);
@@ -2772,7 +2776,11 @@ export default function HammerWorkspaceEditor(
 
     // AI consent prompt must only appear after the user explicitly selects AI fallback.
     // Once requested, show the consent modal (if required) and then proceed.
-    if (prepAiFallbackRequested && shouldPromptPrepAiNotice && prepAiNoticeApprovedRunKeyRef.current !== prepRunKey) {
+    const prepAiNoticeApprovalKey = buildHammerPrepAiNoticeApprovalKey(
+      prepRunKey,
+      prepAiNoticeModel.laneSignature,
+    );
+    if (prepAiFallbackRequested && shouldPromptPrepAiNotice && prepAiNoticeApprovedRunKeyRef.current !== prepAiNoticeApprovalKey) {
       prepAiNoticePendingRunKeyRef.current = prepRunKey;
       // eslint-disable-next-line no-console
       console.info("[HammerTranscriptPrep:gate:ai_notice_required]", {
@@ -4600,13 +4608,34 @@ export default function HammerWorkspaceEditor(
         </label>
 
         <div className="hammer-prep-shell__notice-actions">
+          {prepAiNoticePersistenceError ? (
+            <p role="alert" className="hammer-prep-shell__notice-error">
+              {prepAiNoticePersistenceError}
+            </p>
+          ) : null}
           <button
             type="button"
             className="hammer-prep-shell__button"
-            onClick={() => {
-              const runKey = prepAiNoticePendingRunKeyRef.current;
-              if (!runKey) return;
-              prepAiNoticeApprovedRunKeyRef.current = runKey;
+            onClick={async () => {
+              if (prepAiNoticeContinueInFlightRef.current) return;
+              prepAiNoticeContinueInFlightRef.current = true;
+              setPrepAiNoticePersistenceError(null);
+              const transition = await continueHammerPrepAiNotice({
+                pendingRunKey: prepAiNoticePendingRunKeyRef.current,
+                effectiveLane: prepAiNoticeModel.laneSignature,
+                dontShowAgain: prepAiNoticeDontShowAgain,
+                persistAcknowledgedLane: props.onPrepAiNoticeAcknowledgeLane,
+                isPendingRunKeyCurrent: (runKey) =>
+                  prepAiNoticePendingRunKeyRef.current === runKey
+                  && prepAiNoticeCancelledRunKeyRef.current !== runKey,
+              });
+              prepAiNoticeContinueInFlightRef.current = false;
+              if (!transition.ok) {
+                setPrepAiNoticePersistenceError(transition.message);
+                return;
+              }
+              prepAiNoticePendingRunKeyRef.current = null;
+              prepAiNoticeApprovedRunKeyRef.current = transition.approvalKey;
               prepAiNoticeCancelledRunKeyRef.current = null;
               emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_continue", {
                 lane: prepAiNoticeModel.laneSignature,
@@ -4620,13 +4649,10 @@ export default function HammerWorkspaceEditor(
                   workpiece_id: effectiveLaunchContext?.workpiece_id ?? null,
                   workspace_id: effectiveLaunchContext?.workspace_id ?? null,
                 });
-                void props.onPrepAiNoticeAcknowledgeLane?.(prepAiNoticeModel.laneSignature);
               }
               setShowPrepAiNotice(false);
               beginPrepExecution();
-              resetPrepRunKey("prep_ai_notice:continue", { run_key: runKey });
               setPrepState(createHammerPrepState("preparing", "loading_context"));
-              bumpPrepAttemptNonce("prep_ai_notice:continue", { run_key: runKey });
               setPrepAiNoticeDecisionNonce((current) => current + 1);
             }}
           >
@@ -4638,8 +4664,10 @@ export default function HammerWorkspaceEditor(
             onClick={() => {
               const runKey = prepAiNoticePendingRunKeyRef.current;
               if (!runKey) return;
+              prepAiNoticePendingRunKeyRef.current = null;
               prepAiNoticeCancelledRunKeyRef.current = runKey;
               prepAiNoticeApprovedRunKeyRef.current = null;
+              setPrepAiNoticePersistenceError(null);
               emitPrepAiNoticeTelemetry("hammer_prep_ai_notice_cancel", {
                 lane: prepAiNoticeModel.laneSignature,
                 prep_allowed: prepAiNoticeModel.prepAllowed,
