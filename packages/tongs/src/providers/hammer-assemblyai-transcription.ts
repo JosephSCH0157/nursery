@@ -54,6 +54,8 @@ export interface AssemblyAiTransport {
   read(transcriptId: string): Promise<unknown>;
 }
 
+export type HammerAssemblyAiServerCredential = ReturnType<typeof resolveHammerAssemblyAiServerCredential>;
+
 export class HammerAssemblyAiBoundaryError extends Error {
   readonly code: string;
 
@@ -168,6 +170,57 @@ export function resolveHammerAssemblyAiServerCredential(env: NodeJS.ProcessEnv):
     read: () => {
       if (!value) throw new HammerAssemblyAiBoundaryError("credential_unavailable", "AssemblyAI server credential is unavailable.");
       return value;
+    },
+  };
+}
+
+/**
+ * Concrete server-only HTTP transport. Construction is non-networking and does
+ * not read the secret. The secret is accessed only inside an authorized call.
+ * Retries are intentionally absent; submit ambiguity belongs to the caller.
+ */
+export function createHammerAssemblyAiHttpTransport(args: {
+  credential: HammerAssemblyAiServerCredential;
+  fetchImpl?: typeof fetch;
+  baseUrl?: string;
+}): AssemblyAiTransport {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  const baseUrl = (args.baseUrl ?? "https://api.assemblyai.com").replace(/\/$/, "");
+  const request = async (url: string, init: RequestInit): Promise<unknown> => {
+    const response = await fetchImpl(url, {
+      ...init,
+      headers: {
+        Authorization: args.credential.read(),
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+    const payload = await response.json().catch(() => null) as unknown;
+    if (!response.ok) {
+      throw new HammerAssemblyAiBoundaryError(
+        "provider_http_error",
+        `AssemblyAI request failed with HTTP ${response.status}.`,
+      );
+    }
+    return payload;
+  };
+  return {
+    async submit(submission): Promise<AssemblyAiSubmitResponse> {
+      const payload = object(await request(`${baseUrl}/v2/transcript`, {
+        method: "POST",
+        body: JSON.stringify(submission),
+      }), "assemblyai_submission_response");
+      return {
+        id: text(payload.id, "assemblyai_submission_response.id"),
+        status: text(payload.status, "assemblyai_submission_response.status"),
+      };
+    },
+    async read(transcriptId): Promise<unknown> {
+      const id = text(transcriptId, "transcript_id");
+      if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+        throw new HammerAssemblyAiBoundaryError("provider_request_invalid", "AssemblyAI transcript ID is invalid.");
+      }
+      return request(`${baseUrl}/v2/transcript/${encodeURIComponent(id)}`, { method: "GET" });
     },
   };
 }

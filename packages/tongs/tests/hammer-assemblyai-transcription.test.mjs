@@ -7,6 +7,7 @@ import {
   HammerAssemblyAiBoundaryError,
   HammerAssemblyAiSubmissionUnknownError,
   assertHammerAssemblyAiExecutionInactive,
+  createHammerAssemblyAiHttpTransport,
   fingerprintHammerAssemblyAiRequest,
   resolveHammerAssemblyAiServerCredential,
   resolveHammerAssemblyAiSourceAuthority,
@@ -99,6 +100,41 @@ test("production gate remains inactive", () => {
     () => assertHammerAssemblyAiExecutionInactive(),
     (error) => error instanceof HammerAssemblyAiBoundaryError && error.code === "hammer_assemblyai_inactive",
   );
+});
+
+test("server HTTP transport reads the opaque credential only at call time and never retries", async () => {
+  let credentialReads = 0;
+  let fetchCalls = 0;
+  const requests = [];
+  const transport = createHammerAssemblyAiHttpTransport({
+    credential: {
+      configured: true,
+      variableName: HAMMER_ASSEMBLYAI_SECRET_NAME,
+      read() { credentialReads += 1; return "test-secret-never-logged"; },
+    },
+    baseUrl: "https://assemblyai.invalid/",
+    async fetchImpl(url, init) {
+      fetchCalls += 1;
+      requests.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: "transcript_1", status: "queued" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    },
+  });
+  assert.equal(credentialReads, 0);
+  const response = await transport.submit({
+    audio_url: "https://signed.invalid/source.webm",
+    speech_models: [HAMMER_ASSEMBLYAI_MODEL],
+    speaker_labels: true,
+  });
+  assert.deepEqual(response, { id: "transcript_1", status: "queued" });
+  assert.equal(credentialReads, 1);
+  assert.equal(fetchCalls, 1);
+  assert.equal(requests[0].url, "https://assemblyai.invalid/v2/transcript");
+  const body = JSON.parse(requests[0].init.body);
+  assert.deepEqual(body.speech_models, [HAMMER_ASSEMBLYAI_MODEL]);
+  assert.equal(body.speaker_labels, true);
 });
 
 test("authorized primitive submits once and never retries an ambiguous request", async () => {
