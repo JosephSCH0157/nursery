@@ -164,16 +164,117 @@ The available read-only preflight is:
 
 Record its lineage result, hosted history range/digest, migration list, and dry-run order.
 
+### Create private recovery-readiness evidence
+
+Every governed hosted migration requires a fresh JSON document conforming to
+`forge.hosted-recovery-readiness.v1`. The document is operational evidence, not
+deployment authorization. Store it only under `.git/forge-private-evidence`,
+which is outside Git tracking and application serving. Keep that directory
+access-restricted to the Windows operator and never copy the document into a
+tracked path, build artifact, support ticket, or command-line argument.
+
+An authorized owner must first open the exact project in the Supabase Dashboard,
+select **Database > Backups**, and inspect either **Scheduled backups** for a
+daily backup or the PITR recovery window. Confirm the project reference, backup
+kind, availability/status, and latest restorable UTC timestamp. Record the UTC
+time at which the owner performed that inspection separately as `verified_at`.
+Do not click **Restore**. Entering a backup timestamp is not evidence that this
+Dashboard inspection occurred. Evidence expires 24 hours after `verified_at`.
+The current platform behavior and recovery limitations are documented in the
+[Supabase Database Backups guide](https://supabase.com/docs/guides/platform/backups).
+
+The evidence fields are:
+
+| Field | Required meaning |
+| --- | --- |
+| `schema` | Exact value `forge.hosted-recovery-readiness.v1`. |
+| `project_ref` | Exact hosted project reviewed in the Dashboard. |
+| `dashboard_verified` | `true` only after the authorized owner completes the Dashboard inspection. |
+| `backup_kind` | `daily` or `pitr`, matching the reviewed recovery source. |
+| `verified_at` | Current UTC time of the owner's Dashboard inspection, less than 24 hours old. |
+| `latest_restorable_at` | Latest restorable UTC timestamp shown by the Dashboard; it is not the verification time. |
+| `recovery_operator` | Named person responsible for executing and monitoring recovery if directed. |
+| `restore_authorizer` | Named person authorized to approve a whole-database restore; naming them does not pre-authorize restoration. |
+| `owner_approval_reference` | Traceable owner-approved change-window identifier or record. |
+| `restore_scope_acknowledged` | Explicit acknowledgment that an in-place restore affects the whole hosted database. |
+| `unrelated_data_impact_acknowledged` | Explicit acknowledgment that restoration can affect unrelated hosted data. |
+
+After collecting those facts, generate the file with the credential-free local
+helper. Replace every angle-bracketed value; do not reuse identities or a change
+window from an earlier release:
+
+```powershell
+$recoveryEvidencePath = Join-Path (Get-Location) '.git\forge-private-evidence\hammer-h2c-20261028.json'
+$operatorIdentity = '<named migration operator>'
+
+pnpm prepare:db:recovery-evidence -- `
+  --project-ref wtvdjndyxegudufrompx `
+  --backup-kind daily `
+  --verified-at '<UTC time owner inspected Database > Backups>' `
+  --latest-restorable-at '2026-10-28T06:27:08.354Z' `
+  --recovery-operator '<named recovery operator>' `
+  --restore-authorizer '<named restore authorizer>' `
+  --owner-approval-reference '<owner-approved change-window reference>' `
+  --attest-dashboard-verified `
+  --acknowledge-restore-scope `
+  --acknowledge-unrelated-data-impact `
+  --output-name 'hammer-h2c-20261028.json'
+```
+
+The helper validates the same evidence contract used by the H2-C wrapper,
+creates the private directory with restrictive local permissions where the host
+supports them, refuses path traversal and overwrite, and emits only a sanitized
+path/hash receipt. It does not read credentials, contact Supabase, inspect a
+backup, or perform a database operation. Its explicit
+`--attest-dashboard-verified` flag records the human attestation; it never
+infers verification from `--latest-restorable-at`.
+
+The resulting structure is exactly:
+
+```json
+{
+  "schema": "forge.hosted-recovery-readiness.v1",
+  "project_ref": "wtvdjndyxegudufrompx",
+  "dashboard_verified": true,
+  "backup_kind": "daily",
+  "verified_at": "<UTC time owner inspected Database > Backups>",
+  "latest_restorable_at": "2026-10-28T06:27:08.354Z",
+  "recovery_operator": "<named recovery operator>",
+  "restore_authorizer": "<named restore authorizer>",
+  "owner_approval_reference": "<owner-approved change-window reference>",
+  "restore_scope_acknowledged": true,
+  "unrelated_data_impact_acknowledged": true
+}
+```
+
+Daily database backups do not restore deleted Storage objects and do not retain
+custom-role passwords. Account for those limitations in the recovery plan. A
+PITR add-on and a daily backup are different recovery sources; record only what
+the Dashboard actually shows.
+
+The release operations have these boundaries:
+
+| Operation | Effect |
+| --- | --- |
+| Evidence helper and contract tests | Local private-file or temporary-file writes only; no credential or database access. |
+| `Preflight` | Connected read-only lineage/history/contract queries plus `db push --dry-run`; applies no migration. |
+| `Apply` | Connected schema write through the bounded normal `db push`; requires separate owner authorization and the exact migration token. |
+| `PostVerify` | Connected read-only verification of the already-applied state; makes no new schema or data write. |
+
+If evidence is absent, stale, contradictory, or names no authorities/change
+window, stop before credential retrieval. If Preflight reports any lineage,
+history, hash, or pending-version mismatch, do not Apply. If Apply or immediate
+verification fails, do not retry, repair migration history, reverse DDL by hand,
+or assume rollback. Preserve sanitized evidence and request owner direction for
+a reviewed forward correction or recovery. A backup/PITR restore is a separate,
+whole-database operation and always requires a new explicit authorization from
+the named restore authorizer; migration approval and the Apply token do not
+authorize restoration.
+
 ### Anvil recording-authority migration 419
 
-Create a recovery-readiness evidence JSON file outside the repository after an
-authorized owner verifies **Database > Backups** in the Supabase Dashboard. It
-must use schema `forge.hosted-recovery-readiness.v1`, pin project
-`wtvdjndyxegudufrompx`, identify `daily` or `pitr`, record fresh verification
-and latest-restorable timestamps, name the recovery operator and restore
-authorizer, reference the owner-approved change window, and explicitly
-acknowledge that an in-place restore affects the whole hosted database. Never
-commit this operational evidence file.
+Create and review the private recovery-readiness evidence using the procedure
+above. Never commit this operational evidence file.
 
 Confirm that the existing database password has already been enrolled for the
 current Windows operator with `invoke-forge-managed-credential.ps1 -Action
@@ -228,6 +329,9 @@ pnpm test:db:hammer-h2c:hosted-deployment
   -Operator $operatorIdentity
 ```
 
+This Preflight action is read-only. Review its sanitized receipt before seeking
+the separate hosted-write authorization.
+
 The preflight must report `historical-v1`, exactly 419 installed migrations,
 hosted head `20261027030139`, and exactly one pending version,
 `20261028092438`. After the owner separately authorizes the hosted schema
@@ -239,6 +343,15 @@ write, the exact application command is:
   -RecoveryEvidencePath $recoveryEvidencePath `
   -Operator $operatorIdentity `
   -Authorization APPLY-HAMMER-H2C-420
+```
+
+This Apply action is the only command in this procedure that changes the hosted
+database. Owner authorization to prepare evidence or run Preflight is not Apply
+authorization. After Apply returns its immediate verification receipt, run the
+independent read-only verification again:
+
+```powershell
+./scripts/invoke-hammer-h2c-420-hosted-deployment.ps1 -Action PostVerify
 ```
 
 The wrapper uses only normal password-authenticated `supabase db push

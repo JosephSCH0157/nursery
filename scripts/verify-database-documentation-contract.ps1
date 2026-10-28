@@ -172,6 +172,7 @@ foreach ($command in @(
   'pnpm certify:db:hammer-h2c:historical',
   'pnpm test:db:hammer-h2c:historical-tooling',
   'pnpm test:db:hammer-h2c:hosted-deployment',
+  'prepare:db:recovery-evidence',
   'invoke-hammer-h2c-420-hosted-deployment.ps1',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
