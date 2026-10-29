@@ -34,7 +34,6 @@ test("certification checks security, inactivity, catalog equality, and predecess
     "hostedRequests=0",
   ]) assert.ok(successor.includes(required), `missing certification evidence: ${required}`);
 });
-
 test("ordinary certification is local-only and authentic mode remains separately authorized", () => {
   for (const required of [
     "[ValidateSet('ToolingPreflight','CertifiedChain','Authentic')][string]$Mode='CertifiedChain'",

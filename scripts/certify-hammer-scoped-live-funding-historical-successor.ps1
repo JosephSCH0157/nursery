@@ -92,7 +92,6 @@ function Get-PinnedSupabaseCliVersion {
   }
   finally{$stdout=$null;$stderr=$null;$process.Dispose()}
 }
-
 function Get-NurseryResources {
   [pscustomobject]@{
     containers=@(docker ps -a --filter 'label=com.supabase.cli.project=nursery' --format '{{.ID}}|{{.Names}}'|Sort-Object)

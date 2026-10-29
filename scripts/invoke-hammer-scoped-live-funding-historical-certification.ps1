@@ -37,7 +37,6 @@ function Test-SameInventory($Before,$After) {
           ($Before.volumes-join "`n") -ceq ($After.volumes-join "`n") -and
           ($Before.networks-join "`n") -ceq ($After.networks-join "`n"))
 }
-
 try {
   Push-Location ([IO.Path]::GetTempPath())
   try{$cliOutput=@(& $supabaseExecutable --version 2>$null);$cliExit=$LASTEXITCODE}finally{Pop-Location}
