@@ -42,11 +42,11 @@ function source() {
   return resolveHammerAssemblyAiSourceAuthority({
     completionId: IDs.completion,
     mediaRevision: 1,
-    mediaPath: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageObjectPath,
+    mediaPath: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaPath,
     mediaHash: SOURCE_SHA,
     completionEvidence: {
       artifact_validation: {
-        path: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactStorageObjectPath,
+        path: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaPath,
         bytes: 120_617_428,
         sha256: SOURCE_SHA,
       },

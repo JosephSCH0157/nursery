@@ -87,6 +87,7 @@ export type HammerTranscriptPrepResult =
   | { ok: false; status: number; error: HammerTranscriptPrepError; meta?: HammerTranscriptPrepMeta };
 
 const DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_TRANSCRIPT_STATUS_POLL_MS = 3_000;
 
 function resolveTranscriptPrepTimeoutMs(): number {
   const runtimeGlobal = globalThis as typeof globalThis & {
@@ -104,6 +105,14 @@ function resolveTranscriptPrepTimeoutMs(): number {
     }
   }
   return DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS;
+}
+
+function resolveTranscriptStatusPollMs(): number {
+  const runtimeGlobal = globalThis as typeof globalThis & { window?: Record<string, unknown> };
+  const value = runtimeGlobal.window?.__forgeHammerTranscriptStatusPollMs__;
+  return typeof value === "number" && Number.isFinite(value) && value >= 1
+    ? Math.trunc(value)
+    : DEFAULT_TRANSCRIPT_STATUS_POLL_MS;
 }
 
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
@@ -450,10 +459,15 @@ export async function requestHammerTranscriptPrep(
         client_request_id: clientRequestId,
       });
     }
-    const submit = (body: HammerTranscriptPrepRequest) => fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
-      method: "POST", headers, body: JSON.stringify(body), signal: abortController.signal,
-    });
+    const submit = (body: HammerTranscriptPrepRequest, statusOnly = false) => {
+      const requestHeaders = new Headers(headers);
+      if (statusOnly) requestHeaders.set("x-hammer-transcript-status", "1");
+      return fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
+        method: "POST", headers: requestHeaders, body: JSON.stringify(body), signal: abortController.signal,
+      });
+    };
     response = await submit(effectiveRequest);
+    let acceptedRequest: HammerTranscriptPrepRequest | null = null;
     if (response.status === 409 || response.status === 402) {
       const quoted = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quoted);
@@ -463,8 +477,17 @@ export async function requestHammerTranscriptPrep(
         route_code: "hammer.transcript_prep",
       }) : null;
       if (acceptance) {
-        response = await submit({ ...effectiveRequest, spending_acceptance: acceptance });
+        acceptedRequest = { ...effectiveRequest, spending_acceptance: acceptance };
+        response = await submit(acceptedRequest);
       }
+    }
+    while (response.status === 202 && acceptedRequest && !abortController.signal.aborted) {
+      await new Promise<void>((resolve) => {
+        const handle = timers.setTimeout?.(resolve, resolveTranscriptStatusPollMs());
+        if (handle == null) resolve();
+      });
+      if (abortController.signal.aborted) break;
+      response = await submit(acceptedRequest, true);
     }
   } catch (error) {
     if (abortController.signal.aborted) {

@@ -1864,6 +1864,77 @@ async function loadCanonicalWorkpieceMediaFile(
   }
 }
 
+type HammerAssemblyAiStatusResult =
+  | { state: "pending"; operationId: string }
+  | { state: "submission_unknown" | "provider_failed"; operationId: string }
+  | { state: "persisted"; operationId: string; transcript: Record<string, unknown> };
+
+async function readHammerAssemblyAiStatus(args: {
+  supabaseService: SupabaseClient<Database>;
+  userId: string;
+  quoteId: string;
+  operationId: string;
+  requestFingerprint: string;
+}): Promise<HammerAssemblyAiStatusResult> {
+  const store = args.supabaseService.schema("tongs");
+  const bindingResponse = await store
+    .from("hammer_first_transcription_quote_bindings")
+    .select("operation_uuid,operation_id,request_fingerprint")
+    .eq("quote_id", args.quoteId)
+    .eq("user_id", args.userId)
+    .maybeSingle();
+  if (bindingResponse.error) throw new Error(`read Hammer quote binding: ${bindingResponse.error.message}`);
+  const binding = bindingResponse.data;
+  if (!binding
+    || binding.operation_id !== args.operationId
+    || binding.request_fingerprint !== args.requestFingerprint) {
+    throw new HammerAssemblyAiBoundaryError(
+      "quote_status_authority_mismatch",
+      "The Hammer transcription status request does not match the accepted quote.",
+    );
+  }
+
+  const operationResponse = await store
+    .from("hammer_transcription_operations")
+    .select("id,state,canonical_transcript_id")
+    .eq("id", binding.operation_uuid)
+    .eq("user_id", args.userId)
+    .maybeSingle();
+  if (operationResponse.error) throw new Error(`read Hammer transcription operation: ${operationResponse.error.message}`);
+  const operation = operationResponse.data;
+  if (!operation) return { state: "pending", operationId: args.operationId };
+
+  const attemptResponse = await store
+    .from("hammer_transcription_provider_attempts")
+    .select("state")
+    .eq("operation_id", operation.id)
+    .order("attempt_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (attemptResponse.error) throw new Error(`read Hammer provider attempt: ${attemptResponse.error.message}`);
+  if (operation.state === "submission_unknown" || attemptResponse.data?.state === "submission_unknown") {
+    return { state: "submission_unknown", operationId: args.operationId };
+  }
+  if (operation.state === "failed" || attemptResponse.data?.state === "failed") {
+    return { state: "provider_failed", operationId: args.operationId };
+  }
+
+  const transcriptResponse = await store
+    .from("hammer_canonical_transcripts_v2")
+    .select("transcript_json")
+    .eq("operation_id", operation.id)
+    .maybeSingle();
+  if (transcriptResponse.error) throw new Error(`read Hammer canonical transcript: ${transcriptResponse.error.message}`);
+  if (!transcriptResponse.data?.transcript_json) {
+    return { state: "pending", operationId: args.operationId };
+  }
+  return {
+    state: "persisted",
+    operationId: args.operationId,
+    transcript: transcriptResponse.data.transcript_json as Record<string, unknown>,
+  };
+}
+
 function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
   type RawSegment = {
     id: string;
@@ -2105,6 +2176,8 @@ export type HammerPrepMiddlewareOptions = {
   diagnosticUserIdResolver?: (accessToken: string) => Promise<string | null>;
   diagnosticPolicyPreflight?: () => Promise<{ ok: true } | { ok: false; status?: number; error: string }>;
   diagnosticUserGate?: OpenAiTextGateClient;
+  /** Netlify uses a foreground quote/status function and a durable background executor. */
+  hammerAssemblyAiExecutionMode?: "synchronous" | "enqueue" | "background";
 };
 
 export type HammerPrivateDiagnostic = {
@@ -3171,6 +3244,216 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
       stageTimer.mark("auth:user_id:ok");
       stageTimer.mark("request:accepted");
 
+      if (hammerTranscriptionProvider === "assemblyai") {
+        if ("local_root_abs" in request) {
+          sendJson(res, 409, { ok: false, error: {
+            code: "canonical_source_required",
+            message: "Paid transcription requires the exact canonical Tongs recording source.",
+          } });
+          return;
+        }
+        if (!supabaseService || !openAiTextGate || !runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+          sendJson(res, 503, { ok: false, error: { code: "paid_execution_control_unavailable", message: "Transcription funding controls are unavailable." } });
+          return;
+        }
+        if (!assemblyAiCredential.configured) {
+          sendTranscriptPrepError(res, {
+            status: 500,
+            code: "SERVER_NOT_CONFIGURED",
+            message: "AssemblyAI server credential is unavailable.",
+            retryable: false,
+            meta: readPrepMetaFromBody(body),
+          });
+          return;
+        }
+        const policy = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY;
+        if (request.canonical_workpiece_path !== policy.exactMediaPath) {
+          sendJson(res, 409, { ok: false, error: {
+            code: "canonical_source_changed",
+            message: "The active recording no longer matches the certified first-transcription source.",
+          } });
+          return;
+        }
+        let capacityEvidence: HammerAssemblyAiCapacityEvidence;
+        try {
+          capacityEvidence = JSON.parse(readTrimmed(process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON) ?? "") as HammerAssemblyAiCapacityEvidence;
+        } catch {
+          sendJson(res, 503, { ok: false, error: {
+            code: "capacity_evidence_unavailable",
+            message: "Current private Netlify and Supabase capacity evidence is required.",
+          } });
+          return;
+        }
+        const sourceAuthority: HammerAssemblyAiSourceAuthority = {
+          schema: "forge.hammer.transcription-source-authority.v1",
+          completionId: policy.exactCompletionId,
+          mediaRevision: policy.exactMediaRevision,
+          mediaPath: policy.exactMediaPath,
+          mediaSha256: policy.exactMediaSha256,
+          mediaBytes: policy.exactSourceBytes,
+          mediaContentType: inferContentType(policy.exactMediaPath, request.mime_type),
+          durationMs: policy.exactSourceDurationMs,
+          hasAudioStream: true,
+          verificationSource: "trusted_tongs_storage_readback",
+          probeImplementation: "tongs:certified-canonical-readback",
+        };
+        const requestFingerprint = fingerprintHammerAssemblyAiRequest({
+          workspaceId: request.workspace_id,
+          workpieceId: request.workpiece_id,
+          canonicalRecordingId: policy.exactCanonicalRecordingId,
+          recordingRevisionId: policy.exactRecordingRevisionId,
+          source: sourceAuthority,
+        });
+        const acceptance = request.spending_acceptance
+          ? {
+            quoteId: request.spending_acceptance.quoteId,
+            operationId: request.spending_acceptance.operationId,
+            quoteHash: request.spending_acceptance.quoteHash,
+            requestFingerprint: request.spending_acceptance.requestFingerprint,
+          }
+          : null;
+        const userGate = {
+          rpc: async (name: string, args: Record<string, unknown>) => {
+            const response = await fetch(`${runtimeConfig.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
+              method: "POST",
+              headers: { apikey: runtimeConfig.supabaseRpcKey!, authorization: `Bearer ${userAccessToken}`, "content-type": "application/json" },
+              body: JSON.stringify(args),
+            });
+            const data = await response.json().catch(() => null);
+            return response.ok
+              ? { data, error: null }
+              : { data: null, error: { message: readTrimmed(readJsonObject(data)?.message) ?? `RPC ${name} failed` } };
+          },
+        };
+        const statusOnly = readHeaderString(req.headers["x-hammer-transcript-status"]) === "1";
+        if (statusOnly) {
+          if (!acceptance || acceptance.requestFingerprint !== requestFingerprint) {
+            sendJson(res, 400, { ok: false, error: { code: "invalid_status_request", message: "An exact accepted Hammer quote is required for status recovery." } });
+            return;
+          }
+          const status = await readHammerAssemblyAiStatus({
+            supabaseService,
+            userId,
+            quoteId: acceptance.quoteId,
+            operationId: acceptance.operationId,
+            requestFingerprint,
+          });
+          if (status.state === "pending") {
+            sendJson(res, 202, { ok: true, data: { state: "pending", operation_id: status.operationId } });
+            return;
+          }
+          if (status.state === "submission_unknown") {
+            sendJson(res, 409, { ok: false, error: { code: "submission_unknown", message: "Provider submission is unresolved. No automatic retry or customer charge occurred." } });
+            return;
+          }
+          if (status.state === "provider_failed") {
+            sendJson(res, 502, { ok: false, error: { code: "provider_failed", message: "Transcription failed. No customer charge was made." } });
+            return;
+          }
+          const provider = readJsonObject(status.transcript.provider);
+          const segments = Array.isArray(status.transcript.segments)
+            ? status.transcript.segments.flatMap((value) => {
+              const segment = readJsonObject(value);
+              const startMs = Number(segment?.start_ms);
+              const endMs = Number(segment?.end_ms);
+              const text = readTrimmed(segment?.text);
+              if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !text) return [];
+              return [{
+                id: readTrimmed(segment?.id),
+                start: startMs / 1_000,
+                end: endMs / 1_000,
+                text,
+                speaker: readTrimmed(segment?.speaker),
+              } satisfies HammerTranscriptPrepSegment];
+            })
+            : [];
+          sendJson(res, 200, { ok: true, data: {
+            provider: "assemblyai",
+            model: "universal-3-5-pro",
+            provider_request_id: readTrimmed(provider?.provider_request_id),
+            text: readTrimmed(status.transcript.text),
+            segments,
+          } });
+          return;
+        }
+
+        const executionMode = options.hammerAssemblyAiExecutionMode ?? "synchronous";
+        if (acceptance && executionMode === "enqueue") {
+          if (acceptance.requestFingerprint !== requestFingerprint) {
+            sendJson(res, 409, { ok: false, error: { code: "quote_request_mismatch", message: "The accepted quote no longer matches this exact recording request." } });
+            return;
+          }
+          const trustedRequestOrigin = readHeaderString(req.headers["x-forge-request-origin"]);
+          if (!trustedRequestOrigin) {
+            sendJson(res, 503, { ok: false, error: { code: "background_executor_unavailable", message: "The durable transcription executor is unavailable." } });
+            return;
+          }
+          const backgroundResponse = await fetch(new URL("/.netlify/functions/hammer-transcription-background", trustedRequestOrigin), {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(typeof req.headers.authorization === "string" ? { authorization: req.headers.authorization } : {}),
+              ...(typeof req.headers["x-forge-user-authorization"] === "string"
+                ? { "x-forge-user-authorization": req.headers["x-forge-user-authorization"] }
+                : {}),
+            },
+            body: JSON.stringify(body),
+          });
+          if (backgroundResponse.status !== 202) {
+            sendJson(res, 503, { ok: false, error: { code: "background_executor_unavailable", message: "Hammer could not start the durable transcription executor." } });
+            return;
+          }
+          sendJson(res, 202, { ok: true, data: { state: "pending", operation_id: acceptance.operationId } });
+          return;
+        }
+
+        if (!acceptance) {
+          const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(
+            openAiTextGate,
+            userGate,
+            createHammerAssemblyAiHttpTransport({ credential: assemblyAiCredential }),
+          );
+          try {
+            await coordinator.execute({
+              userId,
+              workspaceId: request.workspace_id,
+              workpieceId: request.workpiece_id,
+              canonicalRecordingId: policy.exactCanonicalRecordingId,
+              recordingRevisionId: policy.exactRecordingRevisionId,
+              source: sourceAuthority,
+              requestFingerprint,
+              capacityEvidence,
+              audioUrl: "https://quote-only.invalid/never-submitted",
+              projectRef: "wtvdjndyxegudufrompx",
+              acceptance: null,
+            });
+            throw new Error("Hammer quote preparation unexpectedly reached execution.");
+          } catch (error) {
+            if (error instanceof HammerAssemblyAiQuoteRequiredError) {
+              sendJson(res, error.quote.fundingEligible ? 409 : 402, { ok: false, error: {
+                code: "transcription_spending_confirmation_required",
+                message: error.message,
+              }, billing_quote: {
+                quote_id: error.quote.quoteId,
+                operation_id: error.quote.operationId,
+                quote_hash: error.quote.quoteHash,
+                request_fingerprint: error.quote.requestFingerprint,
+                credit_charge: error.quote.customerCreditUnits,
+                reference_credit_units: error.quote.referenceCustomerCreditUnits,
+                failure_terms: "Failed operations cost 0 Credits. Unknown submissions are never retried automatically.",
+                funding_eligible: error.quote.fundingEligible,
+                funding_label: error.quote.fundingLabel,
+                model_display_name: "AssemblyAI Universal-3.5 Pro + speaker labels",
+                model_tradeoff_summary: "US processing; provider retains account data for 30 days under the certified account settings.",
+                expires_at: error.quote.expiresAt,
+              } });
+              return;
+            }
+            throw error;
+          }
+        }
+      }
+
       let fileBytes: Buffer;
       let sourceLabel: string;
       let contentType: string;
@@ -3382,7 +3665,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           schema: "forge.hammer.transcription-source-authority.v1",
           completionId: policy.exactCompletionId,
           mediaRevision: policy.exactMediaRevision,
-          mediaPath: policy.exactStorageObjectPath,
+          mediaPath: policy.exactMediaPath,
           mediaSha256: policy.exactMediaSha256,
           mediaBytes: policy.exactSourceBytes,
           mediaContentType: originalContentType,

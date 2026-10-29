@@ -9,6 +9,7 @@ import { createHammerPrepMiddleware, type HammerPrepMiddlewareOptions } from "..
 import { buildHammerShortsPaidRequestIdentity, type HammerShortsDiscoveryBody } from "../scripts/hammer-shorts-discovery";
 import { HAMMER_PRODUCTION_TEXT_ROUTES } from "../server/hammer/create-hammer-paid-handler";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY } from "@forge/tongs/server/hammer-assemblyai-resource-policy";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
@@ -199,6 +200,80 @@ test("production transcript prep reaches the paid Hammer authority boundary", as
   const payload = await response.json() as { error?: { code?: string } };
   assert.notEqual(payload.error?.code, "not_found");
   assert.notEqual(payload.error?.code, "paid_execution_unavailable");
+});
+
+test("AssemblyAI quote preparation never reads the 120 MB canonical object or calls the provider", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalProvider = process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+  const originalCredential = process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+  const originalCapacity = process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON;
+  const fetchedUrls: string[] = [];
+  let providerCalls = 0;
+  process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = "assemblyai";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = "fixture-assemblyai-key";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON = "{}";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    fetchedUrls.push(url);
+    if (url.endsWith("/auth/v1/user")) return Response.json({ id: USER_ID });
+    if (url.includes("/rest/v1/workspaces?id=eq.")) return Response.json([{ org_id: ORG_ID }]);
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
+      return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.includes("api.assemblyai.com")) {
+      providerCalls += 1;
+      throw new Error("provider must not run during quote preparation");
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await createNetlifyHammerFunction({
+      runtimeConfig: runtimeConfig({
+        supabaseUrl: "https://fixture.supabase.co",
+        supabaseServiceRoleKey: "fixture-service-key",
+        supabaseRpcKey: "fixture-anon-key",
+      }),
+      openAiTextGate: {
+        rpc: async (name: string) => {
+          assert.equal(name, "create_hammer_first_transcription_quote");
+          return { data: {
+            quote_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            operation_id: "hammer-assemblyai:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            quote_hash: "c".repeat(64),
+            request_fingerprint: "d".repeat(64),
+            customer_credit_units: 0,
+            maximum_customer_charge_micros: 0,
+            reference_customer_credit_units: 12,
+            funding_source: "owner_budget",
+            funding_eligible: true,
+            funding_label: "Owner-sponsored certification; customer charge is 0 Credits.",
+            expires_at: "2026-10-30T00:00:00Z",
+            accepted: false,
+          }, error: null };
+        },
+      },
+    })(request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactWorkpieceId,
+      media_kind: "recording_video",
+      canonical_workpiece_path: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaPath,
+      mime_type: "video/webm",
+    }), { deploy: { context: "production" } });
+    assert.equal(response.status, 409);
+    const payload = await response.json() as { error?: { code?: string }; billing_quote?: { reference_credit_units?: number } };
+    assert.equal(payload.error?.code, "transcription_spending_confirmation_required");
+    assert.equal(payload.billing_quote?.reference_credit_units, 12);
+    assert.equal(fetchedUrls.some((url) => url.includes("/tongs/workpieces/") && url.includes("/read-file?")), false);
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalProvider == null) delete process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+    else process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = originalProvider;
+    if (originalCredential == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = originalCredential;
+    if (originalCapacity == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON = originalCapacity;
+  }
 });
 
 test("production transcript prep reads canonical media through the deployed same-origin Tongs route", async () => {

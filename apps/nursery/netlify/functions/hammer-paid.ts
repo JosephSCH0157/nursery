@@ -1,6 +1,6 @@
 import { createNetlifyHammerFunction } from "./_hammer-handler";
 
-export default createNetlifyHammerFunction();
+export default createNetlifyHammerFunction({ hammerAssemblyAiExecutionMode: "enqueue" });
 
 export const config = {
   path: [

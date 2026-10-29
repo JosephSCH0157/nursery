@@ -21,6 +21,7 @@ export const HAMMER_FIRST_TRANSCRIPTION_SUPPORTING_CEILING_MICROS = 6_000n;
 export const HAMMER_FIRST_TRANSCRIPTION_CREDIT_MICROS = 5_000n;
 export const HAMMER_FIRST_TRANSCRIPTION_MARKUP_NUMERATOR = 133n;
 export const HAMMER_FIRST_TRANSCRIPTION_MARKUP_DENOMINATOR = 100n;
+export const HAMMER_FIRST_TRANSCRIPTION_PROVIDER_POLL_INTERVAL_MS = 30_000;
 
 export type HammerFirstTranscriptionQuoteMath = Readonly<{
   sourceDurationMs: bigint;
@@ -327,7 +328,7 @@ export class HammerAssemblyAiPaidExecutionCoordinator {
       if (!['queued', 'processing'].includes(status)) {
         throw new HammerAssemblyAiBoundaryError("provider_payload_invalid", `Unexpected AssemblyAI status: ${status}`);
       }
-      await this.wait(5_000);
+      await this.wait(HAMMER_FIRST_TRANSCRIPTION_PROVIDER_POLL_INTERVAL_MS);
     }
 
     const transcript = normalizeAssemblyAiCanonicalTranscript(providerPayload, authorization, submission.id);
