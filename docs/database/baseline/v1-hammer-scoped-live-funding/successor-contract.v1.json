@@ -1,0 +1,59 @@
+{
+  "schema": "forge.hammer-scoped-live-funding-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer first transcription",
+    "contractPath": "docs/database/baseline/v1-hammer-first-transcription/successor-contract.v1.json",
+    "contractSha256": "8836c293a402affb79c0b435d7f702b7bccd5a9d256ecd8f4474dd9ab526f255",
+    "historicalRows": 421
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerFirstTranscriptionSuccessorContractSha256": "8836c293a402affb79c0b435d7f702b7bccd5a9d256ecd8f4474dd9ab526f255"
+  },
+  "sharedTailAddition": {
+    "version": "20261029033827",
+    "path": "supabase/migrations/20261029033827_hammer_scoped_live_funding.sql",
+    "sha256": "d395a843a9ab29029404749d187236d3a40efddbf6eb96cd6560c3a46b20f0d2"
+  },
+  "historicalSuccessor": {
+    "finalRows": 422,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-scoped-live-funding/successor-catalog-fingerprint.json",
+    "fileSha256": "06440d61d53ec3858afa58acddf2808f68514e738fbd59dd3070c17b531e7f51",
+    "objectCount": 16332,
+    "normalizedContractSha256": "930606ea7dd389ad15c519d1fb9a1b3692c328314c62ae6422af53b9e9430de8"
+  },
+  "inactivityContract": {
+    "fundingAuthorityRowsCreated": 0,
+    "checkoutClaimRowsCreated": 0,
+    "customerDepositRowsCreated": 0,
+    "customerCreditRowsCreated": 0,
+    "reservationRowsCreated": 0,
+    "providerAttemptRowsCreated": 0,
+    "transcriptionOperationRowsCreated": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "hammerRouteMustRemainHaltNew": true,
+    "testFundedRealProviderMustRemainForbidden": true,
+    "authenticatedWritesDenied": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

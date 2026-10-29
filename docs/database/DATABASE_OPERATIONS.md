@@ -466,6 +466,29 @@ preserves the frozen historical and predecessor anchors, verifies forced RLS,
 ACLs, exact-recording authority, Test-funded provider denial, failure relief,
 settlement ordering, and zero authority/data rows after migration alone.
 
+Migration 422 is admitted only as the explicit successor to the 421-row Hammer
+first-transcription state. Its static tooling and credential-free two-lane replay
+commands are:
+
+```powershell
+pnpm test:db:hammer-scoped-live-funding:historical-tooling
+pnpm certify:db:hammer-scoped-live-funding:historical
+```
+
+The replay applies only `20261029033827`, requires 422 `historical-v1` rows,
+and compares the 16,332-object catalog against
+`baseline/v1-hammer-scoped-live-funding/successor-catalog-fingerprint.json`
+(`06440d61d53ec3858afa58acddf2808f68514e738fbd59dd3070c17b531e7f51`,
+normalized contract
+`930606ea7dd389ad15c519d1fb9a1b3692c328314c62ae6422af53b9e9430de8`).
+It checks permissive and restrictive default privileges, forced RLS, ACLs,
+Data API behavior, exact customer/workspace/workpiece scope, Live deposit and
+processor-fee evidence, global Test preservation, and zero authority or
+financial rows after migration alone. The command creates only task-owned
+disposable Docker resources and makes no hosted request. Certification does not
+authorize applying migration 422, publishing Checkout, taking payment, or
+consuming the one-operation authority.
+
 The migration-421 hosted wrapper is locally contract-tested and remains
 separately authorization-gated:
 

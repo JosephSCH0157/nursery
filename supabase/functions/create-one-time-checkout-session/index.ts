@@ -16,6 +16,12 @@ type CreateCheckoutSessionBody = {
   price_id?: string;
   successUrl?: string;
   cancelUrl?: string;
+  hammer_live_funding?: {
+    claim_id?: string;
+    workspace_id?: string;
+    workpiece_id?: string;
+    route_code?: string;
+  };
 };
 
 type TongsRpcClient = {
@@ -134,23 +140,56 @@ serve(async (req) => {
       forge_product: "podcasters_forge",
     };
     const tongsRpc = supabaseAdmin.schema("tongs") as unknown as TongsRpcClient;
-    const financialEnvironment = await readTrustedFinancialEnvironment(tongsRpc);
-    const { data: availabilityData, error: availabilityError } = await tongsRpc.rpc(
-      "read_credit_pack_purchase_availability",
-    );
-    if (availabilityError) {
-      throw new Error(
-        availabilityError.message ?? "Failed to read Forge Credit purchase availability.",
+    const hammerLiveFunding = body.hammer_live_funding;
+    const scopedClaimId = normalizeString(hammerLiveFunding?.claim_id);
+    let financialEnvironment: "test" | "live";
+    if (hammerLiveFunding != null) {
+      const workspaceId = normalizeString(hammerLiveFunding.workspace_id);
+      const workpieceId = normalizeString(hammerLiveFunding.workpiece_id);
+      const routeCode = normalizeString(hammerLiveFunding.route_code);
+      if (!scopedClaimId || !workspaceId || !workpieceId || routeCode !== "hammer.transcript_prep") {
+        return json(400, { error: "INVALID_HAMMER_SCOPED_LIVE_FUNDING_CONTEXT" });
+      }
+      const { data: scopedData, error: scopedError } = await tongsRpc.rpc(
+        "claim_hammer_scoped_live_checkout",
+        {
+          p_claim_id: scopedClaimId,
+          p_user_id: user.id,
+          p_workspace_id: workspaceId,
+          p_workpiece_id: workpieceId,
+          p_route_code: routeCode,
+          p_live_price_id: priceId,
+        },
       );
-    }
-    const availability = availabilityData && typeof availabilityData === "object"
-      ? availabilityData as Record<string, unknown>
-      : {};
-    if (availability.purchase_enabled !== true) {
-      return json(403, {
-        error: "FORGE_CREDIT_PURCHASES_UNAVAILABLE",
-        reason_code: normalizeString(availability.reason_code) || "financial_environment_inactive",
-      });
+      if (scopedError) {
+        return json(403, { error: "HAMMER_SCOPED_LIVE_FUNDING_UNAVAILABLE" });
+      }
+      const scoped = scopedData && typeof scopedData === "object"
+        ? scopedData as Record<string, unknown>
+        : {};
+      if (scoped.financial_environment !== "live" || normalizeString(scoped.price_id) !== priceId) {
+        throw new Error("Scoped Hammer Live funding authority returned an invalid environment or price.");
+      }
+      financialEnvironment = "live";
+    } else {
+      financialEnvironment = await readTrustedFinancialEnvironment(tongsRpc);
+      const { data: availabilityData, error: availabilityError } = await tongsRpc.rpc(
+        "read_credit_pack_purchase_availability",
+      );
+      if (availabilityError) {
+        throw new Error(
+          availabilityError.message ?? "Failed to read Forge Credit purchase availability.",
+        );
+      }
+      const availability = availabilityData && typeof availabilityData === "object"
+        ? availabilityData as Record<string, unknown>
+        : {};
+      if (availability.purchase_enabled !== true) {
+        return json(403, {
+          error: "FORGE_CREDIT_PURCHASES_UNAVAILABLE",
+          reason_code: normalizeString(availability.reason_code) || "financial_environment_inactive",
+        });
+      }
     }
     const currentPriceId = financialEnvironment === "live"
       ? catalogPrice.livePriceId
@@ -284,6 +323,10 @@ serve(async (req) => {
       userId: user.id,
       catalogPrice,
     });
+    if (scopedClaimId) {
+      sessionMetadata.forge_hammer_live_funding_claim_id = scopedClaimId;
+      sessionMetadata.forge_hammer_live_funding_route = "hammer.transcript_prep";
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -294,6 +337,20 @@ serve(async (req) => {
       client_reference_id: user.id,
       metadata: sessionMetadata,
     });
+
+    if (scopedClaimId) {
+      const { error: sessionRecordError } = await tongsRpc.rpc(
+        "record_hammer_scoped_live_checkout_session",
+        {
+          p_claim_id: scopedClaimId,
+          p_user_id: user.id,
+          p_stripe_session_id: session.id,
+        },
+      );
+      if (sessionRecordError) {
+        throw new Error("Scoped Hammer Checkout session could not be recorded; no retry is permitted.");
+      }
+    }
 
     return json(200, {
       url: session.url,
