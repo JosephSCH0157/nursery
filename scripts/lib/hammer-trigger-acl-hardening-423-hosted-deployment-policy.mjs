@@ -16,7 +16,6 @@ function requireString(value, name) {
 function requireExact(actual, expected, name) {
   if (actual !== expected) throw new Error(`${name}_mismatch`);
 }
-
 export function validateRecoveryEvidence(evidence, now = new Date()) {
   if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error("recovery_evidence_missing");
   requireExact(evidence.schema, "forge.hosted-recovery-readiness.v1", "recovery_schema");

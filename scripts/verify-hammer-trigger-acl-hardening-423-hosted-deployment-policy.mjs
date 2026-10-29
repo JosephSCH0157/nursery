@@ -16,4 +16,3 @@ const operatorResult=validateOperatorAuthorization({action,operator,authorizatio
 let hosted=null;
 if(!localOnly) hosted=validateHostedState(JSON.parse(readFileSync(statePath,"utf8")),{action,operator,authorization});
 process.stdout.write(JSON.stringify({ok:true,schema:"forge.hammer-trigger-acl-hardening-423-hosted-deployment-policy.v1",action,operator:operatorResult.operator,recoveryEvidenceSha256:recoveryResult.evidenceSha256,hostedStateVerified:hosted!==null,credentialsReturned:false,customerDataReturned:false}));
-

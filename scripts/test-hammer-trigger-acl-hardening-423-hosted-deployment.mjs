@@ -53,4 +53,3 @@ test("entrypoint permits only the exact linked tail push", () => {
   const credentialRead=source.indexOf("Invoke-WithForgeManagedDatabaseCredential -Operation",localPolicy);
   assert.ok(localPolicy>=0 && credentialRead>localPolicy);
 });
-
