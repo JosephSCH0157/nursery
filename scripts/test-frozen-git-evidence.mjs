@@ -110,7 +110,7 @@ try {
   git(publishedRoot, ["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   const published = verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all", requireExactWorktreeBytes: true });
   assert.equal(published.fileCount, 451);
-  assert.equal(published.successorFileCount, 6);
+  assert.equal(published.successorFileCount, 7);
   assert.equal(published.trustAnchorSha256, FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256);
   assert.equal(published.trustSuccessorSha256, GATE6T_FROZEN_SUCCESSOR_SHA256);
   assert.equal(published.trustSuccessorProtectedChangeCount, 8);
