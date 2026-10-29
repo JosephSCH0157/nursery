@@ -79,3 +79,8 @@ test("the helper has no credential, network, child-process, or database executio
   const source = readFileSync(new URL("./new-hosted-recovery-readiness-evidence.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /SUPABASE_DB_PASSWORD|forge-managed-credential|child_process|\bfetch\s*\(|https?:\/\/|execute_sql|db push/i);
 });
+
+test("the documented pnpm argument separator is accepted", () => {
+  const source = readFileSync(new URL("./new-hosted-recovery-readiness-evidence.mjs", import.meta.url), "utf8");
+  assert.match(source, /if \(token === "--"\) continue/);
+});

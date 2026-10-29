@@ -210,9 +210,12 @@ foreach ($command in @(
   'pnpm test:db:hammer-scoped-live-funding:historical-tooling',
   'pnpm test:db:hammer-first-transcription:hosted-deployment',
   'pnpm preflight:db:hammer-first-transcription:hosted',
+  'pnpm test:db:hammer-scoped-live-funding:hosted-deployment',
+  'pnpm preflight:db:hammer-scoped-live-funding:hosted',
   'prepare:db:recovery-evidence',
   'invoke-hammer-h2c-420-hosted-deployment.ps1',
   'invoke-hammer-first-transcription-421-hosted-deployment.ps1',
+  'invoke-hammer-scoped-live-funding-422-hosted-deployment.ps1',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {

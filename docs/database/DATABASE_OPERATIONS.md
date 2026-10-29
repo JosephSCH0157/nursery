@@ -519,6 +519,42 @@ rows, authenticated write denial, and `halt_new`/inactive routing. Direct CLI
 application, `--include-all`, history repair, and reuse of the H2-C 420 token
 remain prohibited.
 
+The migration-422 hosted wrapper is likewise version-specific and separately
+authorization-gated:
+
+```powershell
+pnpm test:db:hammer-scoped-live-funding:hosted-deployment
+pnpm preflight:db:hammer-scoped-live-funding:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+Preflight is read-only apart from private temporary state. It requires exactly
+421 installed rows headed by `20261029004958`, `historical-v1`, the exact
+`20261029033827` migration as the sole pending version, SHA-256
+`d395a843a9ab29029404749d187236d3a40efddbf6eb96cd6560c3a46b20f0d2`,
+fresh recovery evidence, the managed Windows Credential Manager credential,
+and Supabase CLI 2.84.2. It then performs linked migration listing and an
+ordinary linked-tail dry run only.
+
+Apply is a hosted write and requires the exact, separately reviewed token:
+
+```powershell
+./scripts/invoke-hammer-scoped-live-funding-422-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-HAMMER-SCOPED-LIVE-FUNDING-422
+```
+
+PostVerify independently requires 422 rows headed by `20261029033827`,
+unchanged `historical-v1`, forced RLS on both scoped-Live tables, no rows in
+those tables, no direct Data API writes, service-only authority functions,
+global Test preservation, zero Hammer authority/operation/attempt/transcript
+rows, and `halt_new`/inactive routing. The wrapper prohibits `--include-all`,
+history repair, and direct migration-history writes. A 420 or 421 Apply token
+does not authorize migration 422.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell

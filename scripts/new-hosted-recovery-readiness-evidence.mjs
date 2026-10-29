@@ -25,6 +25,7 @@ function parseArguments(argv) {
   const parsed = {};
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
+    if (token === "--") continue;
     if (!token.startsWith("--")) throw new Error(`argument_invalid:${token}`);
     const name = token.slice(2);
     if (flagArguments.has(name)) {
