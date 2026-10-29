@@ -1758,7 +1758,6 @@ async function runOpenAiQuenchMetadataAssist(args: {
 
 async function loadCanonicalWorkpieceMediaFile(
   req: IncomingMessage,
-  supabaseUrl: string,
   request: NormalizedCanonicalWorkpieceRequest,
 ): Promise<{
   ok: true;
@@ -1771,7 +1770,26 @@ async function loadCanonicalWorkpieceMediaFile(
   message: string;
   detail?: unknown;
 }> {
-  const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, supabaseUrl);
+  const trustedRequestOrigin = readHeaderString(req.headers["x-forge-request-origin"]);
+  const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
+  const host = readHeaderString(req.headers.host);
+  let requestOrigin: string;
+  try {
+    const parsed = trustedRequestOrigin
+      ? new URL(trustedRequestOrigin)
+      : new URL(`${forwardedProto ?? "http"}://${host ?? "localhost"}`);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("unsupported request origin protocol");
+    }
+    requestOrigin = parsed.origin;
+  } catch {
+    return {
+      ok: false,
+      status: 500,
+      message: "Hammer could not resolve the authenticated Tongs media origin.",
+    };
+  }
+  const url = new URL(`/tongs/workpieces/${encodeURIComponent(request.workpiece_id)}/read-file`, requestOrigin);
   url.searchParams.set("path", request.canonical_workpiece_path);
   url.searchParams.set("encoding", "binary");
 
@@ -3233,7 +3251,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         contentType = inferContentType(absolutePath, request.mime_type);
       } else {
         stageTimer.mark("media:load:canonical:start", { canonical_workpiece_path: request.canonical_workpiece_path });
-        const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, runtimeConfig.supabaseUrl, request);
+        const canonicalMedia = await loadCanonicalWorkpieceMediaFile(req, request);
         if (!canonicalMedia.ok) {
           stageTimer.mark("media:load:canonical:failed", { status: canonicalMedia.status, message: canonicalMedia.message }, "warn");
           const errorCode: HammerTranscriptPrepErrorCode = canonicalMedia.status === 413

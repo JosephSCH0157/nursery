@@ -25,7 +25,12 @@ function incomingHeaders(request: Request): IncomingHttpHeaders {
   request.headers.forEach((value, name) => {
     headers[name.toLowerCase()] = value;
   });
-  if (!headers.host) headers.host = new URL(request.url).host;
+  const requestUrl = new URL(request.url);
+  if (!headers.host) headers.host = requestUrl.host;
+  // This value is derived from the server-side Request URL, not a caller
+  // header. Downstream Hammer middleware uses it for authenticated same-origin
+  // Tongs reads and must never substitute the Supabase API origin.
+  headers["x-forge-request-origin"] = requestUrl.origin;
   return headers;
 }
 

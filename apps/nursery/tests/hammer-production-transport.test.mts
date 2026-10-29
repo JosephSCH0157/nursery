@@ -201,6 +201,62 @@ test("production transcript prep reaches the paid Hammer authority boundary", as
   assert.notEqual(payload.error?.code, "paid_execution_unavailable");
 });
 
+test("production transcript prep reads canonical media through the deployed same-origin Tongs route", async () => {
+  const originalFetch = globalThis.fetch;
+  const fetchedUrls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    fetchedUrls.push(url);
+    if (url.endsWith("/auth/v1/user")) return Response.json({ id: USER_ID });
+    if (url.includes("/rest/v1/workspaces?id=eq.")) return Response.json([{ org_id: ORG_ID }]);
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
+      return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.startsWith("https://fixture.invalid/tongs/workpieces/") && url.includes("/read-file?")) {
+      return Response.json({ ok: true, exists: false }, { status: 404 });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await createNetlifyHammerFunction({
+      runtimeConfig: runtimeConfig({
+        supabaseUrl: "https://fixture.supabase.co",
+        supabaseServiceRoleKey: "fixture-service-key",
+        supabaseRpcKey: "fixture-anon-key",
+      }),
+    })(request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_ID,
+      media_kind: "recording_video",
+      canonical_workpiece_path: "recordings/episode.webm",
+      mime_type: "video/webm",
+    }), { deploy: { context: "production" } });
+    const payload = await response.json() as { error?: { code?: string; message?: string } };
+    assert.equal(response.status, 404);
+    assert.equal(payload.error?.code, "MEDIA_READ_FAILED");
+    assert.equal(payload.error?.message, "Hammer could not read canonical workpiece media.");
+    assert.equal(
+      fetchedUrls.some((url) => url.startsWith("https://fixture.invalid/tongs/workpieces/")),
+      true,
+    );
+    assert.equal(
+      fetchedUrls.some((url) => url.startsWith("https://fixture.supabase.co/tongs/")),
+      false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("production handler 404 remains distinct from a routed canonical-media 404", async () => {
+  const response = await createNetlifyHammerFunction({ runtimeConfig: runtimeConfig() })(
+    request("/api/hammer/not-a-route", {}),
+    { deploy: { context: "production" } },
+  );
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { ok: false, error: { code: "not_found" } });
+});
+
 test("local and production transports use the same unauthorized Hammer contract without service work", async () => {
   const options = { runtimeConfig: runtimeConfig() };
   const input = request(HAMMER_PRODUCTION_TEXT_ROUTES[0], cleanupBody(), false);
