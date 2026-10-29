@@ -19,7 +19,9 @@ test("Hammer open atomically reserves one durable preparation authority",()=>{
 
 test("the client consumes preparation authority and cannot infer a stall from local inactivity",()=>{
   assert.match(persistence,/hammer\/open-authority/);
-  assert.match(editor,/preparation_attempt_id: activePreparationAttemptRef\.current\?\.id/);
+  assert.match(editor,/const preparationAttemptId = activePreparationAttemptRef\.current\?\.id \?\? null/);
+  assert.match(editor,/claimHammerAiFallbackJobRequest\(\{[\s\S]*?preparationAttemptId,[\s\S]*?\}\)/);
+  assert.match(editor,/preparation_attempt_id: preparationAttemptId/);
   assert.doesNotMatch(editor,/preparation_stalled/);
   assert.doesNotMatch(editor,/shouldTerminateIdleHammerLoadingContext/);
 });

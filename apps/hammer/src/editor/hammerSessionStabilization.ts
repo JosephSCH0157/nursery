@@ -1,5 +1,74 @@
 export type HammerPrepFailureKind = "session_open_failed" | "ai_failed" | "non_ai_missing" | "auth_missing" | null;
 
+export type HammerAiFallbackSelection = Readonly<{
+  targetKey: string;
+  preparationAttemptId: string | null;
+  clientRequestId: string;
+  jobRequestState: "selected" | "requesting" | "created" | "failed" | "cancelled";
+  jobId: string | null;
+}>;
+
+export function createHammerAiFallbackSelection(args: {
+  targetKey: string;
+  preparationAttemptId: string | null;
+  clientRequestId: string;
+}): HammerAiFallbackSelection {
+  return {
+    ...args,
+    jobRequestState: "selected",
+    jobId: null,
+  };
+}
+
+export function preserveHammerAiFallbackSelection(
+  selection: HammerAiFallbackSelection | null,
+  targetKey: string,
+): HammerAiFallbackSelection | null {
+  return selection?.targetKey === targetKey
+    && selection.jobRequestState !== "failed"
+    && selection.jobRequestState !== "cancelled"
+    ? selection
+    : null;
+}
+
+export function claimHammerAiFallbackJobRequest(args: {
+  selection: HammerAiFallbackSelection | null;
+  targetKey: string;
+  preparationAttemptId: string;
+}): { selection: HammerAiFallbackSelection | null; claimed: boolean } {
+  const { selection } = args;
+  if (!selection || selection.targetKey !== args.targetKey || selection.jobRequestState !== "selected") {
+    return { selection, claimed: false };
+  }
+  if (selection.preparationAttemptId && selection.preparationAttemptId !== args.preparationAttemptId) {
+    return {
+      selection: { ...selection, jobRequestState: "failed" },
+      claimed: false,
+    };
+  }
+  return {
+    selection: {
+      ...selection,
+      preparationAttemptId: args.preparationAttemptId,
+      jobRequestState: "requesting",
+    },
+    claimed: true,
+  };
+}
+
+export function finishHammerAiFallbackJobRequest(args: {
+  selection: HammerAiFallbackSelection;
+  jobId?: string;
+  failed?: boolean;
+  cancelled?: boolean;
+}): HammerAiFallbackSelection {
+  return {
+    ...args.selection,
+    jobRequestState: args.cancelled ? "cancelled" : args.failed ? "failed" : "created",
+    jobId: args.jobId ?? null,
+  };
+}
+
 export const HAMMER_SESSION_CONFLICT_CODES = [
   "canonical_recording_pointer_failed",
   "canonical_recording_revision_reset_failed",

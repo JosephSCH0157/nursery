@@ -3,9 +3,13 @@ import test from "node:test";
 import {
   HAMMER_SESSION_CONFLICT_CODES,
   canRetryHammerTranscript,
+  claimHammerAiFallbackJobRequest,
   classifyHammerSessionOpenFailure,
+  createHammerAiFallbackSelection,
   createHammerSessionRetryTransition,
+  finishHammerAiFallbackJobRequest,
   isActiveHammerTranscriptPrepJob,
+  preserveHammerAiFallbackSelection,
   shouldPollHammerTranscriptPrepJob,
 } from "../src/editor/hammerSessionStabilization";
 
@@ -69,4 +73,80 @@ test("completed jobs are neither installed as active prep nor mistaken for a ret
     job_type: "hammer_transcript_regeneration",
     status: "running",
   }), false);
+});
+
+test("AI fallback selection survives ordinary hydration for the same Hammer target", () => {
+  const selection = createHammerAiFallbackSelection({
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+    clientRequestId: "request-1",
+  });
+  assert.equal(preserveHammerAiFallbackSelection(selection, "workspace:workpiece"), selection);
+  assert.equal(preserveHammerAiFallbackSelection(selection, "workspace:other-workpiece"), null);
+  assert.equal(preserveHammerAiFallbackSelection(
+    finishHammerAiFallbackJobRequest({ selection, cancelled: true }),
+    "workspace:workpiece",
+  ), null);
+});
+
+test("one AI selection can claim exactly one transcript job request", () => {
+  const selection = createHammerAiFallbackSelection({
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+    clientRequestId: "request-1",
+  });
+  const first = claimHammerAiFallbackJobRequest({
+    selection,
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+  });
+  assert.equal(first.claimed, true);
+  assert.equal(first.selection?.jobRequestState, "requesting");
+  const duplicate = claimHammerAiFallbackJobRequest({
+    selection: first.selection,
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+  });
+  assert.equal(duplicate.claimed, false);
+  assert.equal(duplicate.selection?.jobRequestState, "requesting");
+});
+
+test("AI fallback claim fails closed if rehydration changes the preparation attempt", () => {
+  const selection = createHammerAiFallbackSelection({
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+    clientRequestId: "request-1",
+  });
+  const result = claimHammerAiFallbackJobRequest({
+    selection,
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-2",
+  });
+  assert.equal(result.claimed, false);
+  assert.equal(result.selection?.jobRequestState, "failed");
+});
+
+test("created, failed, and cancelled job states are terminal for automatic submission", () => {
+  const selected = createHammerAiFallbackSelection({
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+    clientRequestId: "request-1",
+  });
+  const requesting = claimHammerAiFallbackJobRequest({
+    selection: selected,
+    targetKey: "workspace:workpiece",
+    preparationAttemptId: "attempt-1",
+  }).selection!;
+  for (const terminal of [
+    finishHammerAiFallbackJobRequest({ selection: requesting, jobId: "job-1" }),
+    finishHammerAiFallbackJobRequest({ selection: requesting, failed: true }),
+    finishHammerAiFallbackJobRequest({ selection: requesting, cancelled: true }),
+  ]) {
+    const replay = claimHammerAiFallbackJobRequest({
+      selection: terminal,
+      targetKey: "workspace:workpiece",
+      preparationAttemptId: "attempt-1",
+    });
+    assert.equal(replay.claimed, false);
+  }
 });

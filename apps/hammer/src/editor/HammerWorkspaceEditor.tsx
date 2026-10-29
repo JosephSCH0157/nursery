@@ -171,11 +171,16 @@ import {
 } from "./hammerWorkspaceEditorPersistenceFingerprints";
 import {
   canRetryHammerTranscript,
+  claimHammerAiFallbackJobRequest,
   classifyHammerSessionOpenFailure,
+  createHammerAiFallbackSelection,
   createHammerSessionRetryTransition,
+  finishHammerAiFallbackJobRequest,
   isActiveHammerTranscriptPrepJob,
   mapHammerSessionOpenErrorToUserMessage,
+  preserveHammerAiFallbackSelection,
   shouldPollHammerTranscriptPrepJob,
+  type HammerAiFallbackSelection,
   type HammerPrepFailureKind,
 } from "./hammerSessionStabilization";
 
@@ -522,6 +527,7 @@ export default function HammerWorkspaceEditor(
   const autosaveInFlightRef = useRef(false);
   const deferredAutosaveRef = useRef<NonNullable<typeof pendingSaveRef.current> | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
+  const prepAiFallbackSelectionRef = useRef<HammerAiFallbackSelection | null>(null);
   const prepAiNoticeApprovedRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeContinueInFlightRef = useRef(false);
   const prepAiNoticeCancelledRunKeyRef = useRef<string | null>(null);
@@ -1248,6 +1254,12 @@ export default function HammerWorkspaceEditor(
   };
 
   useEffect(() => {
+    const hydrationTargetKey = targetKey ?? "hammer";
+    const preservedAiFallbackSelection = preserveHammerAiFallbackSelection(
+      prepAiFallbackSelectionRef.current,
+      hydrationTargetKey,
+    );
+    prepAiFallbackSelectionRef.current = preservedAiFallbackSelection;
     beginPrepExecution();
     lastSavedPayloadRef.current = null;
     autosaveInFlightRef.current = false;
@@ -1258,7 +1270,7 @@ export default function HammerWorkspaceEditor(
     prepInFlightRunKeyRef.current = null;
     setPrepFailureKind(null);
     setPrepFailureCode(null);
-    setPrepAiFallbackRequested(false);
+    setPrepAiFallbackRequested(Boolean(preservedAiFallbackSelection));
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
     setTranscriptDiscoveryStatus(persistenceMode === "canonical" ? "pending" : "complete");
@@ -1282,10 +1294,12 @@ export default function HammerWorkspaceEditor(
     setPrepJobHydrationReady(persistenceMode !== "canonical" || !persistenceTarget);
 
     clearReadyTransitionTimer();
-    prepAiNoticeApprovedRunKeyRef.current = null;
-    prepAiNoticeCancelledRunKeyRef.current = null;
-    prepAiNoticePendingRunKeyRef.current = null;
-    prepAiNoticeShownRunKeyRef.current = null;
+    if (!preservedAiFallbackSelection) {
+      prepAiNoticeApprovedRunKeyRef.current = null;
+      prepAiNoticeCancelledRunKeyRef.current = null;
+      prepAiNoticePendingRunKeyRef.current = null;
+      prepAiNoticeShownRunKeyRef.current = null;
+    }
     lastPrepRunKeyRef.current = null;
     legacyTranscriptMissingByWorkpieceRef.current.clear();
 
@@ -1888,7 +1902,6 @@ export default function HammerWorkspaceEditor(
     persistenceTarget,
     reloadRequestNonce,
     targetKey,
-    transcriptDiscoveryStatus,
   ]);
 
   const canPersistCanonicalState = persistenceMode === "canonical"
@@ -3263,12 +3276,35 @@ export default function HammerWorkspaceEditor(
           throw new Error("Transcript job payload is missing canonical_workpiece_path.");
         }
 
-        const transcriptClientRequestId = typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `prep_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const preparationAttemptId = activePreparationAttemptRef.current?.id ?? null;
+        if (!preparationAttemptId) {
+          throw new Error("Hammer could not bind the selected AI preparation to its durable attempt.");
+        }
+        const fallbackTargetKey = targetKey ?? "hammer";
+        const claim = claimHammerAiFallbackJobRequest({
+          selection: prepAiFallbackSelectionRef.current,
+          targetKey: fallbackTargetKey,
+          preparationAttemptId,
+        });
+        prepAiFallbackSelectionRef.current = claim.selection;
+        if (!claim.claimed) {
+          if (claim.selection?.jobRequestState === "requesting") {
+            submittedTranscriptJob = true;
+            outcome = "job_submitted";
+            return;
+          }
+          if (claim.selection?.jobRequestState === "created" && claim.selection.jobId) {
+            submittedTranscriptJob = true;
+            setPrepTranscriptJobId(claim.selection.jobId);
+            outcome = "job_submitted";
+            return;
+          }
+          throw new Error("The selected AI preparation changed before Hammer could create its transcript job.");
+        }
+        const transcriptClientRequestId = claim.selection!.clientRequestId;
 
         const transcriptJobPayload = {
-          preparation_attempt_id: activePreparationAttemptRef.current?.id ?? null,
+          preparation_attempt_id: preparationAttemptId,
           revision_id: currentRevision.id,
           canonical_recording_id: currentCanonicalRecording.id,
           canonical_workpiece_path: prepSource.canonical_workpiece_path,
@@ -3284,6 +3320,12 @@ export default function HammerWorkspaceEditor(
           payloadJson: transcriptJobPayload,
         });
         if (!jobCreate.ok) {
+          if (prepAiFallbackSelectionRef.current) {
+            prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
+              selection: prepAiFallbackSelectionRef.current,
+              failed: true,
+            });
+          }
           const userMessage = buildTranscriptJobFailureMessage({
             status: jobCreate.status,
             code: jobCreate.code,
@@ -3318,6 +3360,13 @@ export default function HammerWorkspaceEditor(
             });
           } catch {}
           throw new Error(userMessage);
+        }
+
+        if (prepAiFallbackSelectionRef.current) {
+          prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
+            selection: prepAiFallbackSelectionRef.current,
+            jobId: jobCreate.data.job.id,
+          });
         }
 
         const refreshedPreparation = await refreshBoundHammerPreparationAuthority({
@@ -4163,6 +4212,7 @@ export default function HammerWorkspaceEditor(
     }
 
     if (behavior === "retry-non-ai") {
+      prepAiFallbackSelectionRef.current = null;
       beginPrepExecution();
       resetPrepRunKey("restart_transcript_prep:retry_non_ai", { behavior });
       setPrepAiFallbackRequested(false);
@@ -4173,6 +4223,14 @@ export default function HammerWorkspaceEditor(
     }
 
     const runKey = lastPrepRunKeyRef.current;
+    const clientRequestId = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `prep_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    prepAiFallbackSelectionRef.current = createHammerAiFallbackSelection({
+      targetKey: targetKey ?? "hammer",
+      preparationAttemptId: activePreparationAttemptRef.current?.id ?? null,
+      clientRequestId,
+    });
     prepAiNoticePendingRunKeyRef.current = runKey ?? `manual_ai_fallback:${Date.now()}`;
     setPrepAiFallbackRequested(true);
     // Always restart prep; the prep effect is the single authority for showing AI consent and starting AI transcription.
@@ -4193,10 +4251,12 @@ export default function HammerWorkspaceEditor(
     resetPrepRunKey,
     hydrationReady,
     prepFailureKind,
+    targetKey,
     transcriptDiscoveryStatus,
   ]);
 
   const retryCanonicalSessionOpen = useCallback((): void => {
+    prepAiFallbackSelectionRef.current = null;
     beginPrepExecution();
     resetPrepRunKey("retry_canonical_session_open", { error_code: prepFailureCode });
     setPrepTranscriptJobId(null);
@@ -4656,6 +4716,12 @@ export default function HammerWorkspaceEditor(
                 workspace_id: effectiveLaunchContext?.workspace_id ?? null,
               });
               setPrepAiFallbackRequested(false);
+              if (prepAiFallbackSelectionRef.current) {
+                prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
+                  selection: prepAiFallbackSelectionRef.current,
+                  cancelled: true,
+                });
+              }
               setShowPrepAiNotice(false);
             }}
           >
@@ -4704,7 +4770,17 @@ export default function HammerWorkspaceEditor(
         onDontAskAgainChange={setPrepFailureDontAskAgain}
         onRequestAiSettings={props.onRequestAiSettings}
         onAskEveryTime={() => { setTranscriptPrepPreferenceNotice(null); setTranscriptPrepPreferenceNonce((current) => current + 1); }}
-        onCancel={() => { setPrepAiFallbackRequested(false); setPrepFailureKind(null); setPrepState(createHammerPrepState("prep_failed", null, "Prep cancelled. You can retry later.")); }}
+        onCancel={() => {
+          if (prepAiFallbackSelectionRef.current) {
+            prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
+              selection: prepAiFallbackSelectionRef.current,
+              cancelled: true,
+            });
+          }
+          setPrepAiFallbackRequested(false);
+          setPrepFailureKind(null);
+          setPrepState(createHammerPrepState("prep_failed", null, "Prep cancelled. You can retry later."));
+        }}
       />
     );
   }
