@@ -1,0 +1,63 @@
+{
+  "schema": "forge.hammer-brad-first-transcription-authority-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer trigger ACL hardening",
+    "contractPath": "docs/database/baseline/v1-hammer-trigger-acl-hardening/successor-contract.v1.json",
+    "contractSha256": "9cd5212ea429b6b55d2ad742b3cd3417030c67dc6967dfc519af7931c73c8311",
+    "historicalRows": 423
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerTriggerAclHardeningSuccessorContractSha256": "9cd5212ea429b6b55d2ad742b3cd3417030c67dc6967dfc519af7931c73c8311"
+  },
+  "sharedTailAddition": {
+    "version": "20261029154824",
+    "path": "supabase/migrations/20261029154824_hammer_brad_first_transcription_authority_bundle.sql",
+    "sha256": "b3699ef0f621f3630671402a278f9b178ebe9c42bdc746d3bf9e3ed8a3ee3850"
+  },
+  "historicalSuccessor": {
+    "finalRows": 424,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-brad-first-transcription-authority/successor-catalog-fingerprint.json",
+    "fileSha256": "b9838613186b84179892a366c55f10e2fd86938947b5438c3d04dbd966950b4c",
+    "objectCount": 16333,
+    "normalizedContractSha256": "98c38e44fe029e8143ea37dd0a565fdea37b66b8f515035527a3106067b46b42"
+  },
+  "inactivityContract": {
+    "migrationCreatesAuthorityRows": 0,
+    "migrationCreatesFundingRows": 0,
+    "migrationCreatesProviderAttempts": 0,
+    "migrationCreatesCustomerCredits": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "anonymousExecuteDenied": true,
+    "authenticatedExecuteDenied": true,
+    "serviceRoleExecuteRequired": true,
+    "separateOwnerAuthorizedInstallerCallRequired": true,
+    "installerMaximumCheckoutSessions": 1,
+    "installerMaximumProviderAttempts": 1,
+    "installerAutomaticRetries": 0,
+    "installerExecutionAuthorized": false
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}
