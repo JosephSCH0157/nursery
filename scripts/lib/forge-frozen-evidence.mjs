@@ -23,6 +23,8 @@ export const HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH = "docs/database
 export const HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256 = "8836c293a402affb79c0b435d7f702b7bccd5a9d256ecd8f4474dd9ab526f255";
 export const HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-scoped-live-funding/successor-contract.v1.json";
 export const HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_SHA256 = "9a06c5a28f0de670bd87864d67086b18acefb82d891a7b18c6f85ad247926a21";
+export const HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-trigger-acl-hardening/successor-contract.v1.json";
+export const HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_SHA256 = "9d0f3d19f4aca30e6d0221f719010758dc2a49cc8301ed73d6285cb22a21d4ba";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -501,6 +503,41 @@ function loadHammerScopedLiveFundingSuccessorContract(root, head) {
   return contract;
 }
 
+function loadHammerTriggerAclHardeningSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH]).get(HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Hammer trigger-ACL-hardening successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.hammer-trigger-acl-hardening-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261029110858" ||
+      addition?.path !== "supabase/migrations/20261029110858_hammer_trigger_acl_hardening.sql" ||
+      addition?.sha256 !== "e28ea66618cb681a06323174f6390cd8eeb7afb1d5c744d9ea6cd12290949a7a" ||
+      contract.catalogSuccessor?.status !== "pending-governed-capture" ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Hammer trigger-ACL-hardening successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Hammer trigger-ACL-hardening successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Hammer trigger-ACL-hardening successor-contract working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) {
+    throw new Error("Hammer trigger-ACL-hardening successor-contract staged content differs from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -687,10 +724,10 @@ function verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors,
     scope,
     fileCount: records.length,
     successorFileCount: successorRecords.length,
-    successorContractPath: HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_PATH,
-    successorContractSha256: HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_SHA256,
-    predecessorSuccessorContractPath: HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH,
-    predecessorSuccessorContractSha256: HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256,
+    successorContractPath: HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH,
+    successorContractSha256: HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_SHA256,
+    predecessorSuccessorContractPath: HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_PATH,
+    predecessorSuccessorContractSha256: HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_SHA256,
     expectedModes: modes,
     requireExactWorktreeBytes,
     worktreeByteDifferences,
@@ -843,6 +880,7 @@ export function verifyFrozenEvidence({
   const hammerH2C = loadHammerH2CSuccessorContract(root, head);
   const hammerFirstTranscription = loadHammerFirstTranscriptionSuccessorContract(root, head);
   const hammerScopedLiveFunding = loadHammerScopedLiveFundingSuccessorContract(root, head);
+  const hammerTriggerAclHardening = loadHammerTriggerAclHardeningSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
@@ -851,6 +889,7 @@ export function verifyFrozenEvidence({
     { gate: "hammer-h2c", contract: hammerH2C },
     { gate: "hammer-first-transcription", contract: hammerFirstTranscription },
     { gate: "hammer-scoped-live-funding", contract: hammerScopedLiveFunding },
+    { gate: "hammer-trigger-acl-hardening", contract: hammerTriggerAclHardening },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }

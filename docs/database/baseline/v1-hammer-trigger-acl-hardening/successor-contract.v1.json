@@ -1,0 +1,57 @@
+{
+  "schema": "forge.hammer-trigger-acl-hardening-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer scoped Live funding",
+    "contractPath": "docs/database/baseline/v1-hammer-scoped-live-funding/successor-contract.v1.json",
+    "contractSha256": "9a06c5a28f0de670bd87864d67086b18acefb82d891a7b18c6f85ad247926a21",
+    "historicalRows": 422
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerScopedLiveFundingSuccessorContractSha256": "9a06c5a28f0de670bd87864d67086b18acefb82d891a7b18c6f85ad247926a21"
+  },
+  "sharedTailAddition": {
+    "version": "20261029110858",
+    "path": "supabase/migrations/20261029110858_hammer_trigger_acl_hardening.sql",
+    "sha256": "e28ea66618cb681a06323174f6390cd8eeb7afb1d5c744d9ea6cd12290949a7a"
+  },
+  "historicalSuccessor": {
+    "finalRows": 423,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-trigger-acl-hardening/successor-catalog-fingerprint.json",
+    "status": "pending-governed-capture"
+  },
+  "inactivityContract": {
+    "triggerBodyChanged": false,
+    "triggerBindingMustRemain": true,
+    "anonymousExecuteDenied": true,
+    "authenticatedExecuteDenied": true,
+    "serviceRoleExecuteRetained": true,
+    "financialAuthorityRowsCreated": 0,
+    "providerAttemptRowsCreated": 0,
+    "transcriptionOperationRowsCreated": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "authenticatedWritesDenied": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}
