@@ -69,6 +69,8 @@
     "test:db:hammer-h2c:historical-tooling": "node --test scripts/test-hammer-h2c-historical-successor.mjs",
     "certify:db:hammer-first-transcription:historical": "pwsh -NoProfile -File scripts/invoke-hammer-first-transcription-historical-certification.ps1",
     "test:db:hammer-first-transcription:historical-tooling": "node --test scripts/test-hammer-first-transcription-historical-successor.mjs",
+    "certify:db:hammer-scoped-live-funding:historical": "pwsh -NoProfile -File scripts/invoke-hammer-scoped-live-funding-historical-certification.ps1",
+    "test:db:hammer-scoped-live-funding:historical-tooling": "node --test scripts/test-hammer-scoped-live-funding-historical-successor.mjs",
     "test:db:hammer-h2c:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-h2c-420-hosted-deployment.mjs",
     "test:db:hammer-first-transcription:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-first-transcription-421-hosted-deployment.mjs",
     "prepare:db:recovery-evidence": "node scripts/new-hosted-recovery-readiness-evidence.mjs",

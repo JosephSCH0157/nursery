@@ -127,7 +127,7 @@ $restrictive_defaults$
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
   Push-Location $workdir
   try {
-    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-hammer-first-transcription/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-hammer-scoped-live-funding/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
   }
   finally { Pop-Location }
 

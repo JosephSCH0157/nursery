@@ -38,7 +38,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-hammer-scoped-live-funding/successor-catalog-fingerprint.json",
-    "status": "pending-governed-capture"
+    "fileSha256": "06440d61d53ec3858afa58acddf2808f68514e738fbd59dd3070c17b531e7f51",
+    "objectCount": 16332,
+    "normalizedContractSha256": "930606ea7dd389ad15c519d1fb9a1b3692c328314c62ae6422af53b9e9430de8"
   },
   "inactivityContract": {
     "fundingAuthorityRowsCreated": 0,

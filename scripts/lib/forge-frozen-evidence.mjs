@@ -22,7 +22,7 @@ export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "945872c2516e433e0526f08c4ca
 export const HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-first-transcription/successor-contract.v1.json";
 export const HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256 = "8836c293a402affb79c0b435d7f702b7bccd5a9d256ecd8f4474dd9ab526f255";
 export const HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-scoped-live-funding/successor-contract.v1.json";
-export const HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_SHA256 = "d67918d91f407da2fe545e7ca54470f66e08f40ce897186be1a60688e1f4ac23";
+export const HAMMER_SCOPED_LIVE_FUNDING_SUCCESSOR_CONTRACT_SHA256 = "9a06c5a28f0de670bd87864d67086b18acefb82d891a7b18c6f85ad247926a21";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -479,6 +479,8 @@ function loadHammerScopedLiveFundingSuccessorContract(root, head) {
       addition?.version !== "20261029033827" ||
       addition?.path !== "supabase/migrations/20261029033827_hammer_scoped_live_funding.sql" ||
       addition?.sha256 !== "d395a843a9ab29029404749d187236d3a40efddbf6eb96cd6560c3a46b20f0d2" ||
+      contract.catalogSuccessor?.fileSha256 !== "06440d61d53ec3858afa58acddf2808f68514e738fbd59dd3070c17b531e7f51" ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "930606ea7dd389ad15c519d1fb9a1b3692c328314c62ae6422af53b9e9430de8" ||
       contract.rejectAdditionalProtectedPathChanges !== true) {
     throw new Error("Hammer scoped-Live-funding successor contract has an invalid predecessor or shared-tail addition.");
   }
