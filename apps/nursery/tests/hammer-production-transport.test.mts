@@ -173,10 +173,9 @@ function installNullFundingShortsFixtureFetch(): { restore(): void; domainCalls(
   };
 }
 
-test("production routing exposes only Hammer JSON routes and leaves media prep and Quench halted", async () => {
+test("production routing exposes the governed Hammer transcript route and leaves Quench halted", async () => {
   assert.deepEqual(hammerPaidConfig.path, [...HAMMER_PRODUCTION_TEXT_ROUTES]);
   assert.deepEqual(unavailableConfig.path, [
-    "/api/hammer/prep/transcript",
     "/api/quench/metadata/assist",
   ]);
   for (const pathname of unavailableConfig.path) {
@@ -184,6 +183,22 @@ test("production routing exposes only Hammer JSON routes and leaves media prep a
     assert.equal(response.status, 503);
     assert.equal((await response.json()).error.code, "paid_execution_unavailable");
   }
+});
+
+test("production transcript prep reaches the paid Hammer authority boundary", async () => {
+  const response = await createNetlifyHammerFunction({ runtimeConfig: runtimeConfig() })(
+    request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_ID,
+      media_kind: "recording_video",
+      canonical_workpiece_path: "tongs://fixture/canonical-recording",
+    }, false),
+    { deploy: { context: "production" } },
+  );
+  assert.equal(response.status, 401);
+  const payload = await response.json() as { error?: { code?: string } };
+  assert.notEqual(payload.error?.code, "not_found");
+  assert.notEqual(payload.error?.code, "paid_execution_unavailable");
 });
 
 test("local and production transports use the same unauthorized Hammer contract without service work", async () => {

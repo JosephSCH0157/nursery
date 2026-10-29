@@ -8,10 +8,12 @@ import {
 } from "../../scripts/mw-hammer-prep";
 import { HAMMER_SHORTS_DISCOVERY_ROUTE } from "../../scripts/hammer-shorts-discovery";
 import { HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE } from "../../../hammer/src/editor/hammerTranscriptCleanupAssistApi";
+import { HAMMER_TRANSCRIPT_PREP_ROUTE } from "../../../hammer/src/prep/hammerPrepApi";
 
 export const HAMMER_PRODUCTION_TEXT_ROUTES = [
   HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE,
   HAMMER_SHORTS_DISCOVERY_ROUTE,
+  HAMMER_TRANSCRIPT_PREP_ROUTE,
 ] as const;
 
 export type { HammerPrepMiddlewareOptions } from "../../scripts/mw-hammer-prep";

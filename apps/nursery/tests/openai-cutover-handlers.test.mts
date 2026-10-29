@@ -6,7 +6,6 @@ import { createTongsCommitApiHandlerWithService, type TongsCommitApiService } fr
 
 test("the remaining unsupported production HTTP paths explicitly reject without any service work", async () => {
   assert.deepEqual(unavailableConfig.path, [
-    "/api/hammer/prep/transcript",
     "/api/quench/metadata/assist",
   ]);
   for (const path of unavailableConfig.path) {
