@@ -43,4 +43,3 @@ test("ordinary certification is local-only and authentic mode remains separately
     "successorHistoryRows -ne 422",
   ]) assert.ok(coordinator.includes(required), `missing coordinator boundary: ${required}`);
 });
-

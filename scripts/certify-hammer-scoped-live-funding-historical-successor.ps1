@@ -482,4 +482,3 @@ finally {
   }
   foreach($name in $sensitiveNames){[Environment]::SetEnvironmentVariable($name,$savedEnvironment[$name],'Process')}
 }
-

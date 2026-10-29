@@ -110,4 +110,3 @@ finally {
   }
   $capsuleDirectory=$null;$ScopeAttestationPath=$null
 }
-
