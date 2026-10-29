@@ -25,7 +25,6 @@ if($IsWindows){
   if($supabaseExecutable.Count -ne 1){throw 'Expected exactly one authorized native Linux Supabase CLI executable.'}
   $supabaseExecutable=$supabaseExecutable[0]
 }
-
 function Get-NurseryInventory {
   [pscustomobject]@{
     containers=@(docker ps -a --filter 'label=com.supabase.cli.project=nursery' --format '{{.ID}}|{{.Names}}'|Sort-Object)

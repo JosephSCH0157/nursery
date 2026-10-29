@@ -11,7 +11,6 @@ const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 test("Hammer first-transcription predecessor harness remains byte-for-byte preserved", () => {
   assert.equal(sha256(predecessor), "a4e6074c0fabc730809a701336251a8da5f3baba6ddba80e084f5788cdeb5c22");
 });
-
 test("Hammer scoped Live funding successor uses the exact chained target and row counts", () => {
   for (const required of [
     "$targetMigration='20261029033827'",
