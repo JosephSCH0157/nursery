@@ -6,6 +6,7 @@ import {
   setRecordingMode as setRecorderRecordingMode,
 } from '../../../recorders';
 import type { AppStore } from '../../state/app-store';
+import { wireRecordButtons } from '../recordButtons';
 import { setRecorderEnabled } from '../../state/recorder-settings';
 import { isSessionRecording } from '../../recording/recorderRegistry';
 import { applyRecordingModeUi } from '../recording-mode-ui';
@@ -473,6 +474,7 @@ export function wireSettingsDynamic(rootEl: HTMLElement | null, store?: AppStore
     rootEl.dataset[DATASET_SETTINGS_WIRED] = '1';
   } catch {}
   try { wireSettingsTabs(rootEl, store); } catch {}
+  try { wireRecordButtons(store, { startSelector: '#startRecBtn', stopSelector: '#stopRecBtn' }); } catch {}
   // attach a minimal mutation observer to demonstrate wiring
   try {
     const obs = new MutationObserver(() => {});
