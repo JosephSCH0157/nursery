@@ -46,6 +46,10 @@ $hammerBradFirstTranscriptionAuthorityRelativePath = 'docs/database/baseline/v1-
 $hammerBradFirstTranscriptionAuthorityPath = Join-Path $repo $hammerBradFirstTranscriptionAuthorityRelativePath
 $hammerBradFirstTranscriptionAuthoritySha256 = '27a269acb97d9394a3609b077cbdf4411d6babec4f52a583a806970c5c159783'
 $hammerBradFirstTranscriptionAuthority = Get-Content -LiteralPath $hammerBradFirstTranscriptionAuthorityPath -Raw | ConvertFrom-Json
+$hammerOwnerFundedFirstTranscriptionRelativePath = 'docs/database/baseline/v1-hammer-owner-funded-first-transcription/successor-contract.v1.json'
+$hammerOwnerFundedFirstTranscriptionPath = Join-Path $repo $hammerOwnerFundedFirstTranscriptionRelativePath
+$hammerOwnerFundedFirstTranscriptionSha256 = '0c464bfdc7ad2bc819d728fc94f4c14b3ee0e44c25d2f304faae65b364d85f68'
+$hammerOwnerFundedFirstTranscription = Get-Content -LiteralPath $hammerOwnerFundedFirstTranscriptionPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -198,6 +202,17 @@ if ($hammerBradFirstTranscriptionAuthority.predecessor.contractSha256 -ne $hamme
     $hammerBradFirstTranscriptionAuthority.catalogSuccessor.fileSha256 -ne 'b9838613186b84179892a366c55f10e2fd86938947b5438c3d04dbd966950b4c' -or
     $hammerBradFirstTranscriptionAuthority.catalogSuccessor.normalizedContractSha256 -ne '98c38e44fe029e8143ea37dd0a565fdea37b66b8f515035527a3106067b46b42') {
   $failures.Add('Hammer Brad first-transcription authority successor contract has unexpected predecessor, chronology, or migration evidence.')
+}
+if ((Get-FileHash -LiteralPath $hammerOwnerFundedFirstTranscriptionPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hammerOwnerFundedFirstTranscriptionSha256) {
+  $failures.Add('Hammer owner-funded first-transcription successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($hammerOwnerFundedFirstTranscription.predecessor.contractSha256 -ne $hammerBradFirstTranscriptionAuthoritySha256 -or
+    $hammerOwnerFundedFirstTranscription.sharedTailAddition.version -ne '20261029172356' -or
+    $hammerOwnerFundedFirstTranscription.historicalSuccessor.finalRows -ne 425 -or
+    $hammerOwnerFundedFirstTranscription.sharedTailAddition.sha256 -ne '9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488' -or
+    $hammerOwnerFundedFirstTranscription.catalogSuccessor.fileSha256 -ne '33507bfde80c0bd85bcbda7a8d40ab0792c6159748f709d958b33a2a2ebb8bbe' -or
+    $hammerOwnerFundedFirstTranscription.catalogSuccessor.normalizedContractSha256 -ne 'da0e5c95d541fc0605b05072bff8d0b16fd8da38a14fe2ac1ac9fd5c83b6c22b') {
+  $failures.Add('Hammer owner-funded first-transcription successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")

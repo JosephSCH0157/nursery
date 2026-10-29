@@ -1,0 +1,67 @@
+{
+  "schema": "forge.hammer-owner-funded-first-transcription-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer Brad first-transcription authority",
+    "contractPath": "docs/database/baseline/v1-hammer-brad-first-transcription-authority/successor-contract.v1.json",
+    "contractSha256": "27a269acb97d9394a3609b077cbdf4411d6babec4f52a583a806970c5c159783",
+    "historicalRows": 424
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerBradFirstTranscriptionAuthoritySuccessorContractSha256": "27a269acb97d9394a3609b077cbdf4411d6babec4f52a583a806970c5c159783"
+  },
+  "sharedTailAddition": {
+    "version": "20261029172356",
+    "path": "supabase/migrations/20261029172356_hammer_owner_funded_first_transcription.sql",
+    "sha256": "9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488"
+  },
+  "historicalSuccessor": {
+    "finalRows": 425,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-owner-funded-first-transcription/successor-catalog-fingerprint.json",
+    "fileSha256": "33507bfde80c0bd85bcbda7a8d40ab0792c6159748f709d958b33a2a2ebb8bbe",
+    "objectCount": 16394,
+    "normalizedContractSha256": "da0e5c95d541fc0605b05072bff8d0b16fd8da38a14fe2ac1ac9fd5c83b6c22b"
+  },
+  "inactivityContract": {
+    "migrationCreatesAuthorityRows": 0,
+    "migrationCreatesFundingRows": 0,
+    "migrationCreatesProviderAttempts": 0,
+    "migrationCreatesCustomerCredits": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "anonymousExecuteDenied": true,
+    "authenticatedExecuteDenied": true,
+    "serviceRoleExecuteRequired": true,
+    "separateOwnerAuthorizedInstallerCallRequired": true,
+    "installerCustomerPaymentMicros": 0,
+    "installerCustomerCreditUnits": 0,
+    "installerReferenceCreditUnits": 12,
+    "installerMaximumWholesaleExposureMicros": 44589,
+    "installerMaximumProviderAttempts": 1,
+    "installerAutomaticRetries": 0,
+    "installerExecutionAuthorized": false
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

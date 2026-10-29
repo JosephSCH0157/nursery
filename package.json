@@ -75,6 +75,8 @@
     "test:db:hammer-trigger-acl-hardening:historical-tooling": "node --test scripts/test-hammer-trigger-acl-hardening-historical-successor.mjs",
     "certify:db:hammer-brad-first-transcription-authority:historical": "pwsh -NoProfile -File scripts/invoke-hammer-brad-first-transcription-authority-historical-certification.ps1",
     "test:db:hammer-brad-first-transcription-authority:historical-tooling": "node --test scripts/test-hammer-brad-first-transcription-authority-historical-successor.mjs",
+    "certify:db:hammer-owner-funded-first-transcription:historical": "pwsh -NoProfile -File scripts/invoke-hammer-owner-funded-first-transcription-historical-certification.ps1",
+    "test:db:hammer-owner-funded-first-transcription:historical-tooling": "node --test scripts/test-hammer-owner-funded-first-transcription-historical-successor.mjs",
     "test:db:hammer-h2c:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-h2c-420-hosted-deployment.mjs",
     "test:db:hammer-first-transcription:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-first-transcription-421-hosted-deployment.mjs",
     "test:db:hammer-scoped-live-funding:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-scoped-live-funding-422-hosted-deployment.mjs",

@@ -94,6 +94,7 @@ function executionAuthorization(source) {
     ...identity,
     model: HAMMER_ASSEMBLYAI_MODEL,
     maximumProviderAttempts: 1,
+    fundingSource: "customer",
     acceptedCustomerChargeMicros: 10_000,
     completeWholesaleCeilingMicros: 4_523,
   };

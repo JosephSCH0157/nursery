@@ -29,6 +29,10 @@ const activationSql = readFileSync(new URL(
   "../../../supabase/migrations/20261029004958_hammer_first_transcription_activation.sql",
   import.meta.url,
 ), "utf8");
+const ownerFundingSql = readFileSync(new URL(
+  "../../../supabase/migrations/20261029172356_hammer_owner_funded_first_transcription.sql",
+  import.meta.url,
+), "utf8");
 const hammerPrepHandler = readFileSync(new URL(
   "../../../apps/nursery/scripts/mw-hammer-prep.ts",
   import.meta.url,
@@ -184,6 +188,35 @@ test("database attempt denial stops before the AssemblyAI transport", async () =
   assert.equal(providerCalls, 0);
 });
 
+test("owner sponsorship presents the reviewed reference quote with zero customer debit", async () => {
+  const gate = {
+    async rpc(name) {
+      assert.equal(name, "create_hammer_first_transcription_quote");
+      return { data: {
+        quote_id: "10000000-0000-4000-8000-000000000001",
+        operation_id: "hammer-assemblyai:20000000-0000-4000-8000-000000000001",
+        quote_hash: "a".repeat(64), request_fingerprint: input().requestFingerprint,
+        customer_credit_units: 0, maximum_customer_charge_micros: 0,
+        reference_customer_credit_units: 12, funding_source: "owner_budget",
+        funding_eligible: true, funding_label: "Owner-sponsored certification; no customer charge",
+        expires_at: new Date(Date.now() + 60_000).toISOString(), accepted: false,
+      }, error: null };
+    },
+  };
+  const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(gate, gate, {
+    async submit() { throw new Error("must not submit"); },
+    async read() { throw new Error("must not poll"); },
+  });
+  await assert.rejects(() => coordinator.execute(input()), (error) => {
+    assert.ok(error instanceof HammerAssemblyAiQuoteRequiredError);
+    assert.equal(error.quote.customerCreditUnits, 0);
+    assert.equal(error.quote.maximumCustomerChargeMicros, 0);
+    assert.equal(error.quote.referenceCustomerCreditUnits, 12);
+    assert.equal(error.quote.fundingSource, "owner_budget");
+    return true;
+  });
+});
+
 test("canonical normalization binds provider utterances to the exact recording", () => {
   const resolvedSource = source();
   const authorization = {
@@ -198,17 +231,36 @@ test("canonical normalization binds provider utterances to the exact recording",
     source: resolvedSource,
     model: "universal-3-5-pro",
     maximumProviderAttempts: 1,
+    fundingSource: "customer",
     acceptedCustomerChargeMicros: 60_000,
     completeWholesaleCeilingMicros: 44_589,
   };
   const transcript = normalizeAssemblyAiCanonicalTranscript({
     text: "Welcome to Gasoline.",
-    utterances: [{ speaker: "A", start: 1, end: 900, text: "Welcome to Gasoline." }],
+    utterances: [{ speaker: "A", start: 0, end: 900, text: "Welcome to Gasoline." }],
   }, authorization, "provider-request-1");
   assert.equal(transcript.schema_version, "2");
   assert.equal(transcript.recording.media_sha256, SOURCE_SHA);
   assert.equal(transcript.provider.provider_request_id, "provider-request-1");
   assert.equal(transcript.segments.length, 1);
+});
+
+test("owner-funded migration is inert, exact, service-only, and preserves customer rules", () => {
+  assert.match(ownerFundingSql, /owner-funded Hammer migration must remain financially inert/i);
+  assert.match(ownerFundingSql, /owner-funded Hammer migration must not install a budget/i);
+  assert.match(ownerFundingSql, /customer_payment_micros bigint not null check \(customer_payment_micros = 0\)/i);
+  assert.match(ownerFundingSql, /customer_credit_units bigint not null check \(customer_credit_units = 0\)/i);
+  assert.match(ownerFundingSql, /maximum_wholesale_exposure_micros bigint not null check \(maximum_wholesale_exposure_micros = 44589\)/i);
+  assert.match(ownerFundingSql, /reference_customer_credit_units bigint not null check \(reference_customer_credit_units = 12\)/i);
+  assert.match(ownerFundingSql, /tongs\.begin_owner_provider_attempt/i);
+  assert.match(ownerFundingSql, /tongs\.settle_owner_operation/i);
+  assert.match(ownerFundingSql, /canonical persistence and authoritative supplier reconciliation required before settlement; bounded owner evidence is required/i);
+  assert.match(ownerFundingSql, /promotional_credit_offset_micros/i);
+  assert.match(ownerFundingSql, /reservation_reconciliation_required',true/i);
+  assert.match(ownerFundingSql, /automatic_retry_allowed',false/i);
+  assert.match(ownerFundingSql, /exact economically backed Hammer Live funding required/i);
+  assert.doesNotMatch(ownerFundingSql, /insert into tongs\.customer_deposits/i);
+  assert.doesNotMatch(ownerFundingSql, /insert into tongs\.test_refill_grants/i);
 });
 
 test("activation migration is inert and binds one exact operation", () => {

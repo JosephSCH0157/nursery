@@ -27,6 +27,8 @@ export const HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_PATH = "docs/databa
 export const HAMMER_TRIGGER_ACL_HARDENING_SUCCESSOR_CONTRACT_SHA256 = "9cd5212ea429b6b55d2ad742b3cd3417030c67dc6967dfc519af7931c73c8311";
 export const HAMMER_BRAD_FIRST_TRANSCRIPTION_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-brad-first-transcription-authority/successor-contract.v1.json";
 export const HAMMER_BRAD_FIRST_TRANSCRIPTION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "27a269acb97d9394a3609b077cbdf4411d6babec4f52a583a806970c5c159783";
+export const HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-funded-first-transcription/successor-contract.v1.json";
+export const HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256 = "0c464bfdc7ad2bc819d728fc94f4c14b3ee0e44c25d2f304faae65b364d85f68";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -577,6 +579,43 @@ function loadHammerBradFirstTranscriptionAuthoritySuccessorContract(root, head) 
   return contract;
 }
 
+function loadHammerOwnerFundedFirstTranscriptionSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH])
+    .get(HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Hammer owner-funded first-transcription successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.hammer-owner-funded-first-transcription-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== HAMMER_BRAD_FIRST_TRANSCRIPTION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261029172356" ||
+      addition?.path !== "supabase/migrations/20261029172356_hammer_owner_funded_first_transcription.sql" ||
+      addition?.sha256 !== "9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488" ||
+      contract.catalogSuccessor?.fileSha256 !== "33507bfde80c0bd85bcbda7a8d40ab0792c6159748f709d958b33a2a2ebb8bbe" ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "da0e5c95d541fc0605b05072bff8d0b16fd8da38a14fe2ac1ac9fd5c83b6c22b" ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Hammer owner-funded first-transcription successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Hammer owner-funded first-transcription successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Hammer owner-funded first-transcription successor-contract working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) {
+    throw new Error("Hammer owner-funded first-transcription successor-contract staged content differs from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -921,6 +960,7 @@ export function verifyFrozenEvidence({
   const hammerScopedLiveFunding = loadHammerScopedLiveFundingSuccessorContract(root, head);
   const hammerTriggerAclHardening = loadHammerTriggerAclHardeningSuccessorContract(root, head);
   const hammerBradFirstTranscriptionAuthority = loadHammerBradFirstTranscriptionAuthoritySuccessorContract(root, head);
+  const hammerOwnerFundedFirstTranscription = loadHammerOwnerFundedFirstTranscriptionSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
@@ -931,6 +971,7 @@ export function verifyFrozenEvidence({
     { gate: "hammer-scoped-live-funding", contract: hammerScopedLiveFunding },
     { gate: "hammer-trigger-acl-hardening", contract: hammerTriggerAclHardening },
     { gate: "hammer-brad-first-transcription-authority", contract: hammerBradFirstTranscriptionAuthority },
+    { gate: "hammer-owner-funded-first-transcription", contract: hammerOwnerFundedFirstTranscription },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }

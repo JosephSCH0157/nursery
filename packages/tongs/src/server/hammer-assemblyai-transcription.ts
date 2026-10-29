@@ -52,6 +52,7 @@ export type HammerAssemblyAiExecutionAuthorization = {
   source: HammerAssemblyAiSourceAuthority;
   model: typeof HAMMER_ASSEMBLYAI_MODEL;
   maximumProviderAttempts: 1;
+  fundingSource: "customer" | "owner_budget";
   acceptedCustomerChargeMicros: number;
   completeWholesaleCeilingMicros: number;
 };
@@ -298,7 +299,8 @@ async function submitHammerAssemblyAiOnce(args: {
     auth.activation !== "authorized"
     || auth.maximumProviderAttempts !== 1
     || auth.model !== HAMMER_ASSEMBLYAI_MODEL
-    || auth.acceptedCustomerChargeMicros <= 0
+    || (auth.fundingSource === "customer" && auth.acceptedCustomerChargeMicros <= 0)
+    || (auth.fundingSource === "owner_budget" && auth.acceptedCustomerChargeMicros !== 0)
     || auth.completeWholesaleCeilingMicros <= 0
   ) {
     throw new HammerAssemblyAiBoundaryError("provider_attempt_not_authorized", "Exact bounded provider authority is required.");
@@ -430,7 +432,7 @@ export function verifyHammerAssemblyAiEvidence(snapshot: HammerAssemblyAiEvidenc
   if (snapshot.providerAttempts.length > 1 || snapshot.providerAttempts.some((a) => a.attemptNumber !== 1)) {
     issues.push("provider_attempt_bound_violated");
   }
-  if (snapshot.operation.acceptedCustomerChargeMicros <= 0 || snapshot.operation.completeWholesaleCeilingMicros <= 0) {
+  if (snapshot.operation.acceptedCustomerChargeMicros < 0 || snapshot.operation.completeWholesaleCeilingMicros <= 0) {
     issues.push("complete_quote_missing");
   }
   if (snapshot.providerAttempts.length > 0 && snapshot.reservationState == null) issues.push("provider_attempt_without_reservation");

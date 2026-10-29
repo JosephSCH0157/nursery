@@ -89,6 +89,12 @@ function requiredPositiveInteger(value: unknown, name: string): number {
   }
   return value;
 }
+function requiredNonNegativeInteger(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative safe integer`);
+  }
+  return value;
+}
 
 export type HammerAssemblyAiQuote = Readonly<{
   quoteId: string;
@@ -97,6 +103,8 @@ export type HammerAssemblyAiQuote = Readonly<{
   requestFingerprint: string;
   customerCreditUnits: number;
   maximumCustomerChargeMicros: number;
+  referenceCustomerCreditUnits: number;
+  fundingSource: "customer" | "owner_budget";
   fundingEligible: boolean;
   fundingLabel: string;
   expiresAt: string;
@@ -182,8 +190,13 @@ export class HammerAssemblyAiPaidExecutionCoordinator {
       operationId: requiredText(quote.operation_id, "operation_id"),
       quoteHash: requiredText(quote.quote_hash, "quote_hash"),
       requestFingerprint: requiredText(quote.request_fingerprint, "request_fingerprint"),
-      customerCreditUnits: requiredPositiveInteger(quote.customer_credit_units, "customer_credit_units"),
-      maximumCustomerChargeMicros: requiredPositiveInteger(quote.maximum_customer_charge_micros, "maximum_customer_charge_micros"),
+      customerCreditUnits: requiredNonNegativeInteger(quote.customer_credit_units, "customer_credit_units"),
+      maximumCustomerChargeMicros: requiredNonNegativeInteger(quote.maximum_customer_charge_micros, "maximum_customer_charge_micros"),
+      referenceCustomerCreditUnits: requiredPositiveInteger(
+        quote.reference_customer_credit_units ?? quote.customer_credit_units,
+        "reference_customer_credit_units",
+      ),
+      fundingSource: quote.funding_source === "owner_budget" ? "owner_budget" : "customer",
       fundingEligible: quote.funding_eligible === true,
       fundingLabel: requiredText(quote.funding_label, "funding_label"),
       expiresAt: requiredText(quote.expires_at, "expires_at"),
@@ -254,6 +267,7 @@ export class HammerAssemblyAiPaidExecutionCoordinator {
       source: input.source,
       model: HAMMER_ASSEMBLYAI_MODEL,
       maximumProviderAttempts: 1,
+      fundingSource: authorizationRow.funding_source === "owner_budget" ? "owner_budget" : "customer",
       acceptedCustomerChargeMicros: quote.maximumCustomerChargeMicros,
       completeWholesaleCeilingMicros: requiredPositiveInteger(
         authorizationRow.complete_wholesale_ceiling_micros,
@@ -381,7 +395,7 @@ export function normalizeAssemblyAiCanonicalTranscript(
     return {
       id: `segment-${index + 1}`,
       speaker: requiredText(utterance.speaker, `utterances[${index}].speaker`),
-      start_ms: requiredPositiveInteger(utterance.start, `utterances[${index}].start`),
+      start_ms: requiredNonNegativeInteger(utterance.start, `utterances[${index}].start`),
       end_ms: requiredPositiveInteger(utterance.end, `utterances[${index}].end`),
       text: requiredText(utterance.text, `utterances[${index}].text`),
     };
