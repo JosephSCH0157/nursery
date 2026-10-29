@@ -60,4 +60,3 @@ export function validateOperatorAuthorization(options = {}) {
   if (options.action === "Apply") requireExact(options.authorization, APPLY_AUTHORIZATION, "operator_authorization");
   return { operator };
 }
-
