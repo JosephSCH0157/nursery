@@ -40,6 +40,8 @@ The Hammer scoped-Live-funding successor adds `20261029033827_hammer_scoped_live
 
 The Hammer trigger-ACL-hardening successor adds `20261029110858_hammer_trigger_acl_hardening.sql` after scoped Live funding. It removes direct `PUBLIC`, `anon`, and `authenticated` execution from `_stamp_spending_quote_environment()` while preserving its existing trigger binding and service-role execution. Applying it creates no financial authority, provider attempt, operation, or transcript rows and leaves the global environment in Test. The byte-locked chronology and structure are [Hammer trigger-ACL-hardening successor-contract.v1.json](baseline/v1-hammer-trigger-acl-hardening/successor-contract.v1.json) and its [successor catalog fingerprint](baseline/v1-hammer-trigger-acl-hardening/successor-catalog-fingerprint.json).
 
+The Brad first-transcription authority successor adds `20261029154824_hammer_brad_first_transcription_authority_bundle.sql` after trigger ACL hardening. It installs only a service-role-only, exact-recording authority installer; applying the migration itself creates no price, capability, funding, quote, reservation, operation, attempt, transcript, or credit rows. Its byte-locked chronology and structure are [Brad first-transcription authority successor-contract.v1.json](baseline/v1-hammer-brad-first-transcription-authority/successor-contract.v1.json) and its [successor catalog fingerprint](baseline/v1-hammer-brad-first-transcription-authority/successor-catalog-fingerprint.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future

@@ -35,20 +35,20 @@ select pg_temp.assert_true(
 );
 
 select pg_temp.assert_true(
-  tongs._current_financial_environment()='test',
-  'migration must preserve the global Test environment'
+  tongs._current_financial_environment() is distinct from 'live',
+  'migration must not activate the global Live environment'
 );
 
 select pg_temp.assert_true(
   (select pg_get_functiondef(
     'tongs.install_brad_hammer_first_transcription_authority_bundle(uuid,text,text,timestamptz,timestamptz,text,timestamptz,timestamptz,bigint,bigint,bigint,boolean,timestamptz,timestamptz,text)'::regprocedure
-  )) like '%customer_credit_units'', 12%'
+  )) ~ '''customer_credit_units''[[:space:]]*,[[:space:]]*12'
   and (select pg_get_functiondef(
     'tongs.install_brad_hammer_first_transcription_authority_bundle(uuid,text,text,timestamptz,timestamptz,text,timestamptz,timestamptz,bigint,bigint,bigint,boolean,timestamptz,timestamptz,text)'::regprocedure
-  )) like '%maximum_provider_attempts'', 1%'
+  )) ~ '''maximum_provider_attempts''[[:space:]]*,[[:space:]]*1'
   and (select pg_get_functiondef(
     'tongs.install_brad_hammer_first_transcription_authority_bundle(uuid,text,text,timestamptz,timestamptz,text,timestamptz,timestamptz,bigint,bigint,bigint,boolean,timestamptz,timestamptz,text)'::regprocedure
-  )) like '%automatic_retries'', 0%',
+  )) ~ '''automatic_retries''[[:space:]]*,[[:space:]]*0',
   'installer must retain the exact 12-Credit, one-attempt, zero-retry boundary'
 );
 

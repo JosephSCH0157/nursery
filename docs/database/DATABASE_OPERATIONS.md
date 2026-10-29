@@ -612,6 +612,41 @@ Test preservation, zero Hammer authority/operation/attempt/transcript rows,
 and `halt_new`/inactive routing. The wrapper does not install funding authority
 or authorize provider execution.
 
+Migration 424 admits the service-only Brad first-transcription authority
+installer as the explicit successor to migration 423. Local certification and
+the hosted wrapper are:
+
+```powershell
+pnpm certify:db:hammer-brad-first-transcription-authority:historical
+pnpm test:db:hammer-brad-first-transcription-authority:historical-tooling
+pnpm test:db:hammer-brad-first-transcription-authority:hosted-deployment
+pnpm preflight:db:hammer-brad-first-transcription-authority:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+Preflight requires exactly 423 installed rows headed by `20261029110858`,
+`historical-v1`, the exact `20261029154824` migration as the sole pending
+version, SHA-256
+`b3699ef0f621f3630671402a278f9b178ebe9c42bdc746d3bf9e3ed8a3ee3850`,
+fresh recovery evidence, the managed Windows Credential Manager credential,
+and Supabase CLI 2.84.2. Apply uses only the reviewed wrapper and token:
+
+```powershell
+./scripts/invoke-hammer-brad-first-transcription-authority-424-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization AUTHORIZE-HAMMER-BRAD-FIRST-TRANSCRIPTION-AUTHORITY-424
+```
+
+PostVerify requires 424 rows headed by `20261029154824`, unchanged
+`historical-v1`, a PostgreSQL-owned security-definer installer executable only
+by `service_role`, global Test preservation, zero authority/funding/provider
+rows, and inactive `halt_new` routing. Applying migration 424 installs the
+function only. Invoking that function is a distinct production write and must
+remain bounded to its exact reviewed Brad authority bundle.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell

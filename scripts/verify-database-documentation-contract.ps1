@@ -42,6 +42,10 @@ $hammerTriggerAclHardeningRelativePath = 'docs/database/baseline/v1-hammer-trigg
 $hammerTriggerAclHardeningPath = Join-Path $repo $hammerTriggerAclHardeningRelativePath
 $hammerTriggerAclHardeningSha256 = '9cd5212ea429b6b55d2ad742b3cd3417030c67dc6967dfc519af7931c73c8311'
 $hammerTriggerAclHardening = Get-Content -LiteralPath $hammerTriggerAclHardeningPath -Raw | ConvertFrom-Json
+$hammerBradFirstTranscriptionAuthorityRelativePath = 'docs/database/baseline/v1-hammer-brad-first-transcription-authority/successor-contract.v1.json'
+$hammerBradFirstTranscriptionAuthorityPath = Join-Path $repo $hammerBradFirstTranscriptionAuthorityRelativePath
+$hammerBradFirstTranscriptionAuthoritySha256 = '27a269acb97d9394a3609b077cbdf4411d6babec4f52a583a806970c5c159783'
+$hammerBradFirstTranscriptionAuthority = Get-Content -LiteralPath $hammerBradFirstTranscriptionAuthorityPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -100,6 +104,7 @@ foreach ($reference in @(
   $hammerFirstTranscriptionRelativePath
   $hammerScopedLiveFundingRelativePath
   $hammerTriggerAclHardeningRelativePath
+  $hammerBradFirstTranscriptionAuthorityRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -183,6 +188,17 @@ if ($hammerTriggerAclHardening.predecessor.contractSha256 -ne $hammerScopedLiveF
     $hammerTriggerAclHardening.catalogSuccessor.normalizedContractSha256 -ne '47b134565e3c1ef88567dbee027fff6a5a0ab48e9c8126948ccd15ae145d6a0f') {
   $failures.Add('Hammer trigger-ACL-hardening successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
+if ((Get-FileHash -LiteralPath $hammerBradFirstTranscriptionAuthorityPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hammerBradFirstTranscriptionAuthoritySha256) {
+  $failures.Add('Hammer Brad first-transcription authority successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($hammerBradFirstTranscriptionAuthority.predecessor.contractSha256 -ne $hammerTriggerAclHardeningSha256 -or
+    $hammerBradFirstTranscriptionAuthority.sharedTailAddition.version -ne '20261029154824' -or
+    $hammerBradFirstTranscriptionAuthority.historicalSuccessor.finalRows -ne 424 -or
+    $hammerBradFirstTranscriptionAuthority.sharedTailAddition.sha256 -ne 'b3699ef0f621f3630671402a278f9b178ebe9c42bdc746d3bf9e3ed8a3ee3850' -or
+    $hammerBradFirstTranscriptionAuthority.catalogSuccessor.fileSha256 -ne 'b9838613186b84179892a366c55f10e2fd86938947b5438c3d04dbd966950b4c' -or
+    $hammerBradFirstTranscriptionAuthority.catalogSuccessor.normalizedContractSha256 -ne '98c38e44fe029e8143ea37dd0a565fdea37b66b8f515035527a3106067b46b42') {
+  $failures.Add('Hammer Brad first-transcription authority successor contract has unexpected predecessor, chronology, or migration evidence.')
+}
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
 } elseif ((Get-FileHash -LiteralPath $trustAnchorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $trustAnchorSha256) {
@@ -226,17 +242,22 @@ foreach ($command in @(
   'pnpm test:db:hammer-scoped-live-funding:historical-tooling',
   'pnpm certify:db:hammer-trigger-acl-hardening:historical',
   'pnpm test:db:hammer-trigger-acl-hardening:historical-tooling',
+  'pnpm certify:db:hammer-brad-first-transcription-authority:historical',
+  'pnpm test:db:hammer-brad-first-transcription-authority:historical-tooling',
   'pnpm test:db:hammer-first-transcription:hosted-deployment',
   'pnpm preflight:db:hammer-first-transcription:hosted',
   'pnpm test:db:hammer-scoped-live-funding:hosted-deployment',
   'pnpm preflight:db:hammer-scoped-live-funding:hosted',
   'pnpm test:db:hammer-trigger-acl-hardening:hosted-deployment',
   'pnpm preflight:db:hammer-trigger-acl-hardening:hosted',
+  'pnpm test:db:hammer-brad-first-transcription-authority:hosted-deployment',
+  'pnpm preflight:db:hammer-brad-first-transcription-authority:hosted',
   'prepare:db:recovery-evidence',
   'invoke-hammer-h2c-420-hosted-deployment.ps1',
   'invoke-hammer-first-transcription-421-hosted-deployment.ps1',
   'invoke-hammer-scoped-live-funding-422-hosted-deployment.ps1',
   'invoke-hammer-trigger-acl-hardening-423-hosted-deployment.ps1',
+  'invoke-hammer-brad-first-transcription-authority-424-hosted-deployment.ps1',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {

@@ -380,7 +380,7 @@ select jsonb_build_object(
     foreach($name in @('completion','keep','discard')){if([string]$receiptHashesAfter.$name -cne [string]$receiptHashesBefore.$name){throw "Existing recording receipt bytes changed: $name"}}
 
     $script:sqlPhase='post-successor verification'
-    foreach($test in @('supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate6o_episode_storage_tier_contract.sql','supabase/tests/gate6p_storage_bucket_contract.sql','supabase/tests/hammer_first_transcription_activation_contract.sql','supabase/tests/hammer_scoped_live_funding_contract.sql','supabase/tests/hammer_brad_first_transcription_authority_bundle_contract.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
+    foreach($test in @('supabase/tests/public_slice_a_security_behavior.sql','supabase/tests/gate6o_episode_storage_tier_contract.sql','supabase/tests/gate6p_storage_bucket_contract.sql','supabase/tests/hammer_first_transcription_activation_contract.sql','supabase/tests/hammer_scoped_live_funding_contract.sql','supabase/tests/hammer_trigger_acl_hardening_contract.sql','supabase/tests/hammer_brad_first_transcription_authority_bundle_contract.sql')){Invoke-PsqlFile $container (Join-Path $repo $test)}
     $savedContainer=$env:SUPABASE_DB_CONTAINER
     try {
       $env:SUPABASE_DB_CONTAINER=$container
@@ -412,7 +412,7 @@ select jsonb_build_object(
       pendingVersions=$targetPending;historyHashes=$after;originalHistoryUnchanged=$true;existingRecordingReceiptsUnchanged=$true;receiptHashes=$receiptHashesAfter;negativeTests=$negative
       preUpgradeCatalogSha256=$preCatalog.contractSha256;postUpgradeCatalogSha256=$postCatalog.contractSha256
       catalogObjectCount=$postCatalog.objectCount;approvedEnvironmentalDifferences=@($postCatalog.approvedEnvironmentalDifferences)
-      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate6o_episode_storage_tier_contract','gate6p_storage_bucket_contract','hammer_first_transcription_activation_contract','hammer_scoped_live_funding_contract','hammer_brad_first_transcription_authority_bundle_contract','barstock_project_archive_atomicity','local_data_api','hammer_brad_first_transcription_authority_bundle_successor_catalog_comparison')
+      tests=@('public_slice_a_catalog_parity','public_slice_a_security_behavior','gate5d_read_only_endpoint_probe','gate6o_episode_storage_tier_contract','gate6p_storage_bucket_contract','hammer_first_transcription_activation_contract','hammer_scoped_live_funding_contract','hammer_trigger_acl_hardening_contract','hammer_brad_first_transcription_authority_bundle_contract','barstock_project_archive_atomicity','local_data_api','hammer_brad_first_transcription_authority_bundle_successor_catalog_comparison')
       dataApi=$dataApi;localReadOnlyRoleExpectedAccess=$true;financiallyInactive=$true;paidProviderOperations=0;hostedRequests=0
     }
   }
