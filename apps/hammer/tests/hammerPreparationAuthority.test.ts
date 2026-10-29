@@ -21,7 +21,8 @@ test("the client consumes preparation authority and cannot infer a stall from lo
   assert.match(persistence,/hammer\/open-authority/);
   assert.match(editor,/const preparationAttemptId = activePreparationAttemptRef\.current\?\.id \?\? null/);
   assert.match(editor,/claimHammerAiFallbackJobRequest\(\{[\s\S]*?preparationAttemptId,[\s\S]*?\}\)/);
-  assert.match(editor,/preparation_attempt_id: preparationAttemptId/);
+  assert.match(editor,/requestHammerTranscriptPrep\(transcriptRequest\)/);
+  assert.match(editor,/attempt: activePreparationAttemptRef\.current/);
   assert.doesNotMatch(editor,/preparation_stalled/);
   assert.doesNotMatch(editor,/shouldTerminateIdleHammerLoadingContext/);
 });

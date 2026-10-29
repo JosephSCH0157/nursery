@@ -4,6 +4,7 @@ export type CustomerSpendingQuote = {
   quote_hash: string;
   request_fingerprint: string;
   credit_charge: number;
+  reference_credit_units?: number;
   failure_terms: string;
   funding_eligible: boolean;
   funding_label: string;
@@ -42,16 +43,22 @@ export function readCustomerSpendingQuote(payload: unknown): CustomerSpendingQuo
   const row = object(error?.billing_quote) ?? object(details?.billing_quote) ?? object(root?.billing_quote);
   if (!row) return null;
   const creditCharge = Number(row.credit_charge);
+  const referenceCreditUnits = typeof row.reference_credit_units === "undefined"
+    ? null
+    : Number(row.reference_credit_units);
   const expiresAt = string(row.expires_at);
   if (!string(row.quote_id) || !string(row.operation_id) || !string(row.quote_hash)
     || !string(row.request_fingerprint)
-    || !Number.isSafeInteger(creditCharge) || creditCharge < 0 || !expiresAt) return null;
+    || !Number.isSafeInteger(creditCharge) || creditCharge < 0
+    || (referenceCreditUnits != null && (!Number.isSafeInteger(referenceCreditUnits) || referenceCreditUnits <= 0))
+    || !expiresAt) return null;
   return {
     quote_id: string(row.quote_id),
     operation_id: string(row.operation_id),
     quote_hash: string(row.quote_hash),
     request_fingerprint: string(row.request_fingerprint),
     credit_charge: creditCharge,
+    ...(referenceCreditUnits == null ? {} : { reference_credit_units: referenceCreditUnits }),
     failure_terms: string(row.failure_terms) || "Failed operations do not consume Forge Credits.",
     funding_eligible: row.funding_eligible === true,
     funding_label: string(row.funding_label) || "Not enough Forge Credits",
@@ -72,10 +79,16 @@ export function customerSpendingAcceptance(quote: CustomerSpendingQuote): Custom
 
 export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): boolean {
   if (!quote.funding_eligible) return false;
+  const costLines = quote.reference_credit_units == null
+    ? [`Cost: ${quote.credit_charge.toLocaleString("en-US")} ${quote.credit_charge === 1 ? "Credit" : "Credits"}`]
+    : [
+      `Reference price: ${quote.reference_credit_units.toLocaleString("en-US")} ${quote.reference_credit_units === 1 ? "Credit" : "Credits"}`,
+      `Customer charge: ${quote.credit_charge.toLocaleString("en-US")} ${quote.credit_charge === 1 ? "Credit" : "Credits"}`,
+    ];
   return globalThis.confirm([
     quote.model_display_name ? `Model: ${quote.model_display_name}` : null,
     quote.model_tradeoff_summary || null,
-    `Cost: ${quote.credit_charge.toLocaleString("en-US")} ${quote.credit_charge === 1 ? "Credit" : "Credits"}`,
+    ...costLines,
     `Funding: ${quote.funding_label}`,
     quote.failure_terms,
     `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,

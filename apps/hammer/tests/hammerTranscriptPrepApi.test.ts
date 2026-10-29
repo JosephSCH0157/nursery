@@ -123,6 +123,79 @@ async function main(): Promise<void> {
     assert.equal(ok.data.segments[0]?.text, "hello");
   }
 
+  // The paid prep route must present the server quote before sending the
+  // acceptance and must preserve one stable request identity across both
+  // calls. This is the production AssemblyAI path used by initial AI fallback.
+  let paidRequestCount = 0;
+  let acceptedBody: Record<string, unknown> | null = null;
+  const quote = {
+    quote_id: "11111111-1111-4111-8111-111111111111",
+    operation_id: "hammer-assemblyai:22222222-2222-4222-8222-222222222222",
+    quote_hash: "a".repeat(64),
+    request_fingerprint: "b".repeat(64),
+    credit_charge: 0,
+    reference_credit_units: 12,
+    failure_terms: "Failed operations cost 0 Credits. Unknown submissions are never retried automatically.",
+    funding_eligible: true,
+    funding_label: "Owner-sponsored certification; no customer charge",
+    model_display_name: "AssemblyAI Universal-3.5 Pro + speaker labels",
+    model_tradeoff_summary: "US processing with the certified account settings.",
+    expires_at: "2030-01-01T00:00:00.000Z",
+  };
+  (globalThis as typeof globalThis & { confirm: (message?: string) => boolean }).confirm = (message) => {
+    assert.match(String(message), /Owner-sponsored certification; no customer charge/);
+    assert.match(String(message), /Reference price: 12 Credits/);
+    assert.match(String(message), /Customer charge: 0 Credits/);
+    return true;
+  };
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    assert.equal(String(input), HAMMER_TRANSCRIPT_PREP_ROUTE);
+    paidRequestCount += 1;
+    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+    assert.equal(body.client_request_id, "assemblyai-request-1");
+    if (paidRequestCount === 1) {
+      assert.equal(body.spending_acceptance, undefined);
+      return new Response(JSON.stringify({
+        ok: false,
+        error: {
+          code: "transcription_spending_confirmation_required",
+          message: "Explicit acceptance of the fixed Hammer transcription quote is required.",
+        },
+        billing_quote: quote,
+      }), { status: 409, headers: { "content-type": "application/json" } });
+    }
+    acceptedBody = body;
+    return new Response(JSON.stringify({
+      ok: true,
+      data: {
+        provider: "assemblyai",
+        model: "universal-3-5-pro",
+        provider_request_id: "provider-request-1",
+        text: "owner sponsored transcript",
+        segments: [{ id: "seg_1", start: 0, end: 1, text: "owner sponsored transcript", speaker: "A" }],
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const paid = await requestHammerTranscriptPrep({
+    workspace_id: "ws_01",
+    workpiece_id: "wp_01",
+    media_kind: "recording_video",
+    canonical_workpiece_path: "recordings/episode.webm",
+    mime_type: "video/webm",
+    client_request_id: "assemblyai-request-1",
+  });
+  assert.equal(paidRequestCount, 2);
+  assert.equal(paid.ok, true);
+  if (paid.ok) assert.equal(paid.data.provider, "assemblyai");
+  const spendingAcceptance = (acceptedBody as Record<string, unknown> | null)?.spending_acceptance as Record<string, unknown> | undefined;
+  assert.deepEqual(spendingAcceptance, {
+    quote_id: quote.quote_id,
+    operation_id: quote.operation_id,
+    quote_hash: quote.quote_hash,
+    request_fingerprint: quote.request_fingerprint,
+  });
+
   console.log("Hammer transcript prep API tests passed.");
 }
 

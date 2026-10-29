@@ -106,8 +106,9 @@ import {
 } from "../prep/hammerAudioPolishApi";
 import { resolveAudioPolishInputSource } from "../prep/resolveAudioPolishInputSource";
 import {
+  requestHammerTranscriptPrep,
 } from "../prep/hammerPrepApi";
-import { confirmHammerPreparationReady, refreshBoundHammerPreparationAuthority } from "../prep/hammerPreparationReadyAuthority";
+import { confirmHammerPreparationReady } from "../prep/hammerPreparationReadyAuthority";
 import {
   createWorkpieceJob,
   fetchWorkpieceJob,
@@ -3303,60 +3304,54 @@ export default function HammerWorkspaceEditor(
         }
         const transcriptClientRequestId = claim.selection!.clientRequestId;
 
-        const transcriptJobPayload = {
-          preparation_attempt_id: preparationAttemptId,
-          revision_id: currentRevision.id,
-          canonical_recording_id: currentCanonicalRecording.id,
+        const transcriptRequest = {
+          workspace_id: persistenceTarget.workspaceId,
+          workpiece_id: persistenceTarget.workpieceId,
+          media_kind: prepSource.mediaRef.kind,
           canonical_workpiece_path: prepSource.canonical_workpiece_path,
-          refresh_visual_placements: true,
           client_request_id: transcriptClientRequestId,
           mime_type: inferHammerPrepSourceMimeType(prepSource),
-        };
+        } satisfies Parameters<typeof requestHammerTranscriptPrep>[0];
 
-        const jobCreate = await createWorkpieceJob({
-          workspaceId: persistenceTarget.workspaceId,
-          workpieceId: persistenceTarget.workpieceId,
-          jobType: "hammer_transcript_prep",
-          payloadJson: transcriptJobPayload,
-        });
-        if (!jobCreate.ok) {
+        // Transcript preparation has a dedicated server-owned paid-provider
+        // boundary. Workpiece jobs are still used for final rendering and
+        // explicit regeneration, but prep must not enter the legacy OpenAI
+        // background runner: that runner cannot satisfy the certified
+        // AssemblyAI source, quote, reservation, and one-attempt contract.
+        const transcriptPrep = await requestHammerTranscriptPrep(transcriptRequest);
+        if (!transcriptPrep.ok) {
           if (prepAiFallbackSelectionRef.current) {
             prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
               selection: prepAiFallbackSelectionRef.current,
               failed: true,
             });
           }
-          const userMessage = buildTranscriptJobFailureMessage({
-            status: jobCreate.status,
-            code: jobCreate.code,
-            error: jobCreate.error,
-            retryAfterMs: jobCreate.retryAfterMs,
-          });
-          logTranscriptStage("job:create:failed", {
-            status: jobCreate.status,
-            error: jobCreate.error,
-            retry_after_ms: jobCreate.retryAfterMs ?? null,
+          const userMessage = transcriptPrep.error.message;
+          logTranscriptStage("transcript:prep:failed", {
+            status: transcriptPrep.status,
+            error: transcriptPrep.error.code,
+            retry_after_ms: null,
             user_message: userMessage,
             client_request_id: transcriptClientRequestId,
           }, "error");
-          run.error("transcript_job:create_failed", {
-            status: jobCreate.status,
-            error: jobCreate.error,
-            retry_after_ms: jobCreate.retryAfterMs ?? null,
+          run.error("transcript_prep:failed", {
+            status: transcriptPrep.status,
+            error: transcriptPrep.error.code,
+            retry_after_ms: null,
             user_message: userMessage,
-            payload: transcriptJobPayload,
+            payload: transcriptRequest,
           });
           try {
             console.error("[hammer:transcript:ai_fallback_blocked_reason]", {
               workspace_id: currentLaunchContext.workspace_id,
               workpiece_id: currentLaunchContext.workpiece_id,
-              reason: `job_create_failed_${jobCreate.status}`,
-              message: jobCreate.error,
-              status: jobCreate.status,
-              retry_after_ms: jobCreate.retryAfterMs ?? null,
+              reason: `transcript_prep_failed_${transcriptPrep.status}`,
+              message: transcriptPrep.error.message,
+              status: transcriptPrep.status,
+              retry_after_ms: null,
               user_message: userMessage,
               client_request_id: transcriptClientRequestId,
-              payload: transcriptJobPayload,
+              payload: transcriptRequest,
             });
           } catch {}
           throw new Error(userMessage);
@@ -3365,39 +3360,44 @@ export default function HammerWorkspaceEditor(
         if (prepAiFallbackSelectionRef.current) {
           prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
             selection: prepAiFallbackSelectionRef.current,
-            jobId: jobCreate.data.job.id,
+            jobId: `paid-transcript-prep:${transcriptClientRequestId}`,
           });
         }
-
-        const refreshedPreparation = await refreshBoundHammerPreparationAuthority({
-          target: persistenceTarget, operationKey: hammerOpenOperationRef.current.operationKey,
-          expectedAttemptId: transcriptJobPayload.preparation_attempt_id,
-        });
-        if (!refreshedPreparation.ok) throw new Error(`Transcript job was created, but Hammer could not refresh preparation authority: ${refreshedPreparation.error}`);
-        activePreparationAttemptRef.current = refreshedPreparation.data;
         usedAiPrep = true;
         submittedTranscriptJob = true;
-        setPrepTranscriptJobId(jobCreate.data.job.id);
+        const transcriptArtifactPath = `hammer/recordings/${currentCanonicalRecording.id}/baseline/transcript.v2.json`;
+        const ready = await confirmHammerPreparationReady({
+          target: persistenceTarget,
+          operationKey: hammerOpenOperationRef.current.operationKey,
+          attempt: activePreparationAttemptRef.current,
+          transcriptArtifactPath,
+        });
+        if (!ready.ok) throw new Error(`Transcript persisted, but Hammer could not confirm preparation authority: ${ready.error}`);
+        activePreparationAttemptRef.current = ready.data;
+        setPrepFailureKind(null);
+        setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
+        setShowPreparedHandoff(true);
+        setReloadRequestNonce((current) => current + 1);
         try {
-          console.info("[hammer:transcript:ai_fallback_job_created]", {
+          console.info("[hammer:transcript:ai_fallback_completed]", {
             workspace_id: currentLaunchContext.workspace_id,
             workpiece_id: currentLaunchContext.workpiece_id,
-            job_id: jobCreate.data.job.id,
+            provider: transcriptPrep.data.provider,
+            client_request_id: transcriptClientRequestId,
           });
         } catch {}
-        logTranscriptStage("job:create:ok", {
-          job_id: jobCreate.data.job.id,
-          job_status: jobCreate.data.job.status,
-          job_created_at: jobCreate.data.job.created_at,
+        logTranscriptStage("transcript:prep:ok", {
+          provider: transcriptPrep.data.provider,
+          model: transcriptPrep.data.model,
+          client_request_id: transcriptClientRequestId,
         });
-        run.log("transcript_job:queued", {
-          job_id: jobCreate.data.job.id,
-          job_type: "hammer_transcript_prep",
-          refresh_visual_placements: true,
+        run.log("transcript_prep:completed", {
+          provider: transcriptPrep.data.provider,
+          model: transcriptPrep.data.model,
           canonical_workpiece_path: prepSource.canonical_workpiece_path,
         });
-        outcome = "job_submitted";
-        logTranscriptStage("pipeline:done", { outcome, job_id: jobCreate.data.job.id });
+        outcome = "prepared";
+        logTranscriptStage("pipeline:done", { outcome, provider: transcriptPrep.data.provider });
         return;
       } catch (error) {
         if (!isPrepExecutionActive(executionId)) return;

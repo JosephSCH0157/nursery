@@ -3469,6 +3469,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               quote_hash: error.quote.quoteHash,
               request_fingerprint: error.quote.requestFingerprint,
               credit_charge: error.quote.customerCreditUnits,
+              reference_credit_units: error.quote.referenceCustomerCreditUnits,
               failure_terms: "Failed operations cost 0 Credits. Unknown submissions are never retried automatically.",
               funding_eligible: error.quote.fundingEligible,
               funding_label: error.quote.fundingLabel,

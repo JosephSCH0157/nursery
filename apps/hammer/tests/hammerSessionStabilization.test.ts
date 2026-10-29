@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   HAMMER_SESSION_CONFLICT_CODES,
@@ -149,4 +150,16 @@ test("created, failed, and cancelled job states are terminal for automatic submi
     });
     assert.equal(replay.claimed, false);
   }
+});
+
+test("initial AI fallback uses the paid transcript endpoint and cannot enter the legacy OpenAI job runner", () => {
+  const editor = readFileSync(new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url), "utf8");
+  const start = editor.indexOf("const transcriptRequest = {");
+  const end = editor.indexOf("outcome = \"prepared\";", start);
+  assert.notEqual(start, -1, "initial AI fallback request block must remain present");
+  assert.notEqual(end, -1, "initial AI fallback completion block must remain present");
+  const initialFallback = editor.slice(start, end);
+  assert.match(initialFallback, /requestHammerTranscriptPrep\(transcriptRequest\)/);
+  assert.doesNotMatch(initialFallback, /createWorkpieceJob\(/);
+  assert.match(initialFallback, /paid-transcript-prep:/);
 });

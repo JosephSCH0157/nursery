@@ -104,3 +104,23 @@ test("transcript prep root quote parses through the shared customer contract", (
   assert.equal(readCustomerSpendingQuote(payload)?.credit_charge, 3);
   assert.equal(readCustomerSpendingQuote(payload)?.expires_at, quote.expiresAt);
 });
+
+test("owner-sponsored transcript quote distinguishes the reference price from the zero customer charge", () => {
+  const payload = {
+    ok: false,
+    error: {
+      code: "transcription_spending_confirmation_required",
+      message: "Accept the exact owner-sponsored reference price.",
+    },
+    billing_quote: {
+      ...toHammerCustomerSpendingQuote(quote),
+      credit_charge: 0,
+      reference_credit_units: 12,
+      funding_label: "Owner-sponsored certification; no customer charge",
+    },
+  };
+  const parsed = readCustomerSpendingQuote(payload);
+  assert.equal(parsed?.credit_charge, 0);
+  assert.equal(parsed?.reference_credit_units, 12);
+  assert.equal(parsed?.funding_label, "Owner-sponsored certification; no customer charge");
+});
