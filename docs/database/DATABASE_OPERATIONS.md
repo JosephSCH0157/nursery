@@ -577,6 +577,41 @@ rows, and `halt_new`/inactive routing. The wrapper prohibits `--include-all`,
 history repair, and direct migration-history writes. A 420 or 421 Apply token
 does not authorize migration 422.
 
+The migration-423 trigger-ACL correction uses its own version-pinned hosted
+wrapper and remains separately authorization-gated:
+
+```powershell
+pnpm test:db:hammer-trigger-acl-hardening:hosted-deployment
+pnpm preflight:db:hammer-trigger-acl-hardening:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+Preflight requires exactly 422 installed rows headed by `20261029033827`,
+`historical-v1`, the exact `20261029110858` migration as the sole pending
+version, SHA-256
+`e28ea66618cb681a06323174f6390cd8eeb7afb1d5c744d9ea6cd12290949a7a`,
+fresh recovery evidence, the managed Windows Credential Manager credential,
+and Supabase CLI 2.84.2. It performs only linked migration listing and the
+ordinary linked-tail dry run.
+
+Apply requires the exact, separately reviewed token:
+
+```powershell
+./scripts/invoke-hammer-trigger-acl-hardening-423-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-HAMMER-TRIGGER-ACL-HARDENING-423
+```
+
+PostVerify requires 423 rows headed by `20261029110858`, unchanged
+`historical-v1`, the original trigger binding, denied direct execution for
+PUBLIC/anonymous/authenticated roles, retained service-role execution, global
+Test preservation, zero Hammer authority/operation/attempt/transcript rows,
+and `halt_new`/inactive routing. The wrapper does not install funding authority
+or authorize provider execution.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell
