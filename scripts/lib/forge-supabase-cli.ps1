@@ -3,7 +3,10 @@ Set-StrictMode -Version Latest
 function Resolve-ForgeSupabaseExecutable {
   [CmdletBinding()]
   param()
-  $command = Get-Command supabase -CommandType Application -ErrorAction Stop | Select-Object -First 1
+  $command = Get-Command supabase -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -eq $command -and $IsWindows) {
+    $command = Get-Command supabase.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  }
   if ($null -eq $command -or [string]::IsNullOrWhiteSpace($command.Source)) {
     throw 'Supabase CLI executable is unavailable.'
   }
