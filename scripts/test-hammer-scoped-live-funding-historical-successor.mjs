@@ -23,7 +23,6 @@ test("Hammer scoped Live funding successor uses the exact chained target and row
     "migrationContractVerified=$true",
   ]) assert.ok(successor.includes(required), `missing chained-successor assertion: ${required}`);
 });
-
 test("certification checks security, inactivity, catalog equality, and predecessor preservation", () => {
   for (const required of [
     "hammer_scoped_live_funding_contract.sql",

@@ -63,7 +63,6 @@ function Get-FreePortBlock {
   }
   throw 'Unable to reserve a local port block.'
 }
-
 function Get-PinnedSupabaseCliVersion {
   if(-not [IO.Path]::IsPathFullyQualified($supabaseExecutable) -or -not(Test-Path -LiteralPath $supabaseExecutable -PathType Leaf)){
     throw 'Pinned Supabase CLI executable is missing or unresolved.'

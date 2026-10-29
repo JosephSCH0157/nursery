@@ -32,7 +32,6 @@ function Get-NurseryInventory {
     networks=@(docker network ls --filter 'label=com.supabase.cli.project=nursery' --format '{{.ID}}|{{.Name}}'|Sort-Object)
   }
 }
-
 function Test-SameInventory($Before,$After) {
   return (($Before.containers-join "`n") -ceq ($After.containers-join "`n") -and
           ($Before.volumes-join "`n") -ceq ($After.volumes-join "`n") -and
