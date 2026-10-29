@@ -104,9 +104,12 @@ export type HammerAssemblyAiQuote = Readonly<{
 }>;
 
 export class HammerAssemblyAiQuoteRequiredError extends Error {
-  constructor(readonly quote: HammerAssemblyAiQuote) {
+  readonly quote: HammerAssemblyAiQuote;
+
+  constructor(quote: HammerAssemblyAiQuote) {
     super("Explicit acceptance of the fixed Hammer transcription quote is required.");
     this.name = "HammerAssemblyAiQuoteRequiredError";
+    this.quote = quote;
   }
 }
 
@@ -146,13 +149,25 @@ type IdFactory = () => string;
  * caller cannot turn the booleans in this class into provider authority.
  */
 export class HammerAssemblyAiPaidExecutionCoordinator {
+  private readonly gate: HammerAssemblyAiPaidGate;
+  private readonly customerGate: HammerAssemblyAiPaidGate;
+  private readonly transport: AssemblyAiTransport;
+  private readonly ids: IdFactory;
+  private readonly wait: (milliseconds: number) => Promise<void>;
+
   constructor(
-    private readonly gate: HammerAssemblyAiPaidGate,
-    private readonly customerGate: HammerAssemblyAiPaidGate,
-    private readonly transport: AssemblyAiTransport,
-    private readonly ids: IdFactory = randomUUID,
-    private readonly wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
-  ) {}
+    gate: HammerAssemblyAiPaidGate,
+    customerGate: HammerAssemblyAiPaidGate,
+    transport: AssemblyAiTransport,
+    ids: IdFactory = randomUUID,
+    wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  ) {
+    this.gate = gate;
+    this.customerGate = customerGate;
+    this.transport = transport;
+    this.ids = ids;
+    this.wait = wait;
+  }
 
   private async rpc(name: string, args: Record<string, unknown>): Promise<JsonRow> {
     const response = await this.gate.rpc(name, args);
