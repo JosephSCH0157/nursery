@@ -446,6 +446,56 @@ history digest and existing recording receipt unchanged, catalog equality at
 16,129 objects, forced RLS, authenticated write denial, zero Hammer H2-C data
 rows, no provider or financial calls, and complete scoped teardown.
 
+Migration 421 is admitted only as the explicit successor to the unchanged
+Hammer H2-C contract. Its static tooling and credential-free two-lane replay
+commands are:
+
+```powershell
+pnpm test:db:hammer-first-transcription:historical-tooling
+pnpm certify:db:hammer-first-transcription:historical
+```
+
+The replay verifies the 420-row `historical-v1` predecessor, discovers and
+applies only `20261029004958`, and requires 421 rows in both default-privilege
+lanes. It compares the 16,269-object catalog against
+`baseline/v1-hammer-first-transcription/successor-catalog-fingerprint.json`
+(`a8e8be7eb110d520e29b61e552d76f0378b268cc50ff4ca59c7ed11d524173d5`,
+normalized contract
+`6d4c9fbea2f11e3562130384ea6da5d0ce95d561668f31dc317ae0a8e42bd293`),
+preserves the frozen historical and predecessor anchors, verifies forced RLS,
+ACLs, exact-recording authority, Test-funded provider denial, failure relief,
+settlement ordering, and zero authority/data rows after migration alone.
+
+The migration-421 hosted wrapper is locally contract-tested and remains
+separately authorization-gated:
+
+```powershell
+pnpm test:db:hammer-first-transcription:hosted-deployment
+pnpm preflight:db:hammer-first-transcription:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+Preflight is read-only apart from private temporary state: it requires exactly
+420 installed rows headed by `20261028092438`, exactly one pending migration,
+the certified hash, `historical-v1`, current recovery evidence, and a managed
+credential; it then runs linked list and dry-run only. Apply requires a new,
+exact owner authorization token and uses the same ordinary linked tail push:
+
+```powershell
+./scripts/invoke-hammer-first-transcription-421-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-HAMMER-FIRST-TRANSCRIPTION-421
+```
+
+PostVerify independently requires 421 rows, the exact hosted head, unchanged
+`historical-v1`, four forced-RLS successor tables, zero successor authority
+rows, authenticated write denial, and `halt_new`/inactive routing. Direct CLI
+application, `--include-all`, history repair, and reuse of the H2-C 420 token
+remain prohibited.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell

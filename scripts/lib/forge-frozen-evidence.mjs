@@ -19,6 +19,8 @@ export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseli
 export const RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "0f43b227ad3714c33afc80fef9907a8a7fcb5a2ce69d851f28312c06c44fa74f";
 export const HAMMER_H2C_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json";
 export const HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 = "945872c2516e433e0526f08c4ca531f4b3bb46fbb5806c501166a21b11781e17";
+export const HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-first-transcription/successor-contract.v1.json";
+export const HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256 = "8836c293a402affb79c0b435d7f702b7bccd5a9d256ecd8f4474dd9ab526f255";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -427,6 +429,40 @@ function loadHammerH2CSuccessorContract(root, head) {
   return contract;
 }
 
+function loadHammerFirstTranscriptionSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH]).get(HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Hammer first-transcription successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.hammer-first-transcription-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261029004958" ||
+      addition?.path !== "supabase/migrations/20261029004958_hammer_first_transcription_activation.sql" ||
+      addition?.sha256 !== "318c81bf74cef3c3124641b2b9f62c240a55dd4b3d375d5ac61bf1a588659803" ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Hammer first-transcription successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Hammer first-transcription successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Hammer first-transcription successor-contract working bytes differ from HEAD.");
+  }
+  const index = git(root, ["ls-files", "-s", "--", HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH]).trim();
+  const match = /^(\d+) ([0-9a-f]+) 0\t/.exec(index);
+  if (!match || match[1] !== entry.mode || match[2] !== entry.oid) {
+    throw new Error("Hammer first-transcription successor-contract staged content differs from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -613,10 +649,10 @@ function verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors,
     scope,
     fileCount: records.length,
     successorFileCount: successorRecords.length,
-    successorContractPath: HAMMER_H2C_SUCCESSOR_CONTRACT_PATH,
-    successorContractSha256: HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256,
-    predecessorSuccessorContractPath: RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_PATH,
-    predecessorSuccessorContractSha256: RECORDING_AUTHORITY_SUCCESSOR_CONTRACT_SHA256,
+    successorContractPath: HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_PATH,
+    successorContractSha256: HAMMER_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256,
+    predecessorSuccessorContractPath: HAMMER_H2C_SUCCESSOR_CONTRACT_PATH,
+    predecessorSuccessorContractSha256: HAMMER_H2C_SUCCESSOR_CONTRACT_SHA256,
     expectedModes: modes,
     requireExactWorktreeBytes,
     worktreeByteDifferences,
@@ -767,12 +803,14 @@ export function verifyFrozenEvidence({
   const gate6p = loadGate6PSuccessorContract(root, head);
   const recordingAuthority = loadRecordingAuthoritySuccessorContract(root, head);
   const hammerH2C = loadHammerH2CSuccessorContract(root, head);
+  const hammerFirstTranscription = loadHammerFirstTranscriptionSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
     { gate: "gate6p", contract: gate6p },
     { gate: "recording-authority", contract: recordingAuthority },
     { gate: "hammer-h2c", contract: hammerH2C },
+    { gate: "hammer-first-transcription", contract: hammerFirstTranscription },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }

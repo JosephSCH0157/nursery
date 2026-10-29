@@ -103,7 +103,7 @@ $restrictive_defaults$
     'supabase/tests/public_slice_a_security_behavior.sql',
     'supabase/tests/gate6o_episode_storage_tier_contract.sql'
     'supabase/tests/gate6p_storage_bucket_contract.sql'
-    'supabase/tests/hammer_h2c_inactive_transcription_contract.sql'
+    'supabase/tests/hammer_first_transcription_activation_contract.sql'
   )) {
     $source = Join-Path $repo $test
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -127,13 +127,13 @@ $restrictive_defaults$
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
   Push-Location $workdir
   try {
-    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-hammer-h2c/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-hammer-first-transcription/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
   }
   finally { Pop-Location }
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.hammer-h2c-baseline-successor-certification.v1'
+    schema = 'forge.hammer-first-transcription-baseline-successor-certification.v1'
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

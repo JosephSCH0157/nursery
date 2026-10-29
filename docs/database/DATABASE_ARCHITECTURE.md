@@ -34,6 +34,8 @@ The recording-authority successor adds `20261027030139_anvil_recording_authority
 
 The Hammer H2-C successor adds `20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql` after the recording-authority successor. It installs private, RLS-forced transcription evidence structures and service-only functions while creating no provider authority, customer price, spending scope, reservation, operation, attempt, transcript, or Live authority. The byte-locked chronology and structure are [Hammer H2-C successor-contract.v1.json](baseline/v1-hammer-h2c/successor-contract.v1.json) and its [successor catalog fingerprint](baseline/v1-hammer-h2c/successor-catalog-fingerprint.json).
 
+The Hammer first-transcription successor adds `20261029004958_hammer_first_transcription_activation.sql` after Hammer H2-C. It installs the service-only, exact-recording quote, reservation, single-attempt, persistence, settlement, and reconciliation authority required for a separately authorized operation, but creates no provider, capacity, activation, quote, reservation, attempt, operation, transcript, or Live data merely by applying the migration. Test-funded real-provider execution remains forbidden and Hammer remains `halt_new`. The byte-locked chronology and structure are [Hammer first-transcription successor-contract.v1.json](baseline/v1-hammer-first-transcription/successor-contract.v1.json) and its [successor catalog fingerprint](baseline/v1-hammer-first-transcription/successor-catalog-fingerprint.json).
+
 The marker is an enforcement aid, not permission to rewrite `supabase_migrations.schema_migrations`. Forge never fabricates, repairs, or directly edits migration history.
 
 ## Immutable roots and shared future

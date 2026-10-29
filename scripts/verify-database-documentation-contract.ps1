@@ -30,6 +30,10 @@ $hammerH2CRelativePath = 'docs/database/baseline/v1-hammer-h2c/successor-contrac
 $hammerH2CPath = Join-Path $repo $hammerH2CRelativePath
 $hammerH2CSha256 = '945872c2516e433e0526f08c4ca531f4b3bb46fbb5806c501166a21b11781e17'
 $hammerH2C = Get-Content -LiteralPath $hammerH2CPath -Raw | ConvertFrom-Json
+$hammerFirstTranscriptionRelativePath = 'docs/database/baseline/v1-hammer-first-transcription/successor-contract.v1.json'
+$hammerFirstTranscriptionPath = Join-Path $repo $hammerFirstTranscriptionRelativePath
+$hammerFirstTranscriptionSha256 = '8836c293a402affb79c0b435d7f702b7bccd5a9d256ecd8f4474dd9ab526f255'
+$hammerFirstTranscription = Get-Content -LiteralPath $hammerFirstTranscriptionPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -85,6 +89,7 @@ foreach ($reference in @(
   $gate6pRelativePath
   $recordingAuthorityRelativePath
   $hammerH2CRelativePath
+  $hammerFirstTranscriptionRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -135,6 +140,17 @@ if ($hammerH2C.predecessor.contractSha256 -ne $recordingAuthoritySha256 -or
     $hammerH2C.catalogSuccessor.normalizedContractSha256 -ne '803e02df1c18228aee39f5e56b9158f74c6c370386fcd2cafd1552314a288807') {
   $failures.Add('Hammer H2-C successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
+if ((Get-FileHash -LiteralPath $hammerFirstTranscriptionPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hammerFirstTranscriptionSha256) {
+  $failures.Add('Hammer first-transcription successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($hammerFirstTranscription.predecessor.contractSha256 -ne $hammerH2CSha256 -or
+    $hammerFirstTranscription.sharedTailAddition.version -ne '20261029004958' -or
+    $hammerFirstTranscription.historicalSuccessor.finalRows -ne 421 -or
+    $hammerFirstTranscription.sharedTailAddition.sha256 -ne '318c81bf74cef3c3124641b2b9f62c240a55dd4b3d375d5ac61bf1a588659803' -or
+    $hammerFirstTranscription.catalogSuccessor.fileSha256 -ne 'a8e8be7eb110d520e29b61e552d76f0378b268cc50ff4ca59c7ed11d524173d5' -or
+    $hammerFirstTranscription.catalogSuccessor.normalizedContractSha256 -ne '6d4c9fbea2f11e3562130384ea6da5d0ce95d561668f31dc317ae0a8e42bd293') {
+  $failures.Add('Hammer first-transcription successor contract has unexpected predecessor, chronology, or migration evidence.')
+}
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
 } elseif ((Get-FileHash -LiteralPath $trustAnchorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $trustAnchorSha256) {
@@ -172,8 +188,13 @@ foreach ($command in @(
   'pnpm certify:db:hammer-h2c:historical',
   'pnpm test:db:hammer-h2c:historical-tooling',
   'pnpm test:db:hammer-h2c:hosted-deployment',
+  'pnpm certify:db:hammer-first-transcription:historical',
+  'pnpm test:db:hammer-first-transcription:historical-tooling',
+  'pnpm test:db:hammer-first-transcription:hosted-deployment',
+  'pnpm preflight:db:hammer-first-transcription:hosted',
   'prepare:db:recovery-evidence',
   'invoke-hammer-h2c-420-hosted-deployment.ps1',
+  'invoke-hammer-first-transcription-421-hosted-deployment.ps1',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {

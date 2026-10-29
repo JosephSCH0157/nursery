@@ -1,0 +1,61 @@
+{
+  "schema": "forge.hammer-first-transcription-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer H2-C",
+    "contractPath": "docs/database/baseline/v1-hammer-h2c/successor-contract.v1.json",
+    "contractSha256": "945872c2516e433e0526f08c4ca531f4b3bb46fbb5806c501166a21b11781e17",
+    "historicalRows": 420
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerH2CSuccessorContractSha256": "945872c2516e433e0526f08c4ca531f4b3bb46fbb5806c501166a21b11781e17"
+  },
+  "sharedTailAddition": {
+    "version": "20261029004958",
+    "path": "supabase/migrations/20261029004958_hammer_first_transcription_activation.sql",
+    "sha256": "318c81bf74cef3c3124641b2b9f62c240a55dd4b3d375d5ac61bf1a588659803"
+  },
+  "historicalSuccessor": {
+    "finalRows": 421,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-first-transcription/successor-catalog-fingerprint.json",
+    "fileSha256": "a8e8be7eb110d520e29b61e552d76f0378b268cc50ff4ca59c7ed11d524173d5",
+    "objectCount": 16269,
+    "normalizedContractSha256": "6d4c9fbea2f11e3562130384ea6da5d0ce95d561668f31dc317ae0a8e42bd293"
+  },
+  "inactivityContract": {
+    "providerAuthorityRowsCreated": 0,
+    "capacityAuthorityRowsCreated": 0,
+    "activationAuthorityRowsCreated": 0,
+    "quoteBindingRowsCreated": 0,
+    "activationConsumptionRowsCreated": 0,
+    "reservationRowsCreated": 0,
+    "providerAttemptRowsCreated": 0,
+    "transcriptionOperationRowsCreated": 0,
+    "canonicalTranscriptRowsCreated": 0,
+    "executionAuthorizedMustRemainFalse": true,
+    "hammerRouteMustRemainHaltNew": true,
+    "testFundedRealProviderMustRemainForbidden": true,
+    "liveAuthorityCreated": false,
+    "authenticatedWritesDenied": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}
