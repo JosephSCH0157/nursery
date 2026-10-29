@@ -39,7 +39,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-hammer-trigger-acl-hardening/successor-catalog-fingerprint.json",
-    "status": "pending-governed-capture"
+    "fileSha256": "a07a57421d39330de31170bc7046e72beb768fc6ef97dbe6350620839934c873",
+    "objectCount": 16332,
+    "normalizedContractSha256": "47b134565e3c1ef88567dbee027fff6a5a0ab48e9c8126948ccd15ae145d6a0f"
   },
   "inactivityContract": {
     "triggerBodyChanged": false,

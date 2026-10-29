@@ -38,6 +38,10 @@ $hammerScopedLiveFundingRelativePath = 'docs/database/baseline/v1-hammer-scoped-
 $hammerScopedLiveFundingPath = Join-Path $repo $hammerScopedLiveFundingRelativePath
 $hammerScopedLiveFundingSha256 = '9a06c5a28f0de670bd87864d67086b18acefb82d891a7b18c6f85ad247926a21'
 $hammerScopedLiveFunding = Get-Content -LiteralPath $hammerScopedLiveFundingPath -Raw | ConvertFrom-Json
+$hammerTriggerAclHardeningRelativePath = 'docs/database/baseline/v1-hammer-trigger-acl-hardening/successor-contract.v1.json'
+$hammerTriggerAclHardeningPath = Join-Path $repo $hammerTriggerAclHardeningRelativePath
+$hammerTriggerAclHardeningSha256 = '9cd5212ea429b6b55d2ad742b3cd3417030c67dc6967dfc519af7931c73c8311'
+$hammerTriggerAclHardening = Get-Content -LiteralPath $hammerTriggerAclHardeningPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -95,6 +99,7 @@ foreach ($reference in @(
   $hammerH2CRelativePath
   $hammerFirstTranscriptionRelativePath
   $hammerScopedLiveFundingRelativePath
+  $hammerTriggerAclHardeningRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -167,6 +172,17 @@ if ($hammerScopedLiveFunding.predecessor.contractSha256 -ne $hammerFirstTranscri
     $hammerScopedLiveFunding.catalogSuccessor.normalizedContractSha256 -ne '930606ea7dd389ad15c519d1fb9a1b3692c328314c62ae6422af53b9e9430de8') {
   $failures.Add('Hammer scoped-Live-funding successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
+if ((Get-FileHash -LiteralPath $hammerTriggerAclHardeningPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hammerTriggerAclHardeningSha256) {
+  $failures.Add('Hammer trigger-ACL-hardening successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($hammerTriggerAclHardening.predecessor.contractSha256 -ne $hammerScopedLiveFundingSha256 -or
+    $hammerTriggerAclHardening.sharedTailAddition.version -ne '20261029110858' -or
+    $hammerTriggerAclHardening.historicalSuccessor.finalRows -ne 423 -or
+    $hammerTriggerAclHardening.sharedTailAddition.sha256 -ne 'e28ea66618cb681a06323174f6390cd8eeb7afb1d5c744d9ea6cd12290949a7a' -or
+    $hammerTriggerAclHardening.catalogSuccessor.fileSha256 -ne 'a07a57421d39330de31170bc7046e72beb768fc6ef97dbe6350620839934c873' -or
+    $hammerTriggerAclHardening.catalogSuccessor.normalizedContractSha256 -ne '47b134565e3c1ef88567dbee027fff6a5a0ab48e9c8126948ccd15ae145d6a0f') {
+  $failures.Add('Hammer trigger-ACL-hardening successor contract has unexpected predecessor, chronology, or migration evidence.')
+}
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
 } elseif ((Get-FileHash -LiteralPath $trustAnchorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $trustAnchorSha256) {
@@ -208,6 +224,8 @@ foreach ($command in @(
   'pnpm test:db:hammer-first-transcription:historical-tooling',
   'pnpm certify:db:hammer-scoped-live-funding:historical',
   'pnpm test:db:hammer-scoped-live-funding:historical-tooling',
+  'pnpm certify:db:hammer-trigger-acl-hardening:historical',
+  'pnpm test:db:hammer-trigger-acl-hardening:historical-tooling',
   'pnpm test:db:hammer-first-transcription:hosted-deployment',
   'pnpm preflight:db:hammer-first-transcription:hosted',
   'pnpm test:db:hammer-scoped-live-funding:hosted-deployment',

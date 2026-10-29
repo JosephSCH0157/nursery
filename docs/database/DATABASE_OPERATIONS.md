@@ -489,6 +489,28 @@ disposable Docker resources and makes no hosted request. Certification does not
 authorize applying migration 422, publishing Checkout, taking payment, or
 consuming the one-operation authority.
 
+Migration 423 is admitted only as the explicit successor to the 422-row Hammer
+scoped-Live-funding state. Its static tooling and credential-free two-lane replay
+commands are:
+
+```powershell
+pnpm test:db:hammer-trigger-acl-hardening:historical-tooling
+pnpm certify:db:hammer-trigger-acl-hardening:historical
+```
+
+The replay applies only `20261029110858`, requires 423 `historical-v1` rows,
+and compares the 16,332-object catalog against
+`baseline/v1-hammer-trigger-acl-hardening/successor-catalog-fingerprint.json`
+(`a07a57421d39330de31170bc7046e72beb768fc6ef97dbe6350620839934c873`,
+normalized contract
+`47b134565e3c1ef88567dbee027fff6a5a0ab48e9c8126948ccd15ae145d6a0f`).
+It proves under permissive and restrictive default privileges that the trigger
+binding is unchanged, direct anonymous/authenticated execution is denied,
+service-role execution remains available, Data API behavior is unchanged, and
+no financial or provider state is created. The command uses only task-owned
+disposable Docker resources and makes no hosted request. Certification does not
+authorize applying migration 423 or installing operational funding authority.
+
 The migration-421 hosted wrapper is locally contract-tested and remains
 separately authorization-gated:
 
