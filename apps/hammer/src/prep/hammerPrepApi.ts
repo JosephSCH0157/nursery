@@ -46,7 +46,7 @@ export interface HammerTranscriptPrepSegment {
 }
 
 export interface HammerTranscriptPrepResponse {
-  provider: "openai";
+  provider: "openai" | "assemblyai";
   model: string;
   provider_request_id: string | null;
   text: string | null;
@@ -339,7 +339,8 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
   const data = readObject(root?.data);
   const segmentsRaw = Array.isArray(data?.segments) ? data.segments : null;
   const model = readString(data?.model);
-  if (!segmentsRaw || !model) {
+  const provider = readString(data?.provider);
+  if (!segmentsRaw || !model || (provider !== "openai" && provider !== "assemblyai")) {
     return null;
   }
 
@@ -348,7 +349,7 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
     .filter((segment): segment is HammerTranscriptPrepSegment => Boolean(segment));
 
   return {
-    provider: "openai",
+    provider,
     model,
     provider_request_id: readString(data?.provider_request_id),
     text: readString(data?.text),

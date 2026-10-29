@@ -84,6 +84,20 @@ import {
 import { QUENCH_METADATA_ASSIST_ROUTE } from "../../quench/src/core/quenchMetadataAssist.contract";
 import { detectHammerMediaRuntime } from "./hammer-media-runtime";
 import {
+  HammerAssemblyAiPaidExecutionCoordinator,
+  HammerAssemblyAiQuoteRequiredError,
+} from "@forge/tongs/server/hammer-assemblyai-paid-execution";
+import {
+  createHammerAssemblyAiHttpTransport,
+  fingerprintHammerAssemblyAiRequest,
+  resolveHammerAssemblyAiServerCredential,
+  type HammerAssemblyAiSourceAuthority,
+} from "@forge/tongs/server/hammer-assemblyai-transcription";
+import {
+  HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY,
+  type HammerAssemblyAiCapacityEvidence,
+} from "@forge/tongs/server/hammer-assemblyai-resource-policy";
+import {
   readHammerForgeFfmpegClientConfig,
   transcodeToWorkingWavWithForgeFfmpeg,
 } from "./hammer-forge-ffmpeg-client";
@@ -2211,6 +2225,8 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
   const runtimeConfig = options.runtimeConfig ?? resolveHearthRuntimeConfig();
   const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
+  const hammerTranscriptionProvider = readTrimmed(process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER) ?? "openai";
+  const assemblyAiCredential = resolveHammerAssemblyAiServerCredential(process.env);
   const quenchMetadataModel = readTrimmed(process.env.QUENCH_METADATA_AI_MODEL) ?? "gpt-5.3";
   const supabaseService: SupabaseClient<Database> | null = runtimeConfig.supabaseUrl && runtimeConfig.supabaseServiceRoleKey
     ? createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseServiceRoleKey, {
@@ -3012,7 +3028,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         return;
       }
 
-      if (!textApiKey) {
+      if (hammerTranscriptionProvider !== "assemblyai" && !textApiKey) {
         sendTranscriptPrepError(res, {
           status: 500,
           code: "SERVER_NOT_CONFIGURED",
@@ -3272,12 +3288,14 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
       const uploadMode = resolveTranscriptUploadMode(req);
       const directAcceptableForOpenAi = originalFileBytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES
         && !originalContentType.toLowerCase().startsWith("video/");
-      const transcriptionMode = configuredOpenAiTranscriptionMode();
+      const transcriptionMode = hammerTranscriptionProvider === "assemblyai"
+        ? "enforce"
+        : configuredOpenAiTranscriptionMode();
       if (transcriptionMode === "halt_new") {
         sendJson(res, 423, { ok: false, error: { code: "paid_submissions_halted", message: "New transcription submissions are halted." } });
         return;
       }
-      if (transcriptionMode === "enforce" && (!directAcceptableForOpenAi || uploadMode === "transcoded" || uploadMode === "compare")) {
+      if (hammerTranscriptionProvider !== "assemblyai" && transcriptionMode === "enforce" && (!directAcceptableForOpenAi || uploadMode === "transcoded" || uploadMode === "compare")) {
         sendJson(res, 503, { ok: false, error: { code: "supporting_cost_not_authorized", message: "This source requires probe/transcode work that is not included in an active transcription cost policy." } });
         return;
       }
@@ -3290,6 +3308,179 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         original_direct_acceptable_for_openai: directAcceptableForOpenAi,
         upload_mode: uploadMode,
       });
+
+      if (hammerTranscriptionProvider === "assemblyai") {
+        if ("local_root_abs" in request) {
+          sendJson(res, 409, { ok: false, error: {
+            code: "canonical_source_required",
+            message: "Paid transcription requires the exact canonical Tongs recording source.",
+          } });
+          return;
+        }
+        if (!supabaseService || !openAiTextGate || !runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+          sendJson(res, 503, { ok: false, error: { code: "paid_execution_control_unavailable", message: "Transcription funding controls are unavailable." } });
+          return;
+        }
+        if (!assemblyAiCredential.configured) {
+          sendTranscriptPrepError(res, {
+            status: 500,
+            code: "SERVER_NOT_CONFIGURED",
+            message: "AssemblyAI server credential is unavailable.",
+            retryable: false,
+            meta: readPrepMetaFromBody(body),
+          });
+          return;
+        }
+        const sourceSha256 = sha256Bytes(originalFileBytes);
+        const policy = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY;
+        if (originalFileBytes.byteLength !== policy.exactSourceBytes || sourceSha256 !== policy.exactMediaSha256) {
+          sendJson(res, 409, { ok: false, error: {
+            code: "canonical_source_changed",
+            message: "The active recording no longer matches the certified first-transcription source.",
+          } });
+          return;
+        }
+        let capacityEvidence: HammerAssemblyAiCapacityEvidence;
+        try {
+          capacityEvidence = JSON.parse(readTrimmed(process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON) ?? "") as HammerAssemblyAiCapacityEvidence;
+        } catch {
+          sendJson(res, 503, { ok: false, error: {
+            code: "capacity_evidence_unavailable",
+            message: "Current private Netlify and Supabase capacity evidence is required.",
+          } });
+          return;
+        }
+        const signed = await supabaseService.storage
+          .from(policy.exactStorageBucket)
+          .createSignedUrl(policy.exactStorageObjectPath, 3_600);
+        if (signed.error || !signed.data?.signedUrl) {
+          sendJson(res, 503, { ok: false, error: {
+            code: "canonical_source_url_unavailable",
+            message: "The exact canonical recording could not be prepared for bounded provider retrieval.",
+          } });
+          return;
+        }
+        const sourceAuthority: HammerAssemblyAiSourceAuthority = {
+          schema: "forge.hammer.transcription-source-authority.v1",
+          completionId: policy.exactCompletionId,
+          mediaRevision: policy.exactMediaRevision,
+          mediaPath: policy.exactStorageObjectPath,
+          mediaSha256: policy.exactMediaSha256,
+          mediaBytes: policy.exactSourceBytes,
+          mediaContentType: originalContentType,
+          durationMs: policy.exactSourceDurationMs,
+          hasAudioStream: true,
+          verificationSource: "trusted_tongs_storage_readback",
+          probeImplementation: "tongs:certified-canonical-readback",
+        };
+        const requestFingerprint = fingerprintHammerAssemblyAiRequest({
+          workspaceId: request.workspace_id,
+          workpieceId: request.workpiece_id,
+          canonicalRecordingId: policy.exactCanonicalRecordingId,
+          recordingRevisionId: policy.exactRecordingRevisionId,
+          source: sourceAuthority,
+        });
+        const userGate = {
+          rpc: async (name: string, args: Record<string, unknown>) => {
+            const response = await fetch(`${runtimeConfig.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
+              method: "POST",
+              headers: { apikey: runtimeConfig.supabaseRpcKey!, authorization: `Bearer ${userAccessToken}`, "content-type": "application/json" },
+              body: JSON.stringify(args),
+            });
+            const data = await response.json().catch(() => null);
+            return response.ok
+              ? { data, error: null }
+              : { data: null, error: { message: readTrimmed(readJsonObject(data)?.message) ?? `RPC ${name} failed` } };
+          },
+        };
+        const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(
+          openAiTextGate,
+          userGate,
+          createHammerAssemblyAiHttpTransport({ credential: assemblyAiCredential }),
+        );
+        try {
+          const acceptance = request.spending_acceptance
+            ? {
+              quoteId: request.spending_acceptance.quoteId,
+              operationId: request.spending_acceptance.operationId,
+              quoteHash: request.spending_acceptance.quoteHash,
+              requestFingerprint: request.spending_acceptance.requestFingerprint,
+            }
+            : null;
+          const coordinated = await coordinator.execute({
+            userId,
+            workspaceId: request.workspace_id,
+            workpieceId: request.workpiece_id,
+            canonicalRecordingId: policy.exactCanonicalRecordingId,
+            recordingRevisionId: policy.exactRecordingRevisionId,
+            source: sourceAuthority,
+            requestFingerprint,
+            capacityEvidence,
+            audioUrl: signed.data.signedUrl,
+            projectRef: "wtvdjndyxegudufrompx",
+            acceptance,
+          });
+          if (coordinated.state === "submission_unknown") {
+            sendJson(res, 202, { ok: false, error: { code: "submission_unknown", message: "Provider submission is unresolved. No automatic retry or customer charge occurred." } });
+            return;
+          }
+          if (coordinated.state === "provider_failed") {
+            sendJson(res, 502, { ok: false, error: { code: "provider_failed", message: "Transcription failed. No customer charge was made." } });
+            return;
+          }
+          const transcript = coordinated.result ?? {};
+          const provider = readJsonObject(transcript.provider);
+          const segments = Array.isArray(transcript.segments)
+            ? transcript.segments.flatMap((value) => {
+              const segment = readJsonObject(value);
+              const startMs = Number(segment?.start_ms);
+              const endMs = Number(segment?.end_ms);
+              const text = readTrimmed(segment?.text);
+              if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !text) return [];
+              return [{
+                id: readTrimmed(segment?.id),
+                start: startMs / 1_000,
+                end: endMs / 1_000,
+                text,
+                speaker: readTrimmed(segment?.speaker),
+              } satisfies HammerTranscriptPrepSegment];
+            })
+            : [];
+          sendJson(res, 200, { ok: true, data: {
+            provider: "assemblyai",
+            model: "universal-3-5-pro",
+            provider_request_id: readTrimmed(provider?.provider_request_id),
+            text: readTrimmed(transcript.text),
+            segments,
+          }, billing_receipt: {
+            operation_id: coordinated.operationId,
+            reservation_id: coordinated.reservationId,
+            settlement_state: "awaiting_authoritative_supplier_reconciliation",
+          } });
+          return;
+        } catch (error) {
+          if (error instanceof HammerAssemblyAiQuoteRequiredError) {
+            sendJson(res, error.quote.fundingEligible ? 409 : 402, { ok: false, error: {
+              code: "transcription_spending_confirmation_required",
+              message: error.message,
+            }, billing_quote: {
+              quote_id: error.quote.quoteId,
+              operation_id: error.quote.operationId,
+              quote_hash: error.quote.quoteHash,
+              request_fingerprint: error.quote.requestFingerprint,
+              credit_charge: error.quote.customerCreditUnits,
+              failure_terms: "Failed operations cost 0 Credits. Unknown submissions are never retried automatically.",
+              funding_eligible: error.quote.fundingEligible,
+              funding_label: error.quote.fundingLabel,
+              model_display_name: "AssemblyAI Universal-3.5 Pro + speaker labels",
+              model_tradeoff_summary: "US processing; provider retains account data for 30 days under the certified account settings.",
+              expires_at: error.quote.expiresAt,
+            } });
+            return;
+          }
+          throw error;
+        }
+      }
 
       const uploadMedia = await prepareTranscriptUploadMedia({
         fileBytes: originalFileBytes,
