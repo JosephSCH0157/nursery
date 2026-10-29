@@ -19,6 +19,12 @@ export type CustomerSpendingAcceptance = {
   request_fingerprint: string;
 };
 
+export type ScopedLiveFundingContext = {
+  workspace_id: string;
+  workpiece_id: string;
+  route_code: "hammer.transcript_prep";
+};
+
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -85,6 +91,7 @@ export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): bool
  */
 export function requestCustomerSpendingAcceptance(
   quote: CustomerSpendingQuote,
+  scopedLiveFunding?: ScopedLiveFundingContext,
 ): CustomerSpendingAcceptance | null {
   if (quote.funding_eligible) {
     return confirmCustomerSpendingQuote(quote)
@@ -103,7 +110,13 @@ export function requestCustomerSpendingAcceptance(
   const location = globalThis.location;
   if (location && typeof location.assign === "function") {
     const returnTo = `${location.pathname || "/"}${location.search || ""}${location.hash || ""}`;
-    location.assign(`/app/subscriptions?funding=required&return_to=${encodeURIComponent(returnTo)}`);
+    const params = new URLSearchParams({ funding: "required", return_to: returnTo });
+    if (scopedLiveFunding) {
+      params.set("workspace_id", scopedLiveFunding.workspace_id);
+      params.set("workpiece_id", scopedLiveFunding.workpiece_id);
+      params.set("route_code", scopedLiveFunding.route_code);
+    }
+    location.assign(`/app/subscriptions?${params.toString()}`);
   }
   return null;
 }

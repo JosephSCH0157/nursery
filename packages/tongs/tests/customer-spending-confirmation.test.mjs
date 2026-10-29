@@ -68,3 +68,38 @@ test("insufficient funding opens billing without implying beta credit purchases"
     else delete globalThis.location;
   }
 });
+
+test("Hammer insufficient funding preserves only the scoped authority coordinates", () => {
+  const originalConfirm = globalThis.confirm;
+  const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+  let assigned = "";
+  globalThis.confirm = () => true;
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: {
+      pathname: "/app/hammer",
+      search: "?workpiece=21d16d6a-905b-491e-8761-028789612ae5",
+      hash: "",
+      assign(value) { assigned = value; },
+    },
+  });
+  try {
+    assert.equal(requestCustomerSpendingAcceptance(quote(false), {
+      workspace_id: "cc5478ff-37be-403e-824c-467fa7da061e",
+      workpiece_id: "21d16d6a-905b-491e-8761-028789612ae5",
+      route_code: "hammer.transcript_prep",
+    }), null);
+    const url = new URL(assigned, "https://forge.invalid");
+    assert.equal(url.pathname, "/app/subscriptions");
+    assert.equal(url.searchParams.get("funding"), "required");
+    assert.equal(url.searchParams.get("workspace_id"), "cc5478ff-37be-403e-824c-467fa7da061e");
+    assert.equal(url.searchParams.get("workpiece_id"), "21d16d6a-905b-491e-8761-028789612ae5");
+    assert.equal(url.searchParams.get("route_code"), "hammer.transcript_prep");
+    assert.equal(url.searchParams.has("quote_id"), false);
+    assert.equal(url.searchParams.has("quote_hash"), false);
+  } finally {
+    globalThis.confirm = originalConfirm;
+    if (originalLocation) Object.defineProperty(globalThis, "location", originalLocation);
+    else delete globalThis.location;
+  }
+});

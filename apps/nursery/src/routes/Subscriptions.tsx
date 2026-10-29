@@ -5,6 +5,8 @@ import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { STRIPE_CATALOG } from "../../../../supabase/functions/_shared/stripe-catalog.ts";
 import { supabase, tongsSupabase } from "../lib/supabase";
 import type { AppShellContext } from "./AppShell";
+import { readHammerLiveFundingContext } from "./hammerLiveFunding";
+import type { HammerLiveFundingContext } from "./hammerLiveFunding";
 import "./Subscriptions.css";
 
 type CheckoutFunctionName =
@@ -818,6 +820,7 @@ function buildCheckoutUrls(): { successUrl: string; cancelUrl: string } {
 async function startCheckout(
   priceId: string,
   functionName: CheckoutFunctionName,
+  hammerLiveFunding?: HammerLiveFundingContext,
 ): Promise<void> {
   const { successUrl, cancelUrl } = buildCheckoutUrls();
   const { data, error } = await supabase.functions.invoke(functionName, {
@@ -825,6 +828,12 @@ async function startCheckout(
       price_id: priceId,
       successUrl,
       cancelUrl,
+      ...(hammerLiveFunding ? {
+        hammer_live_funding: {
+          claim_id: crypto.randomUUID(),
+          ...hammerLiveFunding,
+        },
+      } : {}),
     },
   });
 
@@ -1132,6 +1141,10 @@ export default function SubscriptionsRoute() {
     const value = new URLSearchParams(location.search).get("return_to")?.trim() ?? "";
     return value.startsWith("/") && !value.startsWith("//") ? value : null;
   }, [location.search]);
+  const hammerLiveFunding = useMemo(
+    () => readHammerLiveFundingContext(location.search),
+    [location.search],
+  );
 
   async function handlePlanCheckout(plan: PlanChoice): Promise<void> {
     if (!user || !isConfiguredPriceId(plan.priceId) || planPending || founderAccessOnly) return;
@@ -1160,12 +1173,19 @@ export default function SubscriptionsRoute() {
   }
 
   async function handleAiCheckout(pack: AiPack): Promise<void> {
-    if (!user || aiLocked || creditPurchaseAvailability?.purchase_enabled !== true
+    const scopedHammerCheckout = hammerLiveFunding && pack.key === "base";
+    if (!user || aiLocked || (!scopedHammerCheckout && creditPurchaseAvailability?.purchase_enabled !== true)
       || !isConfiguredPriceId(pack.priceId) || pendingPackKey) return;
     setPendingPackKey(pack.key);
     setAiMessage(null);
     try {
-      await startCheckout(pack.priceId, "create-one-time-checkout-session");
+      await startCheckout(
+        scopedHammerCheckout
+          ? STRIPE_CATALOG.packs.ai_credits.ai_small.livePriceId
+          : pack.priceId,
+        "create-one-time-checkout-session",
+        scopedHammerCheckout ? hammerLiveFunding : undefined,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Checkout failed.";
       setAiMessage(`Checkout error: ${message}`);
@@ -1703,7 +1723,22 @@ export default function SubscriptionsRoute() {
                 AI access requires active membership (Creator, Pro, Studio, or Founder), including BYO lane.
               </p>
 
-              {creditPurchaseAvailability?.purchase_enabled ? (
+              {hammerLiveFunding ? (
+                <div className="subscriptions-pack-row">
+                  <button
+                    type="button"
+                    className="subscriptions-button subscriptions-button--featured"
+                    disabled={aiLocked || pendingPackKey !== null}
+                    onClick={() => void handleAiCheckout(aiPacks[0])}
+                  >
+                    {pendingPackKey === "base"
+                      ? "Redirecting..."
+                      : "Add $10 Live funding for this Hammer transcription (2,000 credits)"}
+                  </button>
+                </div>
+              ) : null}
+
+              {!hammerLiveFunding && creditPurchaseAvailability?.purchase_enabled ? (
                 <div className="subscriptions-pack-row">
                   {aiPacks.map((pack) => (
                   <button
@@ -1719,11 +1754,11 @@ export default function SubscriptionsRoute() {
                   </button>
                   ))}
                 </div>
-              ) : (
+              ) : !hammerLiveFunding ? (
                 <p className="subscriptions-status subscriptions-status--info" role="status">
                   During beta, Forge Credits are provisioned by the Forge administrator. Additional credit-pack purchases are unavailable.
                 </p>
-              )}
+              ) : null}
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
                 <div>

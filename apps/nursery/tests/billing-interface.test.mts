@@ -1,9 +1,26 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readHammerLiveFundingContext } from "../src/routes/hammerLiveFunding";
 
 const root = new URL("../../../", import.meta.url);
 const read = (path: string) => readFileSync(new URL(path, root), "utf8");
+
+test("Hammer scoped Live funding context fails closed on incomplete or unrelated routes", () => {
+  assert.equal(readHammerLiveFundingContext("?funding=required&route_code=hammer.transcript_prep"), null);
+  assert.equal(readHammerLiveFundingContext(
+    "?funding=required&workspace_id=cc5478ff-37be-403e-824c-467fa7da061e"
+      + "&workpiece_id=21d16d6a-905b-491e-8761-028789612ae5&route_code=quench.metadata",
+  ), null);
+  assert.deepEqual(readHammerLiveFundingContext(
+    "?funding=required&workspace_id=cc5478ff-37be-403e-824c-467fa7da061e"
+      + "&workpiece_id=21d16d6a-905b-491e-8761-028789612ae5&route_code=hammer.transcript_prep",
+  ), {
+    workspace_id: "cc5478ff-37be-403e-824c-467fa7da061e",
+    workpiece_id: "21d16d6a-905b-491e-8761-028789612ae5",
+    route_code: "hammer.transcript_prep",
+  });
+});
 
 test("owner billing controls stay operator-RPC backed and require explicit publication approval", () => {
   const ledger = read("apps/nursery/src/routes/Ledger.tsx");
@@ -69,6 +86,28 @@ test("Test and Live funding are displayed separately while using one canonical f
   assert.match(migration, /provider_execution_eligible/);
   assert.match(migration, /insert into tongs\.customer_deposit_consumptions/);
   assert.match(migration, /revoke all on function %s from public, anon, authenticated, service_role/);
+});
+
+test("Hammer scoped Live funding reaches only the exact server-validated one-time Checkout", () => {
+  const subscriptions = read("apps/nursery/src/routes/Subscriptions.tsx");
+  const scopedFunding = read("apps/nursery/src/routes/hammerLiveFunding.ts");
+  const hammerPrep = read("apps/hammer/src/prep/hammerPrepApi.ts");
+  const confirmation = read("packages/tongs/src/customer-spending-confirmation.ts");
+  const checkout = read("supabase/functions/create-one-time-checkout-session/index.ts");
+
+  assert.match(hammerPrep, /route_code:\s*"hammer\.transcript_prep"/);
+  assert.match(confirmation, /params\.set\("workspace_id", scopedLiveFunding\.workspace_id\)/);
+  assert.match(subscriptions, /readHammerLiveFundingContext/);
+  assert.match(scopedFunding, /route_code:\s*"hammer\.transcript_prep"/);
+  assert.match(scopedFunding, /UUID_PATTERN\.test\(workspaceId\)/);
+  assert.match(subscriptions, /STRIPE_CATALOG\.packs\.ai_credits\.ai_small\.livePriceId/);
+  assert.match(subscriptions, /claim_id:\s*crypto\.randomUUID\(\)/);
+  assert.match(subscriptions, /hammer_live_funding/);
+  assert.match(checkout, /claim_hammer_scoped_live_checkout/);
+  assert.match(checkout, /record_hammer_scoped_live_checkout_session/);
+  assert.match(checkout, /p_live_price_id:\s*priceId/);
+  assert.match(checkout, /financialEnvironment = "live"/);
+  assert.doesNotMatch(subscriptions, /APPLY-HAMMER|service_role/);
 });
 
 test("the migration adds no operator identity, markup value, budget, or control activation", () => {

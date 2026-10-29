@@ -457,7 +457,11 @@ export async function requestHammerTranscriptPrep(
     if (response.status === 409 || response.status === 402) {
       const quoted = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quoted);
-      const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
+      const acceptance = quote ? requestCustomerSpendingAcceptance(quote, {
+        workspace_id: request.workspace_id,
+        workpiece_id: request.workpiece_id,
+        route_code: "hammer.transcript_prep",
+      }) : null;
       if (acceptance) {
         response = await submit({ ...effectiveRequest, spending_acceptance: acceptance });
       }
