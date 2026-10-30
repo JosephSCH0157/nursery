@@ -647,6 +647,41 @@ rows, and inactive `halt_new` routing. Applying migration 424 installs the
 function only. Invoking that function is a distinct production write and must
 remain bounded to its exact reviewed Brad authority bundle.
 
+Migration 426 is the explicit successor to the installed 425-row owner-funded
+Hammer state. It corrects only the generic owner-budget reservation predicate
+so that the exact, active Hammer sponsorship introduced by migration 425 may
+reach the existing reservation, aggregate-exposure, and provider-attempt
+guards. It installs no authority, funding, reservation, operation, attempt, or
+transcript. Local certification and hosted checks are:
+
+```powershell
+pnpm certify:db:hammer-owner-sponsorship-reservation-compatibility:historical
+pnpm test:db:hammer-owner-sponsorship-reservation-compatibility:hosted-deployment
+pnpm preflight:db:hammer-owner-sponsorship-reservation-compatibility:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+Preflight requires exactly 425 installed rows headed by `20261029172356`,
+`historical-v1`, migration `20261030090719` as the sole pending version, SHA-256
+`de27e8ff38279fdb6c9d33cb45a4cd53d6e5189427fb6aab81ebfd120226b27c`,
+fresh recovery evidence, the managed credential, and Supabase CLI 2.84.2.
+Apply is a hosted write and requires the exact token:
+
+```powershell
+./scripts/invoke-hammer-owner-sponsorship-reservation-compatibility-426-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-HAMMER-OWNER-SPONSORSHIP-RESERVATION-COMPATIBILITY-426
+```
+
+PostVerify requires 426 rows headed by `20261030090719`, unchanged
+`historical-v1`, both the ordinary owner-budget guard and exact Hammer
+sponsorship guard, service-only execution, global Test preservation, and zero
+Brad reservation, operation, provider-attempt, transcript, or customer charge
+from the failed pre-426 attempts.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell

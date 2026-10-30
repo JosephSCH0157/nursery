@@ -42,9 +42,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-hammer-owner-sponsorship-reservation-compatibility/successor-catalog-fingerprint.json",
-    "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "fileSha256": "e1a023dbfe6ed1959518f0bc243df7d91c7bad430501cb460ddf99536f31dfce",
     "objectCount": 16394,
-    "normalizedContractSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "normalizedContractSha256": "91e00c71cbebe39767f490db32c65828b5515d78d27e7ea49894ade359af9ade"
   },
   "inactivityContract": {
     "migrationCreatesAuthorityRows": 0,
