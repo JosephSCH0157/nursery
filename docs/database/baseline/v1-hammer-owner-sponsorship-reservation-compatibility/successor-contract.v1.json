@@ -1,0 +1,63 @@
+{
+  "schema": "forge.hammer-owner-sponsorship-reservation-compatibility-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer owner-funded first transcription",
+    "contractPath": "docs/database/baseline/v1-hammer-owner-funded-first-transcription/successor-contract.v1.json",
+    "contractSha256": "0c464bfdc7ad2bc819d728fc94f4c14b3ee0e44c25d2f304faae65b364d85f68",
+    "historicalRows": 425
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerOwnerFundedFirstTranscriptionSuccessorContractSha256": "0c464bfdc7ad2bc819d728fc94f4c14b3ee0e44c25d2f304faae65b364d85f68"
+  },
+  "sharedTailAddition": {
+    "version": "20261030090719",
+    "path": "supabase/migrations/20261030090719_hammer_owner_sponsorship_reservation_compatibility.sql",
+    "sha256": "de27e8ff38279fdb6c9d33cb45a4cd53d6e5189427fb6aab81ebfd120226b27c"
+  },
+  "historicalSuccessor": {
+    "finalRows": 426,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-owner-sponsorship-reservation-compatibility/successor-catalog-fingerprint.json",
+    "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "objectCount": 16394,
+    "normalizedContractSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "inactivityContract": {
+    "migrationCreatesAuthorityRows": 0,
+    "migrationCreatesFundingRows": 0,
+    "migrationCreatesReservations": 0,
+    "migrationCreatesProviderAttempts": 0,
+    "migrationCreatesCustomerCredits": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "anonymousExecuteDenied": true,
+    "authenticatedExecuteDenied": true,
+    "serviceRoleExecuteRequired": true,
+    "ordinaryOwnerBudgetAuthorityPreserved": true,
+    "exactHammerOwnerSponsorshipRequired": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}
