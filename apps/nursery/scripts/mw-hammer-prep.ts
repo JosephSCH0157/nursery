@@ -90,6 +90,7 @@ import {
 import {
   createHammerAssemblyAiHttpTransport,
   fingerprintHammerAssemblyAiRequest,
+  HammerAssemblyAiBoundaryError,
   resolveHammerAssemblyAiServerCredential,
   type HammerAssemblyAiSourceAuthority,
 } from "@forge/tongs/server/hammer-assemblyai-transcription";
@@ -1866,7 +1867,8 @@ async function loadCanonicalWorkpieceMediaFile(
 
 type HammerAssemblyAiStatusResult =
   | { state: "pending"; operationId: string }
-  | { state: "submission_unknown" | "provider_failed"; operationId: string }
+  | { state: "submission_unknown"; operationId: string }
+  | { state: "provider_failed"; operationId: string }
   | { state: "persisted"; operationId: string; transcript: Record<string, unknown> };
 
 async function readHammerAssemblyAiStatus(args: {
@@ -3350,9 +3352,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             sendJson(res, 502, { ok: false, error: { code: "provider_failed", message: "Transcription failed. No customer charge was made." } });
             return;
           }
+          if (status.state !== "persisted") {
+            sendJson(res, 500, { ok: false, error: { code: "invalid_transcription_state", message: "Hammer received an unsupported transcription state." } });
+            return;
+          }
           const provider = readJsonObject(status.transcript.provider);
           const segments = Array.isArray(status.transcript.segments)
-            ? status.transcript.segments.flatMap((value) => {
+            ? status.transcript.segments.flatMap((value: unknown) => {
               const segment = readJsonObject(value);
               const startMs = Number(segment?.start_ms);
               const endMs = Number(segment?.end_ms);

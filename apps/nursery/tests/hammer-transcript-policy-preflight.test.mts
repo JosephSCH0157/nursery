@@ -97,9 +97,6 @@ async function runCase(caseDef: CaseDef): Promise<void> {
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = toUrl(input);
-      if (url.startsWith(server.origin)) {
-        return originalFetch(input, init);
-      }
       const method = (init?.method ?? "GET").toUpperCase();
       const headers = new Headers(init?.headers ?? {});
       let body: unknown = null;
@@ -120,6 +117,9 @@ async function runCase(caseDef: CaseDef): Promise<void> {
             "content-length": "9999999999",
           },
         });
+      }
+      if (url.startsWith(server.origin)) {
+        return originalFetch(input, init);
       }
       if (url.endsWith("/auth/v1/user")) {
         return jsonResponse(200, { id: TEST_USER_ID });

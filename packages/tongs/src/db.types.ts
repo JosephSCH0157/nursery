@@ -9,9 +9,70 @@ export type Json =
 export type Database = {
   tongs: {
     Tables: {
+      account_authority_classification_events: {
+        Row: {
+          account_class: string
+          actor_id: string
+          created_at: string
+          evidence: Json
+          id: string
+          reason: string
+          revision: number
+          user_id: string
+        }
+        Insert: {
+          account_class: string
+          actor_id: string
+          created_at?: string
+          evidence?: Json
+          id: string
+          reason: string
+          revision: number
+          user_id: string
+        }
+        Update: {
+          account_class?: string
+          actor_id?: string
+          created_at?: string
+          evidence?: Json
+          id?: string
+          reason?: string
+          revision?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      account_authority_classifications: {
+        Row: {
+          account_class: string
+          configured_at: string
+          configured_by: string
+          reason: string
+          revision: number
+          user_id: string
+        }
+        Insert: {
+          account_class: string
+          configured_at?: string
+          configured_by: string
+          reason: string
+          revision: number
+          user_id: string
+        }
+        Update: {
+          account_class?: string
+          configured_at?: string
+          configured_by?: string
+          reason?: string
+          revision?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       account_balances: {
         Row: {
           ai_credit_balance: number
+          base_storage_bytes: number
           created_at: string
           plan_current_period_end: string | null
           plan_entitled: boolean
@@ -23,11 +84,13 @@ export type Database = {
           storage_item_id: string | null
           storage_status: string | null
           stripe_customer_id: string | null
+          total_storage_bytes_entitled: number
           updated_at: string
           user_id: string
         }
         Insert: {
           ai_credit_balance?: number
+          base_storage_bytes?: number
           created_at?: string
           plan_current_period_end?: string | null
           plan_entitled?: boolean
@@ -39,11 +102,13 @@ export type Database = {
           storage_item_id?: string | null
           storage_status?: string | null
           stripe_customer_id?: string | null
+          total_storage_bytes_entitled?: number
           updated_at?: string
           user_id: string
         }
         Update: {
           ai_credit_balance?: number
+          base_storage_bytes?: number
           created_at?: string
           plan_current_period_end?: string | null
           plan_entitled?: boolean
@@ -55,10 +120,286 @@ export type Database = {
           storage_item_id?: string | null
           storage_status?: string | null
           stripe_customer_id?: string | null
+          total_storage_bytes_entitled?: number
           updated_at?: string
           user_id?: string
         }
         Relationships: []
+      }
+      accounting_journal_entries: {
+        Row: {
+          account_code: string
+          allowance_grant_id: string | null
+          amount_micros: number
+          beta_credit_grant_id: string | null
+          created_at: string
+          currency: string | null
+          deposit_id: string | null
+          event_id: string
+          line_number: number
+          metadata_json: Json
+          owner_budget_id: string | null
+          quantity_delta: number
+          unit_kind: string | null
+          user_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          account_code: string
+          allowance_grant_id?: string | null
+          amount_micros?: number
+          beta_credit_grant_id?: string | null
+          created_at?: string
+          currency?: string | null
+          deposit_id?: string | null
+          event_id: string
+          line_number: number
+          metadata_json?: Json
+          owner_budget_id?: string | null
+          quantity_delta?: number
+          unit_kind?: string | null
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          account_code?: string
+          allowance_grant_id?: string | null
+          amount_micros?: number
+          beta_credit_grant_id?: string | null
+          created_at?: string
+          currency?: string | null
+          deposit_id?: string | null
+          event_id?: string
+          line_number?: number
+          metadata_json?: Json
+          owner_budget_id?: string | null
+          quantity_delta?: number
+          unit_kind?: string | null
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accounting_journal_entries_allowance_fk"
+            columns: ["allowance_grant_id"]
+            isOneToOne: false
+            referencedRelation: "paid_allowance_grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accounting_journal_entries_beta_credit_grant_id_fkey"
+            columns: ["beta_credit_grant_id"]
+            isOneToOne: false
+            referencedRelation: "beta_credit_grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accounting_journal_entries_deposit_fk"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accounting_journal_entries_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accounting_journal_entries_owner_budget_fk"
+            columns: ["owner_budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "accounting_journal_entries_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accounting_journal_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          currency: string | null
+          environment: string
+          event_type: string
+          id: string
+          idempotency_key: string
+          metadata_json: Json
+          occurred_at: string
+          payload_hash: string
+          source_id: string
+          source_type: string
+          user_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          currency?: string | null
+          environment: string
+          event_type: string
+          id: string
+          idempotency_key: string
+          metadata_json?: Json
+          occurred_at: string
+          payload_hash: string
+          source_id: string
+          source_type: string
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          currency?: string | null
+          environment?: string
+          event_type?: string
+          id?: string
+          idempotency_key?: string
+          metadata_json?: Json
+          occurred_at?: string
+          payload_hash?: string
+          source_id?: string
+          source_type?: string
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "accounting_journal_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      accounting_unmatched_provider_events: {
+        Row: {
+          amount_micros: number | null
+          created_at: string
+          currency: string | null
+          event_type: string
+          evidence_json: Json
+          id: string
+          provider: string
+          provider_event_id: string
+          provider_object_id: string
+          stripe_mode: string | null
+        }
+        Insert: {
+          amount_micros?: number | null
+          created_at?: string
+          currency?: string | null
+          event_type: string
+          evidence_json?: Json
+          id: string
+          provider: string
+          provider_event_id: string
+          provider_object_id: string
+          stripe_mode?: string | null
+        }
+        Update: {
+          amount_micros?: number | null
+          created_at?: string
+          currency?: string | null
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          provider?: string
+          provider_event_id?: string
+          provider_object_id?: string
+          stripe_mode?: string | null
+        }
+        Relationships: []
+      }
+      aggregate_exposure_opening_commitments: {
+        Row: {
+          captured_at: string
+          captured_ceiling_micros: number
+          captured_state: string
+          hold_id: string
+          policy_revision_id: string
+        }
+        Insert: {
+          captured_at?: string
+          captured_ceiling_micros: number
+          captured_state: string
+          hold_id: string
+          policy_revision_id: string
+        }
+        Update: {
+          captured_at?: string
+          captured_ceiling_micros?: number
+          captured_state?: string
+          hold_id?: string
+          policy_revision_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "aggregate_exposure_opening_commitments_hold_id_fkey"
+            columns: ["hold_id"]
+            isOneToOne: true
+            referencedRelation: "restricted_beta_exposure_holds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "aggregate_exposure_opening_commitments_policy_revision_id_fkey"
+            columns: ["policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      aggregate_financial_halt_events: {
+        Row: {
+          committed_micros: number
+          configured_limit_micros: number
+          created_at: string
+          event_key: string
+          evidence_json: Json
+          id: string
+          policy_revision_id: string
+          reason: string
+        }
+        Insert: {
+          committed_micros: number
+          configured_limit_micros: number
+          created_at?: string
+          event_key: string
+          evidence_json?: Json
+          id: string
+          policy_revision_id: string
+          reason: string
+        }
+        Update: {
+          committed_micros?: number
+          configured_limit_micros?: number
+          created_at?: string
+          event_key?: string
+          evidence_json?: Json
+          id?: string
+          policy_revision_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "aggregate_financial_halt_events_policy_revision_id_fkey"
+            columns: ["policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_credit_corrections: {
         Row: {
@@ -509,6 +850,7 @@ export type Database = {
           billing_mode: string
           created_at: string
           token_balance: number
+          token_monthly_limit: number | null
           updated_at: string
           user_id: string
         }
@@ -516,6 +858,7 @@ export type Database = {
           billing_mode?: string
           created_at?: string
           token_balance?: number
+          token_monthly_limit?: number | null
           updated_at?: string
           user_id: string
         }
@@ -523,10 +866,97 @@ export type Database = {
           billing_mode?: string
           created_at?: string
           token_balance?: number
+          token_monthly_limit?: number | null
           updated_at?: string
           user_id?: string
         }
         Relationships: []
+      }
+      ai_funding_preference_revisions: {
+        Row: {
+          actor_id: string
+          created_at: string
+          id: string
+          org_id: string | null
+          payer_kind: string
+          revision: number
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          id: string
+          org_id?: string | null
+          payer_kind: string
+          revision: number
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          id?: string
+          org_id?: string | null
+          payer_kind?: string
+          revision?: number
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_funding_preference_revisions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_funding_preference_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_global_model_choice_revisions: {
+        Row: {
+          authority_state: string
+          created_at: string
+          evidence_json: Json
+          id: string
+          model_identity_id: string
+          reason: string
+          revision: number
+        }
+        Insert: {
+          authority_state: string
+          created_at?: string
+          evidence_json: Json
+          id: string
+          model_identity_id: string
+          reason: string
+          revision: number
+        }
+        Update: {
+          authority_state?: string
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          model_identity_id?: string
+          reason?: string
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_global_model_choice_revisions_model_identity_id_fkey"
+            columns: ["model_identity_id"]
+            isOneToOne: false
+            referencedRelation: "ai_model_identities"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_image_output_token_schedules: {
         Row: {
@@ -712,6 +1142,164 @@ export type Database = {
             columns: ["policy_id"]
             isOneToOne: true
             referencedRelation: "ai_media_authorization_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_model_identities: {
+        Row: {
+          created_at: string
+          customer_selection_key: string
+          id: string
+          model_code: string
+          provider_code: string
+          provider_model_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_selection_key: string
+          id: string
+          model_code: string
+          provider_code: string
+          provider_model_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_selection_key?: string
+          id?: string
+          model_code?: string
+          provider_code?: string
+          provider_model_id?: string
+        }
+        Relationships: []
+      }
+      ai_model_identity_revisions: {
+        Row: {
+          created_at: string
+          display_name: string
+          evidence_json: Json
+          id: string
+          lifecycle_state: string
+          model_identity_id: string
+          relative_cost_class: string
+          revision: number
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          evidence_json: Json
+          id: string
+          lifecycle_state: string
+          model_identity_id: string
+          relative_cost_class: string
+          revision: number
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          evidence_json?: Json
+          id?: string
+          lifecycle_state?: string
+          model_identity_id?: string
+          relative_cost_class?: string
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_model_identity_revisions_model_identity_id_fkey"
+            columns: ["model_identity_id"]
+            isOneToOne: false
+            referencedRelation: "ai_model_identities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_model_preference_revisions: {
+        Row: {
+          created_at: string
+          id: string
+          migration_source_id: string | null
+          model_identity_id: string
+          revision: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          migration_source_id?: string | null
+          model_identity_id: string
+          revision: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          migration_source_id?: string | null
+          model_identity_id?: string
+          revision?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_model_preference_revisions_migration_source_id_fkey"
+            columns: ["migration_source_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_user_model_preference_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_model_preference_revisions_model_identity_id_fkey"
+            columns: ["model_identity_id"]
+            isOneToOne: false
+            referencedRelation: "ai_model_identities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_operation_model_override_revisions: {
+        Row: {
+          created_at: string
+          id: string
+          migration_source_id: string | null
+          model_identity_id: string | null
+          operation_code: string
+          override_state: string
+          revision: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          migration_source_id?: string | null
+          model_identity_id?: string | null
+          operation_code: string
+          override_state: string
+          revision: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          migration_source_id?: string | null
+          model_identity_id?: string | null
+          operation_code?: string
+          override_state?: string
+          revision?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_operation_model_override_revisions_migration_source_id_fkey"
+            columns: ["migration_source_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_user_model_preference_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_operation_model_override_revisions_model_identity_id_fkey"
+            columns: ["model_identity_id"]
+            isOneToOne: false
+            referencedRelation: "ai_model_identities"
             referencedColumns: ["id"]
           },
         ]
@@ -933,6 +1521,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      ai_token_ledger: {
+        Row: {
+          created_at: string
+          delta: number
+          id: string
+          reason: string
+          request_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          delta: number
+          id?: string
+          reason?: string
+          request_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          delta?: number
+          id?: string
+          reason?: string
+          request_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       ai_usage_events: {
         Row: {
@@ -1360,14 +1975,14 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "anvil_recording_discard_reque_recording_capture_authority__fkey"
+            foreignKeyName: "anvil_recording_discard_recording_capture_authority_fkey"
             columns: ["recording_capture_authority_id"]
             isOneToOne: false
             referencedRelation: "anvil_capture_authorities"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "anvil_recording_discard_reque_recording_capture_authority__fkey"
+            foreignKeyName: "anvil_recording_discard_recording_capture_authority_fkey"
             columns: ["recording_capture_authority_id"]
             isOneToOne: false
             referencedRelation: "recording_capture_authorities"
@@ -1438,24 +2053,24 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "anvil_recording_keep_requests_completion_id_fkey"
-            columns: ["completion_id"]
-            isOneToOne: true
-            referencedRelation: "anvil_recording_completion_requests"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "anvil_recording_keep_requests_recording_capture_authority__fkey"
+            foreignKeyName: "anvil_recording_keep_recording_capture_authority_fkey"
             columns: ["recording_capture_authority_id"]
             isOneToOne: false
             referencedRelation: "anvil_capture_authorities"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "anvil_recording_keep_requests_recording_capture_authority__fkey"
+            foreignKeyName: "anvil_recording_keep_recording_capture_authority_fkey"
             columns: ["recording_capture_authority_id"]
             isOneToOne: false
             referencedRelation: "recording_capture_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anvil_recording_keep_requests_completion_id_fkey"
+            columns: ["completion_id"]
+            isOneToOne: true
+            referencedRelation: "anvil_recording_completion_requests"
             referencedColumns: ["id"]
           },
           {
@@ -1579,6 +2194,7 @@ export type Database = {
           failure_message: string | null
           height: number | null
           id: string
+          metadata: Json
           metadata_json: Json
           mime_type: string
           operation_fingerprint: string | null
@@ -1619,6 +2235,7 @@ export type Database = {
           failure_message?: string | null
           height?: number | null
           id?: string
+          metadata?: Json
           metadata_json?: Json
           mime_type: string
           operation_fingerprint?: string | null
@@ -1659,6 +2276,7 @@ export type Database = {
           failure_message?: string | null
           height?: number | null
           id?: string
+          metadata?: Json
           metadata_json?: Json
           mime_type?: string
           operation_fingerprint?: string | null
@@ -1739,7 +2357,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by: string
-          id: string
+          id?: string
           import_key?: string | null
           revision?: number
           status?: string
@@ -1758,9 +2376,425 @@ export type Database = {
           updated_at?: string
           workspace_id?: string
         }
+        Relationships: []
+      }
+      barstock_discovery_acceptances: {
+        Row: {
+          accepted_at: string
+          id: string
+          operation_key: string
+          selected_angle: string
+          spark_id: string
+          story_id: string
+          story_revision_id: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          id?: string
+          operation_key: string
+          selected_angle: string
+          spark_id: string
+          story_id: string
+          story_revision_id: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          accepted_at?: string
+          id?: string
+          operation_key?: string
+          selected_angle?: string
+          spark_id?: string
+          story_id?: string
+          story_revision_id?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
         Relationships: [
           {
-            foreignKeyName: "barstock_assignments_workspace_id_fkey"
+            foreignKeyName: "barstock_discovery_acceptances_story_id_fkey"
+            columns: ["story_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_stories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barstock_discovery_acceptances_story_revision_id_fkey"
+            columns: ["story_revision_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_story_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barstock_discovery_acceptances_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_batch_members: {
+        Row: {
+          ordinal: number
+          run_id: string
+          story_revision_id: string
+        }
+        Insert: {
+          ordinal: number
+          run_id: string
+          story_revision_id: string
+        }
+        Update: {
+          ordinal?: number
+          run_id?: string
+          story_revision_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_batch_members_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barstock_discovery_batch_members_story_revision_id_fkey"
+            columns: ["story_revision_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_story_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_dismissals: {
+        Row: {
+          dismissed_at: string
+          expires_at: string
+          story_id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          dismissed_at?: string
+          expires_at?: string
+          story_id: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          dismissed_at?: string
+          expires_at?: string
+          story_id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_dismissals_story_id_fkey"
+            columns: ["story_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_stories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barstock_discovery_dismissals_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_provider_calls: {
+        Row: {
+          created_at: string
+          id: string
+          provider: string
+          request_key: string
+          run_id: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          provider: string
+          request_key: string
+          run_id: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          provider?: string
+          request_key?: string
+          run_id?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_provider_calls_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barstock_discovery_provider_calls_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_runs: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          failure_reason: string | null
+          first_provider_call_at: string | null
+          fresh_until: string | null
+          generated_at: string | null
+          id: string
+          lease_expires_at: string
+          lease_token_hash: string
+          model_call_count: number
+          operation_key: string
+          policy_snapshot: Json
+          preference_hash: string
+          preference_revision: number
+          provider_call_count: number
+          status: string
+          trigger_kind: string
+          updated_at: string
+          usage_snapshot: Json
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          failure_reason?: string | null
+          first_provider_call_at?: string | null
+          fresh_until?: string | null
+          generated_at?: string | null
+          id?: string
+          lease_expires_at: string
+          lease_token_hash: string
+          model_call_count?: number
+          operation_key: string
+          policy_snapshot?: Json
+          preference_hash: string
+          preference_revision: number
+          provider_call_count?: number
+          status: string
+          trigger_kind: string
+          updated_at?: string
+          usage_snapshot?: Json
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          failure_reason?: string | null
+          first_provider_call_at?: string | null
+          fresh_until?: string | null
+          generated_at?: string | null
+          id?: string
+          lease_expires_at?: string
+          lease_token_hash?: string
+          model_call_count?: number
+          operation_key?: string
+          policy_snapshot?: Json
+          preference_hash?: string
+          preference_revision?: number
+          provider_call_count?: number
+          status?: string
+          trigger_kind?: string
+          updated_at?: string
+          usage_snapshot?: Json
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_runs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_sources: {
+        Row: {
+          author: string | null
+          authority_class: string
+          canonical_url: string
+          event_at: string | null
+          excerpt_hash: string | null
+          extraction_status: string
+          id: string
+          ordinal: number
+          original_url: string
+          published_at: string | null
+          publisher: string | null
+          retrieved_at: string
+          story_revision_id: string
+          supporting_excerpt: string | null
+          syndication_cluster: string
+          title: string
+        }
+        Insert: {
+          author?: string | null
+          authority_class: string
+          canonical_url: string
+          event_at?: string | null
+          excerpt_hash?: string | null
+          extraction_status: string
+          id?: string
+          ordinal: number
+          original_url: string
+          published_at?: string | null
+          publisher?: string | null
+          retrieved_at: string
+          story_revision_id: string
+          supporting_excerpt?: string | null
+          syndication_cluster: string
+          title: string
+        }
+        Update: {
+          author?: string | null
+          authority_class?: string
+          canonical_url?: string
+          event_at?: string | null
+          excerpt_hash?: string | null
+          extraction_status?: string
+          id?: string
+          ordinal?: number
+          original_url?: string
+          published_at?: string | null
+          publisher?: string | null
+          retrieved_at?: string
+          story_revision_id?: string
+          supporting_excerpt?: string | null
+          syndication_cluster?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_sources_story_revision_id_fkey"
+            columns: ["story_revision_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_story_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_stories: {
+        Row: {
+          fingerprint: string
+          first_seen_at: string
+          id: string
+          last_seen_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          fingerprint: string
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          fingerprint?: string
+          first_seen_at?: string
+          id?: string
+          last_seen_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_stories_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      barstock_discovery_story_revisions: {
+        Row: {
+          content_hash: string
+          contradiction_state: string
+          created_at: string
+          event_at: string | null
+          evidence_class: string
+          headline: string
+          id: string
+          revision: number
+          story_id: string
+          suggested_angle: string
+          summary: string
+          timeliness_reason: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          content_hash: string
+          contradiction_state?: string
+          created_at?: string
+          event_at?: string | null
+          evidence_class: string
+          headline: string
+          id?: string
+          revision: number
+          story_id: string
+          suggested_angle: string
+          summary: string
+          timeliness_reason: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          content_hash?: string
+          contradiction_state?: string
+          created_at?: string
+          event_at?: string | null
+          evidence_class?: string
+          headline?: string
+          id?: string
+          revision?: number
+          story_id?: string
+          suggested_angle?: string
+          summary?: string
+          timeliness_reason?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barstock_discovery_story_revisions_story_id_fkey"
+            columns: ["story_id"]
+            isOneToOne: false
+            referencedRelation: "barstock_discovery_stories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barstock_discovery_story_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -1804,15 +2838,42 @@ export type Database = {
             referencedRelation: "barstock_assignments"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      barstock_sessions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          name: string
+          pinned: boolean
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          name: string
+          pinned?: boolean
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          name?: string
+          pinned?: boolean
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
           {
-            foreignKeyName: "barstock_project_episode_links_workpiece_id_fkey"
-            columns: ["workpiece_id"]
-            isOneToOne: false
-            referencedRelation: "episodes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "barstock_project_episode_links_workspace_id_fkey"
+            foreignKeyName: "barstock_sessions_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -1824,9 +2885,11 @@ export type Database = {
         Row: {
           assignment_id: string | null
           body: string
+          client_id: string | null
           created_at: string
-          created_by: string
+          created_by: string | null
           deleted_at: string | null
+          episode_id: string | null
           id: string
           import_key: string | null
           linked_workpiece_id: string | null
@@ -1842,16 +2905,18 @@ export type Database = {
         Insert: {
           assignment_id?: string | null
           body: string
+          client_id?: string | null
           created_at?: string
-          created_by: string
+          created_by?: string | null
           deleted_at?: string | null
-          id: string
+          episode_id?: string | null
+          id?: string
           import_key?: string | null
           linked_workpiece_id?: string | null
           pinned?: boolean
           revision?: number
-          source?: string
-          status?: string
+          source: string
+          status: string
           tags?: string[]
           title?: string | null
           updated_at?: string
@@ -1860,9 +2925,11 @@ export type Database = {
         Update: {
           assignment_id?: string | null
           body?: string
+          client_id?: string | null
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           deleted_at?: string | null
+          episode_id?: string | null
           id?: string
           import_key?: string | null
           linked_workpiece_id?: string | null
@@ -1884,6 +2951,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "barstock_sparks_episode_fk"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "barstock_sparks_linked_workpiece_workspace_fkey"
             columns: ["linked_workpiece_id", "workspace_id"]
             isOneToOne: false
@@ -1892,6 +2966,367 @@ export type Database = {
           },
           {
             foreignKeyName: "barstock_sparks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_capture_packages: {
+        Row: {
+          contract_version: number
+          created_at: string
+          hammer_handoff_id: string
+          id: string
+          incomplete_acceptance_id: string | null
+          manifest: Json
+          manifest_sha256: string
+          outcome: string
+          sealed_by_engine_at: string
+          session_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          contract_version?: number
+          created_at?: string
+          hammer_handoff_id: string
+          id?: string
+          incomplete_acceptance_id?: string | null
+          manifest: Json
+          manifest_sha256: string
+          outcome: string
+          sealed_by_engine_at?: string
+          session_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          contract_version?: number
+          created_at?: string
+          hammer_handoff_id?: string
+          id?: string
+          incomplete_acceptance_id?: string | null
+          manifest?: Json
+          manifest_sha256?: string
+          outcome?: string
+          sealed_by_engine_at?: string
+          session_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_capture_packages_incomplete_acceptance_id_fkey"
+            columns: ["incomplete_acceptance_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_incomplete_acceptances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_capture_packages_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: true
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_capture_packages_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_capture_packages_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_hammer_handoff_receipts: {
+        Row: {
+          committed_at: string | null
+          created_at: string
+          created_by: string
+          hammer_import_id: string | null
+          id: string
+          last_error: string | null
+          operation_id: string
+          package_id: string
+          state: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          committed_at?: string | null
+          created_at?: string
+          created_by: string
+          hammer_import_id?: string | null
+          id?: string
+          last_error?: string | null
+          operation_id: string
+          package_id: string
+          state?: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          committed_at?: string | null
+          created_at?: string
+          created_by?: string
+          hammer_import_id?: string | null
+          id?: string
+          last_error?: string | null
+          operation_id?: string
+          package_id?: string
+          state?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_hammer_handoff_receipts_hammer_import_id_fkey"
+            columns: ["hammer_import_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_recording_import_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_hammer_handoff_receipts_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: true
+            referencedRelation: "bellows_capture_packages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_hammer_handoff_receipts_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_hammer_handoff_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_incomplete_acceptances: {
+        Row: {
+          accepted_at: string
+          accepted_by_user_id: string
+          authority_generation: number
+          finding_ids: string[]
+          id: string
+          session_id: string
+          workspace_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          accepted_by_user_id: string
+          authority_generation: number
+          finding_ids: string[]
+          id?: string
+          session_id: string
+          workspace_id: string
+        }
+        Update: {
+          accepted_at?: string
+          accepted_by_user_id?: string
+          authority_generation?: number
+          finding_ids?: string[]
+          id?: string
+          session_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_incomplete_acceptances_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_incomplete_acceptances_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_integrity_findings: {
+        Row: {
+          created_at: string
+          evidence: Json
+          finding_type: string
+          id: string
+          interval_end_ms: number | null
+          interval_start_ms: number | null
+          participant_id: string | null
+          segment_id: string | null
+          session_id: string
+          track_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          evidence?: Json
+          finding_type: string
+          id?: string
+          interval_end_ms?: number | null
+          interval_start_ms?: number | null
+          participant_id?: string | null
+          segment_id?: string | null
+          session_id: string
+          track_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          evidence?: Json
+          finding_type?: string
+          id?: string
+          interval_end_ms?: number | null
+          interval_start_ms?: number | null
+          participant_id?: string | null
+          segment_id?: string | null
+          session_id?: string
+          track_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_integrity_findings_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_integrity_findings_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_integrity_findings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_segments: {
+        Row: {
+          boundary_reason: string
+          byte_length: number | null
+          capture_profile: Json
+          created_at: string
+          duration_ms: number | null
+          ended_at: string | null
+          expected_part_count: number | null
+          id: string
+          integrity_state: string
+          mime_type: string
+          participant_id: string
+          recorder_generation: number
+          session_id: string
+          sha256: string | null
+          start_offset_ms: number
+          started_at: string
+          storage_bucket: string | null
+          storage_key: string | null
+          track_id: string
+          updated_at: string
+          verified_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          boundary_reason: string
+          byte_length?: number | null
+          capture_profile?: Json
+          created_at?: string
+          duration_ms?: number | null
+          ended_at?: string | null
+          expected_part_count?: number | null
+          id: string
+          integrity_state?: string
+          mime_type: string
+          participant_id: string
+          recorder_generation: number
+          session_id: string
+          sha256?: string | null
+          start_offset_ms: number
+          started_at: string
+          storage_bucket?: string | null
+          storage_key?: string | null
+          track_id: string
+          updated_at?: string
+          verified_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          boundary_reason?: string
+          byte_length?: number | null
+          capture_profile?: Json
+          created_at?: string
+          duration_ms?: number | null
+          ended_at?: string | null
+          expected_part_count?: number | null
+          id?: string
+          integrity_state?: string
+          mime_type?: string
+          participant_id?: string
+          recorder_generation?: number
+          session_id?: string
+          sha256?: string | null
+          start_offset_ms?: number
+          started_at?: string
+          storage_bucket?: string | null
+          storage_key?: string | null
+          track_id?: string
+          updated_at?: string
+          verified_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_segments_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_segments_session_id_participant_id_fkey"
+            columns: ["session_id", "participant_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_session_participants"
+            referencedColumns: ["session_id", "id"]
+          },
+          {
+            foreignKeyName: "bellows_segments_session_id_track_id_fkey"
+            columns: ["session_id", "track_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_tracks"
+            referencedColumns: ["session_id", "id"]
+          },
+          {
+            foreignKeyName: "bellows_segments_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -2066,11 +3501,57 @@ export type Database = {
           },
         ]
       }
+      bellows_session_participants: {
+        Row: {
+          capture_identity: string
+          created_at: string
+          id: string
+          role_code: string
+          session_id: string
+          user_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          capture_identity?: string
+          created_at?: string
+          id: string
+          role_code: string
+          session_id: string
+          user_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          capture_identity?: string
+          created_at?: string
+          id?: string
+          role_code?: string
+          session_id?: string
+          user_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_session_participants_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_session_participants_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bellows_sessions: {
         Row: {
           acting_authority_state: string
           acting_host_participant_id: string | null
           archived_at: string | null
+          authority_generation: number
           broadcast_state: string
           calendar_event_id: string | null
           co_host_participant_ids: string[]
@@ -2102,6 +3583,7 @@ export type Database = {
           acting_authority_state: string
           acting_host_participant_id?: string | null
           archived_at?: string | null
+          authority_generation?: number
           broadcast_state: string
           calendar_event_id?: string | null
           co_host_participant_ids?: string[]
@@ -2133,6 +3615,7 @@ export type Database = {
           acting_authority_state?: string
           acting_host_participant_id?: string | null
           archived_at?: string | null
+          authority_generation?: number
           broadcast_state?: string
           calendar_event_id?: string | null
           co_host_participant_ids?: string[]
@@ -2205,6 +3688,327 @@ export type Database = {
           },
           {
             foreignKeyName: "bellows_sessions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_sync_observations: {
+        Row: {
+          confidence: number | null
+          corrected_residual_ms: number | null
+          correction_model: Json
+          expected_offset_ms: number
+          id: string
+          observation_kind: string
+          observed_at: string
+          observed_audio_offset_ms: number | null
+          observed_video_offset_ms: number | null
+          participant_id: string
+          segment_id: string
+          session_id: string
+          workspace_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          corrected_residual_ms?: number | null
+          correction_model?: Json
+          expected_offset_ms: number
+          id?: string
+          observation_kind: string
+          observed_at?: string
+          observed_audio_offset_ms?: number | null
+          observed_video_offset_ms?: number | null
+          participant_id: string
+          segment_id: string
+          session_id: string
+          workspace_id: string
+        }
+        Update: {
+          confidence?: number | null
+          corrected_residual_ms?: number | null
+          correction_model?: Json
+          expected_offset_ms?: number
+          id?: string
+          observation_kind?: string
+          observed_at?: string
+          observed_audio_offset_ms?: number | null
+          observed_video_offset_ms?: number | null
+          participant_id?: string
+          segment_id?: string
+          session_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_sync_observations_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_sync_observations_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_sync_observations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_tracks: {
+        Row: {
+          continuity_state: string
+          created_at: string
+          id: string
+          kind: string
+          participant_id: string
+          session_id: string
+          workspace_id: string
+        }
+        Insert: {
+          continuity_state?: string
+          created_at?: string
+          id: string
+          kind: string
+          participant_id: string
+          session_id: string
+          workspace_id: string
+        }
+        Update: {
+          continuity_state?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          participant_id?: string
+          session_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_tracks_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_tracks_session_id_participant_id_fkey"
+            columns: ["session_id", "participant_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_session_participants"
+            referencedColumns: ["session_id", "id"]
+          },
+          {
+            foreignKeyName: "bellows_tracks_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bellows_upload_parts: {
+        Row: {
+          attempt_count: number
+          byte_length: number
+          created_at: string
+          id: string
+          last_error: string | null
+          participant_id: string
+          segment_id: string
+          sequence_number: number
+          session_id: string
+          sha256: string
+          storage_bucket: string
+          storage_key: string
+          updated_at: string
+          upload_state: string
+          verified_at: string | null
+          workspace_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          byte_length: number
+          created_at?: string
+          id: string
+          last_error?: string | null
+          participant_id: string
+          segment_id: string
+          sequence_number: number
+          session_id: string
+          sha256: string
+          storage_bucket?: string
+          storage_key: string
+          updated_at?: string
+          upload_state?: string
+          verified_at?: string | null
+          workspace_id: string
+        }
+        Update: {
+          attempt_count?: number
+          byte_length?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          participant_id?: string
+          segment_id?: string
+          sequence_number?: number
+          session_id?: string
+          sha256?: string
+          storage_bucket?: string
+          storage_key?: string
+          updated_at?: string
+          upload_state?: string
+          verified_at?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bellows_upload_parts_segment_id_fkey"
+            columns: ["segment_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_segments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_upload_parts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bellows_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bellows_upload_parts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      beta_credit_consumptions: {
+        Row: {
+          allocation_key: string
+          consumed_at: string
+          credit_units_consumed: number
+          customer_value_micros: number
+          grant_id: string
+          id: string
+          journal_event_id: string
+          metadata_json: Json
+          operation_id: string
+          user_id: string
+          wholesale_spend_micros: number
+        }
+        Insert: {
+          allocation_key: string
+          consumed_at?: string
+          credit_units_consumed: number
+          customer_value_micros: number
+          grant_id: string
+          id: string
+          journal_event_id: string
+          metadata_json?: Json
+          operation_id: string
+          user_id: string
+          wholesale_spend_micros: number
+        }
+        Update: {
+          allocation_key?: string
+          consumed_at?: string
+          credit_units_consumed?: number
+          customer_value_micros?: number
+          grant_id?: string
+          id?: string
+          journal_event_id?: string
+          metadata_json?: Json
+          operation_id?: string
+          user_id?: string
+          wholesale_spend_micros?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "beta_credit_consumptions_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "beta_credit_grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "beta_credit_consumptions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      beta_credit_grants: {
+        Row: {
+          credit_units: number
+          customer_value_micros: number
+          financial_environment: string
+          granted_at: string
+          granted_by: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          maximum_wholesale_capacity_micros: number
+          metadata_json: Json
+          reason: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          credit_units: number
+          customer_value_micros: number
+          financial_environment: string
+          granted_at?: string
+          granted_by: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          maximum_wholesale_capacity_micros: number
+          metadata_json?: Json
+          reason: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          credit_units?: number
+          customer_value_micros?: number
+          financial_environment?: string
+          granted_at?: string
+          granted_by?: string
+          id?: string
+          idempotency_key?: string
+          journal_event_id?: string
+          maximum_wholesale_capacity_micros?: number
+          metadata_json?: Json
+          reason?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "beta_credit_grants_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "beta_credit_grants_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -2382,6 +4186,178 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      bounded_provider_quote_request_bindings: {
+        Row: {
+          bounded_input_tokens: number
+          created_at: string
+          estimator_revision: string
+          maximum_attempts: number
+          maximum_output_tokens: number
+          model: string
+          operation_id: string
+          pricing_revision_id: string
+          protocol_overhead_tokens: number
+          quote_id: string
+          request_fingerprint: string
+          route_code: string
+          serialized_body_sha256: string
+          serialized_bytes: number
+          service_tier: string
+          tokenizer_input_tokens: number
+          tokenizer_revision: string
+          utf8_byte_token_upper_bound: number
+        }
+        Insert: {
+          bounded_input_tokens: number
+          created_at?: string
+          estimator_revision: string
+          maximum_attempts: number
+          maximum_output_tokens: number
+          model: string
+          operation_id: string
+          pricing_revision_id: string
+          protocol_overhead_tokens: number
+          quote_id: string
+          request_fingerprint: string
+          route_code: string
+          serialized_body_sha256: string
+          serialized_bytes: number
+          service_tier: string
+          tokenizer_input_tokens: number
+          tokenizer_revision: string
+          utf8_byte_token_upper_bound: number
+        }
+        Update: {
+          bounded_input_tokens?: number
+          created_at?: string
+          estimator_revision?: string
+          maximum_attempts?: number
+          maximum_output_tokens?: number
+          model?: string
+          operation_id?: string
+          pricing_revision_id?: string
+          protocol_overhead_tokens?: number
+          quote_id?: string
+          request_fingerprint?: string
+          route_code?: string
+          serialized_body_sha256?: string
+          serialized_bytes?: number
+          service_tier?: string
+          tokenizer_input_tokens?: number
+          tokenizer_revision?: string
+          utf8_byte_token_upper_bound?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bounded_provider_quote_request_binding_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bounded_provider_quote_request_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bounded_provider_request_bindings: {
+        Row: {
+          accepted_authority_hash: string
+          bounded_input_tokens: number
+          created_at: string
+          estimator_revision: string
+          maximum_attempts: number
+          maximum_output_tokens: number
+          model: string
+          operation_id: string
+          pricing_revision_id: string
+          protocol_overhead_tokens: number
+          quote_id: string
+          request_fingerprint: string
+          reservation_id: string
+          retention_policy_hash: string
+          route_code: string
+          serialized_body_sha256: string
+          serialized_bytes: number
+          service_tier: string
+          tokenizer_input_tokens: number
+          tokenizer_revision: string
+          utf8_byte_token_upper_bound: number
+        }
+        Insert: {
+          accepted_authority_hash: string
+          bounded_input_tokens: number
+          created_at?: string
+          estimator_revision: string
+          maximum_attempts: number
+          maximum_output_tokens: number
+          model: string
+          operation_id: string
+          pricing_revision_id: string
+          protocol_overhead_tokens: number
+          quote_id: string
+          request_fingerprint: string
+          reservation_id: string
+          retention_policy_hash: string
+          route_code: string
+          serialized_body_sha256: string
+          serialized_bytes: number
+          service_tier: string
+          tokenizer_input_tokens: number
+          tokenizer_revision: string
+          utf8_byte_token_upper_bound: number
+        }
+        Update: {
+          accepted_authority_hash?: string
+          bounded_input_tokens?: number
+          created_at?: string
+          estimator_revision?: string
+          maximum_attempts?: number
+          maximum_output_tokens?: number
+          model?: string
+          operation_id?: string
+          pricing_revision_id?: string
+          protocol_overhead_tokens?: number
+          quote_id?: string
+          request_fingerprint?: string
+          reservation_id?: string
+          retention_policy_hash?: string
+          route_code?: string
+          serialized_body_sha256?: string
+          serialized_bytes?: number
+          service_tier?: string
+          tokenizer_input_tokens?: number
+          tokenizer_revision?: string
+          utf8_byte_token_upper_bound?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bounded_provider_request_bindings_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bounded_provider_request_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bounded_provider_request_bindings_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       brand_asset_revisions: {
         Row: {
@@ -3001,6 +4977,286 @@ export type Database = {
           },
         ]
       }
+      broll_generation_attempts: {
+        Row: {
+          attempt_ordinal: number
+          beat_id: string
+          creative_input_hash: string
+          generation_request_id: string
+          initiated_at: string
+          initiated_by: string
+          operation_fingerprint: string
+          operation_id: string
+          previous_operation_id: string
+          prompt_content_hash: string
+          prompt_revision: number
+          prompt_revision_id: string
+          replacement_scope_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_ordinal: number
+          beat_id: string
+          creative_input_hash: string
+          generation_request_id: string
+          initiated_at?: string
+          initiated_by: string
+          operation_fingerprint: string
+          operation_id: string
+          previous_operation_id: string
+          prompt_content_hash: string
+          prompt_revision: number
+          prompt_revision_id: string
+          replacement_scope_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_ordinal?: number
+          beat_id?: string
+          creative_input_hash?: string
+          generation_request_id?: string
+          initiated_at?: string
+          initiated_by?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          previous_operation_id?: string
+          prompt_content_hash?: string
+          prompt_revision?: number
+          prompt_revision_id?: string
+          replacement_scope_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_generation_attempts_prompt_revision_id_workspace_id__fkey"
+            columns: [
+              "prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_generation_attempts_replacement_scope_id_fkey"
+            columns: ["replacement_scope_id"]
+            isOneToOne: true
+            referencedRelation: "broll_generation_replacement_scopes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_generation_attempts_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_generation_attempts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_generation_replacement_scopes: {
+        Row: {
+          beat_id: string
+          created_at: string
+          created_by: string
+          creative_input_hash: string
+          customer_failure_charge_micros: number
+          duration_seconds: number
+          financial_environment: string
+          generation_mode: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_provider_attempts: number
+          maximum_replacement_attempts: number
+          maximum_wholesale_exposure_micros: number
+          model: string
+          original_authorization_id: string
+          original_operation_fingerprint: string
+          original_operation_id: string
+          original_submission_attempt_id: string | null
+          output_count: number
+          prompt_content_hash: string
+          prompt_revision: number
+          prompt_revision_id: string
+          ratio: string
+          reason: string
+          reference_image_count: number
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          beat_id: string
+          created_at?: string
+          created_by: string
+          creative_input_hash: string
+          customer_failure_charge_micros: number
+          duration_seconds: number
+          financial_environment: string
+          generation_mode: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_provider_attempts: number
+          maximum_replacement_attempts: number
+          maximum_wholesale_exposure_micros: number
+          model: string
+          original_authorization_id: string
+          original_operation_fingerprint: string
+          original_operation_id: string
+          original_submission_attempt_id?: string | null
+          output_count: number
+          prompt_content_hash: string
+          prompt_revision: number
+          prompt_revision_id: string
+          ratio: string
+          reason: string
+          reference_image_count: number
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          beat_id?: string
+          created_at?: string
+          created_by?: string
+          creative_input_hash?: string
+          customer_failure_charge_micros?: number
+          duration_seconds?: number
+          financial_environment?: string
+          generation_mode?: string
+          id?: string
+          maximum_concurrency?: number
+          maximum_customer_charge_micros?: number
+          maximum_provider_attempts?: number
+          maximum_replacement_attempts?: number
+          maximum_wholesale_exposure_micros?: number
+          model?: string
+          original_authorization_id?: string
+          original_operation_fingerprint?: string
+          original_operation_id?: string
+          original_submission_attempt_id?: string | null
+          output_count?: number
+          prompt_content_hash?: string
+          prompt_revision?: number
+          prompt_revision_id?: string
+          ratio?: string
+          reason?: string
+          reference_image_count?: number
+          user_id?: string
+          valid_from?: string
+          valid_until?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_generation_replacement__prompt_revision_id_workspace_fkey"
+            columns: [
+              "prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_generation_replacement_sco_original_authorization_id_fkey"
+            columns: ["original_authorization_id"]
+            isOneToOne: true
+            referencedRelation: "runway_customer_test_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_generation_replacement_sco_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_generation_replacement_scopes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_interpretation_historical_authorities: {
+        Row: {
+          grandfathered_at: string
+          migration_version: string
+          operation_id: string
+          prompt_revision_id: string
+          provider_response_hash: string
+          receipt_hash: string
+        }
+        Insert: {
+          grandfathered_at?: string
+          migration_version: string
+          operation_id: string
+          prompt_revision_id: string
+          provider_response_hash: string
+          receipt_hash: string
+        }
+        Update: {
+          grandfathered_at?: string
+          migration_version?: string
+          operation_id?: string
+          prompt_revision_id?: string
+          provider_response_hash?: string
+          receipt_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_interpretation_historical_authori_prompt_revision_id_fkey"
+            columns: ["prompt_revision_id"]
+            isOneToOne: true
+            referencedRelation: "broll_prompt_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_interpretation_historical_authorities_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "broll_operation_receipts"
+            referencedColumns: ["operation_id"]
+          },
+        ]
+      }
       broll_operation_receipts: {
         Row: {
           ambiguity_reason: string | null
@@ -3014,6 +5270,7 @@ export type Database = {
           operation_fingerprint: string
           operation_id: string
           operation_type: string
+          owner_cost_attempt_id: string | null
           provider_completed_at: string | null
           provider_completed_hash: string | null
           provider_completed_json: Json | null
@@ -3060,6 +5317,7 @@ export type Database = {
           operation_fingerprint: string
           operation_id: string
           operation_type: string
+          owner_cost_attempt_id?: string | null
           provider_completed_at?: string | null
           provider_completed_hash?: string | null
           provider_completed_json?: Json | null
@@ -3106,6 +5364,7 @@ export type Database = {
           operation_fingerprint?: string
           operation_id?: string
           operation_type?: string
+          owner_cost_attempt_id?: string | null
           provider_completed_at?: string | null
           provider_completed_hash?: string | null
           provider_completed_json?: Json | null
@@ -3141,6 +5400,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "broll_operation_receipts_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
           {
             foreignKeyName: "broll_operation_receipts_verified_asset_id_fkey"
             columns: ["verified_asset_id"]
@@ -3419,6 +5685,7 @@ export type Database = {
           motion_brief_json: Json
           origin_operation_fingerprint: string | null
           origin_operation_id: string | null
+          owner_cost_attempt_id: string | null
           previous_revision: number | null
           previous_revision_id: string | null
           prompt_source: string
@@ -3455,6 +5722,7 @@ export type Database = {
           motion_brief_json: Json
           origin_operation_fingerprint?: string | null
           origin_operation_id?: string | null
+          owner_cost_attempt_id?: string | null
           previous_revision?: number | null
           previous_revision_id?: string | null
           prompt_source: string
@@ -3491,6 +5759,7 @@ export type Database = {
           motion_brief_json?: Json
           origin_operation_fingerprint?: string | null
           origin_operation_id?: string | null
+          owner_cost_attempt_id?: string | null
           previous_revision?: number | null
           previous_revision_id?: string | null
           prompt_source?: string
@@ -3510,6 +5779,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "broll_prompt_revisions_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
           {
             foreignKeyName: "broll_prompt_revisions_previous_revision_id_workspace_id_w_fkey"
             columns: [
@@ -3884,6 +6160,13 @@ export type Database = {
             referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "calendar_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
         ]
       }
       canonical_recordings: {
@@ -3992,6 +6275,1201 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_source_reconciliation_receipts: {
+        Row: {
+          chat_hash: string
+          chat_revision: number
+          created_at: string
+          created_by: string
+          operation_fingerprint: string
+          operation_id: string
+          result_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          chat_hash: string
+          chat_revision: number
+          created_at?: string
+          created_by: string
+          operation_fingerprint: string
+          operation_id: string
+          result_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          chat_hash?: string
+          chat_revision?: number
+          created_at?: string
+          created_by?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          result_json?: Json
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_source_reconciliation_recei_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      credential_lifecycle_alerts: {
+        Row: {
+          affected_capability: string
+          alert_id: string
+          alert_key: string
+          configuration_variable_name: string
+          created_at: string
+          credential_id: string
+          credential_purpose: string
+          deadline_at: string
+          provider: string
+          recommended_action: string
+          urgency: string
+        }
+        Insert: {
+          affected_capability: string
+          alert_id: string
+          alert_key: string
+          configuration_variable_name: string
+          created_at?: string
+          credential_id: string
+          credential_purpose: string
+          deadline_at: string
+          provider: string
+          recommended_action: string
+          urgency: string
+        }
+        Update: {
+          affected_capability?: string
+          alert_id?: string
+          alert_key?: string
+          configuration_variable_name?: string
+          created_at?: string
+          credential_id?: string
+          credential_purpose?: string
+          deadline_at?: string
+          provider?: string
+          recommended_action?: string
+          urgency?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credential_lifecycle_alerts_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "credential_lifecycle_records"
+            referencedColumns: ["credential_id"]
+          },
+        ]
+      }
+      credential_lifecycle_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          credential_id: string
+          event_id: string
+          event_key: string
+          event_sequence: number
+          event_type: string
+          evidence_json: Json
+          from_status: string | null
+          occurred_at: string
+          to_status: string
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          credential_id: string
+          event_id: string
+          event_key: string
+          event_sequence: number
+          event_type: string
+          evidence_json?: Json
+          from_status?: string | null
+          occurred_at: string
+          to_status: string
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          credential_id?: string
+          event_id?: string
+          event_key?: string
+          event_sequence?: number
+          event_type?: string
+          evidence_json?: Json
+          from_status?: string | null
+          occurred_at?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credential_lifecycle_events_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "credential_lifecycle_records"
+            referencedColumns: ["credential_id"]
+          },
+        ]
+      }
+      credential_lifecycle_records: {
+        Row: {
+          activated_at: string | null
+          activation_deployment_id: string | null
+          activation_deployment_sha: string | null
+          affected_capability: string
+          bounded_smoke_performed_at: string | null
+          config_presence_verified_at: string | null
+          configuration_variable_name: string
+          created_at: string
+          created_by: string | null
+          credential_id: string
+          credential_identity_hash: string | null
+          credential_purpose: string
+          expires_at: string | null
+          financial_environment: string
+          last_verification_at: string | null
+          lifecycle_status: string
+          metadata_json: Json
+          non_paid_readiness_verified_at: string | null
+          provider: string
+          provider_created_at: string | null
+          replacement_credential_id: string | null
+          revocation_confirmed_at: string | null
+          revocation_required: boolean
+          rotation_due_at: string | null
+          rotation_lead: string
+          route_configuration_verified_at: string | null
+          runtime_environment: string
+          smoke_operation_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string | null
+          activation_deployment_id?: string | null
+          activation_deployment_sha?: string | null
+          affected_capability: string
+          bounded_smoke_performed_at?: string | null
+          config_presence_verified_at?: string | null
+          configuration_variable_name: string
+          created_at?: string
+          created_by?: string | null
+          credential_id: string
+          credential_identity_hash?: string | null
+          credential_purpose: string
+          expires_at?: string | null
+          financial_environment: string
+          last_verification_at?: string | null
+          lifecycle_status: string
+          metadata_json?: Json
+          non_paid_readiness_verified_at?: string | null
+          provider: string
+          provider_created_at?: string | null
+          replacement_credential_id?: string | null
+          revocation_confirmed_at?: string | null
+          revocation_required?: boolean
+          rotation_due_at?: string | null
+          rotation_lead?: string
+          route_configuration_verified_at?: string | null
+          runtime_environment: string
+          smoke_operation_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string | null
+          activation_deployment_id?: string | null
+          activation_deployment_sha?: string | null
+          affected_capability?: string
+          bounded_smoke_performed_at?: string | null
+          config_presence_verified_at?: string | null
+          configuration_variable_name?: string
+          created_at?: string
+          created_by?: string | null
+          credential_id?: string
+          credential_identity_hash?: string | null
+          credential_purpose?: string
+          expires_at?: string | null
+          financial_environment?: string
+          last_verification_at?: string | null
+          lifecycle_status?: string
+          metadata_json?: Json
+          non_paid_readiness_verified_at?: string | null
+          provider?: string
+          provider_created_at?: string | null
+          replacement_credential_id?: string | null
+          revocation_confirmed_at?: string | null
+          revocation_required?: boolean
+          rotation_due_at?: string | null
+          rotation_lead?: string
+          route_configuration_verified_at?: string | null
+          runtime_environment?: string
+          smoke_operation_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "credential_lifecycle_records_replacement_credential_id_fkey"
+            columns: ["replacement_credential_id"]
+            isOneToOne: false
+            referencedRelation: "credential_lifecycle_records"
+            referencedColumns: ["credential_id"]
+          },
+        ]
+      }
+      customer_deposit_consumptions: {
+        Row: {
+          allocated_processor_fee_micros: number
+          allocation_key: string
+          consumed_at: string
+          created_at: string
+          credit_units_consumed: number
+          deposit_id: string
+          id: string
+          journal_event_id: string
+          metadata_json: Json
+          operation_id: string
+          recognized_revenue_micros: number
+          user_id: string
+        }
+        Insert: {
+          allocated_processor_fee_micros: number
+          allocation_key: string
+          consumed_at: string
+          created_at?: string
+          credit_units_consumed: number
+          deposit_id: string
+          id: string
+          journal_event_id: string
+          metadata_json?: Json
+          operation_id: string
+          recognized_revenue_micros: number
+          user_id: string
+        }
+        Update: {
+          allocated_processor_fee_micros?: number
+          allocation_key?: string
+          consumed_at?: string
+          created_at?: string
+          credit_units_consumed?: number
+          deposit_id?: string
+          id?: string
+          journal_event_id?: string
+          metadata_json?: Json
+          operation_id?: string
+          recognized_revenue_micros?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_deposit_consumptions_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_deposit_consumptions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_deposit_processor_fees: {
+        Row: {
+          created_at: string
+          deposit_id: string
+          evidence_json: Json
+          fee_amount_micros: number
+          id: string
+          journal_event_id: string
+          provider_fee_reference: string
+          recorded_at: string
+        }
+        Insert: {
+          created_at?: string
+          deposit_id: string
+          evidence_json?: Json
+          fee_amount_micros: number
+          id: string
+          journal_event_id: string
+          provider_fee_reference: string
+          recorded_at: string
+        }
+        Update: {
+          created_at?: string
+          deposit_id?: string
+          evidence_json?: Json
+          fee_amount_micros?: number
+          id?: string
+          journal_event_id?: string
+          provider_fee_reference?: string
+          recorded_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_deposit_processor_fees_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: true
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_deposit_processor_fees_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_deposit_refunds: {
+        Row: {
+          adjustment_type: string
+          created_at: string
+          deposit_id: string
+          discrepancy_expense_micros: number
+          evidence_json: Json
+          id: string
+          journal_event_id: string
+          liability_release_micros: number
+          refund_amount_micros: number
+          refunded_at: string
+          refunded_credit_units: number
+          stripe_event_id: string
+          stripe_refund_id: string
+        }
+        Insert: {
+          adjustment_type: string
+          created_at?: string
+          deposit_id: string
+          discrepancy_expense_micros: number
+          evidence_json?: Json
+          id: string
+          journal_event_id: string
+          liability_release_micros: number
+          refund_amount_micros: number
+          refunded_at: string
+          refunded_credit_units: number
+          stripe_event_id: string
+          stripe_refund_id: string
+        }
+        Update: {
+          adjustment_type?: string
+          created_at?: string
+          deposit_id?: string
+          discrepancy_expense_micros?: number
+          evidence_json?: Json
+          id?: string
+          journal_event_id?: string
+          liability_release_micros?: number
+          refund_amount_micros?: number
+          refunded_at?: string
+          refunded_credit_units?: number
+          stripe_event_id?: string
+          stripe_refund_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_deposit_refunds_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_deposit_refunds_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_deposits: {
+        Row: {
+          created_at: string
+          credit_units: number
+          currency: string
+          gross_amount_micros: number
+          id: string
+          journal_event_id: string
+          metadata_json: Json
+          pack_id: string
+          received_at: string
+          stripe_event_id: string
+          stripe_mode: string
+          stripe_payment_intent_id: string | null
+          stripe_session_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          credit_units: number
+          currency: string
+          gross_amount_micros: number
+          id: string
+          journal_event_id: string
+          metadata_json?: Json
+          pack_id: string
+          received_at: string
+          stripe_event_id: string
+          stripe_mode: string
+          stripe_payment_intent_id?: string | null
+          stripe_session_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          credit_units?: number
+          currency?: string
+          gross_amount_micros?: number
+          id?: string
+          journal_event_id?: string
+          metadata_json?: Json
+          pack_id?: string
+          received_at?: string
+          stripe_event_id?: string
+          stripe_mode?: string
+          stripe_payment_intent_id?: string | null
+          stripe_session_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_deposits_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_hearth_research_component_expenses: {
+        Row: {
+          amount_micros: number
+          component: string
+          cost_status: string
+          created_at: string
+          evidence_json: Json
+          expense_key: string
+          id: string
+          reservation_id: string
+          supplier: string
+        }
+        Insert: {
+          amount_micros: number
+          component: string
+          cost_status: string
+          created_at?: string
+          evidence_json?: Json
+          expense_key: string
+          id: string
+          reservation_id: string
+          supplier: string
+        }
+        Update: {
+          amount_micros?: number
+          component?: string
+          cost_status?: string
+          created_at?: string
+          evidence_json?: Json
+          expense_key?: string
+          id?: string
+          reservation_id?: string
+          supplier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_hearth_research_component_expenses_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_hearth_research_stage_events: {
+        Row: {
+          actual_supplier_cost_micros: number | null
+          capture_json: Json | null
+          cost_status: string
+          created_at: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          maximum_supplier_cost_micros: number
+          request_fingerprint: string
+          request_json: Json
+          reservation_id: string
+          sequence: number
+          stage_key: string
+          stage_ordinal: number
+          stage_type: string
+        }
+        Insert: {
+          actual_supplier_cost_micros?: number | null
+          capture_json?: Json | null
+          cost_status: string
+          created_at?: string
+          event_type: string
+          evidence_json?: Json
+          id: string
+          maximum_supplier_cost_micros: number
+          request_fingerprint: string
+          request_json?: Json
+          reservation_id: string
+          sequence: number
+          stage_key: string
+          stage_ordinal: number
+          stage_type: string
+        }
+        Update: {
+          actual_supplier_cost_micros?: number | null
+          capture_json?: Json | null
+          cost_status?: string
+          created_at?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          maximum_supplier_cost_micros?: number
+          request_fingerprint?: string
+          request_json?: Json
+          reservation_id?: string
+          sequence?: number
+          stage_key?: string
+          stage_ordinal?: number
+          stage_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_hearth_research_stage_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_operation_relief_corrections: {
+        Row: {
+          canonical_result_id: string
+          corrected_at: string
+          corrected_credit_units: number
+          corrected_customer_credit_micros: number
+          corrected_revenue_micros: number
+          created_at: string
+          evidence_json: Json
+          funding_environment: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          operator_actor_id: string
+          original_consumption_id: string
+          reason: string
+          reason_code: string
+          relief_id: string
+          reservation_id: string
+        }
+        Insert: {
+          canonical_result_id: string
+          corrected_at?: string
+          corrected_credit_units: number
+          corrected_customer_credit_micros: number
+          corrected_revenue_micros: number
+          created_at?: string
+          evidence_json?: Json
+          funding_environment: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          operator_actor_id: string
+          original_consumption_id: string
+          reason: string
+          reason_code: string
+          relief_id: string
+          reservation_id: string
+        }
+        Update: {
+          canonical_result_id?: string
+          corrected_at?: string
+          corrected_credit_units?: number
+          corrected_customer_credit_micros?: number
+          corrected_revenue_micros?: number
+          created_at?: string
+          evidence_json?: Json
+          funding_environment?: string
+          id?: string
+          idempotency_key?: string
+          journal_event_id?: string
+          operator_actor_id?: string
+          original_consumption_id?: string
+          reason?: string
+          reason_code?: string
+          relief_id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_operation_relief_correcti_original_consumption_id_fkey"
+            columns: ["original_consumption_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposit_consumptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_operation_relief_corrections_canonical_result_id_fkey"
+            columns: ["canonical_result_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_persisted_results"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_operation_relief_corrections_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_operation_relief_corrections_relief_id_fkey"
+            columns: ["relief_id"]
+            isOneToOne: false
+            referencedRelation: "customer_operation_reliefs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_operation_relief_corrections_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_operation_reliefs: {
+        Row: {
+          created_at: string
+          currency: string
+          customer_credit_micros: number
+          evidence_json: Json
+          funding_source_id: string
+          funding_source_type: string
+          id: string
+          journal_event_id: string
+          original_consumption_id: string
+          reason: string
+          relief_key: string
+          relieved_at: string
+          reservation_id: string
+          restored_units: number
+          revenue_reversal_micros: number
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          customer_credit_micros: number
+          evidence_json?: Json
+          funding_source_id: string
+          funding_source_type: string
+          id: string
+          journal_event_id: string
+          original_consumption_id: string
+          reason: string
+          relief_key: string
+          relieved_at: string
+          reservation_id: string
+          restored_units: number
+          revenue_reversal_micros: number
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          customer_credit_micros?: number
+          evidence_json?: Json
+          funding_source_id?: string
+          funding_source_type?: string
+          id?: string
+          journal_event_id?: string
+          original_consumption_id?: string
+          reason?: string
+          relief_key?: string
+          relieved_at?: string
+          reservation_id?: string
+          restored_units?: number
+          revenue_reversal_micros?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_operation_reliefs_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_operation_reliefs_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_paid_execution_scope_authorizations: {
+        Row: {
+          authorization_kind: string
+          cost_policy_revision_id: string | null
+          created_at: string
+          created_by: string
+          financial_environment: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number | null
+          maximum_wholesale_exposure_micros: number
+          model_or_sku: string
+          pricing_revision_id: string
+          provider: string
+          reason: string
+          rolling_window_seconds: number | null
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until: string | null
+          workspace_id: string
+        }
+        Insert: {
+          authorization_kind?: string
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          created_by: string
+          financial_environment: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_operation_count?: number | null
+          maximum_wholesale_exposure_micros: number
+          model_or_sku: string
+          pricing_revision_id: string
+          provider: string
+          reason: string
+          rolling_window_seconds?: number | null
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until?: string | null
+          workspace_id: string
+        }
+        Update: {
+          authorization_kind?: string
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          created_by?: string
+          financial_environment?: string
+          id?: string
+          maximum_concurrency?: number
+          maximum_customer_charge_micros?: number
+          maximum_operation_count?: number | null
+          maximum_wholesale_exposure_micros?: number
+          model_or_sku?: string
+          pricing_revision_id?: string
+          provider?: string
+          reason?: string
+          rolling_window_seconds?: number | null
+          route_code?: string
+          status?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_paid_execution_scope_auth_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_paid_execution_scope_authoriz_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_paid_execution_scope_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_paid_execution_test_authorization_quotes: {
+        Row: {
+          authorization_id: string
+          created_at: string
+          quote_id: string
+        }
+        Insert: {
+          authorization_id: string
+          created_at?: string
+          quote_id: string
+        }
+        Update: {
+          authorization_id?: string
+          created_at?: string
+          quote_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_paid_execution_test_authorizati_authorization_id_fkey1"
+            columns: ["authorization_id"]
+            isOneToOne: true
+            referencedRelation: "customer_paid_execution_test_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_paid_execution_test_authorization_quotes_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_paid_execution_test_authorization_revisions: {
+        Row: {
+          actor_id: string
+          authorization_id: string
+          created_at: string
+          reason: string
+          revision: number
+          status: string
+        }
+        Insert: {
+          actor_id: string
+          authorization_id: string
+          created_at?: string
+          reason: string
+          revision: number
+          status: string
+        }
+        Update: {
+          actor_id?: string
+          authorization_id?: string
+          created_at?: string
+          reason?: string
+          revision?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_paid_execution_test_authorizatio_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "customer_paid_execution_test_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_paid_execution_test_authorizations: {
+        Row: {
+          authorization_expires_at: string
+          cost_policy_revision_id: string
+          created_at: string
+          created_by: string
+          id: string
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number
+          model: string
+          pricing_revision_id: string
+          provider: string
+          reason: string
+          route_code: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authorization_expires_at: string
+          cost_policy_revision_id: string
+          created_at?: string
+          created_by: string
+          id: string
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number
+          model: string
+          pricing_revision_id: string
+          provider: string
+          reason: string
+          route_code: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          authorization_expires_at?: string
+          cost_policy_revision_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          maximum_customer_charge_micros?: number
+          maximum_operation_count?: number
+          model?: string
+          pricing_revision_id?: string
+          provider?: string
+          reason?: string
+          route_code?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_paid_execution_test_autho_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_paid_execution_test_authoriza_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_paid_execution_test_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_product_availability_revisions: {
+        Row: {
+          availability_state: string
+          created_at: string
+          customer_reason_code: string
+          financial_environment: string
+          product_code: string
+          reason: string
+          revision: number
+        }
+        Insert: {
+          availability_state: string
+          created_at?: string
+          customer_reason_code: string
+          financial_environment: string
+          product_code: string
+          reason: string
+          revision: number
+        }
+        Update: {
+          availability_state?: string
+          created_at?: string
+          customer_reason_code?: string
+          financial_environment?: string
+          product_code?: string
+          reason?: string
+          revision?: number
+        }
+        Relationships: []
+      }
+      customer_spending_quote_acceptances: {
+        Row: {
+          acceptance_key: string
+          accepted_at: string
+          accepted_quote_hash: string
+          id: string
+          quote_id: string
+          user_id: string
+        }
+        Insert: {
+          acceptance_key: string
+          accepted_at?: string
+          accepted_quote_hash: string
+          id: string
+          quote_id: string
+          user_id: string
+        }
+        Update: {
+          acceptance_key?: string
+          accepted_at?: string
+          accepted_quote_hash?: string
+          id?: string
+          quote_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_spending_quote_acceptances_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_spending_quotes: {
+        Row: {
+          billable_failure_classes: Json
+          billable_failure_maximum_charge_micros: number
+          created_at: string
+          currency: string
+          customer_credit_units: number
+          expires_at: string
+          financial_environment: string
+          free_failure_classes: Json
+          full_cost_ceiling_micros: number
+          id: string
+          included_quantity: Json
+          normal_maximum_charge_micros: number
+          operation_id: string
+          pricing_revision: number
+          pricing_revision_id: string
+          provider_funding_summary: Json
+          quote_hash: string
+          request_fingerprint: string
+          retention_policy: Json
+          tool: string
+          user_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          billable_failure_classes: Json
+          billable_failure_maximum_charge_micros: number
+          created_at?: string
+          currency: string
+          customer_credit_units: number
+          expires_at: string
+          financial_environment?: string
+          free_failure_classes: Json
+          full_cost_ceiling_micros: number
+          id: string
+          included_quantity: Json
+          normal_maximum_charge_micros: number
+          operation_id: string
+          pricing_revision: number
+          pricing_revision_id: string
+          provider_funding_summary: Json
+          quote_hash: string
+          request_fingerprint: string
+          retention_policy: Json
+          tool: string
+          user_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          billable_failure_classes?: Json
+          billable_failure_maximum_charge_micros?: number
+          created_at?: string
+          currency?: string
+          customer_credit_units?: number
+          expires_at?: string
+          financial_environment?: string
+          free_failure_classes?: Json
+          full_cost_ceiling_micros?: number
+          id?: string
+          included_quantity?: Json
+          normal_maximum_charge_micros?: number
+          operation_id?: string
+          pricing_revision?: number
+          pricing_revision_id?: string
+          provider_funding_summary?: Json
+          quote_hash?: string
+          request_fingerprint?: string
+          retention_policy?: Json
+          tool?: string
+          user_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_spending_quotes_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_spending_quotes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_subscription_allowance_terms: {
+        Row: {
+          allocated_revenue_micros: number
+          contract_revision_id: string
+          created_at: string
+          effective_from: string
+          entitlement_units: number
+          financial_environment: string
+          id: string
+          interval: string
+          lifecycle_state: string
+          maximum_wholesale_spend_micros: number
+          plan_item_id: string
+          policy_revision: string
+          reason: string
+        }
+        Insert: {
+          allocated_revenue_micros: number
+          contract_revision_id: string
+          created_at?: string
+          effective_from: string
+          entitlement_units: number
+          financial_environment: string
+          id?: string
+          interval: string
+          lifecycle_state: string
+          maximum_wholesale_spend_micros: number
+          plan_item_id: string
+          policy_revision: string
+          reason: string
+        }
+        Update: {
+          allocated_revenue_micros?: number
+          contract_revision_id?: string
+          created_at?: string
+          effective_from?: string
+          entitlement_units?: number
+          financial_environment?: string
+          id?: string
+          interval?: string
+          lifecycle_state?: string
+          maximum_wholesale_spend_micros?: number
+          plan_item_id?: string
+          policy_revision?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_subscription_allowance_terms_contract_revision_id_fkey"
+            columns: ["contract_revision_id"]
+            isOneToOne: false
+            referencedRelation: "forge_credit_contract_revisions"
             referencedColumns: ["id"]
           },
         ]
@@ -4274,11 +7752,474 @@ export type Database = {
             referencedRelation: "canonical_recordings"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      external_cost_observations: {
+        Row: {
+          allocation_basis_json: Json
+          allocation_method: string
+          amount_usd: number
+          cost_basis: string
+          created_at: string
+          evidence_json: Json
+          external_line_item_id: string
+          id: string
+          incurred_at: string
+          payer: string
+          provider: string
+          service: string
+          workpiece_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          allocation_basis_json?: Json
+          allocation_method: string
+          amount_usd: number
+          cost_basis: string
+          created_at?: string
+          evidence_json?: Json
+          external_line_item_id: string
+          id?: string
+          incurred_at: string
+          payer: string
+          provider: string
+          service: string
+          workpiece_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          allocation_basis_json?: Json
+          allocation_method?: string
+          amount_usd?: number
+          cost_basis?: string
+          created_at?: string
+          evidence_json?: Json
+          external_line_item_id?: string
+          id?: string
+          incurred_at?: string
+          payer?: string
+          provider?: string
+          service?: string
+          workpiece_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
           {
-            foreignKeyName: "episodes_workspace_id_fkey"
+            foreignKeyName: "external_cost_observations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "external_cost_observations_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_environment_configuration_revisions: {
+        Row: {
+          cost_policy_revision_id: string | null
+          created_at: string
+          environment: string
+          lifecycle_state: string
+          maximum_concurrency: number
+          maximum_operation_count: number | null
+          model: string
+          pricing_revision_id: string | null
+          provider: string
+          reason: string
+          required_stripe_identifier_slots: Json
+          revision: number
+          rolling_window_seconds: number | null
+          route_code: string
+          wholesale_exposure_ceiling_micros: number
+          workflow_contract: string
+        }
+        Insert: {
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          environment: string
+          lifecycle_state: string
+          maximum_concurrency: number
+          maximum_operation_count?: number | null
+          model: string
+          pricing_revision_id?: string | null
+          provider: string
+          reason: string
+          required_stripe_identifier_slots: Json
+          revision: number
+          rolling_window_seconds?: number | null
+          route_code: string
+          wholesale_exposure_ceiling_micros: number
+          workflow_contract: string
+        }
+        Update: {
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          environment?: string
+          lifecycle_state?: string
+          maximum_concurrency?: number
+          maximum_operation_count?: number | null
+          model?: string
+          pricing_revision_id?: string | null
+          provider?: string
+          reason?: string
+          required_stripe_identifier_slots?: Json
+          revision?: number
+          rolling_window_seconds?: number | null
+          route_code?: string
+          wholesale_exposure_ceiling_micros?: number
+          workflow_contract?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_environment_configuratio_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_environment_configuration_re_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_parity_baseline_captures: {
+        Row: {
+          baseline_kind: string
+          captured_at: string
+          id: string
+          summary_hash: string
+          summary_json: Json
+        }
+        Insert: {
+          baseline_kind: string
+          captured_at?: string
+          id: string
+          summary_hash: string
+          summary_json: Json
+        }
+        Update: {
+          baseline_kind?: string
+          captured_at?: string
+          id?: string
+          summary_hash?: string
+          summary_json?: Json
+        }
+        Relationships: []
+      }
+      financial_runtime_environment_revisions: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          financial_environment: string
+          reason: string
+          revision: number
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          financial_environment: string
+          reason: string
+          revision: number
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          financial_environment?: string
+          reason?: string
+          revision?: number
+        }
+        Relationships: []
+      }
+      forge_credit_contract_revisions: {
+        Row: {
+          contract_code: string
+          created_at: string
+          credit_value_micros: number
+          currency: string
+          id: string
+          lifecycle_state: string
+          markup_basis_points: number
+          reason: string
+          revision: number
+          tax_treatment: string
+        }
+        Insert: {
+          contract_code: string
+          created_at?: string
+          credit_value_micros: number
+          currency: string
+          id?: string
+          lifecycle_state: string
+          markup_basis_points: number
+          reason: string
+          revision: number
+          tax_treatment: string
+        }
+        Update: {
+          contract_code?: string
+          created_at?: string
+          credit_value_micros?: number
+          currency?: string
+          id?: string
+          lifecycle_state?: string
+          markup_basis_points?: number
+          reason?: string
+          revision?: number
+          tax_treatment?: string
+        }
+        Relationships: []
+      }
+      forge_credit_pack_terms: {
+        Row: {
+          availability: string
+          contract_revision_id: string
+          created_at: string
+          credit_units: number
+          effective_from: string
+          financial_environment: string
+          gross_amount_micros: number
+          id: string
+          offer_id: string
+          pack_id: string
+          reason: string
+          stripe_price_id: string
+          stripe_product_id: string
+        }
+        Insert: {
+          availability: string
+          contract_revision_id: string
+          created_at?: string
+          credit_units: number
+          effective_from: string
+          financial_environment: string
+          gross_amount_micros: number
+          id?: string
+          offer_id: string
+          pack_id: string
+          reason: string
+          stripe_price_id: string
+          stripe_product_id: string
+        }
+        Update: {
+          availability?: string
+          contract_revision_id?: string
+          created_at?: string
+          credit_units?: number
+          effective_from?: string
+          financial_environment?: string
+          gross_amount_micros?: number
+          id?: string
+          offer_id?: string
+          pack_id?: string
+          reason?: string
+          stripe_price_id?: string
+          stripe_product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "forge_credit_pack_terms_contract_revision_id_fkey"
+            columns: ["contract_revision_id"]
+            isOneToOne: false
+            referencedRelation: "forge_credit_contract_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      funding_failure_class_corrections: {
+        Row: {
+          corrected_by: string
+          corrected_failure_class: string
+          correction_key: string
+          correction_reason: string
+          created_at: string
+          evidence_json: Json
+          id: string
+          original_event_id: string
+          original_failure_class: string
+          reservation_id: string
+        }
+        Insert: {
+          corrected_by: string
+          corrected_failure_class: string
+          correction_key: string
+          correction_reason: string
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          original_event_id: string
+          original_failure_class: string
+          reservation_id: string
+        }
+        Update: {
+          corrected_by?: string
+          corrected_failure_class?: string
+          correction_key?: string
+          correction_reason?: string
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          original_event_id?: string
+          original_failure_class?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funding_failure_class_corrections_original_event_id_fkey"
+            columns: ["original_event_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservation_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funding_failure_class_corrections_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      funding_reservation_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          credit_units: number | null
+          customer_charge_micros: number | null
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          failure_class: string | null
+          id: string
+          lease_expires_at: string | null
+          provider_attempt_key: string | null
+          reservation_id: string
+          sequence: number
+          wholesale_spend_micros: number | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          credit_units?: number | null
+          customer_charge_micros?: number | null
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          failure_class?: string | null
+          id: string
+          lease_expires_at?: string | null
+          provider_attempt_key?: string | null
+          reservation_id: string
+          sequence: number
+          wholesale_spend_micros?: number | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          credit_units?: number | null
+          customer_charge_micros?: number | null
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          failure_class?: string | null
+          id?: string
+          lease_expires_at?: string | null
+          provider_attempt_key?: string | null
+          reservation_id?: string
+          sequence?: number
+          wholesale_spend_micros?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funding_reservation_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      funding_reservations: {
+        Row: {
+          created_at: string
+          currency: string
+          funding_environment: string
+          funding_source_id: string | null
+          funding_source_type: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          quote_id: string
+          reserved_credit_units: number
+          reserved_customer_charge_micros: number
+          reserved_wholesale_spend_micros: number
+          rollout_authorization_id: string | null
+          runway_test_authorization_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          funding_environment?: string
+          funding_source_id?: string | null
+          funding_source_type: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          quote_id: string
+          reserved_credit_units: number
+          reserved_customer_charge_micros: number
+          reserved_wholesale_spend_micros: number
+          rollout_authorization_id?: string | null
+          runway_test_authorization_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          funding_environment?: string
+          funding_source_id?: string | null
+          funding_source_type?: string
+          id?: string
+          idempotency_key?: string
+          operation_id?: string
+          quote_id?: string
+          reserved_credit_units?: number
+          reserved_customer_charge_micros?: number
+          reserved_wholesale_spend_micros?: number
+          rollout_authorization_id?: string | null
+          runway_test_authorization_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "funding_reservations_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funding_reservations_rollout_authorization_fkey"
+            columns: ["rollout_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "customer_paid_execution_scope_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "funding_reservations_runway_test_authorization_id_fkey"
+            columns: ["runway_test_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "runway_customer_test_authorizations"
             referencedColumns: ["id"]
           },
         ]
@@ -4374,6 +8315,523 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_canonical_transcripts_v2: {
+        Row: {
+          artifact_path: string
+          canonical_recording_id: string
+          id: string
+          model: string
+          operation_id: string
+          persisted_at: string
+          provider: string
+          provider_attempt_id: string
+          provider_request_id: string
+          recording_revision_id: string
+          source_sha256: string
+          transcript_json: Json
+          transcript_sha256: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_path: string
+          canonical_recording_id: string
+          id: string
+          model: string
+          operation_id: string
+          persisted_at?: string
+          provider: string
+          provider_attempt_id: string
+          provider_request_id: string
+          recording_revision_id: string
+          source_sha256: string
+          transcript_json: Json
+          transcript_sha256: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_path?: string
+          canonical_recording_id?: string
+          id?: string
+          model?: string
+          operation_id?: string
+          persisted_at?: string
+          provider?: string
+          provider_attempt_id?: string
+          provider_request_id?: string
+          recording_revision_id?: string
+          source_sha256?: string
+          transcript_json?: Json
+          transcript_sha256?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_canonical_transcripts_v2_canonical_recording_id_fkey"
+            columns: ["canonical_recording_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_canonical_transcripts_v2_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_transcription_operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_canonical_transcripts_v2_provider_attempt_id_fkey"
+            columns: ["provider_attempt_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_transcription_provider_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_canonical_transcripts_v2_recording_revision_id_fkey"
+            columns: ["recording_revision_id"]
+            isOneToOne: false
+            referencedRelation: "recording_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_canonical_transcripts_v2_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_canonical_transcripts_v2_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_cleanup_review_decisions: {
+        Row: {
+          authored_at: string
+          authored_by: string
+          basis_descriptor: Json
+          basis_fingerprint: string
+          candidate_descriptor: Json
+          candidate_fingerprint: string
+          canonical_recording_id: string
+          contract_version: string
+          decision: string
+          evidence_tokens: Json
+          id: string
+          recording_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authored_at?: string
+          authored_by: string
+          basis_descriptor: Json
+          basis_fingerprint: string
+          candidate_descriptor: Json
+          candidate_fingerprint: string
+          canonical_recording_id: string
+          contract_version: string
+          decision?: string
+          evidence_tokens: Json
+          id?: string
+          recording_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          authored_at?: string
+          authored_by?: string
+          basis_descriptor?: Json
+          basis_fingerprint?: string
+          candidate_descriptor?: Json
+          candidate_fingerprint?: string
+          canonical_recording_id?: string
+          contract_version?: string
+          decision?: string
+          evidence_tokens?: Json
+          id?: string
+          recording_revision_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_cleanup_review_decisions_canonical_recording_id_fkey"
+            columns: ["canonical_recording_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_cleanup_review_decisions_recording_revision_id_fkey"
+            columns: ["recording_revision_id"]
+            isOneToOne: false
+            referencedRelation: "recording_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_cleanup_review_decisions_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_cleanup_review_decisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_customer_test_acceptance_closures: {
+        Row: {
+          actor_id: string
+          authorization_id: string
+          closed_at: string
+          id: string
+          reason: string
+          route_revision: number
+          test_loss_revision: number
+        }
+        Insert: {
+          actor_id: string
+          authorization_id: string
+          closed_at?: string
+          id: string
+          reason: string
+          route_revision: number
+          test_loss_revision: number
+        }
+        Update: {
+          actor_id?: string
+          authorization_id?: string
+          closed_at?: string
+          id?: string
+          reason?: string
+          route_revision?: number
+          test_loss_revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_customer_test_acceptance_closures_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: true
+            referencedRelation: "customer_paid_execution_scope_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_first_transcription_activation_authorities: {
+        Row: {
+          aggregate_policy_revision_id: string
+          automatic_retries: number
+          canonical_recording_id: string
+          capacity_authority_id: string
+          complete_wholesale_ceiling_micros: number
+          completion_id: string
+          created_at: string
+          created_by: string
+          customer_credit_units: number
+          financial_environment: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_provider_attempts: number
+          media_bytes: number
+          media_sha256: string
+          pricing_revision_id: string
+          provider_authority_id: string
+          reason: string
+          recording_revision_id: string
+          supplier_ceiling_micros: number
+          supporting_cost_ceiling_micros: number
+          user_id: string
+          valid_from: string
+          valid_until: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          aggregate_policy_revision_id: string
+          automatic_retries: number
+          canonical_recording_id: string
+          capacity_authority_id: string
+          complete_wholesale_ceiling_micros: number
+          completion_id: string
+          created_at?: string
+          created_by: string
+          customer_credit_units: number
+          financial_environment: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_provider_attempts: number
+          media_bytes: number
+          media_sha256: string
+          pricing_revision_id: string
+          provider_authority_id: string
+          reason: string
+          recording_revision_id: string
+          supplier_ceiling_micros: number
+          supporting_cost_ceiling_micros: number
+          user_id: string
+          valid_from: string
+          valid_until: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          aggregate_policy_revision_id?: string
+          automatic_retries?: number
+          canonical_recording_id?: string
+          capacity_authority_id?: string
+          complete_wholesale_ceiling_micros?: number
+          completion_id?: string
+          created_at?: string
+          created_by?: string
+          customer_credit_units?: number
+          financial_environment?: string
+          id?: string
+          maximum_concurrency?: number
+          maximum_customer_charge_micros?: number
+          maximum_provider_attempts?: number
+          media_bytes?: number
+          media_sha256?: string
+          pricing_revision_id?: string
+          provider_authority_id?: string
+          reason?: string
+          recording_revision_id?: string
+          supplier_ceiling_micros?: number
+          supporting_cost_ceiling_micros?: number
+          user_id?: string
+          valid_from?: string
+          valid_until?: string
+          verified_duration_ms?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_first_transcription_ac_aggregate_policy_revision_id_fkey"
+            columns: ["aggregate_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activati_canonical_recording_id_fkey"
+            columns: ["canonical_recording_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activatio_capacity_authority_id_fkey"
+            columns: ["capacity_authority_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_first_transcription_capacity_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activatio_provider_authority_id_fkey"
+            columns: ["provider_authority_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_transcription_provider_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activatio_recording_revision_id_fkey"
+            columns: ["recording_revision_id"]
+            isOneToOne: false
+            referencedRelation: "recording_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activation__pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activation_author_completion_id_fkey"
+            columns: ["completion_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_recording_completion_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activation_authori_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activation_authori_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_first_transcription_activation_consumptions: {
+        Row: {
+          activation_authority_id: string
+          consumed_at: string
+          id: string
+          operation_id: string
+          provider_attempt_id: string
+        }
+        Insert: {
+          activation_authority_id: string
+          consumed_at?: string
+          id: string
+          operation_id: string
+          provider_attempt_id: string
+        }
+        Update: {
+          activation_authority_id?: string
+          consumed_at?: string
+          id?: string
+          operation_id?: string
+          provider_attempt_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_first_transcription_activat_activation_authority_id_fkey"
+            columns: ["activation_authority_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_first_transcription_activation_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activation__provider_attempt_id_fkey"
+            columns: ["provider_attempt_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_transcription_provider_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_activation_consump_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_transcription_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_first_transcription_capacity_authorities: {
+        Row: {
+          checked_at: string
+          created_at: string
+          created_by: string
+          evidence_sha256: string
+          expires_at: string
+          id: string
+          netlify_plan: string
+          netlify_remaining_credit_microunits: number
+          observed_active_hammer_operations: number
+          project_ref: string
+          supabase_plan: string
+          supabase_remaining_database_bytes: number
+          supabase_remaining_uncached_egress_bytes: number
+          supabase_spend_cap_enabled: boolean
+        }
+        Insert: {
+          checked_at: string
+          created_at?: string
+          created_by: string
+          evidence_sha256: string
+          expires_at: string
+          id: string
+          netlify_plan: string
+          netlify_remaining_credit_microunits: number
+          observed_active_hammer_operations: number
+          project_ref: string
+          supabase_plan: string
+          supabase_remaining_database_bytes: number
+          supabase_remaining_uncached_egress_bytes: number
+          supabase_spend_cap_enabled: boolean
+        }
+        Update: {
+          checked_at?: string
+          created_at?: string
+          created_by?: string
+          evidence_sha256?: string
+          expires_at?: string
+          id?: string
+          netlify_plan?: string
+          netlify_remaining_credit_microunits?: number
+          observed_active_hammer_operations?: number
+          project_ref?: string
+          supabase_plan?: string
+          supabase_remaining_database_bytes?: number
+          supabase_remaining_uncached_egress_bytes?: number
+          supabase_spend_cap_enabled?: boolean
+        }
+        Relationships: []
+      }
+      hammer_first_transcription_quote_bindings: {
+        Row: {
+          activation_authority_id: string
+          created_at: string
+          operation_id: string
+          operation_uuid: string
+          quote_id: string
+          request_fingerprint: string
+          user_id: string
+        }
+        Insert: {
+          activation_authority_id: string
+          created_at?: string
+          operation_id: string
+          operation_uuid: string
+          quote_id: string
+          request_fingerprint: string
+          user_id: string
+        }
+        Update: {
+          activation_authority_id?: string
+          created_at?: string
+          operation_id?: string
+          operation_uuid?: string
+          quote_id?: string
+          request_fingerprint?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_first_transcription_quote_b_activation_authority_id_fkey"
+            columns: ["activation_authority_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_first_transcription_activation_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_first_transcription_quote_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
             referencedColumns: ["id"]
           },
         ]
@@ -4931,6 +9389,143 @@ export type Database = {
           },
         ]
       }
+      hammer_owner_funded_transcription_authorities: {
+        Row: {
+          activation_authority_id: string
+          automatic_retries: number
+          beneficiary_user_id: string
+          canonical_recording_id: string
+          completion_id: string
+          created_at: string
+          customer_credit_units: number
+          customer_payment_micros: number
+          id: string
+          maximum_operations: number
+          maximum_provider_attempts: number
+          maximum_wholesale_exposure_micros: number
+          media_sha256: string
+          owner_budget_id: string
+          reason: string
+          recording_revision_id: string
+          reference_customer_credit_units: number
+          sponsor_operator_id: string
+          status: string
+          supplier_ceiling_micros: number
+          supporting_ceiling_micros: number
+          valid_from: string
+          valid_until: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          activation_authority_id: string
+          automatic_retries: number
+          beneficiary_user_id: string
+          canonical_recording_id: string
+          completion_id: string
+          created_at?: string
+          customer_credit_units: number
+          customer_payment_micros: number
+          id: string
+          maximum_operations: number
+          maximum_provider_attempts: number
+          maximum_wholesale_exposure_micros: number
+          media_sha256: string
+          owner_budget_id: string
+          reason: string
+          recording_revision_id: string
+          reference_customer_credit_units: number
+          sponsor_operator_id: string
+          status: string
+          supplier_ceiling_micros: number
+          supporting_ceiling_micros: number
+          valid_from: string
+          valid_until: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          activation_authority_id?: string
+          automatic_retries?: number
+          beneficiary_user_id?: string
+          canonical_recording_id?: string
+          completion_id?: string
+          created_at?: string
+          customer_credit_units?: number
+          customer_payment_micros?: number
+          id?: string
+          maximum_operations?: number
+          maximum_provider_attempts?: number
+          maximum_wholesale_exposure_micros?: number
+          media_sha256?: string
+          owner_budget_id?: string
+          reason?: string
+          recording_revision_id?: string
+          reference_customer_credit_units?: number
+          sponsor_operator_id?: string
+          status?: string
+          supplier_ceiling_micros?: number
+          supporting_ceiling_micros?: number
+          valid_from?: string
+          valid_until?: string
+          verified_duration_ms?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_owner_funded_transcription__activation_authority_id_fkey"
+            columns: ["activation_authority_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_first_transcription_activation_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_owner_funded_transcription_a_canonical_recording_id_fkey"
+            columns: ["canonical_recording_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_owner_funded_transcription_au_recording_revision_id_fkey"
+            columns: ["recording_revision_id"]
+            isOneToOne: false
+            referencedRelation: "recording_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_owner_funded_transcription_authorit_owner_budget_id_fkey"
+            columns: ["owner_budget_id"]
+            isOneToOne: true
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_owner_funded_transcription_authoritie_completion_id_fkey"
+            columns: ["completion_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_recording_completion_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_owner_funded_transcription_authorities_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_owner_funded_transcription_authorities_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hammer_preparation_attempts: {
         Row: {
           canonical_recording_id: string
@@ -5178,6 +9773,126 @@ export type Database = {
           },
           {
             foreignKeyName: "hammer_recording_import_requests_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_scoped_live_checkout_claims: {
+        Row: {
+          claimed_at: string
+          funding_authority_id: string
+          id: string
+          live_price_id: string
+          session_recorded_at: string | null
+          stripe_session_id: string | null
+          user_id: string
+        }
+        Insert: {
+          claimed_at?: string
+          funding_authority_id: string
+          id: string
+          live_price_id: string
+          session_recorded_at?: string | null
+          stripe_session_id?: string | null
+          user_id: string
+        }
+        Update: {
+          claimed_at?: string
+          funding_authority_id?: string
+          id?: string
+          live_price_id?: string
+          session_recorded_at?: string | null
+          stripe_session_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_scoped_live_checkout_claims_funding_authority_id_fkey"
+            columns: ["funding_authority_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_scoped_live_funding_authorities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_scoped_live_funding_authorities: {
+        Row: {
+          activation_authority_id: string
+          created_at: string
+          created_by: string
+          credit_units: number
+          financial_environment: string
+          gross_amount_micros: number
+          id: string
+          live_price_id: string
+          maximum_checkout_sessions: number
+          reason: string
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          activation_authority_id: string
+          created_at?: string
+          created_by: string
+          credit_units: number
+          financial_environment: string
+          gross_amount_micros: number
+          id: string
+          live_price_id: string
+          maximum_checkout_sessions: number
+          reason: string
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          activation_authority_id?: string
+          created_at?: string
+          created_by?: string
+          credit_units?: number
+          financial_environment?: string
+          gross_amount_micros?: number
+          id?: string
+          live_price_id?: string
+          maximum_checkout_sessions?: number
+          reason?: string
+          route_code?: string
+          status?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_scoped_live_funding_authori_activation_authority_id_fkey"
+            columns: ["activation_authority_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_first_transcription_activation_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_scoped_live_funding_authorities_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_scoped_live_funding_authorities_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -5745,6 +10460,383 @@ export type Database = {
           },
         ]
       }
+      hammer_transcript_cleanup_assist_results: {
+        Row: {
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string
+          result_json?: Json
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_transcript_cleanup_assist_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcript_cleanup_assist_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_transcription_operations: {
+        Row: {
+          accepted_customer_charge_micros: number
+          aggregate_hold_id: string
+          canonical_recording_id: string
+          canonical_transcript_id: string | null
+          complete_wholesale_ceiling_micros: number
+          completion_id: string
+          created_at: string
+          duration_evidence_source: string
+          execution_authorized: boolean
+          financial_environment: string
+          id: string
+          maximum_provider_attempts: number
+          media_bytes: number
+          media_content_type: string
+          media_path: string
+          media_revision: number
+          media_sha256: string
+          operation_id: string
+          provider_authority_id: string
+          quote_id: string
+          recording_revision_id: string
+          request_fingerprint: string
+          reservation_id: string
+          route_code: string
+          settled_at: string | null
+          state: string
+          supplier_ceiling_micros: number
+          supporting_cost_ceiling_micros: number
+          updated_at: string
+          user_id: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          accepted_customer_charge_micros: number
+          aggregate_hold_id: string
+          canonical_recording_id: string
+          canonical_transcript_id?: string | null
+          complete_wholesale_ceiling_micros: number
+          completion_id: string
+          created_at?: string
+          duration_evidence_source: string
+          execution_authorized?: boolean
+          financial_environment: string
+          id: string
+          maximum_provider_attempts?: number
+          media_bytes: number
+          media_content_type: string
+          media_path: string
+          media_revision: number
+          media_sha256: string
+          operation_id: string
+          provider_authority_id: string
+          quote_id: string
+          recording_revision_id: string
+          request_fingerprint: string
+          reservation_id: string
+          route_code: string
+          settled_at?: string | null
+          state: string
+          supplier_ceiling_micros: number
+          supporting_cost_ceiling_micros: number
+          updated_at?: string
+          user_id: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          accepted_customer_charge_micros?: number
+          aggregate_hold_id?: string
+          canonical_recording_id?: string
+          canonical_transcript_id?: string | null
+          complete_wholesale_ceiling_micros?: number
+          completion_id?: string
+          created_at?: string
+          duration_evidence_source?: string
+          execution_authorized?: boolean
+          financial_environment?: string
+          id?: string
+          maximum_provider_attempts?: number
+          media_bytes?: number
+          media_content_type?: string
+          media_path?: string
+          media_revision?: number
+          media_sha256?: string
+          operation_id?: string
+          provider_authority_id?: string
+          quote_id?: string
+          recording_revision_id?: string
+          request_fingerprint?: string
+          reservation_id?: string
+          route_code?: string
+          settled_at?: string | null
+          state?: string
+          supplier_ceiling_micros?: number
+          supporting_cost_ceiling_micros?: number
+          updated_at?: string
+          user_id?: string
+          verified_duration_ms?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_transcription_operations_canonical_recording_id_fkey"
+            columns: ["canonical_recording_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_canonical_transcript_fk"
+            columns: ["canonical_transcript_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_canonical_transcripts_v2"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_completion_id_fkey"
+            columns: ["completion_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_recording_completion_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_provider_authority_id_fkey"
+            columns: ["provider_authority_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_transcription_provider_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_recording_revision_id_fkey"
+            columns: ["recording_revision_id"]
+            isOneToOne: false
+            referencedRelation: "recording_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_transcription_operations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_transcription_provider_attempts: {
+        Row: {
+          attempt_number: number
+          completed_at: string | null
+          created_at: string
+          evidence_json: Json
+          failure_class: string | null
+          id: string
+          operation_id: string
+          provider_request_id: string | null
+          request_sha256: string
+          response_sha256: string | null
+          state: string
+          submitted_at: string | null
+        }
+        Insert: {
+          attempt_number: number
+          completed_at?: string | null
+          created_at?: string
+          evidence_json?: Json
+          failure_class?: string | null
+          id: string
+          operation_id: string
+          provider_request_id?: string | null
+          request_sha256: string
+          response_sha256?: string | null
+          state: string
+          submitted_at?: string | null
+        }
+        Update: {
+          attempt_number?: number
+          completed_at?: string | null
+          created_at?: string
+          evidence_json?: Json
+          failure_class?: string | null
+          id?: string
+          operation_id?: string
+          provider_request_id?: string | null
+          request_sha256?: string
+          response_sha256?: string | null
+          state?: string
+          submitted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_transcription_provider_attempts_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_transcription_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hammer_transcription_provider_authorities: {
+        Row: {
+          account_evidence_sha256: string
+          billing_increment_ms: number
+          created_at: string
+          expires_at: string
+          financial_environment: string
+          id: string
+          lifecycle_state: string
+          minimum_billable_ms: number
+          model: string
+          provider: string
+          source_checked_at: string
+          source_url: string
+          speaker_labels: boolean
+          supplier_rate_micros_per_hour: number
+          supporting_cost_ceiling_micros: number
+        }
+        Insert: {
+          account_evidence_sha256: string
+          billing_increment_ms: number
+          created_at?: string
+          expires_at: string
+          financial_environment: string
+          id: string
+          lifecycle_state: string
+          minimum_billable_ms: number
+          model: string
+          provider: string
+          source_checked_at: string
+          source_url: string
+          speaker_labels: boolean
+          supplier_rate_micros_per_hour: number
+          supporting_cost_ceiling_micros: number
+        }
+        Update: {
+          account_evidence_sha256?: string
+          billing_increment_ms?: number
+          created_at?: string
+          expires_at?: string
+          financial_environment?: string
+          id?: string
+          lifecycle_state?: string
+          minimum_billable_ms?: number
+          model?: string
+          provider?: string
+          source_checked_at?: string
+          source_url?: string
+          speaker_labels?: boolean
+          supplier_rate_micros_per_hour?: number
+          supporting_cost_ceiling_micros?: number
+        }
+        Relationships: []
+      }
+      hammer_transcription_stage_receipts: {
+        Row: {
+          evidence_json: Json
+          evidence_sha256: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          recorded_at: string
+          stage: string
+        }
+        Insert: {
+          evidence_json?: Json
+          evidence_sha256: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          recorded_at?: string
+          stage: string
+        }
+        Update: {
+          evidence_json?: Json
+          evidence_sha256?: string
+          id?: string
+          idempotency_key?: string
+          operation_id?: string
+          recorded_at?: string
+          stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_transcription_stage_receipts_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "hammer_transcription_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hammer_video_render_attempts: {
         Row: {
           attempt_id: string
@@ -6269,6 +11361,99 @@ export type Database = {
           },
         ]
       }
+      hearth_conversation_messages: {
+        Row: {
+          client_message_key: string
+          content: string
+          created_at: string
+          generation: number
+          role: string
+          sequence: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          client_message_key: string
+          content: string
+          created_at?: string
+          generation: number
+          role: string
+          sequence: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          client_message_key?: string
+          content?: string
+          created_at?: string
+          generation?: number
+          role?: string
+          sequence?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_conversation_messages_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "hearth_conversation_threads"
+            referencedColumns: ["workpiece_id"]
+          },
+          {
+            foreignKeyName: "hearth_conversation_messages_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_conversation_threads: {
+        Row: {
+          completeness: string
+          created_at: string
+          generation: number
+          next_sequence: number
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          completeness?: string
+          created_at?: string
+          generation?: number
+          next_sequence?: number
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          completeness?: string
+          created_at?: string
+          generation?: number
+          next_sequence?: number
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_conversation_threads_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: true
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_conversation_threads_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hearth_creator_profiles: {
         Row: {
           clarify_first_bias: number
@@ -6304,6 +11489,304 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      hearth_editorial_preflight_findings: {
+        Row: {
+          category: string
+          content_hash: string
+          finding_basis_hash: string | null
+          finding_code: string
+          finding_json: Json
+          finding_key: string
+          message: string
+          ordinal: number
+          report_id: string
+          report_revision: number
+          severity: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          category: string
+          content_hash: string
+          finding_basis_hash?: string | null
+          finding_code: string
+          finding_json: Json
+          finding_key: string
+          message: string
+          ordinal: number
+          report_id: string
+          report_revision: number
+          severity: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          category?: string
+          content_hash?: string
+          finding_basis_hash?: string | null
+          finding_code?: string
+          finding_json?: Json
+          finding_key?: string
+          message?: string
+          ordinal?: number
+          report_id?: string
+          report_revision?: number
+          severity?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_editorial_preflight_fi_report_id_workspace_id_workp_fkey"
+            columns: [
+              "report_id",
+              "workspace_id",
+              "workpiece_id",
+              "report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      hearth_editorial_preflight_reports: {
+        Row: {
+          checker_contract_version: string
+          created_at: string
+          created_by: string
+          id: string
+          immutable_revision_hash: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          projection_content_hash: string
+          report_content_hash: string
+          report_json: Json
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
+          research_artifact_revision: number | null
+          revision: number
+          script_content_hash: string
+          script_review_revision_id: string
+          source_file_path: string
+          source_file_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          checker_contract_version: string
+          created_at?: string
+          created_by: string
+          id?: string
+          immutable_revision_hash: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          projection_content_hash: string
+          report_content_hash: string
+          report_json: Json
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
+          research_artifact_revision?: number | null
+          revision: number
+          script_content_hash: string
+          script_review_revision_id: string
+          source_file_path: string
+          source_file_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          checker_contract_version?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          immutable_revision_hash?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          projection_content_hash?: string
+          report_content_hash?: string
+          report_json?: Json
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
+          research_artifact_revision?: number | null
+          revision?: number
+          script_content_hash?: string
+          script_review_revision_id?: string
+          source_file_path?: string
+          source_file_revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_editorial_preflight_re_previous_revision_id_workspa_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_editorial_preflight_re_research_artifact_id_workspa_fkey"
+            columns: [
+              "research_artifact_id",
+              "workspace_id",
+              "workpiece_id",
+              "research_artifact_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_editorial_preflight_re_script_review_revision_id_wo_fkey"
+            columns: [
+              "script_review_revision_id",
+              "workspace_id",
+              "workpiece_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_script_review_revisions"
+            referencedColumns: ["id", "workspace_id", "workpiece_id"]
+          },
+          {
+            foreignKeyName: "hearth_editorial_preflight_repor_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_editorial_preflight_reports_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_framing_pack_generation_results: {
+        Row: {
+          approval_id: string
+          approval_revision: number
+          created_at: string
+          customer_operation_id: string | null
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          approval_id: string
+          approval_revision: number
+          created_at?: string
+          customer_operation_id?: string | null
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          approval_id?: string
+          approval_revision?: number
+          created_at?: string
+          customer_operation_id?: string | null
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_json?: Json
+          script_content_hash?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_framing_pack_generation_results_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_framing_pack_generation_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_framing_pack_generation_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_framing_pack_generation_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_framing_pack_results_customer_operation_fkey"
+            columns: ["customer_operation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "hearth_framing_pack_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+        ]
       }
       hearth_interaction_events: {
         Row: {
@@ -6343,6 +11826,1572 @@ export type Database = {
           },
           {
             foreignKeyName: "hearth_interaction_events_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_preflight_finding_acknowledgements: {
+        Row: {
+          acted_at: string
+          acted_by: string
+          action: string
+          finding_ordinal: number
+          id: string
+          note: string | null
+          operation_id: string
+          report_id: string
+          report_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          acted_at?: string
+          acted_by: string
+          action: string
+          finding_ordinal: number
+          id?: string
+          note?: string | null
+          operation_id: string
+          report_id: string
+          report_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          acted_at?: string
+          acted_by?: string
+          action?: string
+          finding_ordinal?: number
+          id?: string
+          note?: string | null
+          operation_id?: string
+          report_id?: string
+          report_revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_preflight_finding_ackn_report_id_workspace_id_workp_fkey"
+            columns: [
+              "report_id",
+              "workspace_id",
+              "workpiece_id",
+              "report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_preflight_finding_acknowl_report_id_finding_ordinal_fkey"
+            columns: ["report_id", "finding_ordinal"]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_findings"
+            referencedColumns: ["report_id", "ordinal"]
+          },
+          {
+            foreignKeyName: "hearth_preflight_finding_acknowl_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_preflight_finding_acknowledgements_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_preflight_operation_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          immutable_result_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          result_report_id: string
+          result_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          immutable_result_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          result_report_id: string
+          result_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          immutable_result_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          result_report_id?: string
+          result_revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_preflight_operation_re_result_report_id_workspace_i_fkey"
+            columns: [
+              "result_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "result_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_preflight_operation_recei_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_preflight_operation_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_preflight_review_receipts: {
+        Row: {
+          id: string
+          operation_id: string
+          report_id: string
+          report_revision: number
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
+          reviewed_at: string
+          reviewed_by: string
+          script_content_hash: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          id?: string
+          operation_id: string
+          report_id: string
+          report_revision: number
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
+          reviewed_at?: string
+          reviewed_by: string
+          script_content_hash: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          id?: string
+          operation_id?: string
+          report_id?: string
+          report_revision?: number
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
+          reviewed_at?: string
+          reviewed_by?: string
+          script_content_hash?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_preflight_review_recei_report_id_workspace_id_workp_fkey"
+            columns: [
+              "report_id",
+              "workspace_id",
+              "workpiece_id",
+              "report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_preflight_review_receipts_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_preflight_review_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_research_artifact_claims: {
+        Row: {
+          artifact_id: string
+          artifact_revision: number
+          claim_key: string
+          claim_kind: string | null
+          claim_scope: string
+          claim_text: string
+          content_hash: string
+          entity_json: Json | null
+          ordinal: number
+          provenance_status: string
+          source_ids: string[]
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_id: string
+          artifact_revision: number
+          claim_key: string
+          claim_kind?: string | null
+          claim_scope: string
+          claim_text: string
+          content_hash: string
+          entity_json?: Json | null
+          ordinal: number
+          provenance_status: string
+          source_ids?: string[]
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_id?: string
+          artifact_revision?: number
+          claim_key?: string
+          claim_kind?: string | null
+          claim_scope?: string
+          claim_text?: string
+          content_hash?: string
+          entity_json?: Json | null
+          ordinal?: number
+          provenance_status?: string
+          source_ids?: string[]
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_research_artifact_clai_artifact_id_workspace_id_wor_fkey"
+            columns: [
+              "artifact_id",
+              "workspace_id",
+              "workpiece_id",
+              "artifact_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      hearth_research_artifact_revisions: {
+        Row: {
+          artifact_content_hash: string
+          artifact_json: Json
+          artifact_status: string
+          brief_fingerprint: string
+          committed_at: string
+          committed_by: string
+          contract_version: string
+          id: string
+          immutable_revision_hash: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          projection_content_hash: string
+          revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_content_hash: string
+          artifact_json: Json
+          artifact_status: string
+          brief_fingerprint: string
+          committed_at?: string
+          committed_by: string
+          contract_version: string
+          id?: string
+          immutable_revision_hash: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          projection_content_hash: string
+          revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_content_hash?: string
+          artifact_json?: Json
+          artifact_status?: string
+          brief_fingerprint?: string
+          committed_at?: string
+          committed_by?: string
+          contract_version?: string
+          id?: string
+          immutable_revision_hash?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          projection_content_hash?: string
+          revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_research_artifact_revi_previous_revision_id_workspa_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_research_artifact_revisio_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_research_artifact_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_research_claim_evidence: {
+        Row: {
+          artifact_id: string
+          claim_ordinal: number
+          evidence_ordinal: number
+          relationship: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_id: string
+          claim_ordinal: number
+          evidence_ordinal: number
+          relationship: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_id?: string
+          claim_ordinal?: number
+          evidence_ordinal?: number
+          relationship?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_research_claim_evidenc_artifact_id_evidence_ordinal_fkey"
+            columns: ["artifact_id", "evidence_ordinal"]
+            isOneToOne: false
+            referencedRelation: "hearth_research_evidence_snapshots"
+            referencedColumns: ["artifact_id", "ordinal"]
+          },
+          {
+            foreignKeyName: "hearth_research_claim_evidence_artifact_id_claim_ordinal_fkey"
+            columns: ["artifact_id", "claim_ordinal"]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_claims"
+            referencedColumns: ["artifact_id", "ordinal"]
+          },
+        ]
+      }
+      hearth_research_evidence_snapshots: {
+        Row: {
+          access_failure_reason: string | null
+          artifact_id: string
+          artifact_revision: number
+          authority: string
+          citation_json: Json
+          content_hash: string
+          evidence_key: string
+          evidence_state: string
+          excerpt: string | null
+          inspected_at: string | null
+          ordinal: number
+          source_id: string
+          source_revision: number | null
+          source_revision_id: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          access_failure_reason?: string | null
+          artifact_id: string
+          artifact_revision: number
+          authority: string
+          citation_json: Json
+          content_hash: string
+          evidence_key: string
+          evidence_state: string
+          excerpt?: string | null
+          inspected_at?: string | null
+          ordinal: number
+          source_id: string
+          source_revision?: number | null
+          source_revision_id?: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          access_failure_reason?: string | null
+          artifact_id?: string
+          artifact_revision?: number
+          authority?: string
+          citation_json?: Json
+          content_hash?: string
+          evidence_key?: string
+          evidence_state?: string
+          excerpt?: string | null
+          inspected_at?: string | null
+          ordinal?: number
+          source_id?: string
+          source_revision?: number | null
+          source_revision_id?: string | null
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_research_evidence_snap_artifact_id_workspace_id_wor_fkey"
+            columns: [
+              "artifact_id",
+              "workspace_id",
+              "workpiece_id",
+              "artifact_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      hearth_research_operation_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          immutable_result_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          result_artifact_id: string
+          result_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          immutable_result_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          result_artifact_id: string
+          result_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          immutable_result_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          result_artifact_id?: string
+          result_revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_research_operation_rec_result_artifact_id_workspace_fkey"
+            columns: [
+              "result_artifact_id",
+              "workspace_id",
+              "workpiece_id",
+              "result_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "hearth_research_operation_receip_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_research_operation_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_research_synthesis_results: {
+        Row: {
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_json?: Json
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_research_synthesis_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "hearth_research_synthesis_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_research_synthesis_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_research_synthesis_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_script_generation_proposal_draft_bindings: {
+        Row: {
+          bound_at: string
+          expected_draft_hash: string
+          expected_draft_path: string
+          expected_draft_revision: number
+          proposal_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          bound_at?: string
+          expected_draft_hash: string
+          expected_draft_path?: string
+          expected_draft_revision: number
+          proposal_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          bound_at?: string
+          expected_draft_hash?: string
+          expected_draft_path?: string
+          expected_draft_revision?: number
+          proposal_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_script_generation_proposal_draft_bindi_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_script_generation_proposal_draft_bindi_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_script_generation_proposal_draft_bindin_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "hearth_script_generation_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_script_generation_proposal_events: {
+        Row: {
+          actor_id: string
+          applied_draft_hash: string | null
+          applied_draft_revision: number | null
+          canonical_revision_id: string | null
+          created_at: string
+          details: Json
+          event_type: string
+          expected_draft_hash: string
+          expected_draft_revision: number
+          id: string
+          idempotency_key: string
+          proposal_id: string
+        }
+        Insert: {
+          actor_id: string
+          applied_draft_hash?: string | null
+          applied_draft_revision?: number | null
+          canonical_revision_id?: string | null
+          created_at?: string
+          details?: Json
+          event_type: string
+          expected_draft_hash: string
+          expected_draft_revision: number
+          id?: string
+          idempotency_key: string
+          proposal_id: string
+        }
+        Update: {
+          actor_id?: string
+          applied_draft_hash?: string | null
+          applied_draft_revision?: number | null
+          canonical_revision_id?: string | null
+          created_at?: string
+          details?: Json
+          event_type?: string
+          expected_draft_hash?: string
+          expected_draft_revision?: number
+          id?: string
+          idempotency_key?: string
+          proposal_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_script_generation_proposal_events_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "hearth_script_generation_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_script_generation_proposals: {
+        Row: {
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          proposal_state: string
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          proposal_state?: string
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          proposal_state?: string
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_json?: Json
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_script_generation_proposals_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "hearth_script_generation_proposals_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_script_generation_proposals_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_script_generation_proposals_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_script_review_revisions: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          script_content_hash: string
+          script_text: string
+          snapshot_content_hash: string
+          source_file_path: string
+          source_file_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          script_content_hash: string
+          script_text: string
+          snapshot_content_hash: string
+          source_file_path: string
+          source_file_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          script_content_hash?: string
+          script_text?: string
+          snapshot_content_hash?: string
+          source_file_path?: string
+          source_file_revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_script_review_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "hearth_script_review_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_tag_generation_results: {
+        Row: {
+          approval_id: string
+          approval_revision: number
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          approval_id: string
+          approval_revision: number
+          created_at?: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          approval_id?: string
+          approval_revision?: number
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_json?: Json
+          script_content_hash?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_tag_generation_results_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_tag_generation_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "hearth_tag_generation_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_tag_generation_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_tag_generation_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_tag_validation_failure_evidence: {
+        Row: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          provider_request_id: string | null
+          raw_provider_response_text: string
+          recorded_at: string
+          reservation_id: string
+          validation_contract_revision: string
+          validation_error_code: string
+        }
+        Insert: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          provider_request_id?: string | null
+          raw_provider_response_text: string
+          recorded_at?: string
+          reservation_id: string
+          validation_contract_revision: string
+          validation_error_code: string
+        }
+        Update: {
+          id?: string
+          input_units?: number
+          model?: string
+          operation_id?: string
+          output_units?: number
+          provider_request_id?: string | null
+          raw_provider_response_text?: string
+          recorded_at?: string
+          reservation_id?: string
+          validation_contract_revision?: string
+          validation_error_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_tag_validation_failure_evidence_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_thumbnail_base_generation_results: {
+        Row: {
+          canonical_receipt_json: Json | null
+          completed_at: string | null
+          concept_revision_id: string
+          created_at: string
+          customer_operation_id: string | null
+          failure_code: string | null
+          failure_message: string | null
+          generated_bytes_base64: string | null
+          generated_content_hash: string | null
+          id: string
+          operation_id: string
+          owner_cost_attempt_id: string | null
+          prompt_package_hash: string
+          provider_body_sha256: string
+          provider_request_id: string | null
+          provider_response_id: string | null
+          render_recipe_id: string
+          render_recipe_revision: number
+          request_fingerprint: string
+          reservation_id: string | null
+          staged_asset_id: string | null
+          staged_asset_path: string | null
+          state: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_receipt_json?: Json | null
+          completed_at?: string | null
+          concept_revision_id: string
+          created_at?: string
+          customer_operation_id?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          generated_bytes_base64?: string | null
+          generated_content_hash?: string | null
+          id: string
+          operation_id: string
+          owner_cost_attempt_id?: string | null
+          prompt_package_hash: string
+          provider_body_sha256: string
+          provider_request_id?: string | null
+          provider_response_id?: string | null
+          render_recipe_id: string
+          render_recipe_revision: number
+          request_fingerprint: string
+          reservation_id?: string | null
+          staged_asset_id?: string | null
+          staged_asset_path?: string | null
+          state: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          canonical_receipt_json?: Json | null
+          completed_at?: string | null
+          concept_revision_id?: string
+          created_at?: string
+          customer_operation_id?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          generated_bytes_base64?: string | null
+          generated_content_hash?: string | null
+          id?: string
+          operation_id?: string
+          owner_cost_attempt_id?: string | null
+          prompt_package_hash?: string
+          provider_body_sha256?: string
+          provider_request_id?: string | null
+          provider_response_id?: string | null
+          render_recipe_id?: string
+          render_recipe_revision?: number
+          request_fingerprint?: string
+          reservation_id?: string | null
+          staged_asset_id?: string | null
+          staged_asset_path?: string | null
+          state?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_thumbnail_base_generation_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_base_generation_results_staged_asset_id_fkey"
+            columns: ["staged_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_base_generation_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_base_generation_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_base_results_customer_operation_fkey"
+            columns: ["customer_operation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_base_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+        ]
+      }
+      hearth_thumbnail_direction_canonical_receipts: {
+        Row: {
+          canonical_set_id: string
+          canonical_source_response_hash: string
+          committed_at: string
+          result_id: string
+        }
+        Insert: {
+          canonical_set_id: string
+          canonical_source_response_hash: string
+          committed_at?: string
+          result_id: string
+        }
+        Update: {
+          canonical_set_id?: string
+          canonical_source_response_hash?: string
+          committed_at?: string
+          result_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_thumbnail_direction_canonical_receipts_result_id_fkey"
+            columns: ["result_id"]
+            isOneToOne: true
+            referencedRelation: "hearth_thumbnail_direction_generation_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_thumbnail_direction_generation_results: {
+        Row: {
+          approval_id: string
+          approval_revision: number
+          created_at: string
+          customer_operation_id: string | null
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          approval_id: string
+          approval_revision: number
+          created_at?: string
+          customer_operation_id?: string | null
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          approval_id?: string
+          approval_revision?: number
+          created_at?: string
+          customer_operation_id?: string | null
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_json?: Json
+          script_content_hash?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_thumbnail_direction_generation_resul_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_direction_generation_results_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_direction_generation_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_direction_generation_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_direction_results_customer_operation_fkey"
+            columns: ["customer_operation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "hearth_thumbnail_direction_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+        ]
+      }
+      hearth_timeline_image_generation_delivery_receipts: {
+        Row: {
+          asset_ids: string[]
+          delivered_at: string
+          image_map_revision_id: string
+          result_id: string
+        }
+        Insert: {
+          asset_ids: string[]
+          delivered_at?: string
+          image_map_revision_id: string
+          result_id: string
+        }
+        Update: {
+          asset_ids?: string[]
+          delivered_at?: string
+          image_map_revision_id?: string
+          result_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_timeline_image_generation_del_image_map_revision_id_fkey"
+            columns: ["image_map_revision_id"]
+            isOneToOne: false
+            referencedRelation: "image_map_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_timeline_image_generation_delivery_receip_result_id_fkey"
+            columns: ["result_id"]
+            isOneToOne: true
+            referencedRelation: "hearth_timeline_image_generation_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_timeline_image_generation_outputs: {
+        Row: {
+          bytes_base64: string
+          child_ordinal: number
+          content_hash: string
+          created_at: string
+          mime_type: string
+          result_id: string
+          staged_asset_id: string
+          staged_asset_path: string
+        }
+        Insert: {
+          bytes_base64: string
+          child_ordinal: number
+          content_hash: string
+          created_at?: string
+          mime_type: string
+          result_id: string
+          staged_asset_id: string
+          staged_asset_path: string
+        }
+        Update: {
+          bytes_base64?: string
+          child_ordinal?: number
+          content_hash?: string
+          created_at?: string
+          mime_type?: string
+          result_id?: string
+          staged_asset_id?: string
+          staged_asset_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_timeline_image_generation_outputs_result_id_fkey"
+            columns: ["result_id"]
+            isOneToOne: false
+            referencedRelation: "hearth_timeline_image_generation_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hearth_timeline_image_generation_results: {
+        Row: {
+          created_at: string
+          customer_operation_id: string | null
+          id: string
+          image_count: number
+          image_moment_id: string
+          model: string
+          operation_id: string
+          owner_cost_attempt_id: string | null
+          prompt_content_hash: string
+          prompt_revision_id: string
+          provider_attempt_count: number
+          provider_body_sha256: string
+          provider_request_id: string | null
+          provider_response_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          semantic_authority_hash: string
+          supplier_cost_micros: number | null
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          customer_operation_id?: string | null
+          id: string
+          image_count: number
+          image_moment_id: string
+          model: string
+          operation_id: string
+          owner_cost_attempt_id?: string | null
+          prompt_content_hash: string
+          prompt_revision_id: string
+          provider_attempt_count: number
+          provider_body_sha256: string
+          provider_request_id?: string | null
+          provider_response_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          semantic_authority_hash: string
+          supplier_cost_micros?: number | null
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          customer_operation_id?: string | null
+          id?: string
+          image_count?: number
+          image_moment_id?: string
+          model?: string
+          operation_id?: string
+          owner_cost_attempt_id?: string | null
+          prompt_content_hash?: string
+          prompt_revision_id?: string
+          provider_attempt_count?: number
+          provider_body_sha256?: string
+          provider_request_id?: string | null
+          provider_response_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          semantic_authority_hash?: string
+          supplier_cost_micros?: number | null
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_timeline_image_generation_result_prompt_revision_id_fkey"
+            columns: ["prompt_revision_id"]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_timeline_image_generation_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_timeline_image_generation_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_timeline_image_generation_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_timeline_image_results_customer_operation_fkey"
+            columns: ["customer_operation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "hearth_timeline_image_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+        ]
+      }
+      hearth_title_generation_results: {
+        Row: {
+          approval_id: string
+          approval_revision: number
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          approval_id: string
+          approval_revision: number
+          created_at?: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_json: Json
+          script_content_hash: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          approval_id?: string
+          approval_revision?: number
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_json?: Json
+          script_content_hash?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hearth_title_generation_results_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_title_generation_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "hearth_title_generation_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_title_generation_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hearth_title_generation_results_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -7027,6 +14076,706 @@ export type Database = {
           },
         ]
       }
+      ingest_ops: {
+        Row: {
+          created_at: string
+          id: number
+          op: Json
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          op: Json
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          op?: Json
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ingest_ops_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_credit_conversion_mappings: {
+        Row: {
+          canonical_id: string
+          canonical_kind: string
+          case_id: string | null
+          converted_credit_units: number
+          created_at: string
+          evidence_json: Json
+          id: string
+          reused_existing_journal_event: boolean
+          source_id: string
+          source_kind: string
+        }
+        Insert: {
+          canonical_id: string
+          canonical_kind: string
+          case_id?: string | null
+          converted_credit_units: number
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          reused_existing_journal_event?: boolean
+          source_id: string
+          source_kind: string
+        }
+        Update: {
+          canonical_id?: string
+          canonical_kind?: string
+          case_id?: string | null
+          converted_credit_units?: number
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          reused_existing_journal_event?: boolean
+          source_id?: string
+          source_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_credit_conversion_mappings_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_credit_reconciliation_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_credit_opening_balances: {
+        Row: {
+          captured_at: string
+          credit_units: number
+          eligible_for_live_funding: boolean
+          journal_event_id: string
+          source_relation: string
+          user_id: string
+        }
+        Insert: {
+          captured_at: string
+          credit_units: number
+          eligible_for_live_funding?: boolean
+          journal_event_id: string
+          source_relation?: string
+          user_id: string
+        }
+        Update: {
+          captured_at?: string
+          credit_units?: number
+          eligible_for_live_funding?: boolean
+          journal_event_id?: string
+          source_relation?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_credit_opening_balances_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_credit_reconciliation_cases: {
+        Row: {
+          captured_at: string
+          classification: string
+          created_at: string
+          id: string
+          local_evidence_summary: Json
+          opening_credit_units: number
+          source_relation: string
+          unresolved_reason: string | null
+          user_id: string
+        }
+        Insert: {
+          captured_at: string
+          classification: string
+          created_at?: string
+          id: string
+          local_evidence_summary?: Json
+          opening_credit_units: number
+          source_relation: string
+          unresolved_reason?: string | null
+          user_id: string
+        }
+        Update: {
+          captured_at?: string
+          classification?: string
+          created_at?: string
+          id?: string
+          local_evidence_summary?: Json
+          opening_credit_units?: number
+          source_relation?: string
+          unresolved_reason?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      legacy_credit_reconciliation_decisions: {
+        Row: {
+          actor_id: string
+          calculation_json: Json
+          case_id: string
+          classification: string
+          decided_at: string
+          decision: string
+          evidence_hashes: Json
+          id: string
+          reason: string
+          supported_credit_units: number
+        }
+        Insert: {
+          actor_id: string
+          calculation_json: Json
+          case_id: string
+          classification: string
+          decided_at?: string
+          decision: string
+          evidence_hashes: Json
+          id: string
+          reason: string
+          supported_credit_units: number
+        }
+        Update: {
+          actor_id?: string
+          calculation_json?: Json
+          case_id?: string
+          classification?: string
+          decided_at?: string
+          decision?: string
+          evidence_hashes?: Json
+          id?: string
+          reason?: string
+          supported_credit_units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_credit_reconciliation_decisions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_credit_reconciliation_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_credit_reconciliation_evidence: {
+        Row: {
+          case_id: string
+          created_at: string
+          evidence_hash: string
+          evidence_json: Json
+          evidence_kind: string
+          id: string
+          observed_at: string
+          source_identifier: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          evidence_hash: string
+          evidence_json: Json
+          evidence_kind: string
+          id: string
+          observed_at: string
+          source_identifier: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          evidence_hash?: string
+          evidence_json?: Json
+          evidence_kind?: string
+          id?: string
+          observed_at?: string
+          source_identifier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_credit_reconciliation_evidence_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_credit_reconciliation_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_deposit_conversion_consumptions: {
+        Row: {
+          consumption_id: string
+          conversion_deposit_id: string
+          recognized_revenue_micros: number
+          source_credit_units: number
+        }
+        Insert: {
+          consumption_id: string
+          conversion_deposit_id: string
+          recognized_revenue_micros: number
+          source_credit_units: number
+        }
+        Update: {
+          consumption_id?: string
+          conversion_deposit_id?: string
+          recognized_revenue_micros?: number
+          source_credit_units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_deposit_conversion_consumptio_conversion_deposit_id_fkey"
+            columns: ["conversion_deposit_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_deposit_credit_conversions"
+            referencedColumns: ["deposit_id"]
+          },
+          {
+            foreignKeyName: "legacy_deposit_conversion_consumptions_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: true
+            referencedRelation: "customer_deposit_consumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_deposit_conversion_refunds: {
+        Row: {
+          conversion_deposit_id: string
+          liability_release_micros: number
+          refund_id: string
+          source_refunded_credit_units: number
+        }
+        Insert: {
+          conversion_deposit_id: string
+          liability_release_micros: number
+          refund_id: string
+          source_refunded_credit_units: number
+        }
+        Update: {
+          conversion_deposit_id?: string
+          liability_release_micros?: number
+          refund_id?: string
+          source_refunded_credit_units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_deposit_conversion_refunds_conversion_deposit_id_fkey"
+            columns: ["conversion_deposit_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_deposit_credit_conversions"
+            referencedColumns: ["deposit_id"]
+          },
+          {
+            foreignKeyName: "legacy_deposit_conversion_refunds_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: true
+            referencedRelation: "customer_deposit_refunds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_deposit_credit_conversions: {
+        Row: {
+          baseline_recognized_revenue_micros: number
+          baseline_refunded_liability_micros: number
+          canonical_available_credit_units: number
+          canonical_total_credit_units: number
+          contract_revision_id: string
+          conversion_method: string
+          converted_at: string
+          deposit_id: string
+          evidence_json: Json
+          source_credit_units: number
+          source_gross_amount_micros: number
+          value_remainder_micros: number
+        }
+        Insert: {
+          baseline_recognized_revenue_micros: number
+          baseline_refunded_liability_micros: number
+          canonical_available_credit_units: number
+          canonical_total_credit_units: number
+          contract_revision_id: string
+          conversion_method: string
+          converted_at?: string
+          deposit_id: string
+          evidence_json: Json
+          source_credit_units: number
+          source_gross_amount_micros: number
+          value_remainder_micros: number
+        }
+        Update: {
+          baseline_recognized_revenue_micros?: number
+          baseline_refunded_liability_micros?: number
+          canonical_available_credit_units?: number
+          canonical_total_credit_units?: number
+          contract_revision_id?: string
+          conversion_method?: string
+          converted_at?: string
+          deposit_id?: string
+          evidence_json?: Json
+          source_credit_units?: number
+          source_gross_amount_micros?: number
+          value_remainder_micros?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_deposit_credit_conversions_contract_revision_id_fkey"
+            columns: ["contract_revision_id"]
+            isOneToOne: false
+            referencedRelation: "forge_credit_contract_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "legacy_deposit_credit_conversions_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: true
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_plan_entitlement_compatibility_grants: {
+        Row: {
+          adopted_existing: boolean
+          created_at: string
+          eligible_for_shared_spending_gate: boolean
+          entitlement_units: number
+          granted_at: string
+          id: string
+          journal_event_id: string
+          metadata_json: Json
+          opening_balance_already_captured: boolean
+          plan_credit_grant_id: number
+          receipt_id: string
+          user_id: string
+        }
+        Insert: {
+          adopted_existing: boolean
+          created_at?: string
+          eligible_for_shared_spending_gate?: boolean
+          entitlement_units: number
+          granted_at: string
+          id: string
+          journal_event_id: string
+          metadata_json?: Json
+          opening_balance_already_captured: boolean
+          plan_credit_grant_id: number
+          receipt_id: string
+          user_id: string
+        }
+        Update: {
+          adopted_existing?: boolean
+          created_at?: string
+          eligible_for_shared_spending_gate?: boolean
+          entitlement_units?: number
+          granted_at?: string
+          id?: string
+          journal_event_id?: string
+          metadata_json?: Json
+          opening_balance_already_captured?: boolean
+          plan_credit_grant_id?: number
+          receipt_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_plan_entitlement_compatibility_gra_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "legacy_plan_entitlement_compatibility_grants_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: true
+            referencedRelation: "subscription_cycle_receipts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "legacy_plan_entitlement_compatibility_plan_credit_grant_id_fkey"
+            columns: ["plan_credit_grant_id"]
+            isOneToOne: false
+            referencedRelation: "plan_credit_grants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_simulator_consumption_backfills: {
+        Row: {
+          canonical_consumption_id: string
+          created_at: string
+          original_journal_event_id: string
+          source_id: string
+          source_kind: string
+        }
+        Insert: {
+          canonical_consumption_id: string
+          created_at?: string
+          original_journal_event_id: string
+          source_id: string
+          source_kind: string
+        }
+        Update: {
+          canonical_consumption_id?: string
+          created_at?: string
+          original_journal_event_id?: string
+          source_id?: string
+          source_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_simulator_consumption_bac_original_journal_event_id_fkey"
+            columns: ["original_journal_event_id"]
+            isOneToOne: false
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "legacy_simulator_consumption_back_canonical_consumption_id_fkey"
+            columns: ["canonical_consumption_id"]
+            isOneToOne: true
+            referencedRelation: "customer_deposit_consumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legacy_supplier_opening_commitments: {
+        Row: {
+          amount_micros: number
+          commitment_key: string
+          created_at: string
+          environment: string
+          evidence_json: Json
+          id: string
+          provider: string
+          reservation_id: string | null
+          status: string
+        }
+        Insert: {
+          amount_micros: number
+          commitment_key: string
+          created_at?: string
+          environment: string
+          evidence_json?: Json
+          id: string
+          provider: string
+          reservation_id?: string | null
+          status: string
+        }
+        Update: {
+          amount_micros?: number
+          commitment_key?: string
+          created_at?: string
+          environment?: string
+          evidence_json?: Json
+          id?: string
+          provider?: string
+          reservation_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legacy_supplier_opening_commitments_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      manual_handoff_confirmation_receipts: {
+        Row: {
+          confirmed_at: string
+          confirmed_by: string
+          evidence_json: Json
+          id: string
+          manual_handoff_snapshot_id: string
+          outcome: string
+          result_url: string
+          revision: number
+          supersedes_receipt_id: string | null
+        }
+        Insert: {
+          confirmed_at?: string
+          confirmed_by: string
+          evidence_json?: Json
+          id?: string
+          manual_handoff_snapshot_id: string
+          outcome: string
+          result_url: string
+          revision: number
+          supersedes_receipt_id?: string | null
+        }
+        Update: {
+          confirmed_at?: string
+          confirmed_by?: string
+          evidence_json?: Json
+          id?: string
+          manual_handoff_snapshot_id?: string
+          outcome?: string
+          result_url?: string
+          revision?: number
+          supersedes_receipt_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_handoff_confirmation_r_supersedes_receipt_id_manual_fkey"
+            columns: ["supersedes_receipt_id", "manual_handoff_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "manual_handoff_confirmation_receipts"
+            referencedColumns: ["id", "manual_handoff_snapshot_id"]
+          },
+          {
+            foreignKeyName: "manual_handoff_confirmation_rec_manual_handoff_snapshot_id_fkey"
+            columns: ["manual_handoff_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "manual_handoff_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      manual_handoff_snapshots: {
+        Row: {
+          authority_fingerprint: string
+          destination_capability_content_hash: string
+          destination_capability_revision: number
+          destination_capability_revision_id: string
+          handoff_content_hash: string
+          handoff_contract_version: string
+          handoff_snapshot: Json
+          id: string
+          manifest_content_hash: string
+          manifest_snapshot_id: string
+          prepare_key: string
+          prepared_at: string
+          prepared_by: string
+          release_decision_content_hash: string
+          release_decision_id: string
+          release_decision_revision: number
+          release_decision_scope_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authority_fingerprint: string
+          destination_capability_content_hash: string
+          destination_capability_revision: number
+          destination_capability_revision_id: string
+          handoff_content_hash: string
+          handoff_contract_version: string
+          handoff_snapshot: Json
+          id?: string
+          manifest_content_hash: string
+          manifest_snapshot_id: string
+          prepare_key: string
+          prepared_at?: string
+          prepared_by: string
+          release_decision_content_hash: string
+          release_decision_id: string
+          release_decision_revision: number
+          release_decision_scope_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          authority_fingerprint?: string
+          destination_capability_content_hash?: string
+          destination_capability_revision?: number
+          destination_capability_revision_id?: string
+          handoff_content_hash?: string
+          handoff_contract_version?: string
+          handoff_snapshot?: Json
+          id?: string
+          manifest_content_hash?: string
+          manifest_snapshot_id?: string
+          prepare_key?: string
+          prepared_at?: string
+          prepared_by?: string
+          release_decision_content_hash?: string
+          release_decision_id?: string
+          release_decision_revision?: number
+          release_decision_scope_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "manual_handoff_snapshots_destination_capability_revision_i_fkey"
+            columns: [
+              "destination_capability_revision_id",
+              "release_decision_scope_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quench_destination_capability_revisions"
+            referencedColumns: ["id", "destination_scope_id"]
+          },
+          {
+            foreignKeyName: "manual_handoff_snapshots_manifest_snapshot_id_workspace_id_fkey"
+            columns: ["manifest_snapshot_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "quench_release_manifest_snapshots"
+            referencedColumns: ["id", "workspace_id", "workpiece_id"]
+          },
+          {
+            foreignKeyName: "manual_handoff_snapshots_release_decision_id_workspace_id__fkey"
+            columns: [
+              "release_decision_id",
+              "workspace_id",
+              "workpiece_id",
+              "release_decision_scope_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "quench_release_decision_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "destination_scope_id",
+            ]
+          },
+          {
+            foreignKeyName: "manual_handoff_snapshots_release_decision_scope_id_fkey"
+            columns: ["release_decision_scope_id"]
+            isOneToOne: false
+            referencedRelation: "quench_destination_scopes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_handoff_snapshots_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "manual_handoff_snapshots_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "manual_handoff_snapshots_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_ai_policy: {
         Row: {
           ai_enabled: boolean
@@ -7074,6 +14823,3052 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "orgs"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      mount_registry: {
+        Row: {
+          created_at: string
+          id: string
+          metadata: Json
+          policy: Json
+          role: string
+          target_type: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          metadata?: Json
+          policy?: Json
+          role: string
+          target_type: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          metadata?: Json
+          policy?: Json
+          role?: string
+          target_type?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mount_registry_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_historical_unmatched_cost_estimates: {
+        Row: {
+          amount_micros: number
+          created_at: string
+          currency: string
+          evidence_class: string
+          evidence_json: Json
+          id: string
+          missing_evidence: string
+          potential_provider_batch_overlap: boolean
+          resolution_state: string
+          source_key: string
+          source_reference: string
+        }
+        Insert: {
+          amount_micros: number
+          created_at?: string
+          currency: string
+          evidence_class: string
+          evidence_json?: Json
+          id: string
+          missing_evidence: string
+          potential_provider_batch_overlap?: boolean
+          resolution_state: string
+          source_key: string
+          source_reference: string
+        }
+        Update: {
+          amount_micros?: number
+          created_at?: string
+          currency?: string
+          evidence_class?: string
+          evidence_json?: Json
+          id?: string
+          missing_evidence?: string
+          potential_provider_batch_overlap?: boolean
+          resolution_state?: string
+          source_key?: string
+          source_reference?: string
+        }
+        Relationships: []
+      }
+      openai_organization_cost_buckets: {
+        Row: {
+          amount_micros: number
+          api_key_id: string | null
+          batch_id: string
+          bucket_key: string
+          evidence_json: Json
+          id: string
+          line_item: string | null
+          project_id: string | null
+        }
+        Insert: {
+          amount_micros: number
+          api_key_id?: string | null
+          batch_id: string
+          bucket_key: string
+          evidence_json?: Json
+          id: string
+          line_item?: string | null
+          project_id?: string | null
+        }
+        Update: {
+          amount_micros?: number
+          api_key_id?: string | null
+          batch_id?: string
+          bucket_key?: string
+          evidence_json?: Json
+          id?: string
+          line_item?: string | null
+          project_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_organization_cost_buckets_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_organization_reconciliation_batches: {
+        Row: {
+          currency: string
+          evidence_status: string
+          id: string
+          period_end: string
+          period_start: string
+          raw_evidence_json: Json
+          recorded_at: string
+          source_key: string
+          source_kind: string
+          total_cost_micros: number
+        }
+        Insert: {
+          currency: string
+          evidence_status: string
+          id: string
+          period_end: string
+          period_start: string
+          raw_evidence_json: Json
+          recorded_at?: string
+          source_key: string
+          source_kind: string
+          total_cost_micros: number
+        }
+        Update: {
+          currency?: string
+          evidence_status?: string
+          id?: string
+          period_end?: string
+          period_start?: string
+          raw_evidence_json?: Json
+          recorded_at?: string
+          source_key?: string
+          source_kind?: string
+          total_cost_micros?: number
+        }
+        Relationships: []
+      }
+      openai_organization_usage_buckets: {
+        Row: {
+          api_key_id: string | null
+          batch_id: string
+          bucket_key: string
+          cached_input_tokens: number
+          evidence_json: Json
+          id: string
+          input_tokens: number
+          model: string | null
+          output_tokens: number
+          project_id: string | null
+          request_count: number
+        }
+        Insert: {
+          api_key_id?: string | null
+          batch_id: string
+          bucket_key: string
+          cached_input_tokens: number
+          evidence_json?: Json
+          id: string
+          input_tokens: number
+          model?: string | null
+          output_tokens: number
+          project_id?: string | null
+          request_count: number
+        }
+        Update: {
+          api_key_id?: string | null
+          batch_id?: string
+          bucket_key?: string
+          cached_input_tokens?: number
+          evidence_json?: Json
+          id?: string
+          input_tokens?: number
+          model?: string | null
+          output_tokens?: number
+          project_id?: string | null
+          request_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_organization_usage_buckets_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_reconciliation_batch_state_events: {
+        Row: {
+          batch_id: string
+          created_at: string
+          event_key: string
+          id: string
+          reason: string
+          related_batch_id: string | null
+          scope_key: string
+          sequence: number
+          state: string
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          event_key: string
+          id: string
+          reason: string
+          related_batch_id?: string | null
+          scope_key: string
+          sequence: number
+          state: string
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          event_key?: string
+          id?: string
+          reason?: string
+          related_batch_id?: string | null
+          scope_key?: string
+          sequence?: number
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_reconciliation_batch_state_events_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_reconciliation_batch_state_events_related_batch_id_fkey"
+            columns: ["related_batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_supplier_expense_obligation_settlement_events: {
+        Row: {
+          confirmed_amount_micros: number
+          created_at: string
+          currency: string
+          effective_obligation_status: string
+          event_key: string
+          evidence_json: Json
+          id: string
+          operation_allocation_id: string
+          reconciliation_batch_id: string
+          sequence: number
+          supplier_expense_id: string
+        }
+        Insert: {
+          confirmed_amount_micros: number
+          created_at?: string
+          currency: string
+          effective_obligation_status: string
+          event_key: string
+          evidence_json?: Json
+          id: string
+          operation_allocation_id: string
+          reconciliation_batch_id: string
+          sequence: number
+          supplier_expense_id: string
+        }
+        Update: {
+          confirmed_amount_micros?: number
+          created_at?: string
+          currency?: string
+          effective_obligation_status?: string
+          event_key?: string
+          evidence_json?: Json
+          id?: string
+          operation_allocation_id?: string
+          reconciliation_batch_id?: string
+          sequence?: number
+          supplier_expense_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_supplier_expense_obligation_operation_allocation_id_fkey"
+            columns: ["operation_allocation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_operation_cost_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_supplier_expense_obligation_reconciliation_batch_id_fkey"
+            columns: ["reconciliation_batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_supplier_expense_obligation_set_supplier_expense_id_fkey"
+            columns: ["supplier_expense_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_supplier_expense_reconciliation_adjustments: {
+        Row: {
+          adjustment_micros: number
+          confirmed_amount_micros: number
+          created_at: string
+          currency: string
+          estimated_amount_micros: number | null
+          evidence_json: Json
+          id: string
+          matching_method: string
+          operation_allocation_id: string
+          reconciliation_batch_id: string
+          source_key: string
+          supplier_expense_id: string
+        }
+        Insert: {
+          adjustment_micros: number
+          confirmed_amount_micros: number
+          created_at?: string
+          currency: string
+          estimated_amount_micros?: number | null
+          evidence_json?: Json
+          id: string
+          matching_method: string
+          operation_allocation_id: string
+          reconciliation_batch_id: string
+          source_key: string
+          supplier_expense_id: string
+        }
+        Update: {
+          adjustment_micros?: number
+          confirmed_amount_micros?: number
+          created_at?: string
+          currency?: string
+          estimated_amount_micros?: number | null
+          evidence_json?: Json
+          id?: string
+          matching_method?: string
+          operation_allocation_id?: string
+          reconciliation_batch_id?: string
+          source_key?: string
+          supplier_expense_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_supplier_expense_reconcilia_operation_allocation_id_fkey"
+            columns: ["operation_allocation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_operation_cost_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_supplier_expense_reconcilia_reconciliation_batch_id_fkey"
+            columns: ["reconciliation_batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_supplier_expense_reconciliation_supplier_expense_id_fkey"
+            columns: ["supplier_expense_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_activation_decisions: {
+        Row: {
+          created_at: string
+          decision: string
+          id: string
+          operator_user_id: string
+          proposal_id: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          decision: string
+          id: string
+          operator_user_id: string
+          proposal_id: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          decision?: string
+          id?: string
+          operator_user_id?: string
+          proposal_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_activation_decisions_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_activation_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_activation_proposals: {
+        Row: {
+          authorization_window_seconds: number
+          cost_policy_revision_id: string
+          created_at: string
+          direct_provider_ceiling_micros: number
+          failure_loss_policy_revision_id: string
+          id: string
+          markup_basis_points: number
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          model: string
+          prompt_class: string
+          proposed_owner_budget_micros: number
+          rounded_customer_price_micros: number
+          route_code: string
+          status: string
+          supporting_cost_ceiling_micros: number
+          total_cost_ceiling_micros: number
+        }
+        Insert: {
+          authorization_window_seconds: number
+          cost_policy_revision_id: string
+          created_at?: string
+          direct_provider_ceiling_micros: number
+          failure_loss_policy_revision_id: string
+          id: string
+          markup_basis_points: number
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          model: string
+          prompt_class: string
+          proposed_owner_budget_micros: number
+          rounded_customer_price_micros: number
+          route_code: string
+          status: string
+          supporting_cost_ceiling_micros: number
+          total_cost_ceiling_micros: number
+        }
+        Update: {
+          authorization_window_seconds?: number
+          cost_policy_revision_id?: string
+          created_at?: string
+          direct_provider_ceiling_micros?: number
+          failure_loss_policy_revision_id?: string
+          id?: string
+          markup_basis_points?: number
+          maximum_attempts?: number
+          maximum_input_units?: number
+          maximum_output_units?: number
+          model?: string
+          prompt_class?: string
+          proposed_owner_budget_micros?: number
+          rounded_customer_price_micros?: number
+          route_code?: string
+          status?: string
+          supporting_cost_ceiling_micros?: number
+          total_cost_ceiling_micros?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_activation_propos_failure_loss_policy_revision_fkey"
+            columns: ["failure_loss_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_loss_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_activation_proposals_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_activation_proposals_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_catalog_ai_model_bindings: {
+        Row: {
+          catalog_entry_id: string
+          created_at: string
+          model_identity_id: string
+        }
+        Insert: {
+          catalog_entry_id: string
+          created_at?: string
+          model_identity_id: string
+        }
+        Update: {
+          catalog_entry_id?: string
+          created_at?: string
+          model_identity_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_catalog_ai_model_bindings_catalog_entry_id_fkey"
+            columns: ["catalog_entry_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_model_catalog_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_catalog_ai_model_bindings_model_identity_id_fkey"
+            columns: ["model_identity_id"]
+            isOneToOne: false
+            referencedRelation: "ai_model_identities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_cost_policy_revisions: {
+        Row: {
+          attempt_plan: Json
+          cost_coverage: string
+          created_at: string
+          direct_provider_ceiling_micros: number
+          full_cost_ceiling_micros: number | null
+          id: string
+          lifecycle_state: string
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          notes: string
+          policy_code: string
+          revision: number
+          route_code: string
+          supporting_cost_ceiling_micros: number | null
+        }
+        Insert: {
+          attempt_plan: Json
+          cost_coverage: string
+          created_at?: string
+          direct_provider_ceiling_micros: number
+          full_cost_ceiling_micros?: number | null
+          id: string
+          lifecycle_state: string
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          notes: string
+          policy_code: string
+          revision: number
+          route_code: string
+          supporting_cost_ceiling_micros?: number | null
+        }
+        Update: {
+          attempt_plan?: Json
+          cost_coverage?: string
+          created_at?: string
+          direct_provider_ceiling_micros?: number
+          full_cost_ceiling_micros?: number | null
+          id?: string
+          lifecycle_state?: string
+          maximum_attempts?: number
+          maximum_input_units?: number
+          maximum_output_units?: number
+          notes?: string
+          policy_code?: string
+          revision?: number
+          route_code?: string
+          supporting_cost_ceiling_micros?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_cost_policy_revisions_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_customer_quote_bindings: {
+        Row: {
+          canonical_operation_id: string
+          cost_policy_revision_id: string
+          created_at: string
+          credential_funding: string
+          expires_at: string
+          model_catalog_entry_id: string | null
+          model_catalog_revision_id: string | null
+          pricing_revision_id: string
+          quote_id: string
+          request_fingerprint: string
+          route_code: string
+          runtime_model: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_operation_id: string
+          cost_policy_revision_id: string
+          created_at?: string
+          credential_funding: string
+          expires_at: string
+          model_catalog_entry_id?: string | null
+          model_catalog_revision_id?: string | null
+          pricing_revision_id: string
+          quote_id: string
+          request_fingerprint: string
+          route_code: string
+          runtime_model: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          canonical_operation_id?: string
+          cost_policy_revision_id?: string
+          created_at?: string
+          credential_funding?: string
+          expires_at?: string
+          model_catalog_entry_id?: string | null
+          model_catalog_revision_id?: string | null
+          pricing_revision_id?: string
+          quote_id?: string
+          request_fingerprint?: string
+          route_code?: string
+          runtime_model?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_customer_quote_bindi_model_catalog_revision_id_fkey"
+            columns: ["model_catalog_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_customer_quote_binding_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_customer_quote_bindings_model_catalog_entry_id_fkey"
+            columns: ["model_catalog_entry_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_customer_quote_bindings_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_customer_quote_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_customer_quote_bindings_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+          {
+            foreignKeyName: "openai_text_customer_quote_bindings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_failure_exposure_events: {
+        Row: {
+          actual_supplier_cost_micros: number | null
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          hold_id: string
+          id: string
+          sequence: number
+        }
+        Insert: {
+          actual_supplier_cost_micros?: number | null
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          hold_id: string
+          id: string
+          sequence: number
+        }
+        Update: {
+          actual_supplier_cost_micros?: number | null
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          hold_id?: string
+          id?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_exposure_events_hold_id_fkey"
+            columns: ["hold_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_exposure_holds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_failure_exposure_holds: {
+        Row: {
+          attempt_key: string
+          attempt_number: number
+          authorized_exposure_micros: number
+          created_at: string
+          environment_authority: string | null
+          financial_environment: string | null
+          id: string
+          lease_expires_at: string
+          loss_policy_revision_id: string | null
+          reservation_id: string
+          route_code: string
+        }
+        Insert: {
+          attempt_key: string
+          attempt_number: number
+          authorized_exposure_micros: number
+          created_at?: string
+          environment_authority?: string | null
+          financial_environment?: string | null
+          id: string
+          lease_expires_at: string
+          loss_policy_revision_id?: string | null
+          reservation_id: string
+          route_code: string
+        }
+        Update: {
+          attempt_key?: string
+          attempt_number?: number
+          authorized_exposure_micros?: number
+          created_at?: string
+          environment_authority?: string | null
+          financial_environment?: string | null
+          id?: string
+          lease_expires_at?: string
+          loss_policy_revision_id?: string | null
+          reservation_id?: string
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_exposure_holds_loss_policy_revision_id_fkey"
+            columns: ["loss_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_loss_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_exposure_holds_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_exposure_holds_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_failure_limit_events: {
+        Row: {
+          committed_micros: number
+          configured_limit_micros: number
+          created_at: string
+          environment_authority: string | null
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          financial_environment: string | null
+          id: string
+          requested_micros: number
+          reservation_id: string | null
+          route_code: string
+        }
+        Insert: {
+          committed_micros: number
+          configured_limit_micros: number
+          created_at?: string
+          environment_authority?: string | null
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          financial_environment?: string | null
+          id: string
+          requested_micros: number
+          reservation_id?: string | null
+          route_code: string
+        }
+        Update: {
+          committed_micros?: number
+          configured_limit_micros?: number
+          created_at?: string
+          environment_authority?: string | null
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          financial_environment?: string | null
+          id?: string
+          requested_micros?: number
+          reservation_id?: string | null
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_limit_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_limit_events_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_failure_loss_operator_decisions: {
+        Row: {
+          active_concurrency: number
+          actor_id: string
+          additional_loss_capacity_micros: number | null
+          base_aggregate_limit_micros: number
+          created_at: string
+          decision_type: string
+          effective_aggregate_limit_micros: number | null
+          financial_environment: string
+          id: string
+          known_exposure_micros: number
+          loss_policy_revision_id: string
+          reason: string
+          resulting_rollout_mode: string
+          resulting_rollout_revision: number
+          route_code: string
+          source_rollout_mode: string
+          source_rollout_revision: number
+        }
+        Insert: {
+          active_concurrency: number
+          actor_id: string
+          additional_loss_capacity_micros?: number | null
+          base_aggregate_limit_micros: number
+          created_at?: string
+          decision_type: string
+          effective_aggregate_limit_micros?: number | null
+          financial_environment: string
+          id: string
+          known_exposure_micros: number
+          loss_policy_revision_id: string
+          reason: string
+          resulting_rollout_mode: string
+          resulting_rollout_revision: number
+          route_code: string
+          source_rollout_mode: string
+          source_rollout_revision: number
+        }
+        Update: {
+          active_concurrency?: number
+          actor_id?: string
+          additional_loss_capacity_micros?: number | null
+          base_aggregate_limit_micros?: number
+          created_at?: string
+          decision_type?: string
+          effective_aggregate_limit_micros?: number | null
+          financial_environment?: string
+          id?: string
+          known_exposure_micros?: number
+          loss_policy_revision_id?: string
+          reason?: string
+          resulting_rollout_mode?: string
+          resulting_rollout_revision?: number
+          route_code?: string
+          source_rollout_mode?: string
+          source_rollout_revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_loss_operator__loss_policy_revision_id_fkey"
+            columns: ["loss_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_loss_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_loss_operator_decisions_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "platform_operators"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_loss_operator_decisions_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_failure_loss_policy_revisions: {
+        Row: {
+          actor_id: string | null
+          aggregate_limit_micros: number
+          created_at: string
+          environment: string
+          id: string
+          lifecycle_state: string
+          maximum_concurrency: number
+          per_operation_limit_micros: number
+          reason: string
+          revision: number
+          rolling_window_seconds: number
+          route_code: string
+        }
+        Insert: {
+          actor_id?: string | null
+          aggregate_limit_micros: number
+          created_at?: string
+          environment: string
+          id: string
+          lifecycle_state: string
+          maximum_concurrency: number
+          per_operation_limit_micros: number
+          reason: string
+          revision: number
+          rolling_window_seconds: number
+          route_code: string
+        }
+        Update: {
+          actor_id?: string | null
+          aggregate_limit_micros?: number
+          created_at?: string
+          environment?: string
+          id?: string
+          lifecycle_state?: string
+          maximum_concurrency?: number
+          per_operation_limit_micros?: number
+          reason?: string
+          revision?: number
+          rolling_window_seconds?: number
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_loss_policy_revisions_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_failure_loss_rollout_revisions: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          financial_environment: string
+          loss_policy_revision_id: string
+          mode: string
+          operator_decision_id: string | null
+          reason: string
+          revision: number
+          route_code: string
+          source_limit_event_id: string | null
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          financial_environment: string
+          loss_policy_revision_id: string
+          mode: string
+          operator_decision_id?: string | null
+          reason: string
+          revision: number
+          route_code: string
+          source_limit_event_id?: string | null
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          financial_environment?: string
+          loss_policy_revision_id?: string
+          mode?: string
+          operator_decision_id?: string | null
+          reason?: string
+          revision?: number
+          route_code?: string
+          source_limit_event_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_loss_rollout_r_loss_policy_revision_id_fkey"
+            columns: ["loss_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_loss_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_loss_rollout_rev_source_limit_event_id_fkey"
+            columns: ["source_limit_event_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_limit_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_loss_rollout_revi_operator_decision_id_fkey"
+            columns: ["operator_decision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_loss_operator_decisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_failure_loss_rollout_revisions_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_failure_realized_loss_corrections: {
+        Row: {
+          actor_id: string
+          attributable_variable_supporting_cost_micros: number
+          corrected_realized_loss_micros: number | null
+          correction_key: string
+          correction_kind: string
+          created_at: string
+          direct_cost_status: string
+          direct_supplier_cost_micros: number
+          evidence_json: Json
+          excluded_nonrealized_cost_micros: number
+          failure_event_id: string
+          financial_environment: string
+          id: string
+          revision: number
+          supporting_cost_status: string
+        }
+        Insert: {
+          actor_id: string
+          attributable_variable_supporting_cost_micros: number
+          corrected_realized_loss_micros?: number | null
+          correction_key: string
+          correction_kind: string
+          created_at?: string
+          direct_cost_status: string
+          direct_supplier_cost_micros: number
+          evidence_json?: Json
+          excluded_nonrealized_cost_micros: number
+          failure_event_id: string
+          financial_environment: string
+          id: string
+          revision: number
+          supporting_cost_status: string
+        }
+        Update: {
+          actor_id?: string
+          attributable_variable_supporting_cost_micros?: number
+          corrected_realized_loss_micros?: number | null
+          correction_key?: string
+          correction_kind?: string
+          created_at?: string
+          direct_cost_status?: string
+          direct_supplier_cost_micros?: number
+          evidence_json?: Json
+          excluded_nonrealized_cost_micros?: number
+          failure_event_id?: string
+          financial_environment?: string
+          id?: string
+          revision?: number
+          supporting_cost_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_failure_realized_loss_correct_failure_event_id_fkey"
+            columns: ["failure_event_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_exposure_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_funding_bindings: {
+        Row: {
+          cost_policy_revision_id: string | null
+          created_at: string
+          credential_funding: string
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          model: string
+          operation_id: string
+          pricing_revision_id: string
+          reservation_id: string
+          rollout_revision: number | null
+          route_code: string
+        }
+        Insert: {
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          credential_funding: string
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          model: string
+          operation_id: string
+          pricing_revision_id: string
+          reservation_id: string
+          rollout_revision?: number | null
+          route_code: string
+        }
+        Update: {
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          credential_funding?: string
+          maximum_attempts?: number
+          maximum_input_units?: number
+          maximum_output_units?: number
+          model?: string
+          operation_id?: string
+          pricing_revision_id?: string
+          reservation_id?: string
+          rollout_revision?: number | null
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_funding_bindings_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_funding_bindings_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_funding_bindings_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_funding_bindings_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+          {
+            foreignKeyName: "openai_text_funding_rollout_revision_fk"
+            columns: ["route_code", "rollout_revision"]
+            isOneToOne: false
+            referencedRelation: "openai_text_rollout_revisions"
+            referencedColumns: ["route_code", "revision"]
+          },
+        ]
+      }
+      openai_text_model_availability_checks: {
+        Row: {
+          accessible: boolean
+          check_kind: string
+          checked_at: string
+          created_at: string
+          credential_class: string
+          endpoint: string
+          evidence_json: Json
+          http_status: number
+          id: string
+          provider: string
+          provider_model_id: string
+        }
+        Insert: {
+          accessible: boolean
+          check_kind: string
+          checked_at: string
+          created_at?: string
+          credential_class: string
+          endpoint: string
+          evidence_json?: Json
+          http_status: number
+          id: string
+          provider: string
+          provider_model_id: string
+        }
+        Update: {
+          accessible?: boolean
+          check_kind?: string
+          checked_at?: string
+          created_at?: string
+          credential_class?: string
+          endpoint?: string
+          evidence_json?: Json
+          http_status?: number
+          id?: string
+          provider?: string
+          provider_model_id?: string
+        }
+        Relationships: []
+      }
+      openai_text_model_catalog_entries: {
+        Row: {
+          availability_evidence: Json
+          availability_status: string
+          catalog_revision_id: string
+          created_at: string
+          customer_selection_key: string
+          customer_selection_state: string | null
+          display_name: string
+          id: string
+          lifecycle_state: string
+          provider_model_id: string
+          quality_basis: string
+          quality_rank: number
+          rate_revision_id: string
+          runtime_model_id: string
+          supported_apis: Json
+          tradeoff_summary: string
+        }
+        Insert: {
+          availability_evidence?: Json
+          availability_status: string
+          catalog_revision_id: string
+          created_at?: string
+          customer_selection_key?: string
+          customer_selection_state?: string | null
+          display_name: string
+          id: string
+          lifecycle_state: string
+          provider_model_id: string
+          quality_basis: string
+          quality_rank: number
+          rate_revision_id: string
+          runtime_model_id: string
+          supported_apis: Json
+          tradeoff_summary: string
+        }
+        Update: {
+          availability_evidence?: Json
+          availability_status?: string
+          catalog_revision_id?: string
+          created_at?: string
+          customer_selection_key?: string
+          customer_selection_state?: string | null
+          display_name?: string
+          id?: string
+          lifecycle_state?: string
+          provider_model_id?: string
+          quality_basis?: string
+          quality_rank?: number
+          rate_revision_id?: string
+          runtime_model_id?: string
+          supported_apis?: Json
+          tradeoff_summary?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_model_catalog_entries_catalog_revision_id_fkey"
+            columns: ["catalog_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_model_catalog_entries_rate_revision_id_fkey"
+            columns: ["rate_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_provider_rate_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_model_catalog_revisions: {
+        Row: {
+          actor_id: string | null
+          content_hash: string
+          created_at: string
+          id: string
+          lifecycle_state: string
+          quality_method: string
+          revision: number
+          source_checked_at: string
+        }
+        Insert: {
+          actor_id?: string | null
+          content_hash: string
+          created_at?: string
+          id: string
+          lifecycle_state: string
+          quality_method: string
+          revision: number
+          source_checked_at: string
+        }
+        Update: {
+          actor_id?: string | null
+          content_hash?: string
+          created_at?: string
+          id?: string
+          lifecycle_state?: string
+          quality_method?: string
+          revision?: number
+          source_checked_at?: string
+        }
+        Relationships: []
+      }
+      openai_text_model_route_compatibility: {
+        Row: {
+          catalog_entry_id: string
+          compatibility_status: string
+          cost_policy_revision_id: string | null
+          created_at: string
+          evidence_json: Json
+          id: string
+          maximum_attempts: number
+          maximum_input_tokens: number
+          maximum_output_tokens: number
+          route_code: string
+          supporting_cost_coverage: string
+        }
+        Insert: {
+          catalog_entry_id: string
+          compatibility_status: string
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          maximum_attempts: number
+          maximum_input_tokens: number
+          maximum_output_tokens: number
+          route_code: string
+          supporting_cost_coverage: string
+        }
+        Update: {
+          catalog_entry_id?: string
+          compatibility_status?: string
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          maximum_attempts?: number
+          maximum_input_tokens?: number
+          maximum_output_tokens?: number
+          route_code?: string
+          supporting_cost_coverage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_model_route_compatibil_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_model_route_compatibility_catalog_entry_id_fkey"
+            columns: ["catalog_entry_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_model_route_compatibility_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_model_visibility_observations: {
+        Row: {
+          catalog_entry_id: string
+          catalog_revision_id: string
+          check_kind: string
+          checked_at: string
+          created_at: string
+          http_status: number | null
+          id: string
+          provider_model_id: string
+          provider_owner_label: string | null
+          provider_project_fingerprint: string
+          returned_model_id: string | null
+          sanitized_evidence_json: Json
+          source_key: string
+          visible: boolean
+        }
+        Insert: {
+          catalog_entry_id: string
+          catalog_revision_id: string
+          check_kind?: string
+          checked_at: string
+          created_at?: string
+          http_status?: number | null
+          id: string
+          provider_model_id: string
+          provider_owner_label?: string | null
+          provider_project_fingerprint: string
+          returned_model_id?: string | null
+          sanitized_evidence_json?: Json
+          source_key: string
+          visible: boolean
+        }
+        Update: {
+          catalog_entry_id?: string
+          catalog_revision_id?: string
+          check_kind?: string
+          checked_at?: string
+          created_at?: string
+          http_status?: number | null
+          id?: string
+          provider_model_id?: string
+          provider_owner_label?: string | null
+          provider_project_fingerprint?: string
+          returned_model_id?: string | null
+          sanitized_evidence_json?: Json
+          source_key?: string
+          visible?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_model_visibility_observati_catalog_revision_id_fkey"
+            columns: ["catalog_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_model_visibility_observations_catalog_entry_id_fkey"
+            columns: ["catalog_entry_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_operation_cost_allocations: {
+        Row: {
+          allocated_cost_micros: number | null
+          allocation_key: string
+          allocation_method: string
+          allocation_status: string
+          batch_id: string
+          created_at: string
+          evidence_json: Json
+          id: string
+          reservation_id: string
+        }
+        Insert: {
+          allocated_cost_micros?: number | null
+          allocation_key: string
+          allocation_method: string
+          allocation_status: string
+          batch_id: string
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          reservation_id: string
+        }
+        Update: {
+          allocated_cost_micros?: number | null
+          allocation_key?: string
+          allocation_method?: string
+          allocation_status?: string
+          batch_id?: string
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_operation_cost_allocations_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_operation_cost_allocations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_persisted_results: {
+        Row: {
+          customer_operation_id: string | null
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          persisted_at: string
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          result_hash: string
+          result_json: Json
+          route_code: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string | null
+        }
+        Insert: {
+          customer_operation_id?: string | null
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          persisted_at?: string
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          result_hash: string
+          result_json: Json
+          route_code: string
+          user_id: string
+          workpiece_id: string
+          workspace_id?: string | null
+        }
+        Update: {
+          customer_operation_id?: string | null
+          id?: string
+          input_units?: number
+          model?: string
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          persisted_at?: string
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          result_hash?: string
+          result_json?: Json
+          route_code?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_persisted_results_customer_operation_fkey"
+            columns: ["customer_operation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "openai_text_persisted_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "openai_text_persisted_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_persisted_results_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+          {
+            foreignKeyName: "openai_text_persisted_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_provider_captures: {
+        Row: {
+          attempt_number: number
+          capture_key: string
+          captured_at: string
+          id: string
+          input_units: number
+          output_units: number
+          provider_request_id: string | null
+          reservation_id: string
+          response_evidence_json: Json
+        }
+        Insert: {
+          attempt_number: number
+          capture_key: string
+          captured_at?: string
+          id: string
+          input_units: number
+          output_units: number
+          provider_request_id?: string | null
+          reservation_id: string
+          response_evidence_json?: Json
+        }
+        Update: {
+          attempt_number?: number
+          capture_key?: string
+          captured_at?: string
+          id?: string
+          input_units?: number
+          output_units?: number
+          provider_request_id?: string | null
+          reservation_id?: string
+          response_evidence_json?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_provider_captures_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_provider_rate_revisions: {
+        Row: {
+          audio_input_micros_per_million_tokens: number | null
+          billing_basis: string
+          cached_input_micros_per_million_tokens: number
+          content_hash: string
+          created_at: string
+          id: string
+          input_micros_per_million_tokens: number
+          maximum_context_tokens: number
+          maximum_output_tokens: number
+          output_micros_per_million_tokens: number
+          provider: string
+          provider_model_id: string
+          revision: number
+          runtime_model_alias: string
+          source_checked_at: string
+          source_url: string
+          text_input_micros_per_million_tokens: number | null
+        }
+        Insert: {
+          audio_input_micros_per_million_tokens?: number | null
+          billing_basis?: string
+          cached_input_micros_per_million_tokens: number
+          content_hash: string
+          created_at?: string
+          id: string
+          input_micros_per_million_tokens: number
+          maximum_context_tokens: number
+          maximum_output_tokens: number
+          output_micros_per_million_tokens: number
+          provider: string
+          provider_model_id: string
+          revision: number
+          runtime_model_alias: string
+          source_checked_at: string
+          source_url: string
+          text_input_micros_per_million_tokens?: number | null
+        }
+        Update: {
+          audio_input_micros_per_million_tokens?: number | null
+          billing_basis?: string
+          cached_input_micros_per_million_tokens?: number
+          content_hash?: string
+          created_at?: string
+          id?: string
+          input_micros_per_million_tokens?: number
+          maximum_context_tokens?: number
+          maximum_output_tokens?: number
+          output_micros_per_million_tokens?: number
+          provider?: string
+          provider_model_id?: string
+          revision?: number
+          runtime_model_alias?: string
+          source_checked_at?: string
+          source_url?: string
+          text_input_micros_per_million_tokens?: number | null
+        }
+        Relationships: []
+      }
+      openai_text_rate_condition_revisions: {
+        Row: {
+          cache_write_micros_per_million_tokens: number | null
+          created_at: string
+          id: string
+          lifecycle_state: string
+          long_context_cached_input_multiplier_millis: number | null
+          long_context_input_multiplier_millis: number | null
+          long_context_output_multiplier_millis: number | null
+          long_context_threshold_tokens: number | null
+          notes: string
+          provider_rate_revision_id: string
+          reasoning_billing_rule: string
+          revision: number
+          service_tier: string
+          source_retrieved_at: string
+          source_url: string
+        }
+        Insert: {
+          cache_write_micros_per_million_tokens?: number | null
+          created_at?: string
+          id: string
+          lifecycle_state: string
+          long_context_cached_input_multiplier_millis?: number | null
+          long_context_input_multiplier_millis?: number | null
+          long_context_output_multiplier_millis?: number | null
+          long_context_threshold_tokens?: number | null
+          notes: string
+          provider_rate_revision_id: string
+          reasoning_billing_rule: string
+          revision: number
+          service_tier: string
+          source_retrieved_at: string
+          source_url: string
+        }
+        Update: {
+          cache_write_micros_per_million_tokens?: number | null
+          created_at?: string
+          id?: string
+          lifecycle_state?: string
+          long_context_cached_input_multiplier_millis?: number | null
+          long_context_input_multiplier_millis?: number | null
+          long_context_output_multiplier_millis?: number | null
+          long_context_threshold_tokens?: number | null
+          notes?: string
+          provider_rate_revision_id?: string
+          reasoning_billing_rule?: string
+          revision?: number
+          service_tier?: string
+          source_retrieved_at?: string
+          source_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_rate_condition_revis_provider_rate_revision_id_fkey"
+            columns: ["provider_rate_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_provider_rate_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_rollout_revisions: {
+        Row: {
+          actor_id: string | null
+          cost_policy_revision_id: string | null
+          created_at: string
+          funding_scope: string
+          mode: string
+          reason: string
+          revision: number
+          route_code: string
+        }
+        Insert: {
+          actor_id?: string | null
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          funding_scope?: string
+          mode: string
+          reason: string
+          revision: number
+          route_code: string
+        }
+        Update: {
+          actor_id?: string | null
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          funding_scope?: string
+          mode?: string
+          reason?: string
+          revision?: number
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_rollout_revisions_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_rollout_revisions_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_route_policies: {
+        Row: {
+          byo_supported: boolean
+          created_at: string
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          notes: string
+          product_area: string
+          provider_operation: string
+          requires_canonical_persistence: boolean
+          requires_result_validation: boolean
+          rollout_mode: string
+          route_code: string
+        }
+        Insert: {
+          byo_supported?: boolean
+          created_at?: string
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          notes: string
+          product_area: string
+          provider_operation: string
+          requires_canonical_persistence?: boolean
+          requires_result_validation?: boolean
+          rollout_mode?: string
+          route_code: string
+        }
+        Update: {
+          byo_supported?: boolean
+          created_at?: string
+          maximum_attempts?: number
+          maximum_input_units?: number
+          maximum_output_units?: number
+          notes?: string
+          product_area?: string
+          provider_operation?: string
+          requires_canonical_persistence?: boolean
+          requires_result_validation?: boolean
+          rollout_mode?: string
+          route_code?: string
+        }
+        Relationships: []
+      }
+      openai_text_supporting_cost_evidence: {
+        Row: {
+          allocation_method: string
+          amount_ceiling_micros: number | null
+          component_code: string
+          created_at: string
+          double_counting_scope: string
+          evidence_class: string
+          id: string
+          lifecycle_state: string
+          revision: number
+          route_code: string
+          source_checked_at: string | null
+          source_reference: string | null
+        }
+        Insert: {
+          allocation_method: string
+          amount_ceiling_micros?: number | null
+          component_code: string
+          created_at?: string
+          double_counting_scope: string
+          evidence_class: string
+          id: string
+          lifecycle_state: string
+          revision: number
+          route_code: string
+          source_checked_at?: string | null
+          source_reference?: string | null
+        }
+        Update: {
+          allocation_method?: string
+          amount_ceiling_micros?: number | null
+          component_code?: string
+          created_at?: string
+          double_counting_scope?: string
+          evidence_class?: string
+          id?: string
+          lifecycle_state?: string
+          revision?: number
+          route_code?: string
+          source_checked_at?: string | null
+          source_reference?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_supporting_cost_evidence_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_supporting_cost_inventory: {
+        Row: {
+          component_code: string
+          cost_policy_revision_id: string
+          created_at: string
+          disposition: string
+          evidence_status: string
+          id: string
+          notes: string
+          route_code: string
+        }
+        Insert: {
+          component_code: string
+          cost_policy_revision_id: string
+          created_at?: string
+          disposition: string
+          evidence_status: string
+          id: string
+          notes: string
+          route_code: string
+        }
+        Update: {
+          component_code?: string
+          cost_policy_revision_id?: string
+          created_at?: string
+          disposition?: string
+          evidence_status?: string
+          id?: string
+          notes?: string
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_supporting_cost_invent_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_supporting_cost_inventory_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_test_certification_batch_events: {
+        Row: {
+          actor_id: string
+          batch_id: string
+          created_at: string
+          event_key: string
+          event_type: string
+          id: string
+          reason: string
+          sequence: number
+        }
+        Insert: {
+          actor_id: string
+          batch_id: string
+          created_at?: string
+          event_key: string
+          event_type: string
+          id: string
+          reason: string
+          sequence: number
+        }
+        Update: {
+          actor_id?: string
+          batch_id?: string
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          id?: string
+          reason?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_batch_events_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_batches: {
+        Row: {
+          created_at: string
+          created_by: string
+          deposit_id: string
+          expires_at: string
+          id: string
+          invocation_token_hash: string
+          maximum_aggregate_charge_micros: number
+          maximum_aggregate_failure_exposure_micros: number
+          maximum_operation_count: number
+          reason: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          deposit_id: string
+          expires_at: string
+          id: string
+          invocation_token_hash: string
+          maximum_aggregate_charge_micros: number
+          maximum_aggregate_failure_exposure_micros: number
+          maximum_operation_count: number
+          reason: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          deposit_id?: string
+          expires_at?: string
+          id?: string
+          invocation_token_hash?: string
+          maximum_aggregate_charge_micros?: number
+          maximum_aggregate_failure_exposure_micros?: number
+          maximum_operation_count?: number
+          reason?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_batches_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_batches_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_consumptions: {
+        Row: {
+          consumed_at: string
+          credit_units_consumed: number
+          deposit_id: string
+          id: string
+          journal_event_id: string
+          operation_id: string
+          recognized_test_revenue_micros: number
+          reservation_id: string
+          user_id: string
+        }
+        Insert: {
+          consumed_at?: string
+          credit_units_consumed: number
+          deposit_id: string
+          id: string
+          journal_event_id: string
+          operation_id: string
+          recognized_test_revenue_micros: number
+          reservation_id: string
+          user_id: string
+        }
+        Update: {
+          consumed_at?: string
+          credit_units_consumed?: number
+          deposit_id?: string
+          id?: string
+          journal_event_id?: string
+          operation_id?: string
+          recognized_test_revenue_micros?: number
+          reservation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_consumptio_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_consumptions_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_consumptions_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_test_certification_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_evidence: {
+        Row: {
+          created_at: string
+          evidence_json: Json
+          evidence_key: string
+          evidence_kind: string
+          id: string
+          reservation_id: string
+        }
+        Insert: {
+          created_at?: string
+          evidence_json: Json
+          evidence_key: string
+          evidence_kind: string
+          id: string
+          reservation_id: string
+        }
+        Update: {
+          created_at?: string
+          evidence_json?: Json
+          evidence_key?: string
+          evidence_kind?: string
+          id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_evidence_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_expenses: {
+        Row: {
+          amount_micros: number | null
+          component_kind: string
+          created_at: string
+          evidence_json: Json
+          evidence_status: string
+          expense_key: string
+          id: string
+          reservation_id: string
+        }
+        Insert: {
+          amount_micros?: number | null
+          component_kind: string
+          created_at?: string
+          evidence_json: Json
+          evidence_status: string
+          expense_key: string
+          id: string
+          reservation_id: string
+        }
+        Update: {
+          amount_micros?: number | null
+          component_kind?: string
+          created_at?: string
+          evidence_json?: Json
+          evidence_status?: string
+          expense_key?: string
+          id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_expenses_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_operations: {
+        Row: {
+          accepted_at: string
+          accepted_by: string
+          batch_id: string
+          billable_failure_maximum_charge_micros: number
+          created_at: string
+          expires_at: string
+          id: string
+          normal_maximum_charge_micros: number
+          operation_id: string
+          quote_hash: string
+          request_fingerprint: string
+          request_json: Json
+          reserved_credit_units: number
+          route_code: string
+          scenario: string
+          term_id: string
+          workpiece_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          accepted_by: string
+          batch_id: string
+          billable_failure_maximum_charge_micros: number
+          created_at?: string
+          expires_at: string
+          id: string
+          normal_maximum_charge_micros: number
+          operation_id: string
+          quote_hash: string
+          request_fingerprint: string
+          request_json: Json
+          reserved_credit_units: number
+          route_code: string
+          scenario: string
+          term_id: string
+          workpiece_id: string
+        }
+        Update: {
+          accepted_at?: string
+          accepted_by?: string
+          batch_id?: string
+          billable_failure_maximum_charge_micros?: number
+          created_at?: string
+          expires_at?: string
+          id?: string
+          normal_maximum_charge_micros?: number
+          operation_id?: string
+          quote_hash?: string
+          request_fingerprint?: string
+          request_json?: Json
+          reserved_credit_units?: number
+          route_code?: string
+          scenario?: string
+          term_id?: string
+          workpiece_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_operations_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_operations_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_terms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_reservation_events: {
+        Row: {
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          reservation_id: string
+          sequence: number
+        }
+        Insert: {
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          id: string
+          reservation_id: string
+          sequence: number
+        }
+        Update: {
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          reservation_id?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_reservation__reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_reservations: {
+        Row: {
+          batch_id: string
+          created_at: string
+          deposit_id: string
+          execution_kind: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          operation_record_id: string
+          reserved_credit_units: number
+          reserved_customer_charge_micros: number
+          user_id: string
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          deposit_id: string
+          execution_kind: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          operation_record_id: string
+          reserved_credit_units: number
+          reserved_customer_charge_micros: number
+          user_id: string
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          deposit_id?: string
+          execution_kind?: string
+          id?: string
+          idempotency_key?: string
+          operation_id?: string
+          operation_record_id?: string
+          reserved_credit_units?: number
+          reserved_customer_charge_micros?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_reserva_operation_record_id_fkey"
+            columns: ["operation_record_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_test_certification_operations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_reservations_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_reservations_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_results: {
+        Row: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          persisted_at: string
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_hash: string
+          result_json: Json
+          route_code: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          persisted_at?: string
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_hash: string
+          result_json: Json
+          route_code: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          id?: string
+          input_units?: number
+          model?: string
+          operation_id?: string
+          output_units?: number
+          persisted_at?: string
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string
+          result_hash?: string
+          result_json?: Json
+          route_code?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_test_certification_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_test_certification_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_settlements: {
+        Row: {
+          customer_charge_micros: number
+          customer_credit_units: number
+          evidence_json: Json
+          failure_class: string | null
+          id: string
+          outcome: string
+          reservation_id: string
+          settled_at: string
+          settlement_key: string
+        }
+        Insert: {
+          customer_charge_micros: number
+          customer_credit_units: number
+          evidence_json: Json
+          failure_class?: string | null
+          id: string
+          outcome: string
+          reservation_id: string
+          settled_at?: string
+          settlement_key: string
+        }
+        Update: {
+          customer_charge_micros?: number
+          customer_credit_units?: number
+          evidence_json?: Json
+          failure_class?: string | null
+          id?: string
+          outcome?: string
+          reservation_id?: string
+          settled_at?: string
+          settlement_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_settlements_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_test_certification_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_test_certification_terms: {
+        Row: {
+          batch_id: string
+          created_at: string
+          customer_credit_units: number
+          customer_price_ceiling_micros: number
+          direct_provider_ceiling_micros: number
+          failure_exposure_ceiling_micros: number
+          full_cost_ceiling_micros: number | null
+          id: string
+          input_micros_per_million_tokens: number
+          markup_basis_points: number
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          model: string
+          output_micros_per_million_tokens: number
+          rate_evidence_status: string
+          revision: number
+          route_code: string
+          supporting_cost_ceiling_micros: number
+          supporting_cost_policy: Json
+        }
+        Insert: {
+          batch_id: string
+          created_at?: string
+          customer_credit_units: number
+          customer_price_ceiling_micros: number
+          direct_provider_ceiling_micros: number
+          failure_exposure_ceiling_micros: number
+          full_cost_ceiling_micros?: number | null
+          id: string
+          input_micros_per_million_tokens: number
+          markup_basis_points: number
+          maximum_attempts: number
+          maximum_input_units: number
+          maximum_output_units: number
+          model: string
+          output_micros_per_million_tokens: number
+          rate_evidence_status: string
+          revision: number
+          route_code: string
+          supporting_cost_ceiling_micros: number
+          supporting_cost_policy: Json
+        }
+        Update: {
+          batch_id?: string
+          created_at?: string
+          customer_credit_units?: number
+          customer_price_ceiling_micros?: number
+          direct_provider_ceiling_micros?: number
+          failure_exposure_ceiling_micros?: number
+          full_cost_ceiling_micros?: number | null
+          id?: string
+          input_micros_per_million_tokens?: number
+          markup_basis_points?: number
+          maximum_attempts?: number
+          maximum_input_units?: number
+          maximum_output_units?: number
+          model?: string
+          output_micros_per_million_tokens?: number
+          rate_evidence_status?: string
+          revision?: number
+          route_code?: string
+          supporting_cost_ceiling_micros?: number
+          supporting_cost_policy?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_test_certification_terms_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_test_certification_batches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_usage_evidence: {
+        Row: {
+          attempt_number: number
+          canonical_persistence_confirmed: boolean
+          evidence_json: Json
+          evidence_key: string
+          id: string
+          input_units: number
+          output_units: number
+          provider_reported: boolean
+          provider_request_id: string | null
+          recorded_at: string
+          reservation_id: string
+          result_validated: boolean
+        }
+        Insert: {
+          attempt_number: number
+          canonical_persistence_confirmed: boolean
+          evidence_json?: Json
+          evidence_key: string
+          id: string
+          input_units: number
+          output_units: number
+          provider_reported: boolean
+          provider_request_id?: string | null
+          recorded_at?: string
+          reservation_id: string
+          result_validated: boolean
+        }
+        Update: {
+          attempt_number?: number
+          canonical_persistence_confirmed?: boolean
+          evidence_json?: Json
+          evidence_key?: string
+          id?: string
+          input_units?: number
+          output_units?: number
+          provider_reported?: boolean
+          provider_request_id?: string | null
+          recorded_at?: string
+          reservation_id?: string
+          result_validated?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_usage_evidence_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_text_user_model_preference_revisions: {
+        Row: {
+          catalog_revision_id: string | null
+          created_at: string
+          id: string
+          preference_kind: string
+          provider_model_id: string | null
+          revision: number
+          route_code: string | null
+          user_id: string
+        }
+        Insert: {
+          catalog_revision_id?: string | null
+          created_at?: string
+          id: string
+          preference_kind: string
+          provider_model_id?: string | null
+          revision: number
+          route_code?: string | null
+          user_id: string
+        }
+        Update: {
+          catalog_revision_id?: string | null
+          created_at?: string
+          id?: string
+          preference_kind?: string
+          provider_model_id?: string | null
+          revision?: number
+          route_code?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_user_model_preference_revi_catalog_revision_id_fkey"
+            columns: ["catalog_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_model_catalog_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_user_model_preference_revisions_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_text_validation_failure_evidence: {
+        Row: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          provider_capture_id: string
+          provider_request_id: string | null
+          raw_provider_response_text: string
+          recorded_at: string
+          reservation_id: string
+          route_code: string
+          validation_contract_revision: string
+          validation_error_code: string
+        }
+        Insert: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          provider_capture_id: string
+          provider_request_id?: string | null
+          raw_provider_response_text: string
+          recorded_at?: string
+          reservation_id: string
+          route_code: string
+          validation_contract_revision: string
+          validation_error_code: string
+        }
+        Update: {
+          id?: string
+          input_units?: number
+          model?: string
+          operation_id?: string
+          output_units?: number
+          provider_capture_id?: string
+          provider_request_id?: string | null
+          raw_provider_response_text?: string
+          recorded_at?: string
+          reservation_id?: string
+          route_code?: string
+          validation_contract_revision?: string
+          validation_error_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_text_validation_failure_evidenc_provider_capture_id_fkey"
+            columns: ["provider_capture_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_provider_captures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_validation_failure_evidence_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "openai_text_validation_failure_evidence_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_text_validation_failure_evidence_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+        ]
+      }
+      openai_transcription_canonical_results: {
+        Row: {
+          created_at: string
+          operation_id: string
+          provider_request_id: string | null
+          reservation_id: string
+          route_code: string
+          source_sha256: string
+          transcript_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          operation_id: string
+          provider_request_id?: string | null
+          reservation_id: string
+          route_code: string
+          source_sha256: string
+          transcript_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          operation_id?: string
+          provider_request_id?: string | null
+          reservation_id?: string
+          route_code?: string
+          source_sha256?: string
+          transcript_json?: Json
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_transcription_canonical_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_transcription_canonical_results_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+          {
+            foreignKeyName: "openai_transcription_canonical_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_transcription_duration_rate_revisions: {
+        Row: {
+          content_hash: string
+          created_at: string
+          id: string
+          lifecycle_state: string
+          micros_per_minute: number
+          provider: string
+          provider_model_id: string
+          revision: number
+          source_checked_at: string
+          source_url: string
+        }
+        Insert: {
+          content_hash: string
+          created_at?: string
+          id: string
+          lifecycle_state: string
+          micros_per_minute: number
+          provider: string
+          provider_model_id: string
+          revision: number
+          source_checked_at: string
+          source_url: string
+        }
+        Update: {
+          content_hash?: string
+          created_at?: string
+          id?: string
+          lifecycle_state?: string
+          micros_per_minute?: number
+          provider?: string
+          provider_model_id?: string
+          revision?: number
+          source_checked_at?: string
+          source_url?: string
+        }
+        Relationships: []
+      }
+      openai_transcription_reconciliation_notes: {
+        Row: {
+          allocation_status: string
+          amount_micros: number
+          classification: string
+          created_at: string
+          currency: string
+          evidence_json: Json
+          id: string
+          period_end: string
+          period_start: string
+          request_level_certainty: boolean
+          source_key: string
+        }
+        Insert: {
+          allocation_status: string
+          amount_micros: number
+          classification: string
+          created_at?: string
+          currency: string
+          evidence_json?: Json
+          id: string
+          period_end: string
+          period_start: string
+          request_level_certainty: boolean
+          source_key: string
+        }
+        Update: {
+          allocation_status?: string
+          amount_micros?: number
+          classification?: string
+          created_at?: string
+          currency?: string
+          evidence_json?: Json
+          id?: string
+          period_end?: string
+          period_start?: string
+          request_level_certainty?: boolean
+          source_key?: string
+        }
+        Relationships: []
+      }
+      openai_transcription_source_bindings: {
+        Row: {
+          created_at: string
+          maximum_chunks: number
+          maximum_duration_seconds: number | null
+          output_contract: string
+          quote_id: string
+          route_code: string
+          source_asset_revision: string
+          source_bytes: number
+          source_sha256: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          maximum_chunks: number
+          maximum_duration_seconds?: number | null
+          output_contract: string
+          quote_id: string
+          route_code: string
+          source_asset_revision: string
+          source_bytes: number
+          source_sha256: string
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          maximum_chunks?: number
+          maximum_duration_seconds?: number | null
+          output_contract?: string
+          quote_id?: string
+          route_code?: string
+          source_asset_revision?: string
+          source_bytes?: number
+          source_sha256?: string
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_transcription_source_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_transcription_source_bindings_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
+          },
+          {
+            foreignKeyName: "openai_transcription_source_bindings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      openai_transcription_supporting_cost_inventory: {
+        Row: {
+          component_code: string
+          cost_policy_revision_id: string
+          created_at: string
+          disposition: string
+          evidence_status: string
+          id: string
+          notes: string
+          route_code: string
+        }
+        Insert: {
+          component_code: string
+          cost_policy_revision_id: string
+          created_at?: string
+          disposition: string
+          evidence_status: string
+          id: string
+          notes: string
+          route_code: string
+        }
+        Update: {
+          component_code?: string
+          cost_policy_revision_id?: string
+          created_at?: string
+          disposition?: string
+          evidence_status?: string
+          id?: string
+          notes?: string
+          route_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "openai_transcription_supporting_co_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "openai_transcription_supporting_cost_inventory_route_code_fkey"
+            columns: ["route_code"]
+            isOneToOne: false
+            referencedRelation: "openai_text_route_policies"
+            referencedColumns: ["route_code"]
           },
         ]
       }
@@ -7156,6 +17951,94 @@ export type Database = {
           },
         ]
       }
+      organization_funding_account_revisions: {
+        Row: {
+          actor_id: string
+          created_at: string
+          currency: string
+          id: string
+          org_id: string
+          payer_user_id: string
+          reason: string
+          revision: number
+          status: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          currency: string
+          id: string
+          org_id: string
+          payer_user_id: string
+          reason: string
+          revision: number
+          status: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          org_id?: string
+          payer_user_id?: string
+          reason?: string
+          revision?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_funding_account_revisions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_shared_spend_permission_revisions: {
+        Row: {
+          actor_id: string
+          created_at: string
+          id: string
+          member_user_id: string
+          org_id: string
+          reason: string
+          revision: number
+          route_codes: string[]
+          status: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          id: string
+          member_user_id: string
+          org_id: string
+          reason: string
+          revision: number
+          route_codes?: string[]
+          status: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          id?: string
+          member_user_id?: string
+          org_id?: string
+          reason?: string
+          revision?: number
+          route_codes?: string[]
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_shared_spend_permission_revisions_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orgs: {
         Row: {
           created_at: string
@@ -7180,6 +18063,2749 @@ export type Database = {
           name?: string
           personal_owner_user_id?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      owner_cost_attempt_events: {
+        Row: {
+          attempt_event_id: string
+          attempt_id: string
+          created_at: string
+          event_sequence: number
+          lifecycle_state: string
+          normalized_usage_evidence: Json
+          occurred_at: string
+          private_provider_evidence: Json
+          provider_reference_id: string | null
+        }
+        Insert: {
+          attempt_event_id: string
+          attempt_id: string
+          created_at?: string
+          event_sequence: number
+          lifecycle_state: string
+          normalized_usage_evidence?: Json
+          occurred_at: string
+          private_provider_evidence?: Json
+          provider_reference_id?: string | null
+        }
+        Update: {
+          attempt_event_id?: string
+          attempt_id?: string
+          created_at?: string
+          event_sequence?: number
+          lifecycle_state?: string
+          normalized_usage_evidence?: Json
+          occurred_at?: string
+          private_provider_evidence?: Json
+          provider_reference_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_cost_attempt_events_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+        ]
+      }
+      owner_cost_operation_links: {
+        Row: {
+          anvil_capture_execution_id: string | null
+          anvil_recording_completion_id: string | null
+          associated_at: string
+          association_evidence: Json
+          created_at: string
+          link_id: string
+          link_key: string
+          link_type: string
+          operation_id: string
+          payload_hash: string
+          recording_capture_authority_id: string | null
+          recording_session_id: string | null
+          workpiece_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          anvil_capture_execution_id?: string | null
+          anvil_recording_completion_id?: string | null
+          associated_at: string
+          association_evidence?: Json
+          created_at?: string
+          link_id: string
+          link_key: string
+          link_type: string
+          operation_id: string
+          payload_hash: string
+          recording_capture_authority_id?: string | null
+          recording_session_id?: string | null
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          anvil_capture_execution_id?: string | null
+          anvil_recording_completion_id?: string | null
+          associated_at?: string
+          association_evidence?: Json
+          created_at?: string
+          link_id?: string
+          link_key?: string
+          link_type?: string
+          operation_id?: string
+          payload_hash?: string
+          recording_capture_authority_id?: string | null
+          recording_session_id?: string | null
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_cost_operation_links_anvil_capture_execution_id_fkey"
+            columns: ["anvil_capture_execution_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_authorities"
+            referencedColumns: ["capture_session_id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_anvil_capture_execution_id_fkey"
+            columns: ["anvil_capture_execution_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_executions"
+            referencedColumns: ["execution_id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_anvil_recording_completion_id_fkey"
+            columns: ["anvil_recording_completion_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_recording_completion_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_operations"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_recording_capture_authority_id_fkey"
+            columns: ["recording_capture_authority_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_recording_capture_authority_id_fkey"
+            columns: ["recording_capture_authority_id"]
+            isOneToOne: false
+            referencedRelation: "recording_capture_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_recording_session_id_fkey"
+            columns: ["recording_session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operation_links_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_cost_operations: {
+        Row: {
+          anvil_capture_execution_id: string | null
+          created_at: string
+          creation_evidence: Json
+          establishment_status: string
+          financial_environment: string
+          operation_id: string
+          operation_key: string
+          operation_type: string
+          originating_tool: string
+          owner_operating_budget_id: string | null
+          payer: string
+          payload_hash: string
+          recording_capture_authority_id: string | null
+          recording_session_id: string | null
+          request_fingerprint: string
+          runtime_environment: string
+          workpiece_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          anvil_capture_execution_id?: string | null
+          created_at: string
+          creation_evidence?: Json
+          establishment_status?: string
+          financial_environment: string
+          operation_id: string
+          operation_key: string
+          operation_type: string
+          originating_tool: string
+          owner_operating_budget_id?: string | null
+          payer?: string
+          payload_hash: string
+          recording_capture_authority_id?: string | null
+          recording_session_id?: string | null
+          request_fingerprint: string
+          runtime_environment: string
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          anvil_capture_execution_id?: string | null
+          created_at?: string
+          creation_evidence?: Json
+          establishment_status?: string
+          financial_environment?: string
+          operation_id?: string
+          operation_key?: string
+          operation_type?: string
+          originating_tool?: string
+          owner_operating_budget_id?: string | null
+          payer?: string
+          payload_hash?: string
+          recording_capture_authority_id?: string | null
+          recording_session_id?: string | null
+          request_fingerprint?: string
+          runtime_environment?: string
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_cost_operations_anvil_capture_execution_id_fkey"
+            columns: ["anvil_capture_execution_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_authorities"
+            referencedColumns: ["capture_session_id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_anvil_capture_execution_id_fkey"
+            columns: ["anvil_capture_execution_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_executions"
+            referencedColumns: ["execution_id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_owner_operating_budget_id_fkey"
+            columns: ["owner_operating_budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_recording_capture_authority_id_fkey"
+            columns: ["recording_capture_authority_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_recording_capture_authority_id_fkey"
+            columns: ["recording_capture_authority_id"]
+            isOneToOne: false
+            referencedRelation: "recording_capture_authorities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_recording_session_id_fkey"
+            columns: ["recording_session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_operations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_cost_provider_attempts: {
+        Row: {
+          attempt_id: string
+          attempt_key: string
+          attempt_number: number
+          authorized_at: string
+          created_at: string
+          credential_identity_hash: string | null
+          model: string | null
+          operation_id: string
+          payload_hash: string
+          provider: string
+          request_fingerprint: string
+          service: string
+          sku: string | null
+        }
+        Insert: {
+          attempt_id: string
+          attempt_key: string
+          attempt_number: number
+          authorized_at: string
+          created_at?: string
+          credential_identity_hash?: string | null
+          model?: string | null
+          operation_id: string
+          payload_hash: string
+          provider: string
+          request_fingerprint: string
+          service: string
+          sku?: string | null
+        }
+        Update: {
+          attempt_id?: string
+          attempt_key?: string
+          attempt_number?: number
+          authorized_at?: string
+          created_at?: string
+          credential_identity_hash?: string | null
+          model?: string | null
+          operation_id?: string
+          payload_hash?: string
+          provider?: string
+          request_fingerprint?: string
+          service?: string
+          sku?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_cost_provider_attempts_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_operations"
+            referencedColumns: ["operation_id"]
+          },
+        ]
+      }
+      owner_cost_valuations: {
+        Row: {
+          amount_micros: number
+          attempt_id: string
+          cost_component: string
+          created_at: string
+          currency: string
+          journal_adjustment_micros: number | null
+          journal_event_id: string | null
+          normalized_usage_evidence: Json
+          payload_hash: string
+          prior_valuation_id: string | null
+          private_valuation_evidence: Json
+          recognition_mode: string
+          reconciliation_reference: string | null
+          revision: number
+          valuation_basis: string
+          valuation_id: string
+          valuation_key: string
+          valued_at: string
+        }
+        Insert: {
+          amount_micros: number
+          attempt_id: string
+          cost_component: string
+          created_at?: string
+          currency: string
+          journal_adjustment_micros?: number | null
+          journal_event_id?: string | null
+          normalized_usage_evidence?: Json
+          payload_hash: string
+          prior_valuation_id?: string | null
+          private_valuation_evidence?: Json
+          recognition_mode: string
+          reconciliation_reference?: string | null
+          revision: number
+          valuation_basis: string
+          valuation_id: string
+          valuation_key: string
+          valued_at: string
+        }
+        Update: {
+          amount_micros?: number
+          attempt_id?: string
+          cost_component?: string
+          created_at?: string
+          currency?: string
+          journal_adjustment_micros?: number | null
+          journal_event_id?: string | null
+          normalized_usage_evidence?: Json
+          payload_hash?: string
+          prior_valuation_id?: string | null
+          private_valuation_evidence?: Json
+          recognition_mode?: string
+          reconciliation_reference?: string | null
+          revision?: number
+          valuation_basis?: string
+          valuation_id?: string
+          valuation_key?: string
+          valued_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_cost_valuations_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "owner_cost_valuations_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_cost_valuations_prior_valuation_id_fkey"
+            columns: ["prior_valuation_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_valuations"
+            referencedColumns: ["valuation_id"]
+          },
+        ]
+      }
+      owner_hearth_authorization_events: {
+        Row: {
+          authorization_id: string
+          created_at: string
+          event_key: string
+          evidence_json: Json
+          expires_at: string | null
+          id: string
+          reason: string
+          sequence: number
+          started_at: string | null
+          state: string
+        }
+        Insert: {
+          authorization_id: string
+          created_at?: string
+          event_key: string
+          evidence_json?: Json
+          expires_at?: string | null
+          id: string
+          reason: string
+          sequence: number
+          started_at?: string | null
+          state: string
+        }
+        Update: {
+          authorization_id?: string
+          created_at?: string
+          event_key?: string
+          evidence_json?: Json
+          expires_at?: string | null
+          id?: string
+          reason?: string
+          sequence?: number
+          started_at?: string | null
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_authorization_events_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_authorizations: {
+        Row: {
+          authorization_kind: string
+          budget_id: string
+          created_at: string
+          created_by: string
+          duration_seconds: number
+          failure_loss_limit_micros: number
+          id: string
+          maximum_amount_micros: number
+          maximum_attempts: number
+          maximum_concurrency: number
+          maximum_operations: number
+          no_renewal: boolean
+          owner_user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authorization_kind: string
+          budget_id: string
+          created_at?: string
+          created_by: string
+          duration_seconds: number
+          failure_loss_limit_micros: number
+          id: string
+          maximum_amount_micros: number
+          maximum_attempts: number
+          maximum_concurrency: number
+          maximum_operations: number
+          no_renewal?: boolean
+          owner_user_id: string
+          workspace_id: string
+        }
+        Update: {
+          authorization_kind?: string
+          budget_id?: string
+          created_at?: string
+          created_by?: string
+          duration_seconds?: number
+          failure_loss_limit_micros?: number
+          id?: string
+          maximum_amount_micros?: number
+          maximum_attempts?: number
+          maximum_concurrency?: number
+          maximum_operations?: number
+          no_renewal?: boolean
+          owner_user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_authorizations_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: true
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_compatibility_result_corrections: {
+        Row: {
+          compatibility_result_id: string
+          corrected_status: string
+          created_at: string
+          event_key: string
+          evidence_json: Json
+          id: string
+          original_status: string
+          reason: string
+        }
+        Insert: {
+          compatibility_result_id: string
+          corrected_status: string
+          created_at?: string
+          event_key: string
+          evidence_json?: Json
+          id: string
+          original_status: string
+          reason: string
+        }
+        Update: {
+          compatibility_result_id?: string
+          corrected_status?: string
+          created_at?: string
+          event_key?: string
+          evidence_json?: Json
+          id?: string
+          original_status?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_compatibility_result__compatibility_result_id_fkey"
+            columns: ["compatibility_result_id"]
+            isOneToOne: true
+            referencedRelation: "owner_hearth_compatibility_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_compatibility_results: {
+        Row: {
+          authoritative_supplier_expense_micros: number | null
+          created_at: string
+          estimated_supplier_expense_micros: number | null
+          evidence_json: Json
+          id: string
+          operation_authorization_id: string
+          provider_request_id: string | null
+          result_key: string
+          status: string
+        }
+        Insert: {
+          authoritative_supplier_expense_micros?: number | null
+          created_at?: string
+          estimated_supplier_expense_micros?: number | null
+          evidence_json?: Json
+          id: string
+          operation_authorization_id: string
+          provider_request_id?: string | null
+          result_key: string
+          status: string
+        }
+        Update: {
+          authoritative_supplier_expense_micros?: number | null
+          created_at?: string
+          estimated_supplier_expense_micros?: number | null
+          evidence_json?: Json
+          id?: string
+          operation_authorization_id?: string
+          provider_request_id?: string | null
+          result_key?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_compatibility_resu_operation_authorization_id_fkey"
+            columns: ["operation_authorization_id"]
+            isOneToOne: true
+            referencedRelation: "owner_hearth_operation_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_model_terms: {
+        Row: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          display_name: string
+          maximum_exposure_micros: number
+          ordinal: number
+          pricing_revision_id: string
+          provider_model_id: string
+        }
+        Insert: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          display_name: string
+          maximum_exposure_micros: number
+          ordinal: number
+          pricing_revision_id: string
+          provider_model_id: string
+        }
+        Update: {
+          aggregate_policy_revision_id?: string
+          authorization_id?: string
+          cost_policy_revision_id?: string
+          display_name?: string
+          maximum_exposure_micros?: number
+          ordinal?: number
+          pricing_revision_id?: string
+          provider_model_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_model_terms_aggregate_policy_revision_id_fkey"
+            columns: ["aggregate_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_model_terms_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_model_terms_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_model_terms_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_operation_authorizations: {
+        Row: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          operation_id: string
+          owner_user_id: string
+          pricing_revision_id: string
+          provider_model_id: string
+          quote_id: string
+          request_fingerprint: string
+          reservation_id: string
+          serialized_body_sha256: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          created_at?: string
+          expires_at: string
+          id: string
+          operation_id: string
+          owner_user_id: string
+          pricing_revision_id: string
+          provider_model_id: string
+          quote_id: string
+          request_fingerprint: string
+          reservation_id: string
+          serialized_body_sha256: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          aggregate_policy_revision_id?: string
+          authorization_id?: string
+          cost_policy_revision_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          operation_id?: string
+          owner_user_id?: string
+          pricing_revision_id?: string
+          provider_model_id?: string
+          quote_id?: string
+          request_fingerprint?: string
+          reservation_id?: string
+          serialized_body_sha256?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_operation_author_aggregate_policy_revision_id_fkey"
+            columns: ["aggregate_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_authorizati_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_authorizations_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_authorizations_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_authorizations_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_authorizations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_operation_recovery_authorizations: {
+        Row: {
+          authorized_by: string
+          created_at: string
+          event_key: string
+          evidence_json: Json
+          expires_at: string
+          id: string
+          operation_authorization_id: string
+          reason: string
+          reservation_id: string
+        }
+        Insert: {
+          authorized_by: string
+          created_at?: string
+          event_key: string
+          evidence_json?: Json
+          expires_at: string
+          id: string
+          operation_authorization_id: string
+          reason: string
+          reservation_id: string
+        }
+        Update: {
+          authorized_by?: string
+          created_at?: string
+          event_key?: string
+          evidence_json?: Json
+          expires_at?: string
+          id?: string
+          operation_authorization_id?: string
+          reason?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_operation_recovery_authorizati_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_operation_recovery_operation_authorization_id_fkey"
+            columns: ["operation_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_operation_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_activation_proposals: {
+        Row: {
+          aggregate_risk_micros: number
+          canary_execution_micros: number
+          canary_operations: number
+          created_at: string
+          creator_session_execution_micros: number
+          creator_session_operations: number
+          currency: string
+          evidence_json: Json
+          execution_timeout_seconds: number
+          existing_shared_exposure_micros: number
+          id: string
+          lifecycle_state: string
+          maximum_attempts: number
+          maximum_capture_bytes: number
+          maximum_concurrency: number
+          maximum_http_attempts: number
+          maximum_owner_authorization_micros: number
+          maximum_recovery_reads_per_package: number
+          maximum_research_package_bytes: number
+          maximum_searches: number
+          maximum_sources: number
+          proposal_code: string
+          proposed_shared_aggregate_ceiling_micros: number
+          storage_and_recovery_micros: number
+        }
+        Insert: {
+          aggregate_risk_micros: number
+          canary_execution_micros: number
+          canary_operations: number
+          created_at?: string
+          creator_session_execution_micros: number
+          creator_session_operations: number
+          currency: string
+          evidence_json: Json
+          execution_timeout_seconds: number
+          existing_shared_exposure_micros: number
+          id: string
+          lifecycle_state: string
+          maximum_attempts: number
+          maximum_capture_bytes: number
+          maximum_concurrency: number
+          maximum_http_attempts: number
+          maximum_owner_authorization_micros: number
+          maximum_recovery_reads_per_package: number
+          maximum_research_package_bytes: number
+          maximum_searches: number
+          maximum_sources: number
+          proposal_code: string
+          proposed_shared_aggregate_ceiling_micros: number
+          storage_and_recovery_micros: number
+        }
+        Update: {
+          aggregate_risk_micros?: number
+          canary_execution_micros?: number
+          canary_operations?: number
+          created_at?: string
+          creator_session_execution_micros?: number
+          creator_session_operations?: number
+          currency?: string
+          evidence_json?: Json
+          execution_timeout_seconds?: number
+          existing_shared_exposure_micros?: number
+          id?: string
+          lifecycle_state?: string
+          maximum_attempts?: number
+          maximum_capture_bytes?: number
+          maximum_concurrency?: number
+          maximum_http_attempts?: number
+          maximum_owner_authorization_micros?: number
+          maximum_recovery_reads_per_package?: number
+          maximum_research_package_bytes?: number
+          maximum_searches?: number
+          maximum_sources?: number
+          proposal_code?: string
+          proposed_shared_aggregate_ceiling_micros?: number
+          storage_and_recovery_micros?: number
+        }
+        Relationships: []
+      }
+      owner_hearth_research_authorization_events: {
+        Row: {
+          authorization_id: string
+          created_at: string
+          event_key: string
+          evidence_json: Json
+          expires_at: string | null
+          id: string
+          reason: string
+          sequence: number
+          started_at: string | null
+          state: string
+        }
+        Insert: {
+          authorization_id: string
+          created_at?: string
+          event_key: string
+          evidence_json?: Json
+          expires_at?: string | null
+          id: string
+          reason: string
+          sequence: number
+          started_at?: string | null
+          state: string
+        }
+        Update: {
+          authorization_id?: string
+          created_at?: string
+          event_key?: string
+          evidence_json?: Json
+          expires_at?: string | null
+          id?: string
+          reason?: string
+          sequence?: number
+          started_at?: string | null
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_authorization_event_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_authorizations: {
+        Row: {
+          authorization_kind: string
+          budget_id: string
+          created_at: string
+          created_by: string
+          duration_seconds: number
+          failure_loss_limit_micros: number
+          id: string
+          limit_profile: string
+          maximum_amount_micros: number
+          maximum_attempts: number
+          maximum_concurrency: number
+          maximum_http_attempts: number
+          maximum_input_tokens: number
+          maximum_operations: number
+          maximum_output_tokens: number
+          maximum_searches: number
+          maximum_sources: number
+          owner_user_id: string
+          proposal_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authorization_kind: string
+          budget_id: string
+          created_at?: string
+          created_by: string
+          duration_seconds: number
+          failure_loss_limit_micros: number
+          id: string
+          limit_profile: string
+          maximum_amount_micros: number
+          maximum_attempts: number
+          maximum_concurrency: number
+          maximum_http_attempts: number
+          maximum_input_tokens: number
+          maximum_operations: number
+          maximum_output_tokens: number
+          maximum_searches: number
+          maximum_sources: number
+          owner_user_id: string
+          proposal_id: string
+          workspace_id: string
+        }
+        Update: {
+          authorization_kind?: string
+          budget_id?: string
+          created_at?: string
+          created_by?: string
+          duration_seconds?: number
+          failure_loss_limit_micros?: number
+          id?: string
+          limit_profile?: string
+          maximum_amount_micros?: number
+          maximum_attempts?: number
+          maximum_concurrency?: number
+          maximum_http_attempts?: number
+          maximum_input_tokens?: number
+          maximum_operations?: number
+          maximum_output_tokens?: number
+          maximum_searches?: number
+          maximum_sources?: number
+          owner_user_id?: string
+          proposal_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_authorizations_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_authorizations_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_activation_proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_component_expenses: {
+        Row: {
+          amount_micros: number
+          component: string
+          cost_status: string
+          created_at: string
+          evidence_json: Json
+          expense_key: string
+          id: string
+          reservation_id: string
+          supplier: string
+        }
+        Insert: {
+          amount_micros: number
+          component: string
+          cost_status: string
+          created_at?: string
+          evidence_json?: Json
+          expense_key: string
+          id: string
+          reservation_id: string
+          supplier: string
+        }
+        Update: {
+          amount_micros?: number
+          component?: string
+          cost_status?: string
+          created_at?: string
+          evidence_json?: Json
+          expense_key?: string
+          id?: string
+          reservation_id?: string
+          supplier?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_component_expenses_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_frozen_requests: {
+        Row: {
+          bounded_input_tokens: number
+          created_at: string
+          instruction_revision: string
+          maximum_attempts: number
+          maximum_output_tokens: number
+          model: string
+          operation_id: string
+          protocol_overhead_tokens: number
+          request_fingerprint: string
+          reservation_id: string
+          serialized_body: string
+          serialized_body_sha256: string
+          serialized_bytes: number
+          source_revision_fingerprint: string
+          tokenizer_input_tokens: number
+          tokenizer_revision: string
+        }
+        Insert: {
+          bounded_input_tokens: number
+          created_at?: string
+          instruction_revision: string
+          maximum_attempts?: number
+          maximum_output_tokens: number
+          model: string
+          operation_id: string
+          protocol_overhead_tokens: number
+          request_fingerprint: string
+          reservation_id: string
+          serialized_body: string
+          serialized_body_sha256: string
+          serialized_bytes: number
+          source_revision_fingerprint: string
+          tokenizer_input_tokens: number
+          tokenizer_revision: string
+        }
+        Update: {
+          bounded_input_tokens?: number
+          created_at?: string
+          instruction_revision?: string
+          maximum_attempts?: number
+          maximum_output_tokens?: number
+          model?: string
+          operation_id?: string
+          protocol_overhead_tokens?: number
+          request_fingerprint?: string
+          reservation_id?: string
+          serialized_body?: string
+          serialized_body_sha256?: string
+          serialized_bytes?: number
+          source_revision_fingerprint?: string
+          tokenizer_input_tokens?: number
+          tokenizer_revision?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_frozen_requests_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_model_terms: {
+        Row: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          direct_provider_ceiling_micros: number
+          display_name: string
+          evidence_json: Json
+          evidence_status: string
+          input_micros_per_million_tokens: number
+          ordinal: number
+          output_micros_per_million_tokens: number
+          pricing_revision_id: string
+          provider_model_id: string
+        }
+        Insert: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          direct_provider_ceiling_micros: number
+          display_name: string
+          evidence_json: Json
+          evidence_status: string
+          input_micros_per_million_tokens: number
+          ordinal: number
+          output_micros_per_million_tokens: number
+          pricing_revision_id: string
+          provider_model_id: string
+        }
+        Update: {
+          aggregate_policy_revision_id?: string
+          authorization_id?: string
+          cost_policy_revision_id?: string
+          direct_provider_ceiling_micros?: number
+          display_name?: string
+          evidence_json?: Json
+          evidence_status?: string
+          input_micros_per_million_tokens?: number
+          ordinal?: number
+          output_micros_per_million_tokens?: number
+          pricing_revision_id?: string
+          provider_model_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_model_t_aggregate_policy_revision_id_fkey"
+            columns: ["aggregate_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_model_terms_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_model_terms_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_model_terms_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_operations: {
+        Row: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          created_at: string
+          direct_provider_ceiling_micros: number
+          execution_deadline_at: string
+          full_cost_ceiling_micros: number
+          id: string
+          limit_profile: string
+          maximum_http_attempts: number
+          maximum_input_tokens: number
+          maximum_output_tokens: number
+          maximum_searches: number
+          maximum_sources: number
+          operation_id: string
+          owner_user_id: string
+          pricing_revision_id: string
+          provider_model_id: string
+          quote_id: string
+          request_fingerprint: string
+          reservation_id: string
+          storage_ceiling_micros: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          aggregate_policy_revision_id: string
+          authorization_id: string
+          cost_policy_revision_id: string
+          created_at?: string
+          direct_provider_ceiling_micros: number
+          execution_deadline_at: string
+          full_cost_ceiling_micros: number
+          id: string
+          limit_profile: string
+          maximum_http_attempts: number
+          maximum_input_tokens: number
+          maximum_output_tokens: number
+          maximum_searches: number
+          maximum_sources: number
+          operation_id: string
+          owner_user_id: string
+          pricing_revision_id: string
+          provider_model_id: string
+          quote_id: string
+          request_fingerprint: string
+          reservation_id: string
+          storage_ceiling_micros: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          aggregate_policy_revision_id?: string
+          authorization_id?: string
+          cost_policy_revision_id?: string
+          created_at?: string
+          direct_provider_ceiling_micros?: number
+          execution_deadline_at?: string
+          full_cost_ceiling_micros?: number
+          id?: string
+          limit_profile?: string
+          maximum_http_attempts?: number
+          maximum_input_tokens?: number
+          maximum_output_tokens?: number
+          maximum_searches?: number
+          maximum_sources?: number
+          operation_id?: string
+          owner_user_id?: string
+          pricing_revision_id?: string
+          provider_model_id?: string
+          quote_id?: string
+          request_fingerprint?: string
+          reservation_id?: string
+          storage_ceiling_micros?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_operati_aggregate_policy_revision_id_fkey"
+            columns: ["aggregate_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_cost_policy_revision_id_fkey"
+            columns: ["cost_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_cost_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "owner_hearth_research_quotes"
+            referencedColumns: ["quote_id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_operations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_proposal_events: {
+        Row: {
+          actor_id: string
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          proposal_id: string
+          sequence: number
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          id: string
+          proposal_id: string
+          sequence: number
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          proposal_id?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_proposal_events_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_activation_proposals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_quotes: {
+        Row: {
+          aggregate_risk_micros: number
+          authorization_id: string
+          created_at: string
+          direct_provider_ceiling_micros: number
+          expires_at: string
+          maximum_owner_commitment_micros: number
+          operation_id: string
+          owner_user_id: string
+          plan_fingerprint: string
+          plan_json: Json
+          platform_ceiling_micros: number
+          provider_model_id: string
+          quote_hash: string
+          quote_id: string
+          request_fingerprint: string
+          search_ceiling_micros: number
+          storage_ceiling_micros: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          aggregate_risk_micros: number
+          authorization_id: string
+          created_at?: string
+          direct_provider_ceiling_micros: number
+          expires_at: string
+          maximum_owner_commitment_micros: number
+          operation_id: string
+          owner_user_id: string
+          plan_fingerprint: string
+          plan_json: Json
+          platform_ceiling_micros: number
+          provider_model_id: string
+          quote_hash: string
+          quote_id: string
+          request_fingerprint: string
+          search_ceiling_micros: number
+          storage_ceiling_micros: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          aggregate_risk_micros?: number
+          authorization_id?: string
+          created_at?: string
+          direct_provider_ceiling_micros?: number
+          expires_at?: string
+          maximum_owner_commitment_micros?: number
+          operation_id?: string
+          owner_user_id?: string
+          plan_fingerprint?: string
+          plan_json?: Json
+          platform_ceiling_micros?: number
+          provider_model_id?: string
+          quote_hash?: string
+          quote_id?: string
+          request_fingerprint?: string
+          search_ceiling_micros?: number
+          storage_ceiling_micros?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_quotes_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_quotes_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_quotes_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_quotes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_recovery_reads: {
+        Row: {
+          created_at: string
+          estimated_cost_micros: number
+          id: string
+          ordinal: number
+          read_key: string
+          result_package_id: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_cost_micros: number
+          id: string
+          ordinal: number
+          read_key: string
+          result_package_id: string
+        }
+        Update: {
+          created_at?: string
+          estimated_cost_micros?: number
+          id?: string
+          ordinal?: number
+          read_key?: string
+          result_package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_recovery_reads_result_package_id_fkey"
+            columns: ["result_package_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_result_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_result_packages: {
+        Row: {
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_user_id: string
+          provider_request_id: string | null
+          request_fingerprint: string
+          research_result_json: Json
+          reservation_id: string
+          result_hash: string
+          result_json: Json
+          review_state: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          owner_user_id: string
+          provider_request_id?: string | null
+          request_fingerprint: string
+          research_result_json: Json
+          reservation_id: string
+          result_hash: string
+          result_json: Json
+          review_state: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          owner_user_id?: string
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          research_result_json?: Json
+          reservation_id?: string
+          result_hash?: string
+          result_json?: Json
+          review_state?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_result_packages_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_result_packages_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_result_packages_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_review_events: {
+        Row: {
+          created_at: string
+          event_key: string
+          id: string
+          note: string | null
+          result_package_id: string
+          review_state: string
+          reviewer_id: string
+          sequence: number
+        }
+        Insert: {
+          created_at?: string
+          event_key: string
+          id: string
+          note?: string | null
+          result_package_id: string
+          review_state: string
+          reviewer_id: string
+          sequence: number
+        }
+        Update: {
+          created_at?: string
+          event_key?: string
+          id?: string
+          note?: string | null
+          result_package_id?: string
+          review_state?: string
+          reviewer_id?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_review_events_result_package_id_fkey"
+            columns: ["result_package_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_result_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_source_records: {
+        Row: {
+          canonical_url: string | null
+          created_at: string
+          id: string
+          ordinal: number
+          result_package_id: string
+          source_fingerprint: string
+          source_id: string
+          source_json: Json
+        }
+        Insert: {
+          canonical_url?: string | null
+          created_at?: string
+          id: string
+          ordinal: number
+          result_package_id: string
+          source_fingerprint: string
+          source_id: string
+          source_json: Json
+        }
+        Update: {
+          canonical_url?: string | null
+          created_at?: string
+          id?: string
+          ordinal?: number
+          result_package_id?: string
+          source_fingerprint?: string
+          source_id?: string
+          source_json?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_source_records_result_package_id_fkey"
+            columns: ["result_package_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_result_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_stage_events: {
+        Row: {
+          actual_supplier_cost_micros: number | null
+          capture_json: Json | null
+          cost_status: string
+          created_at: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          maximum_supplier_cost_micros: number
+          request_fingerprint: string
+          request_json: Json
+          reservation_id: string
+          sequence: number
+          stage_key: string
+          stage_ordinal: number
+          stage_type: string
+        }
+        Insert: {
+          actual_supplier_cost_micros?: number | null
+          capture_json?: Json | null
+          cost_status: string
+          created_at?: string
+          event_type: string
+          evidence_json?: Json
+          id: string
+          maximum_supplier_cost_micros: number
+          request_fingerprint: string
+          request_json?: Json
+          reservation_id: string
+          sequence: number
+          stage_key: string
+          stage_ordinal: number
+          stage_type: string
+        }
+        Update: {
+          actual_supplier_cost_micros?: number | null
+          capture_json?: Json | null
+          cost_status?: string
+          created_at?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          maximum_supplier_cost_micros?: number
+          request_fingerprint?: string
+          request_json?: Json
+          reservation_id?: string
+          sequence?: number
+          stage_key?: string
+          stage_ordinal?: number
+          stage_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_stage_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_research_storage_allowances: {
+        Row: {
+          budget_id: string
+          created_at: string
+          created_by: string
+          evidence_json: Json
+          id: string
+          maximum_amount_micros: number
+          maximum_packages: number
+          maximum_recovery_reads_per_package: number
+          owner_user_id: string
+          proposal_id: string
+          rate_evidence_status: string
+          workspace_id: string
+        }
+        Insert: {
+          budget_id: string
+          created_at?: string
+          created_by: string
+          evidence_json: Json
+          id: string
+          maximum_amount_micros: number
+          maximum_packages: number
+          maximum_recovery_reads_per_package: number
+          owner_user_id: string
+          proposal_id: string
+          rate_evidence_status: string
+          workspace_id: string
+        }
+        Update: {
+          budget_id?: string
+          created_at?: string
+          created_by?: string
+          evidence_json?: Json
+          id?: string
+          maximum_amount_micros?: number
+          maximum_packages?: number
+          maximum_recovery_reads_per_package?: number
+          owner_user_id?: string
+          proposal_id?: string
+          rate_evidence_status?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_research_storage_allowances_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_storage_allowances_proposal_id_fkey"
+            columns: ["proposal_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_research_activation_proposals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_research_storage_allowances_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_tail_authorizations: {
+        Row: {
+          aggregate_limit_micros: number
+          canonical_capacity_bytes: number
+          coverage_months: number
+          created_at: string
+          created_by: string
+          currency: string
+          evidence_capacity_bytes: number
+          id: string
+          monthly_limit_micros: number
+          no_renewal: boolean
+          owner_user_id: string
+          replacement_rate_micros_per_mib_month: number
+          workspace_id: string
+        }
+        Insert: {
+          aggregate_limit_micros: number
+          canonical_capacity_bytes: number
+          coverage_months: number
+          created_at?: string
+          created_by: string
+          currency: string
+          evidence_capacity_bytes: number
+          id: string
+          monthly_limit_micros: number
+          no_renewal?: boolean
+          owner_user_id: string
+          replacement_rate_micros_per_mib_month: number
+          workspace_id: string
+        }
+        Update: {
+          aggregate_limit_micros?: number
+          canonical_capacity_bytes?: number
+          coverage_months?: number
+          created_at?: string
+          created_by?: string
+          currency?: string
+          evidence_capacity_bytes?: number
+          id?: string
+          monthly_limit_micros?: number
+          no_renewal?: boolean
+          owner_user_id?: string
+          replacement_rate_micros_per_mib_month?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_tail_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_tail_events: {
+        Row: {
+          amount_micros: number | null
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          retained_bytes: number | null
+          sequence: number
+          tail_authorization_id: string
+        }
+        Insert: {
+          amount_micros?: number | null
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          id: string
+          retained_bytes?: number | null
+          sequence: number
+          tail_authorization_id: string
+        }
+        Update: {
+          amount_micros?: number | null
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          retained_bytes?: number | null
+          sequence?: number
+          tail_authorization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_tail_events_tail_authorization_id_fkey"
+            columns: ["tail_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_tail_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_tail_measurements: {
+        Row: {
+          canonical_retained_bytes: number
+          cost_status: string
+          created_at: string
+          estimated_cost_micros: number
+          evidence_json: Json
+          evidence_retained_bytes: number
+          id: string
+          measurement_key: string
+          period_start: string
+          revision: number
+          tail_authorization_id: string
+        }
+        Insert: {
+          canonical_retained_bytes: number
+          cost_status: string
+          created_at?: string
+          estimated_cost_micros: number
+          evidence_json?: Json
+          evidence_retained_bytes: number
+          id: string
+          measurement_key: string
+          period_start: string
+          revision: number
+          tail_authorization_id: string
+        }
+        Update: {
+          canonical_retained_bytes?: number
+          cost_status?: string
+          created_at?: string
+          estimated_cost_micros?: number
+          evidence_json?: Json
+          evidence_retained_bytes?: number
+          id?: string
+          measurement_key?: string
+          period_start?: string
+          revision?: number
+          tail_authorization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_tail_measurements_tail_authorization_id_fkey"
+            columns: ["tail_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_tail_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_hearth_tail_periods: {
+        Row: {
+          artifact_class: string
+          cost_status: string
+          coverage_end: string
+          coverage_start: string
+          created_at: string
+          evidence_json: Json
+          id: string
+          monthly_limit_micros: number
+          reservation_id: string
+          tail_authorization_id: string
+        }
+        Insert: {
+          artifact_class: string
+          cost_status: string
+          coverage_end: string
+          coverage_start: string
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          monthly_limit_micros: number
+          reservation_id: string
+          tail_authorization_id: string
+        }
+        Update: {
+          artifact_class?: string
+          cost_status?: string
+          coverage_end?: string
+          coverage_start?: string
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          monthly_limit_micros?: number
+          reservation_id?: string
+          tail_authorization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_hearth_tail_periods_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_hearth_tail_periods_tail_authorization_id_fkey"
+            columns: ["tail_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "owner_hearth_tail_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_operating_budget_consumptions: {
+        Row: {
+          allocation_key: string
+          budget_id: string
+          consumed_at: string
+          created_at: string
+          currency: string
+          evidence_json: Json
+          expense_amount_micros: number
+          id: string
+          journal_event_id: string
+          operation_id: string
+          reservation_id: string
+        }
+        Insert: {
+          allocation_key: string
+          budget_id: string
+          consumed_at: string
+          created_at?: string
+          currency: string
+          evidence_json?: Json
+          expense_amount_micros: number
+          id: string
+          journal_event_id: string
+          operation_id: string
+          reservation_id: string
+        }
+        Update: {
+          allocation_key?: string
+          budget_id?: string
+          consumed_at?: string
+          created_at?: string
+          currency?: string
+          evidence_json?: Json
+          expense_amount_micros?: number
+          id?: string
+          journal_event_id?: string
+          operation_id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_operating_budget_consumptions_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_consumptions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_consumptions_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_operating_budget_discrepancies: {
+        Row: {
+          budget_id: string
+          created_at: string
+          discrepancy_key: string
+          evidence_json: Json
+          id: string
+          maximum_amount_micros: number
+          observed_expense_micros: number
+          prior_consumed_micros: number
+          reservation_id: string
+        }
+        Insert: {
+          budget_id: string
+          created_at?: string
+          discrepancy_key: string
+          evidence_json?: Json
+          id: string
+          maximum_amount_micros: number
+          observed_expense_micros: number
+          prior_consumed_micros: number
+          reservation_id: string
+        }
+        Update: {
+          budget_id?: string
+          created_at?: string
+          discrepancy_key?: string
+          evidence_json?: Json
+          id?: string
+          maximum_amount_micros?: number
+          observed_expense_micros?: number
+          prior_consumed_micros?: number
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_operating_budget_discrepancies_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_discrepancies_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_operating_budget_reconciliation_adjustments: {
+        Row: {
+          adjustment_micros: number
+          confirmed_effective_amount_micros: number
+          consumption_id: string
+          created_at: string
+          currency: string
+          evidence_json: Json
+          id: string
+          journal_event_id: string
+          operation_allocation_id: string
+          prior_effective_amount_micros: number
+          reconciliation_batch_id: string
+          source_key: string
+          supplier_expense_id: string
+        }
+        Insert: {
+          adjustment_micros: number
+          confirmed_effective_amount_micros: number
+          consumption_id: string
+          created_at?: string
+          currency: string
+          evidence_json?: Json
+          id: string
+          journal_event_id: string
+          operation_allocation_id: string
+          prior_effective_amount_micros: number
+          reconciliation_batch_id: string
+          source_key: string
+          supplier_expense_id: string
+        }
+        Update: {
+          adjustment_micros?: number
+          confirmed_effective_amount_micros?: number
+          consumption_id?: string
+          created_at?: string
+          currency?: string
+          evidence_json?: Json
+          id?: string
+          journal_event_id?: string
+          operation_allocation_id?: string
+          prior_effective_amount_micros?: number
+          reconciliation_batch_id?: string
+          source_key?: string
+          supplier_expense_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_operating_budget_reconciliat_operation_allocation_id_fkey"
+            columns: ["operation_allocation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_operation_cost_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_reconciliat_reconciliation_batch_id_fkey"
+            columns: ["reconciliation_batch_id"]
+            isOneToOne: false
+            referencedRelation: "openai_organization_reconciliation_batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_reconciliation__supplier_expense_id_fkey"
+            columns: ["supplier_expense_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_reconciliation_adj_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_reconciliation_adjus_consumption_id_fkey"
+            columns: ["consumption_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budget_consumptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_operating_budget_revisions: {
+        Row: {
+          actor_id: string
+          budget_id: string
+          created_at: string
+          journal_event_id: string
+          maximum_amount_micros: number | null
+          reason: string
+          revision: number
+          status: string
+        }
+        Insert: {
+          actor_id: string
+          budget_id: string
+          created_at?: string
+          journal_event_id: string
+          maximum_amount_micros?: number | null
+          reason: string
+          revision: number
+          status: string
+        }
+        Update: {
+          actor_id?: string
+          budget_id?: string
+          created_at?: string
+          journal_event_id?: string
+          maximum_amount_micros?: number | null
+          reason?: string
+          revision?: number
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_operating_budget_revisions_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_operating_budget_revisions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_operating_budgets: {
+        Row: {
+          created_at: string
+          created_by: string
+          currency: string
+          environment: string
+          id: string
+          owner_testing_user_id: string | null
+          period_end: string
+          period_start: string
+          provider: string | null
+          route: string | null
+          sku: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          currency: string
+          environment: string
+          id: string
+          owner_testing_user_id?: string | null
+          period_end: string
+          period_start: string
+          provider?: string | null
+          route?: string | null
+          sku?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          currency?: string
+          environment?: string
+          id?: string
+          owner_testing_user_id?: string | null
+          period_end?: string
+          period_start?: string
+          provider?: string | null
+          route?: string | null
+          sku?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_operating_budgets_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_paid_execution_canary_activation_revisions: {
+        Row: {
+          actor_id: string
+          created_at: string
+          execution_scope_authorization_id: string
+          id: string
+          maximum_operation_count: number
+          owner_budget_id: string
+          previous_revision_id: string | null
+          reason: string
+          revision: number
+          state: string
+          valid_from: string
+          valid_until: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          execution_scope_authorization_id: string
+          id: string
+          maximum_operation_count: number
+          owner_budget_id: string
+          previous_revision_id?: string | null
+          reason: string
+          revision: number
+          state: string
+          valid_from: string
+          valid_until: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          execution_scope_authorization_id?: string
+          id?: string
+          maximum_operation_count?: number
+          owner_budget_id?: string
+          previous_revision_id?: string | null
+          reason?: string
+          revision?: number
+          state?: string
+          valid_from?: string
+          valid_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "owner_paid_execution_canary_a_execution_scope_authorizatio_fkey"
+            columns: ["execution_scope_authorization_id"]
+            isOneToOne: false
+            referencedRelation: "customer_paid_execution_scope_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_paid_execution_canary_activatio_previous_revision_id_fkey"
+            columns: ["previous_revision_id"]
+            isOneToOne: false
+            referencedRelation: "owner_paid_execution_canary_activation_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "owner_paid_execution_canary_activation_rev_owner_budget_id_fkey"
+            columns: ["owner_budget_id"]
+            isOneToOne: false
+            referencedRelation: "owner_operating_budgets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      owner_testing_principal_events: {
+        Row: {
+          actor_id: string
+          created_at: string
+          id: string
+          reason: string
+          revision: number
+          status: string
+          user_id: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          id: string
+          reason: string
+          revision: number
+          status: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          id?: string
+          reason?: string
+          revision?: number
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      owner_testing_principals: {
+        Row: {
+          configured_at: string
+          configured_by: string
+          reason: string
+          revision: number
+          status: string
+          user_id: string
+        }
+        Insert: {
+          configured_at?: string
+          configured_by: string
+          reason: string
+          revision: number
+          status: string
+          user_id: string
+        }
+        Update: {
+          configured_at?: string
+          configured_by?: string
+          reason?: string
+          revision?: number
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      paid_allowance_consumptions: {
+        Row: {
+          allocation_key: string
+          allowance_grant_id: string
+          consumed_at: string
+          created_at: string
+          entitlement_units_consumed: number
+          id: string
+          journal_event_id: string
+          metadata_json: Json
+          operation_id: string
+          recognized_revenue_micros: number
+          user_id: string
+          wholesale_spend_micros: number
+        }
+        Insert: {
+          allocation_key: string
+          allowance_grant_id: string
+          consumed_at: string
+          created_at?: string
+          entitlement_units_consumed: number
+          id: string
+          journal_event_id: string
+          metadata_json?: Json
+          operation_id: string
+          recognized_revenue_micros: number
+          user_id: string
+          wholesale_spend_micros: number
+        }
+        Update: {
+          allocation_key?: string
+          allowance_grant_id?: string
+          consumed_at?: string
+          created_at?: string
+          entitlement_units_consumed?: number
+          id?: string
+          journal_event_id?: string
+          metadata_json?: Json
+          operation_id?: string
+          recognized_revenue_micros?: number
+          user_id?: string
+          wholesale_spend_micros?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_allowance_consumptions_allowance_grant_id_fkey"
+            columns: ["allowance_grant_id"]
+            isOneToOne: false
+            referencedRelation: "paid_allowance_grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_allowance_consumptions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_allowance_grants: {
+        Row: {
+          allocated_revenue_micros: number
+          allocation_policy_revision: string
+          created_at: string
+          currency: string
+          entitlement_units: number
+          financial_environment: string
+          granted_at: string
+          id: string
+          journal_event_id: string
+          maximum_wholesale_spend_micros: number
+          metadata_json: Json
+          period_end: string
+          period_start: string
+          plan_item_id: string
+          receipt_id: string
+          stripe_subscription_id: string
+          user_id: string
+        }
+        Insert: {
+          allocated_revenue_micros: number
+          allocation_policy_revision: string
+          created_at?: string
+          currency: string
+          entitlement_units: number
+          financial_environment?: string
+          granted_at: string
+          id: string
+          journal_event_id: string
+          maximum_wholesale_spend_micros: number
+          metadata_json?: Json
+          period_end: string
+          period_start: string
+          plan_item_id: string
+          receipt_id: string
+          stripe_subscription_id: string
+          user_id: string
+        }
+        Update: {
+          allocated_revenue_micros?: number
+          allocation_policy_revision?: string
+          created_at?: string
+          currency?: string
+          entitlement_units?: number
+          financial_environment?: string
+          granted_at?: string
+          id?: string
+          journal_event_id?: string
+          maximum_wholesale_spend_micros?: number
+          metadata_json?: Json
+          period_end?: string
+          period_start?: string
+          plan_item_id?: string
+          receipt_id?: string
+          stripe_subscription_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_allowance_grants_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_allowance_grants_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_cycle_receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_capability_inventory_revisions: {
+        Row: {
+          bypass_status: string
+          callers_json: Json
+          capability_code: string
+          cost_kind: string
+          created_at: string
+          credential_sources_json: Json
+          current_enforcement: string
+          evidence_checked_at: string
+          evidence_status: string
+          fallback_behavior: string
+          id: string
+          known_limits_json: Json
+          notes: string
+          provider: string
+          restricted_beta_disposition: string
+          revision: number
+        }
+        Insert: {
+          bypass_status: string
+          callers_json: Json
+          capability_code: string
+          cost_kind: string
+          created_at?: string
+          credential_sources_json: Json
+          current_enforcement: string
+          evidence_checked_at: string
+          evidence_status: string
+          fallback_behavior: string
+          id: string
+          known_limits_json?: Json
+          notes: string
+          provider: string
+          restricted_beta_disposition: string
+          revision: number
+        }
+        Update: {
+          bypass_status?: string
+          callers_json?: Json
+          capability_code?: string
+          cost_kind?: string
+          created_at?: string
+          credential_sources_json?: Json
+          current_enforcement?: string
+          evidence_checked_at?: string
+          evidence_status?: string
+          fallback_behavior?: string
+          id?: string
+          known_limits_json?: Json
+          notes?: string
+          provider?: string
+          restricted_beta_disposition?: string
+          revision?: number
+        }
+        Relationships: []
+      }
+      paid_execution_aggregate_assignments: {
+        Row: {
+          created_at: string
+          id: string
+          policy_revision_id: string
+          reason: string
+          state: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          policy_revision_id: string
+          reason: string
+          state: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          policy_revision_id?: string
+          reason?: string
+          state?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_execution_aggregate_assignments_policy_revision_id_fkey"
+            columns: ["policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_execution_aggregate_assignments_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_execution_control_revisions: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          customer_settlement_enabled: boolean
+          owner_budget_spending_enabled: boolean
+          pricing_activation_enabled: boolean
+          provider_execution_enabled: boolean
+          reason: string
+          reservation_shadow_enabled: boolean
+          revision: number
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          customer_settlement_enabled?: boolean
+          owner_budget_spending_enabled?: boolean
+          pricing_activation_enabled?: boolean
+          provider_execution_enabled?: boolean
+          reason: string
+          reservation_shadow_enabled?: boolean
+          revision: number
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          customer_settlement_enabled?: boolean
+          owner_budget_spending_enabled?: boolean
+          pricing_activation_enabled?: boolean
+          provider_execution_enabled?: boolean
+          reason?: string
+          reservation_shadow_enabled?: boolean
+          revision?: number
         }
         Relationships: []
       }
@@ -7280,6 +20906,7 @@ export type Database = {
           contract_version: string
           created_at: string
           creator_approval_json: Json
+          credential_source: string
           failure_code: string | null
           failure_message: string | null
           id: string
@@ -7289,6 +20916,7 @@ export type Database = {
           operation_id: string
           originating_entity_id: string | null
           originating_tool: string
+          payer: string
           pricing_policy_revision_id: string
           prompt_content_hash: string
           prompt_revision_id: string | null
@@ -7312,6 +20940,7 @@ export type Database = {
           contract_version: string
           created_at?: string
           creator_approval_json: Json
+          credential_source?: string
           failure_code?: string | null
           failure_message?: string | null
           id: string
@@ -7321,6 +20950,7 @@ export type Database = {
           operation_id: string
           originating_entity_id?: string | null
           originating_tool: string
+          payer?: string
           pricing_policy_revision_id: string
           prompt_content_hash: string
           prompt_revision_id?: string | null
@@ -7344,6 +20974,7 @@ export type Database = {
           contract_version?: string
           created_at?: string
           creator_approval_json?: Json
+          credential_source?: string
           failure_code?: string | null
           failure_message?: string | null
           id?: string
@@ -7353,6 +20984,7 @@ export type Database = {
           operation_id?: string
           originating_entity_id?: string | null
           originating_tool?: string
+          payer?: string
           pricing_policy_revision_id?: string
           prompt_content_hash?: string
           prompt_revision_id?: string | null
@@ -7535,6 +21167,161 @@ export type Database = {
           },
         ]
       }
+      paid_operation_aggregate_bindings: {
+        Row: {
+          capability_code: string
+          cost_policy_revision_id: string | null
+          created_at: string
+          credential_funding: string
+          customer_funding_ceiling_micros: number
+          funding_source_type: string
+          hold_id: string
+          model_or_sku: string
+          operation_id: string
+          policy_revision_id: string
+          pricing_revision_id: string
+          provider: string
+          provider_mode: string
+          request_fingerprint: string
+          reservation_id: string
+          supplier_exposure_ceiling_micros: number
+          supporting_exposure_ceiling_micros: number
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          capability_code: string
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          credential_funding: string
+          customer_funding_ceiling_micros: number
+          funding_source_type: string
+          hold_id: string
+          model_or_sku: string
+          operation_id: string
+          policy_revision_id: string
+          pricing_revision_id: string
+          provider: string
+          provider_mode: string
+          request_fingerprint: string
+          reservation_id: string
+          supplier_exposure_ceiling_micros: number
+          supporting_exposure_ceiling_micros: number
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          capability_code?: string
+          cost_policy_revision_id?: string | null
+          created_at?: string
+          credential_funding?: string
+          customer_funding_ceiling_micros?: number
+          funding_source_type?: string
+          hold_id?: string
+          model_or_sku?: string
+          operation_id?: string
+          policy_revision_id?: string
+          pricing_revision_id?: string
+          provider?: string
+          provider_mode?: string
+          request_fingerprint?: string
+          reservation_id?: string
+          supplier_exposure_ceiling_micros?: number
+          supporting_exposure_ceiling_micros?: number
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_operation_aggregate_bindings_hold_id_fkey"
+            columns: ["hold_id"]
+            isOneToOne: true
+            referencedRelation: "restricted_beta_exposure_holds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_operation_aggregate_bindings_policy_revision_id_fkey"
+            columns: ["policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_operation_aggregate_bindings_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_operation_aggregate_bindings_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_operation_aggregate_bindings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_operation_tail_obligation_events: {
+        Row: {
+          artifact_class: string
+          coverage_ends_at: string | null
+          created_at: string
+          estimated_amount_micros: number | null
+          event_key: string
+          evidence_json: Json
+          id: string
+          lifecycle_state: string
+          reservation_id: string
+          retained_bytes: number | null
+          retention_reason: string
+          sequence: number
+        }
+        Insert: {
+          artifact_class: string
+          coverage_ends_at?: string | null
+          created_at?: string
+          estimated_amount_micros?: number | null
+          event_key: string
+          evidence_json?: Json
+          id: string
+          lifecycle_state: string
+          reservation_id: string
+          retained_bytes?: number | null
+          retention_reason: string
+          sequence: number
+        }
+        Update: {
+          artifact_class?: string
+          coverage_ends_at?: string | null
+          created_at?: string
+          estimated_amount_micros?: number | null
+          event_key?: string
+          evidence_json?: Json
+          id?: string
+          lifecycle_state?: string
+          reservation_id?: string
+          retained_bytes?: number | null
+          retention_reason?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_operation_tail_obligation_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plan_credit_grants: {
         Row: {
           created_at: string
@@ -7570,6 +21357,369 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      platform_operators: {
+        Row: {
+          granted_at: string
+          granted_by: string | null
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          granted_at?: string
+          granted_by?: string | null
+          reason: string
+          user_id: string
+        }
+        Update: {
+          granted_at?: string
+          granted_by?: string | null
+          reason?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      pricing_discrepancies: {
+        Row: {
+          created_at: string
+          discrepancy_key: string
+          discrepancy_type: string
+          evidence_json: Json
+          id: string
+          observed_amount_micros: number
+          quoted_ceiling_micros: number
+          reservation_id: string
+        }
+        Insert: {
+          created_at?: string
+          discrepancy_key: string
+          discrepancy_type: string
+          evidence_json?: Json
+          id: string
+          observed_amount_micros: number
+          quoted_ceiling_micros: number
+          reservation_id: string
+        }
+        Update: {
+          created_at?: string
+          discrepancy_key?: string
+          discrepancy_type?: string
+          evidence_json?: Json
+          id?: string
+          observed_amount_micros?: number
+          quoted_ceiling_micros?: number
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pricing_discrepancies_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_markup_rule_revisions: {
+        Row: {
+          actor_id: string
+          change_reason: string
+          content_hash: string
+          created_at: string
+          default_markup_basis_points: number
+          id: string
+          overrides_json: Json
+          previous_revision_id: string | null
+          revision: number
+        }
+        Insert: {
+          actor_id: string
+          change_reason: string
+          content_hash: string
+          created_at?: string
+          default_markup_basis_points: number
+          id: string
+          overrides_json?: Json
+          previous_revision_id?: string | null
+          revision: number
+        }
+        Update: {
+          actor_id?: string
+          change_reason?: string
+          content_hash?: string
+          created_at?: string
+          default_markup_basis_points?: number
+          id?: string
+          overrides_json?: Json
+          previous_revision_id?: string | null
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_markup_rule_revisions_previous_revision_id_fkey"
+            columns: ["previous_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_markup_rule_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_pricing_cost_components: {
+        Row: {
+          component_code: string
+          component_kind: string
+          cost_policy_revision: string
+          credential_funding: string
+          failure_ceiling_micros: number
+          ordinal: number
+          pricing_revision_id: string
+          provider_label: string
+          success_ceiling_micros: number
+          tail_policy: string
+          tail_policy_details: Json
+        }
+        Insert: {
+          component_code: string
+          component_kind: string
+          cost_policy_revision: string
+          credential_funding: string
+          failure_ceiling_micros: number
+          ordinal: number
+          pricing_revision_id: string
+          provider_label: string
+          success_ceiling_micros: number
+          tail_policy: string
+          tail_policy_details?: Json
+        }
+        Update: {
+          component_code?: string
+          component_kind?: string
+          cost_policy_revision?: string
+          credential_funding?: string
+          failure_ceiling_micros?: number
+          ordinal?: number
+          pricing_revision_id?: string
+          provider_label?: string
+          success_ceiling_micros?: number
+          tail_policy?: string
+          tail_policy_details?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_pricing_cost_components_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_pricing_policies: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          policy_code: string
+          provider: string | null
+          scope_kind: string
+          sku: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id: string
+          policy_code: string
+          provider?: string | null
+          scope_kind: string
+          sku?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          policy_code?: string
+          provider?: string | null
+          scope_kind?: string
+          sku?: string | null
+        }
+        Relationships: []
+      }
+      private_pricing_publications: {
+        Row: {
+          action: string
+          actor_id: string
+          created_at: string
+          id: string
+          policy_id: string
+          pricing_revision_id: string | null
+          publication_revision: number
+          reason: string
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          created_at?: string
+          id: string
+          policy_id: string
+          pricing_revision_id?: string | null
+          publication_revision: number
+          reason: string
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          created_at?: string
+          id?: string
+          policy_id?: string
+          pricing_revision_id?: string | null
+          publication_revision?: number
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_pricing_publications_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "private_pricing_publications_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_pricing_revision_markup_sources: {
+        Row: {
+          created_at: string
+          effective_markup_basis_points: number
+          markup_rule_revision_id: string
+          pricing_revision_id: string
+        }
+        Insert: {
+          created_at?: string
+          effective_markup_basis_points: number
+          markup_rule_revision_id: string
+          pricing_revision_id: string
+        }
+        Update: {
+          created_at?: string
+          effective_markup_basis_points?: number
+          markup_rule_revision_id?: string
+          pricing_revision_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_pricing_revision_markup_so_markup_rule_revision_id_fkey"
+            columns: ["markup_rule_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_markup_rule_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "private_pricing_revision_markup_source_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: true
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      private_pricing_revisions: {
+        Row: {
+          actor_id: string
+          billable_failure_ceiling_micros: number | null
+          billable_failure_classes: Json
+          change_reason: string
+          content_hash: string
+          created_at: string
+          currency: string
+          customer_credit_units: number | null
+          customer_price_ceiling_micros: number | null
+          failure_cost_ceiling_micros: number
+          free_failure_classes: Json
+          full_cost_ceiling_micros: number
+          id: string
+          included_quantity: Json
+          lifecycle_state: string
+          markup_basis_points: number | null
+          policy_id: string
+          previous_revision_id: string | null
+          retention_policy: Json
+          revision: number
+          rounding_adjustment_micros: number | null
+          settled_customer_price_micros: number | null
+          unrounded_customer_price_micros: number | null
+        }
+        Insert: {
+          actor_id: string
+          billable_failure_ceiling_micros?: number | null
+          billable_failure_classes: Json
+          change_reason: string
+          content_hash: string
+          created_at?: string
+          currency: string
+          customer_credit_units?: number | null
+          customer_price_ceiling_micros?: number | null
+          failure_cost_ceiling_micros: number
+          free_failure_classes: Json
+          full_cost_ceiling_micros: number
+          id: string
+          included_quantity: Json
+          lifecycle_state: string
+          markup_basis_points?: number | null
+          policy_id: string
+          previous_revision_id?: string | null
+          retention_policy: Json
+          revision: number
+          rounding_adjustment_micros?: number | null
+          settled_customer_price_micros?: number | null
+          unrounded_customer_price_micros?: number | null
+        }
+        Update: {
+          actor_id?: string
+          billable_failure_ceiling_micros?: number | null
+          billable_failure_classes?: Json
+          change_reason?: string
+          content_hash?: string
+          created_at?: string
+          currency?: string
+          customer_credit_units?: number | null
+          customer_price_ceiling_micros?: number | null
+          failure_cost_ceiling_micros?: number
+          free_failure_classes?: Json
+          full_cost_ceiling_micros?: number
+          id?: string
+          included_quantity?: Json
+          lifecycle_state?: string
+          markup_basis_points?: number | null
+          policy_id?: string
+          previous_revision_id?: string | null
+          retention_policy?: Json
+          revision?: number
+          rounding_adjustment_micros?: number | null
+          settled_customer_price_micros?: number | null
+          unrounded_customer_price_micros?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "private_pricing_revisions_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "private_pricing_revisions_previous_revision_id_fkey"
+            columns: ["previous_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       project_cradles: {
         Row: {
@@ -8618,6 +22768,115 @@ export type Database = {
           },
         ]
       }
+      quench_destination_package_revisions: {
+        Row: {
+          contract_version: string
+          created_at: string
+          created_by: string
+          destination_capability_content_hash: string
+          destination_capability_revision_id: string
+          executable_destination_id: string
+          id: string
+          manifest_content_hash: string
+          manifest_snapshot_id: string
+          metadata_content_hash: string
+          metadata_revision: number
+          operation_key: string
+          package_content_hash: string
+          resolved_package: Json
+          revision: number
+          state: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          contract_version: string
+          created_at?: string
+          created_by: string
+          destination_capability_content_hash: string
+          destination_capability_revision_id: string
+          executable_destination_id: string
+          id?: string
+          manifest_content_hash: string
+          manifest_snapshot_id: string
+          metadata_content_hash: string
+          metadata_revision: number
+          operation_key: string
+          package_content_hash: string
+          resolved_package: Json
+          revision: number
+          state: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          contract_version?: string
+          created_at?: string
+          created_by?: string
+          destination_capability_content_hash?: string
+          destination_capability_revision_id?: string
+          executable_destination_id?: string
+          id?: string
+          manifest_content_hash?: string
+          manifest_snapshot_id?: string
+          metadata_content_hash?: string
+          metadata_revision?: number
+          operation_key?: string
+          package_content_hash?: string
+          resolved_package?: Json
+          revision?: number
+          state?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quench_destination_package_re_destination_capability_revis_fkey"
+            columns: [
+              "destination_capability_revision_id",
+              "executable_destination_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "publishing_destination_capability_revisions"
+            referencedColumns: ["id", "executable_destination_id"]
+          },
+          {
+            foreignKeyName: "quench_destination_package_re_manifest_snapshot_id_workspa_fkey"
+            columns: ["manifest_snapshot_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "quench_release_manifest_snapshots"
+            referencedColumns: ["id", "workspace_id", "workpiece_id"]
+          },
+          {
+            foreignKeyName: "quench_destination_package_revis_executable_destination_id_fkey"
+            columns: ["executable_destination_id"]
+            isOneToOne: false
+            referencedRelation: "publishing_executable_destinations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quench_destination_package_revis_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "quench_destination_package_revisions_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quench_destination_package_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quench_destination_scopes: {
         Row: {
           adapter_id: string
@@ -8668,6 +22927,66 @@ export type Database = {
           },
           {
             foreignKeyName: "quench_destination_scopes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quench_metadata_assist_results: {
+        Row: {
+          created_at: string
+          id: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          input_units: number
+          operation_id: string
+          output_units: number
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_units?: number
+          operation_id?: string
+          output_units?: number
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string
+          result_json?: Json
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quench_metadata_assist_results_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quench_metadata_assist_results_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -9238,10 +23557,15 @@ export type Database = {
           established_by: string
           id: string
           operation_key: string
+          preflight_report_id: string | null
+          preflight_report_revision: number | null
+          preflight_script_hash: string | null
           provenance: string
           ready_transition_id: string | null
           recording_session_id: string | null
           request_fingerprint: string
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
           script_approval_hash: string | null
           script_approval_id: string | null
           script_approval_revision: number | null
@@ -9258,10 +23582,15 @@ export type Database = {
           established_by: string
           id?: string
           operation_key: string
+          preflight_report_id?: string | null
+          preflight_report_revision?: number | null
+          preflight_script_hash?: string | null
           provenance: string
           ready_transition_id?: string | null
           recording_session_id?: string | null
           request_fingerprint: string
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
           script_approval_hash?: string | null
           script_approval_id?: string | null
           script_approval_revision?: number | null
@@ -9278,10 +23607,15 @@ export type Database = {
           established_by?: string
           id?: string
           operation_key?: string
+          preflight_report_id?: string | null
+          preflight_report_revision?: number | null
+          preflight_script_hash?: string | null
           provenance?: string
           ready_transition_id?: string | null
           recording_session_id?: string | null
           request_fingerprint?: string
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
           script_approval_hash?: string | null
           script_approval_id?: string | null
           script_approval_revision?: number | null
@@ -9337,6 +23671,23 @@ export type Database = {
               "workspace_id",
               "workpiece_id",
               "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "recording_capture_preflight_fkey"
+            columns: [
+              "preflight_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "preflight_report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
             ]
           },
         ]
@@ -9572,14 +23923,14 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "recording_session_episodes_episode_id_fkey"
+            foreignKeyName: "rse_episode_fk"
             columns: ["episode_id"]
             isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "recording_session_episodes_recording_session_id_fkey"
+            foreignKeyName: "rse_recording_fk"
             columns: ["recording_session_id"]
             isOneToOne: false
             referencedRelation: "recording_sessions"
@@ -9633,11 +23984,13 @@ export type Database = {
         Row: {
           calendar_event_id: string | null
           created_at: string
-          created_by: string
+          created_by: string | null
           ends_at: string | null
           id: string
+          notes: string | null
+          session_type: Database["tongs"]["Enums"]["session_type"]
           starts_at: string
-          status: string
+          status: string | null
           title: string
           updated_at: string
           workspace_id: string
@@ -9645,11 +23998,13 @@ export type Database = {
         Insert: {
           calendar_event_id?: string | null
           created_at?: string
-          created_by: string
+          created_by?: string | null
           ends_at?: string | null
           id?: string
+          notes?: string | null
+          session_type?: Database["tongs"]["Enums"]["session_type"]
           starts_at: string
-          status?: string
+          status?: string | null
           title: string
           updated_at?: string
           workspace_id: string
@@ -9657,11 +24012,13 @@ export type Database = {
         Update: {
           calendar_event_id?: string | null
           created_at?: string
-          created_by?: string
+          created_by?: string | null
           ends_at?: string | null
           id?: string
+          notes?: string | null
+          session_type?: Database["tongs"]["Enums"]["session_type"]
           starts_at?: string
-          status?: string
+          status?: string | null
           title?: string
           updated_at?: string
           workspace_id?: string
@@ -9675,10 +24032,75 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "recording_sessions_workspace_id_fkey"
+            foreignKeyName: "recording_sessions_workspace_fk"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recording_takes: {
+        Row: {
+          created_at: string
+          duration_sec: number | null
+          id: string
+          local_artifact_ref: string | null
+          notes: string | null
+          recorded_at: string
+          script_id: string
+          session_id: string | null
+          status: Database["tongs"]["Enums"]["take_status"]
+        }
+        Insert: {
+          created_at?: string
+          duration_sec?: number | null
+          id?: string
+          local_artifact_ref?: string | null
+          notes?: string | null
+          recorded_at?: string
+          script_id: string
+          session_id?: string | null
+          status?: Database["tongs"]["Enums"]["take_status"]
+        }
+        Update: {
+          created_at?: string
+          duration_sec?: number | null
+          id?: string
+          local_artifact_ref?: string | null
+          notes?: string | null
+          recorded_at?: string
+          script_id?: string
+          session_id?: string | null
+          status?: Database["tongs"]["Enums"]["take_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recording_takes_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recording_takes_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_effective"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recording_takes_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_ready_for_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recording_takes_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -10849,6 +25271,104 @@ export type Database = {
           },
         ]
       }
+      reference_review_operation_attempts: {
+        Row: {
+          ai_authorization: string
+          attempt_id: string
+          canonical_receipt_json: Json | null
+          completed_at: string | null
+          created_at: string
+          created_by: string
+          expected_opportunity_revision_id: string
+          expected_plan_revision_id: string
+          expected_revisions_json: Json
+          failure_code: string | null
+          failure_message: string | null
+          intent_kind: string
+          media_family: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          parent_attempt_id: string | null
+          terminal_outcome: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          ai_authorization?: string
+          attempt_id?: string
+          canonical_receipt_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string
+          expected_opportunity_revision_id: string
+          expected_plan_revision_id: string
+          expected_revisions_json?: Json
+          failure_code?: string | null
+          failure_message?: string | null
+          intent_kind: string
+          media_family: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          parent_attempt_id?: string | null
+          terminal_outcome?: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          ai_authorization?: string
+          attempt_id?: string
+          canonical_receipt_json?: Json | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string
+          expected_opportunity_revision_id?: string
+          expected_plan_revision_id?: string
+          expected_revisions_json?: Json
+          failure_code?: string | null
+          failure_message?: string | null
+          intent_kind?: string
+          media_family?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          opportunity_id?: string
+          parent_attempt_id?: string | null
+          terminal_outcome?: string | null
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_review_operation_attem_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "reference_review_operation_attempts_parent_attempt_id_fkey"
+            columns: ["parent_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "reference_review_operation_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+          {
+            foreignKeyName: "reference_review_operation_attempts_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_review_operation_attempts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reference_visual_acquisition_operations: {
         Row: {
           acquisition_type: string
@@ -10863,8 +25383,8 @@ export type Database = {
           receipt_json: Json | null
           result_candidate_revision_id: string | null
           rights_declaration_revision_id: string
-          source_set_revision_id: string | null
           source_evidence_json: Json | null
+          source_set_revision_id: string | null
           state: string
           updated_at: string
           verified_asset_id: string | null
@@ -10884,8 +25404,8 @@ export type Database = {
           receipt_json?: Json | null
           result_candidate_revision_id?: string | null
           rights_declaration_revision_id: string
-          source_set_revision_id?: string | null
           source_evidence_json?: Json | null
+          source_set_revision_id?: string | null
           state?: string
           updated_at?: string
           verified_asset_id?: string | null
@@ -10905,8 +25425,8 @@ export type Database = {
           receipt_json?: Json | null
           result_candidate_revision_id?: string | null
           rights_declaration_revision_id?: string
-          source_set_revision_id?: string | null
           source_evidence_json?: Json | null
+          source_set_revision_id?: string | null
           state?: string
           updated_at?: string
           verified_asset_id?: string | null
@@ -10929,7 +25449,7 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "reference_visual_acquisition_operations_source_set_revision_id_fkey"
+            foreignKeyName: "reference_visual_acquisition_operat_source_set_revision_id_fkey"
             columns: ["source_set_revision_id"]
             isOneToOne: false
             referencedRelation: "reference_visual_source_set_revisions"
@@ -11101,6 +25621,7 @@ export type Database = {
           revision: number
           rights_declaration_revision_id: string | null
           sequence_revision_id: string | null
+          source_set_revision_id: string | null
           source_use_revision_id: string | null
           workpiece_id: string
           workspace_id: string
@@ -11127,6 +25648,7 @@ export type Database = {
           revision: number
           rights_declaration_revision_id?: string | null
           sequence_revision_id?: string | null
+          source_set_revision_id?: string | null
           source_use_revision_id?: string | null
           workpiece_id: string
           workspace_id: string
@@ -11153,6 +25675,7 @@ export type Database = {
           revision?: number
           rights_declaration_revision_id?: string | null
           sequence_revision_id?: string | null
+          source_set_revision_id?: string | null
           source_use_revision_id?: string | null
           workpiece_id?: string
           workspace_id?: string
@@ -11187,6 +25710,13 @@ export type Database = {
             columns: ["rights_declaration_revision_id"]
             isOneToOne: false
             referencedRelation: "reference_visual_rights_declaration_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_visual_candidate_revision_source_set_revision_id_fkey"
+            columns: ["source_set_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_source_set_revisions"
             referencedColumns: ["id"]
           },
           {
@@ -11246,6 +25776,214 @@ export type Database = {
         }
         Relationships: []
       }
+      reference_visual_evidence_claim_activations: {
+        Row: {
+          activated_at: string
+          activated_by: string
+          activation_id: string
+          canonical_claim_id: string
+          canonical_evidence_id: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          activated_at?: string
+          activated_by: string
+          activation_id?: string
+          canonical_claim_id: string
+          canonical_evidence_id: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          activated_at?: string
+          activated_by?: string
+          activation_id?: string
+          canonical_claim_id?: string
+          canonical_evidence_id?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          opportunity_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_visual_evidence_cl_workspace_id_workpiece_id_ca_fkey1"
+            columns: ["workspace_id", "workpiece_id", "canonical_evidence_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_evidence_sequences"
+            referencedColumns: ["workspace_id", "workpiece_id", "evidence_id"]
+          },
+          {
+            foreignKeyName: "reference_visual_evidence_cla_canonical_claim_id_workspace_fkey"
+            columns: [
+              "canonical_claim_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_visual_evidence_claims"
+            referencedColumns: [
+              "claim_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+          },
+        ]
+      }
+      reference_visual_evidence_claims: {
+        Row: {
+          canonical_evidence_id: string
+          claim_fingerprint: string
+          claim_id: string
+          created_at: string
+          created_by: string
+          opportunity_id: string
+          source_revision_id: string
+          source_set_member_id: string
+          workpiece_id: string
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_evidence_id: string
+          claim_fingerprint: string
+          claim_id?: string
+          created_at?: string
+          created_by: string
+          opportunity_id: string
+          source_revision_id: string
+          source_set_member_id: string
+          workpiece_id: string
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Update: {
+          canonical_evidence_id?: string
+          claim_fingerprint?: string
+          claim_id?: string
+          created_at?: string
+          created_by?: string
+          opportunity_id?: string
+          source_revision_id?: string
+          source_set_member_id?: string
+          workpiece_id?: string
+          workpiece_source_link_revision_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_visual_evidence_cla_source_set_member_id_workspa_fkey"
+            columns: [
+              "source_set_member_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_visual_source_set_members"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+          },
+          {
+            foreignKeyName: "reference_visual_evidence_cla_workspace_id_workpiece_id_ca_fkey"
+            columns: ["workspace_id", "workpiece_id", "canonical_evidence_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_evidence_sequences"
+            referencedColumns: ["workspace_id", "workpiece_id", "evidence_id"]
+          },
+        ]
+      }
+      reference_visual_evidence_duplicate_reconciliations: {
+        Row: {
+          canonical_claim_id: string
+          canonical_evidence_id: string
+          duplicate_evidence_id: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          reason: string
+          reconciled_at: string
+          reconciled_by: string
+          reconciliation_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_claim_id: string
+          canonical_evidence_id: string
+          duplicate_evidence_id: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          reason: string
+          reconciled_at?: string
+          reconciled_by: string
+          reconciliation_id?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          canonical_claim_id?: string
+          canonical_evidence_id?: string
+          duplicate_evidence_id?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          opportunity_id?: string
+          reason?: string
+          reconciled_at?: string
+          reconciled_by?: string
+          reconciliation_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_visual_evidence_dup_canonical_claim_id_workspace_fkey"
+            columns: [
+              "canonical_claim_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_visual_evidence_claims"
+            referencedColumns: [
+              "claim_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+          },
+          {
+            foreignKeyName: "reference_visual_evidence_dup_workspace_id_workpiece_id_ca_fkey"
+            columns: ["workspace_id", "workpiece_id", "canonical_evidence_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_evidence_sequences"
+            referencedColumns: ["workspace_id", "workpiece_id", "evidence_id"]
+          },
+          {
+            foreignKeyName: "reference_visual_evidence_dup_workspace_id_workpiece_id_du_fkey"
+            columns: ["workspace_id", "workpiece_id", "duplicate_evidence_id"]
+            isOneToOne: true
+            referencedRelation: "reference_visual_evidence_sequences"
+            referencedColumns: ["workspace_id", "workpiece_id", "evidence_id"]
+          },
+        ]
+      }
       reference_visual_evidence_resets: {
         Row: {
           id: string
@@ -11256,6 +25994,7 @@ export type Database = {
           opportunity_revision_id: string
           reset_at: string
           reset_by: string
+          reset_request_id: string | null
           workpiece_id: string
           workspace_id: string
         }
@@ -11268,6 +26007,7 @@ export type Database = {
           opportunity_revision_id: string
           reset_at?: string
           reset_by: string
+          reset_request_id?: string | null
           workpiece_id: string
           workspace_id: string
         }
@@ -11280,6 +26020,7 @@ export type Database = {
           opportunity_revision_id?: string
           reset_at?: string
           reset_by?: string
+          reset_request_id?: string | null
           workpiece_id?: string
           workspace_id?: string
         }
@@ -11299,6 +26040,7 @@ export type Database = {
           document_locator_json: Json
           evidence_date: string | null
           evidence_id: string
+          evidence_intent: string
           evidence_role: string
           excerpt_content_hash: string | null
           id: string
@@ -11335,6 +26077,7 @@ export type Database = {
           document_locator_json?: Json
           evidence_date?: string | null
           evidence_id: string
+          evidence_intent?: string
           evidence_role: string
           excerpt_content_hash?: string | null
           id?: string
@@ -11371,6 +26114,7 @@ export type Database = {
           document_locator_json?: Json
           evidence_date?: string | null
           evidence_id?: string
+          evidence_intent?: string
           evidence_role?: string
           excerpt_content_hash?: string | null
           id?: string
@@ -12089,6 +26833,7 @@ export type Database = {
           renderer_version: string
           result_candidate_revision_id: string | null
           rights_declaration_revision_id: string | null
+          source_set_revision_id: string | null
           source_use_revision_id: string | null
           state: string
           updated_at: string
@@ -12112,6 +26857,7 @@ export type Database = {
           renderer_version: string
           result_candidate_revision_id?: string | null
           rights_declaration_revision_id?: string | null
+          source_set_revision_id?: string | null
           source_use_revision_id?: string | null
           state?: string
           updated_at?: string
@@ -12135,6 +26881,7 @@ export type Database = {
           renderer_version?: string
           result_candidate_revision_id?: string | null
           rights_declaration_revision_id?: string | null
+          source_set_revision_id?: string | null
           source_use_revision_id?: string | null
           state?: string
           updated_at?: string
@@ -12161,6 +26908,13 @@ export type Database = {
             columns: ["output_asset_id"]
             isOneToOne: false
             referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_visual_render_operations_source_set_revision_id_fkey"
+            columns: ["source_set_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_source_set_revisions"
             referencedColumns: ["id"]
           },
           {
@@ -12198,6 +26952,7 @@ export type Database = {
           revision: number
           rights_holder: string | null
           rights_status: string
+          source_set_revision_id: string | null
           territories: string[] | null
           workpiece_id: string
           workspace_id: string
@@ -12227,6 +26982,7 @@ export type Database = {
           revision: number
           rights_holder?: string | null
           rights_status: string
+          source_set_revision_id?: string | null
           territories?: string[] | null
           workpiece_id: string
           workspace_id: string
@@ -12256,6 +27012,7 @@ export type Database = {
           revision?: number
           rights_holder?: string | null
           rights_status?: string
+          source_set_revision_id?: string | null
           territories?: string[] | null
           workpiece_id?: string
           workspace_id?: string
@@ -12279,6 +27036,13 @@ export type Database = {
               "declaration_id",
               "revision",
             ]
+          },
+          {
+            foreignKeyName: "reference_visual_rights_declaration_source_set_revision_id_fkey"
+            columns: ["source_set_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_source_set_revisions"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -12415,7 +27179,6 @@ export type Database = {
           ordinal: number
           sequence_revision_id: string
           source_revision_id: string
-          transition_hints_json: Json
           workpiece_id: string
           workpiece_source_link_revision_id: string
           workspace_id: string
@@ -12426,7 +27189,6 @@ export type Database = {
           ordinal: number
           sequence_revision_id: string
           source_revision_id: string
-          transition_hints_json?: Json
           workpiece_id: string
           workpiece_source_link_revision_id: string
           workspace_id: string
@@ -12437,7 +27199,6 @@ export type Database = {
           ordinal?: number
           sequence_revision_id?: string
           source_revision_id?: string
-          transition_hints_json?: Json
           workpiece_id?: string
           workpiece_source_link_revision_id?: string
           workspace_id?: string
@@ -12965,6 +27726,849 @@ export type Database = {
           },
         ]
       }
+      restricted_beta_allocation_policy_revisions: {
+        Row: {
+          assumed_monthly_operations: number | null
+          created_at: string
+          fixed_allocation_per_operation_micros: number | null
+          id: string
+          lifecycle_state: string
+          monthly_fixed_cost_micros: number
+          notes: string
+          option_code: string
+          revision: number
+          subscription_revenue_allocation_limit_micros: number | null
+        }
+        Insert: {
+          assumed_monthly_operations?: number | null
+          created_at?: string
+          fixed_allocation_per_operation_micros?: number | null
+          id: string
+          lifecycle_state: string
+          monthly_fixed_cost_micros: number
+          notes: string
+          option_code: string
+          revision: number
+          subscription_revenue_allocation_limit_micros?: number | null
+        }
+        Update: {
+          assumed_monthly_operations?: number | null
+          created_at?: string
+          fixed_allocation_per_operation_micros?: number | null
+          id?: string
+          lifecycle_state?: string
+          monthly_fixed_cost_micros?: number
+          notes?: string
+          option_code?: string
+          revision?: number
+          subscription_revenue_allocation_limit_micros?: number | null
+        }
+        Relationships: []
+      }
+      restricted_beta_cost_evidence_revisions: {
+        Row: {
+          capability_code: string
+          coverage_state: string
+          created_at: string
+          evidence_state: string
+          hard_cap_scope: string
+          id: string
+          included_capacity_json: Json
+          latency_json: Json
+          notes: string
+          observed_at: string
+          reserved_headroom_json: Json
+          revision: number
+          source_reference: string
+          valid_until: string
+        }
+        Insert: {
+          capability_code: string
+          coverage_state: string
+          created_at?: string
+          evidence_state: string
+          hard_cap_scope: string
+          id: string
+          included_capacity_json?: Json
+          latency_json?: Json
+          notes: string
+          observed_at: string
+          reserved_headroom_json?: Json
+          revision: number
+          source_reference: string
+          valid_until: string
+        }
+        Update: {
+          capability_code?: string
+          coverage_state?: string
+          created_at?: string
+          evidence_state?: string
+          hard_cap_scope?: string
+          id?: string
+          included_capacity_json?: Json
+          latency_json?: Json
+          notes?: string
+          observed_at?: string
+          reserved_headroom_json?: Json
+          revision?: number
+          source_reference?: string
+          valid_until?: string
+        }
+        Relationships: []
+      }
+      restricted_beta_exposure_events: {
+        Row: {
+          attempt_number: number | null
+          created_at: string
+          customer_funding_delta_micros: number
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          exposure_adjustment_micros: number | null
+          forge_loss_delta_micros: number
+          hold_id: string
+          id: string
+          remaining_exposure_micros: number | null
+          sequence: number
+          supplier_obligation_micros: number | null
+          supplier_recovery_micros: number | null
+        }
+        Insert: {
+          attempt_number?: number | null
+          created_at?: string
+          customer_funding_delta_micros?: number
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          exposure_adjustment_micros?: number | null
+          forge_loss_delta_micros?: number
+          hold_id: string
+          id: string
+          remaining_exposure_micros?: number | null
+          sequence: number
+          supplier_obligation_micros?: number | null
+          supplier_recovery_micros?: number | null
+        }
+        Update: {
+          attempt_number?: number | null
+          created_at?: string
+          customer_funding_delta_micros?: number
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          exposure_adjustment_micros?: number | null
+          forge_loss_delta_micros?: number
+          hold_id?: string
+          id?: string
+          remaining_exposure_micros?: number | null
+          sequence?: number
+          supplier_obligation_micros?: number | null
+          supplier_recovery_micros?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restricted_beta_exposure_events_hold_id_fkey"
+            columns: ["hold_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_exposure_holds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restricted_beta_exposure_holds: {
+        Row: {
+          caller_class: string
+          capability_term_id: string
+          created_at: string
+          customer_funding_ceiling_micros: number
+          funding_class: string
+          funding_environment: string
+          funding_handle_hash: string
+          id: string
+          lease_expires_at: string
+          model_or_sku: string
+          operation_identity: string
+          policy_revision_id: string
+          provider_mode: string
+          request_fingerprint: string
+          retry_exposure_ceiling_micros: number
+          supplier_exposure_ceiling_micros: number
+          supporting_exposure_ceiling_micros: number
+          tail_exposure_ceiling_micros: number
+          unreconciled_exposure_ceiling_micros: number
+          user_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          caller_class: string
+          capability_term_id: string
+          created_at?: string
+          customer_funding_ceiling_micros: number
+          funding_class: string
+          funding_environment?: string
+          funding_handle_hash: string
+          id: string
+          lease_expires_at: string
+          model_or_sku: string
+          operation_identity: string
+          policy_revision_id: string
+          provider_mode: string
+          request_fingerprint: string
+          retry_exposure_ceiling_micros: number
+          supplier_exposure_ceiling_micros: number
+          supporting_exposure_ceiling_micros: number
+          tail_exposure_ceiling_micros: number
+          unreconciled_exposure_ceiling_micros: number
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          caller_class?: string
+          capability_term_id?: string
+          created_at?: string
+          customer_funding_ceiling_micros?: number
+          funding_class?: string
+          funding_environment?: string
+          funding_handle_hash?: string
+          id?: string
+          lease_expires_at?: string
+          model_or_sku?: string
+          operation_identity?: string
+          policy_revision_id?: string
+          provider_mode?: string
+          request_fingerprint?: string
+          retry_exposure_ceiling_micros?: number
+          supplier_exposure_ceiling_micros?: number
+          supporting_exposure_ceiling_micros?: number
+          tail_exposure_ceiling_micros?: number
+          unreconciled_exposure_ceiling_micros?: number
+          user_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restricted_beta_exposure_holds_capability_term_id_fkey"
+            columns: ["capability_term_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_capabilities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restricted_beta_exposure_holds_policy_revision_id_fkey"
+            columns: ["policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restricted_beta_exposure_holds_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restricted_beta_policy_capabilities: {
+        Row: {
+          admission_mode: string
+          capability_code: string
+          cost_evidence_revision_id: string | null
+          created_at: string
+          exact_model_or_sku: string | null
+          id: string
+          maximum_attempts: number | null
+          maximum_concurrency: number | null
+          notes: string
+          per_operation_supplier_ceiling_micros: number | null
+          per_operation_supporting_ceiling_micros: number | null
+          per_operation_tail_ceiling_micros: number | null
+          permitted_callers_json: Json
+          policy_revision_id: string
+        }
+        Insert: {
+          admission_mode: string
+          capability_code: string
+          cost_evidence_revision_id?: string | null
+          created_at?: string
+          exact_model_or_sku?: string | null
+          id: string
+          maximum_attempts?: number | null
+          maximum_concurrency?: number | null
+          notes: string
+          per_operation_supplier_ceiling_micros?: number | null
+          per_operation_supporting_ceiling_micros?: number | null
+          per_operation_tail_ceiling_micros?: number | null
+          permitted_callers_json?: Json
+          policy_revision_id: string
+        }
+        Update: {
+          admission_mode?: string
+          capability_code?: string
+          cost_evidence_revision_id?: string | null
+          created_at?: string
+          exact_model_or_sku?: string | null
+          id?: string
+          maximum_attempts?: number | null
+          maximum_concurrency?: number | null
+          notes?: string
+          per_operation_supplier_ceiling_micros?: number | null
+          per_operation_supporting_ceiling_micros?: number | null
+          per_operation_tail_ceiling_micros?: number | null
+          permitted_callers_json?: Json
+          policy_revision_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restricted_beta_policy_capabilit_cost_evidence_revision_id_fkey"
+            columns: ["cost_evidence_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_cost_evidence_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restricted_beta_policy_capabilities_policy_revision_id_fkey"
+            columns: ["policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_policy_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restricted_beta_policy_revisions: {
+        Row: {
+          aggregate_forge_exposure_limit_micros: number | null
+          allocation_policy_revision_id: string | null
+          created_at: string
+          environment: string
+          evidence_max_age_seconds: number | null
+          id: string
+          lifecycle_state: string
+          maximum_concurrency: number | null
+          reason: string
+          reserved_headroom_micros: number | null
+          revision: number
+          rolling_window_seconds: number | null
+          tail_policy_revision_id: string | null
+        }
+        Insert: {
+          aggregate_forge_exposure_limit_micros?: number | null
+          allocation_policy_revision_id?: string | null
+          created_at?: string
+          environment: string
+          evidence_max_age_seconds?: number | null
+          id: string
+          lifecycle_state: string
+          maximum_concurrency?: number | null
+          reason: string
+          reserved_headroom_micros?: number | null
+          revision: number
+          rolling_window_seconds?: number | null
+          tail_policy_revision_id?: string | null
+        }
+        Update: {
+          aggregate_forge_exposure_limit_micros?: number | null
+          allocation_policy_revision_id?: string | null
+          created_at?: string
+          environment?: string
+          evidence_max_age_seconds?: number | null
+          id?: string
+          lifecycle_state?: string
+          maximum_concurrency?: number | null
+          reason?: string
+          reserved_headroom_micros?: number | null
+          revision?: number
+          rolling_window_seconds?: number | null
+          tail_policy_revision_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restricted_beta_policy_allocation_fk"
+            columns: ["allocation_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_allocation_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restricted_beta_policy_tail_fk"
+            columns: ["tail_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "restricted_beta_tail_policy_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restricted_beta_tail_policy_revisions: {
+        Row: {
+          after_first_period_policy: string
+          created_at: string
+          deletion_on_threshold: boolean
+          first_period_days: number
+          first_period_storage_ceiling_bytes: number
+          funding_treatment_json: Json
+          halt_threshold_basis_points: number | null
+          id: string
+          lifecycle_state: string
+          notes: string
+          revision: number
+          warning_threshold_basis_points: number | null
+        }
+        Insert: {
+          after_first_period_policy: string
+          created_at?: string
+          deletion_on_threshold?: boolean
+          first_period_days: number
+          first_period_storage_ceiling_bytes: number
+          funding_treatment_json?: Json
+          halt_threshold_basis_points?: number | null
+          id: string
+          lifecycle_state: string
+          notes: string
+          revision: number
+          warning_threshold_basis_points?: number | null
+        }
+        Update: {
+          after_first_period_policy?: string
+          created_at?: string
+          deletion_on_threshold?: boolean
+          first_period_days?: number
+          first_period_storage_ceiling_bytes?: number
+          funding_treatment_json?: Json
+          halt_threshold_basis_points?: number | null
+          id?: string
+          lifecycle_state?: string
+          notes?: string
+          revision?: number
+          warning_threshold_basis_points?: number | null
+        }
+        Relationships: []
+      }
+      runway_customer_test_authorizations: {
+        Row: {
+          created_at: string
+          created_by: string
+          duration_seconds: number
+          financial_environment: string
+          generation_mode: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number
+          maximum_provider_attempts: number
+          maximum_quote_count: number
+          maximum_wholesale_exposure_micros: number
+          model: string
+          operation_fingerprint: string
+          operation_id: string
+          output_count: number
+          pricing_revision_id: string
+          provider: string
+          ratio: string
+          reason: string
+          reference_image_count: number
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          duration_seconds: number
+          financial_environment: string
+          generation_mode: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number
+          maximum_provider_attempts: number
+          maximum_quote_count?: number
+          maximum_wholesale_exposure_micros: number
+          model: string
+          operation_fingerprint: string
+          operation_id: string
+          output_count: number
+          pricing_revision_id: string
+          provider: string
+          ratio: string
+          reason: string
+          reference_image_count: number
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          duration_seconds?: number
+          financial_environment?: string
+          generation_mode?: string
+          id?: string
+          maximum_concurrency?: number
+          maximum_customer_charge_micros?: number
+          maximum_operation_count?: number
+          maximum_provider_attempts?: number
+          maximum_quote_count?: number
+          maximum_wholesale_exposure_micros?: number
+          model?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          output_count?: number
+          pricing_revision_id?: string
+          provider?: string
+          ratio?: string
+          reason?: string
+          reference_image_count?: number
+          route_code?: string
+          status?: string
+          user_id?: string
+          valid_from?: string
+          valid_until?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "runway_customer_test_authorizations_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "runway_customer_test_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      runway_customer_test_quote_bindings: {
+        Row: {
+          authorization_id: string
+          created_at: string
+          quote_id: string
+        }
+        Insert: {
+          authorization_id: string
+          created_at?: string
+          quote_id: string
+        }
+        Update: {
+          authorization_id?: string
+          created_at?: string
+          quote_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "runway_customer_test_quote_bindings_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "runway_customer_test_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "runway_customer_test_quote_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      runway_execution_reconciliation_receipts: {
+        Row: {
+          direct_provider_actual_micros: number | null
+          direct_provider_estimated_micros: number
+          evidence_json: Json
+          operation_id: string
+          provider_completed_at: string
+          provider_task_id: string
+          reconciled_at: string | null
+          reservation_id: string
+          settlement_result_json: Json | null
+          supporting_actual_micros: number | null
+          supporting_cost_status: string
+        }
+        Insert: {
+          direct_provider_actual_micros?: number | null
+          direct_provider_estimated_micros: number
+          evidence_json?: Json
+          operation_id: string
+          provider_completed_at?: string
+          provider_task_id: string
+          reconciled_at?: string | null
+          reservation_id: string
+          settlement_result_json?: Json | null
+          supporting_actual_micros?: number | null
+          supporting_cost_status?: string
+        }
+        Update: {
+          direct_provider_actual_micros?: number | null
+          direct_provider_estimated_micros?: number
+          evidence_json?: Json
+          operation_id?: string
+          provider_completed_at?: string
+          provider_task_id?: string
+          reconciled_at?: string | null
+          reservation_id?: string
+          settlement_result_json?: Json | null
+          supporting_actual_micros?: number | null
+          supporting_cost_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "runway_execution_reconciliation_receipts_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "runway_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "runway_execution_reconciliation_receipts_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      runway_execution_rollout_revisions: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          mode: string
+          reason: string
+          revision: number
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          mode: string
+          reason: string
+          revision: number
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          mode?: string
+          reason?: string
+          revision?: number
+        }
+        Relationships: []
+      }
+      runway_funding_bindings: {
+        Row: {
+          cost_stack_json: Json
+          created_at: string
+          direct_provider_ceiling_micros: number
+          duration_seconds: number
+          model: string
+          operation_fingerprint: string
+          operation_id: string
+          pricing_revision_id: string
+          ratio: string
+          reservation_id: string
+          supporting_cost_ceiling_micros: number
+          total_cost_ceiling_micros: number
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          cost_stack_json: Json
+          created_at?: string
+          direct_provider_ceiling_micros: number
+          duration_seconds: number
+          model: string
+          operation_fingerprint: string
+          operation_id: string
+          pricing_revision_id: string
+          ratio: string
+          reservation_id: string
+          supporting_cost_ceiling_micros: number
+          total_cost_ceiling_micros: number
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          cost_stack_json?: Json
+          created_at?: string
+          direct_provider_ceiling_micros?: number
+          duration_seconds?: number
+          model?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          pricing_revision_id?: string
+          ratio?: string
+          reservation_id?: string
+          supporting_cost_ceiling_micros?: number
+          total_cost_ceiling_micros?: number
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "runway_funding_bindings_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "runway_funding_bindings_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "runway_funding_bindings_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      runway_submission_boundary_events: {
+        Row: {
+          created_at: string
+          decision: string
+          evidence_json: Json
+          id: string
+          lease_expires_at: string | null
+          operation_fingerprint: string
+          operation_id: string
+          reason: string
+          reservation_id: string | null
+          rollout_revision: number
+          submission_attempt_id: string
+        }
+        Insert: {
+          created_at?: string
+          decision: string
+          evidence_json?: Json
+          id: string
+          lease_expires_at?: string | null
+          operation_fingerprint: string
+          operation_id: string
+          reason: string
+          reservation_id?: string | null
+          rollout_revision: number
+          submission_attempt_id: string
+        }
+        Update: {
+          created_at?: string
+          decision?: string
+          evidence_json?: Json
+          id?: string
+          lease_expires_at?: string | null
+          operation_fingerprint?: string
+          operation_id?: string
+          reason?: string
+          reservation_id?: string | null
+          rollout_revision?: number
+          submission_attempt_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "runway_submission_boundary_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "runway_submission_boundary_events_rollout_revision_fkey"
+            columns: ["rollout_revision"]
+            isOneToOne: false
+            referencedRelation: "runway_execution_rollout_revisions"
+            referencedColumns: ["revision"]
+          },
+        ]
+      }
+      script_approval_preflight_bindings: {
+        Row: {
+          bound_at: string
+          bound_by: string
+          preflight_report_id: string
+          preflight_report_revision: number
+          preflight_script_hash: string
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          bound_at?: string
+          bound_by: string
+          preflight_report_id: string
+          preflight_report_revision: number
+          preflight_script_hash: string
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          bound_at?: string
+          bound_by?: string
+          preflight_report_id?: string
+          preflight_report_revision?: number
+          preflight_script_hash?: string
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
+          script_approval_id?: string
+          script_approval_revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_approval_preflight_bin_preflight_report_id_workspac_fkey"
+            columns: [
+              "preflight_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "preflight_report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "script_approval_preflight_bin_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+        ]
+      }
       script_approval_revisions: {
         Row: {
           approval_contract_version: string
@@ -13027,6 +28631,193 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_revisions: {
+        Row: {
+          body_anvil: string
+          created_at: string
+          id: string
+          revision: number
+          script_id: string
+        }
+        Insert: {
+          body_anvil: string
+          created_at?: string
+          id?: string
+          revision: number
+          script_id: string
+        }
+        Update: {
+          body_anvil?: string
+          created_at?: string
+          id?: string
+          revision?: number
+          script_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_revisions_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_revisions_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_effective"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_revisions_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_ready_for_schedule"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_state_overrides: {
+        Row: {
+          id: string
+          overridden_at: string
+          overridden_by: string | null
+          reason: string | null
+          script_id: string
+          supersedes_take_ids: string[] | null
+          to_state: Database["tongs"]["Enums"]["script_effective_state"]
+        }
+        Insert: {
+          id?: string
+          overridden_at?: string
+          overridden_by?: string | null
+          reason?: string | null
+          script_id: string
+          supersedes_take_ids?: string[] | null
+          to_state: Database["tongs"]["Enums"]["script_effective_state"]
+        }
+        Update: {
+          id?: string
+          overridden_at?: string
+          overridden_by?: string | null
+          reason?: string | null
+          script_id?: string
+          supersedes_take_ids?: string[] | null
+          to_state?: Database["tongs"]["Enums"]["script_effective_state"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_state_overrides_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_state_overrides_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_effective"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_state_overrides_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_ready_for_schedule"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scripts: {
+        Row: {
+          base_state: Database["tongs"]["Enums"]["script_base_state"]
+          body_anvil: string
+          created_at: string
+          id: string
+          origin_spark_id: string | null
+          owner_user_id: string | null
+          relevance: Database["tongs"]["Enums"]["script_relevance"]
+          revision: number
+          title_working: string | null
+          updated_at: string
+        }
+        Insert: {
+          base_state?: Database["tongs"]["Enums"]["script_base_state"]
+          body_anvil?: string
+          created_at?: string
+          id?: string
+          origin_spark_id?: string | null
+          owner_user_id?: string | null
+          relevance?: Database["tongs"]["Enums"]["script_relevance"]
+          revision?: number
+          title_working?: string | null
+          updated_at?: string
+        }
+        Update: {
+          base_state?: Database["tongs"]["Enums"]["script_base_state"]
+          body_anvil?: string
+          created_at?: string
+          id?: string
+          origin_spark_id?: string | null
+          owner_user_id?: string | null
+          relevance?: Database["tongs"]["Enums"]["script_relevance"]
+          revision?: number
+          title_working?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      session_scripts: {
+        Row: {
+          script_id: string
+          selected_at: string
+          selected_by: string | null
+          session_id: string
+        }
+        Insert: {
+          script_id: string
+          selected_at?: string
+          selected_by?: string | null
+          session_id: string
+        }
+        Update: {
+          script_id?: string
+          selected_at?: string
+          selected_by?: string | null
+          session_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_scripts_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_scripts_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_effective"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_scripts_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "v_scripts_ready_for_schedule"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_scripts_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -13301,6 +29092,428 @@ export type Database = {
           },
         ]
       }
+      spending_quote_authority_bindings: {
+        Row: {
+          accepted_authority_hash: string
+          acting_user_id: string
+          created_at: string
+          org_id: string | null
+          organization_account_revision_id: string | null
+          organization_permission_revision_id: string | null
+          owner_principal_revision: number | null
+          payer_kind: string
+          payer_user_id: string | null
+          preference_revision_id: string | null
+          quote_id: string
+        }
+        Insert: {
+          accepted_authority_hash: string
+          acting_user_id: string
+          created_at?: string
+          org_id?: string | null
+          organization_account_revision_id?: string | null
+          organization_permission_revision_id?: string | null
+          owner_principal_revision?: number | null
+          payer_kind: string
+          payer_user_id?: string | null
+          preference_revision_id?: string | null
+          quote_id: string
+        }
+        Update: {
+          accepted_authority_hash?: string
+          acting_user_id?: string
+          created_at?: string
+          org_id?: string | null
+          organization_account_revision_id?: string | null
+          organization_permission_revision_id?: string | null
+          owner_principal_revision?: number | null
+          payer_kind?: string
+          payer_user_id?: string | null
+          preference_revision_id?: string | null
+          quote_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "spending_quote_authority_bind_organization_account_revisio_fkey"
+            columns: ["organization_account_revision_id"]
+            isOneToOne: false
+            referencedRelation: "organization_funding_account_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "spending_quote_authority_bind_organization_permission_revi_fkey"
+            columns: ["organization_permission_revision_id"]
+            isOneToOne: false
+            referencedRelation: "organization_shared_spend_permission_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "spending_quote_authority_bindings_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "spending_quote_authority_bindings_preference_revision_id_fkey"
+            columns: ["preference_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_funding_preference_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "spending_quote_authority_bindings_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stripe_customer_environment_identifiers: {
+        Row: {
+          created_at: string
+          evidence_json: Json
+          financial_environment: string
+          stripe_customer_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          evidence_json?: Json
+          financial_environment: string
+          stripe_customer_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          evidence_json?: Json
+          financial_environment?: string
+          stripe_customer_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      subscription_cycle_adjustments: {
+        Row: {
+          adjusted_at: string
+          adjustment_type: string
+          amount_micros: number
+          created_at: string
+          discrepancy_expense_micros: number
+          evidence_json: Json
+          id: string
+          journal_event_id: string
+          liability_release_micros: number
+          provider_object_id: string
+          receipt_id: string
+          stripe_event_id: string
+        }
+        Insert: {
+          adjusted_at: string
+          adjustment_type: string
+          amount_micros: number
+          created_at?: string
+          discrepancy_expense_micros: number
+          evidence_json?: Json
+          id: string
+          journal_event_id: string
+          liability_release_micros: number
+          provider_object_id: string
+          receipt_id: string
+          stripe_event_id: string
+        }
+        Update: {
+          adjusted_at?: string
+          adjustment_type?: string
+          amount_micros?: number
+          created_at?: string
+          discrepancy_expense_micros?: number
+          evidence_json?: Json
+          id?: string
+          journal_event_id?: string
+          liability_release_micros?: number
+          provider_object_id?: string
+          receipt_id?: string
+          stripe_event_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_cycle_adjustments_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscription_cycle_adjustments_receipt_id_fkey"
+            columns: ["receipt_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_cycle_receipts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscription_cycle_receipts: {
+        Row: {
+          created_at: string
+          currency: string
+          gross_amount_micros: number
+          id: string
+          journal_event_id: string
+          metadata_json: Json
+          period_end: string
+          period_start: string
+          plan_item_id: string
+          purchase_type: string
+          received_at: string
+          stripe_event_id: string
+          stripe_invoice_id: string
+          stripe_mode: string
+          stripe_payment_intent_id: string | null
+          stripe_subscription_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency: string
+          gross_amount_micros: number
+          id: string
+          journal_event_id: string
+          metadata_json?: Json
+          period_end: string
+          period_start: string
+          plan_item_id: string
+          purchase_type: string
+          received_at: string
+          stripe_event_id: string
+          stripe_invoice_id: string
+          stripe_mode: string
+          stripe_payment_intent_id?: string | null
+          stripe_subscription_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          gross_amount_micros?: number
+          id?: string
+          journal_event_id?: string
+          metadata_json?: Json
+          period_end?: string
+          period_start?: string
+          plan_item_id?: string
+          purchase_type?: string
+          received_at?: string
+          stripe_event_id?: string
+          stripe_invoice_id?: string
+          stripe_mode?: string
+          stripe_payment_intent_id?: string | null
+          stripe_subscription_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_cycle_receipts_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_expenses: {
+        Row: {
+          amount_micros: number | null
+          component_code: string
+          created_at: string
+          currency: string
+          evidence_json: Json
+          evidence_status: string
+          expense_key: string
+          id: string
+          incurred_at: string
+          obligation_status: string
+          provider: string
+          provider_reference: string | null
+          reservation_id: string
+        }
+        Insert: {
+          amount_micros?: number | null
+          component_code: string
+          created_at?: string
+          currency: string
+          evidence_json?: Json
+          evidence_status: string
+          expense_key: string
+          id: string
+          incurred_at: string
+          obligation_status: string
+          provider: string
+          provider_reference?: string | null
+          reservation_id: string
+        }
+        Update: {
+          amount_micros?: number | null
+          component_code?: string
+          created_at?: string
+          currency?: string
+          evidence_json?: Json
+          evidence_status?: string
+          expense_key?: string
+          id?: string
+          incurred_at?: string
+          obligation_status?: string
+          provider?: string
+          provider_reference?: string | null
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_expenses_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_recoveries: {
+        Row: {
+          amount_micros: number
+          created_at: string
+          currency: string
+          evidence_json: Json
+          evidence_status: string
+          id: string
+          provider_reference: string
+          recovered_at: string
+          recovery_key: string
+          supplier_expense_id: string
+        }
+        Insert: {
+          amount_micros: number
+          created_at?: string
+          currency: string
+          evidence_json?: Json
+          evidence_status: string
+          id: string
+          provider_reference: string
+          recovered_at: string
+          recovery_key: string
+          supplier_expense_id: string
+        }
+        Update: {
+          amount_micros?: number
+          created_at?: string
+          currency?: string
+          evidence_json?: Json
+          evidence_status?: string
+          id?: string
+          provider_reference?: string
+          recovered_at?: string
+          recovery_key?: string
+          supplier_expense_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_recoveries_supplier_expense_id_fkey"
+            columns: ["supplier_expense_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supplier_recovery_claims: {
+        Row: {
+          claim_key: string
+          claimed_amount_micros: number
+          created_at: string
+          currency: string
+          evidence_json: Json
+          external_action_taken: boolean
+          id: string
+          status: string
+          supplier_expense_id: string
+        }
+        Insert: {
+          claim_key: string
+          claimed_amount_micros: number
+          created_at?: string
+          currency: string
+          evidence_json?: Json
+          external_action_taken?: boolean
+          id: string
+          status: string
+          supplier_expense_id: string
+        }
+        Update: {
+          claim_key?: string
+          claimed_amount_micros?: number
+          created_at?: string
+          currency?: string
+          evidence_json?: Json
+          external_action_taken?: boolean
+          id?: string
+          status?: string
+          supplier_expense_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_recovery_claims_supplier_expense_id_fkey"
+            columns: ["supplier_expense_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      supporting_service_plan_observations: {
+        Row: {
+          created_at: string
+          evidence_class: string
+          evidence_period_end: string
+          evidence_period_start: string
+          fixed_charge_micros: number | null
+          id: string
+          observed_at: string
+          plan_name: string
+          provider: string
+          source_key: string
+          source_reference: string
+          usage_json: Json
+        }
+        Insert: {
+          created_at?: string
+          evidence_class: string
+          evidence_period_end: string
+          evidence_period_start: string
+          fixed_charge_micros?: number | null
+          id: string
+          observed_at: string
+          plan_name: string
+          provider: string
+          source_key: string
+          source_reference: string
+          usage_json?: Json
+        }
+        Update: {
+          created_at?: string
+          evidence_class?: string
+          evidence_period_end?: string
+          evidence_period_start?: string
+          fixed_charge_micros?: number | null
+          id?: string
+          observed_at?: string
+          plan_name?: string
+          provider?: string
+          source_key?: string
+          source_reference?: string
+          usage_json?: Json
+        }
+        Relationships: []
+      }
       team_members: {
         Row: {
           created_at: string
@@ -13364,6 +29577,599 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_customer_deposit_consumptions: {
+        Row: {
+          consumed_at: string
+          credit_units_consumed: number
+          deposit_id: string
+          id: string
+          journal_event_id: string
+          operation_id: string
+          recognized_test_revenue_micros: number
+          reservation_id: string
+          user_id: string
+        }
+        Insert: {
+          consumed_at?: string
+          credit_units_consumed: number
+          deposit_id: string
+          id: string
+          journal_event_id: string
+          operation_id: string
+          recognized_test_revenue_micros: number
+          reservation_id: string
+          user_id: string
+        }
+        Update: {
+          consumed_at?: string
+          credit_units_consumed?: number
+          deposit_id?: string
+          id?: string
+          journal_event_id?: string
+          operation_id?: string
+          recognized_test_revenue_micros?: number
+          reservation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_customer_deposit_consumptions_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_customer_deposit_consumptions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_customer_deposit_consumptions_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "test_funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_customer_spending_quote_acceptances: {
+        Row: {
+          acceptance_key: string
+          acceptance_kind: string
+          accepted_at: string
+          accepted_by: string
+          id: string
+          quote_hash: string
+          quote_id: string
+        }
+        Insert: {
+          acceptance_key: string
+          acceptance_kind: string
+          accepted_at?: string
+          accepted_by: string
+          id: string
+          quote_hash: string
+          quote_id: string
+        }
+        Update: {
+          acceptance_key?: string
+          acceptance_kind?: string
+          accepted_at?: string
+          accepted_by?: string
+          id?: string
+          quote_hash?: string
+          quote_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_customer_spending_quote_acceptances_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "test_customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_customer_spending_quotes: {
+        Row: {
+          authorization_id: string
+          billable_failure_maximum_charge_micros: number
+          created_at: string
+          currency: string
+          customer_credit_units: number
+          expires_at: string
+          id: string
+          normal_maximum_charge_micros: number
+          operation_id: string
+          quote_hash: string
+          request_fingerprint: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authorization_id: string
+          billable_failure_maximum_charge_micros: number
+          created_at?: string
+          currency: string
+          customer_credit_units: number
+          expires_at: string
+          id: string
+          normal_maximum_charge_micros: number
+          operation_id: string
+          quote_hash: string
+          request_fingerprint: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          authorization_id?: string
+          billable_failure_maximum_charge_micros?: number
+          created_at?: string
+          currency?: string
+          customer_credit_units?: number
+          expires_at?: string
+          id?: string
+          normal_maximum_charge_micros?: number
+          operation_id?: string
+          quote_hash?: string
+          request_fingerprint?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_customer_spending_quotes_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "test_paid_execution_authorizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_customer_spending_quotes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_funding_reservation_events: {
+        Row: {
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          reservation_id: string
+          sequence: number
+        }
+        Insert: {
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json?: Json
+          id: string
+          reservation_id: string
+          sequence: number
+        }
+        Update: {
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          reservation_id?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_funding_reservation_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "test_funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_funding_reservations: {
+        Row: {
+          created_at: string
+          deposit_id: string
+          execution_kind: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          quote_id: string
+          reserved_credit_units: number
+          reserved_customer_charge_micros: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          deposit_id: string
+          execution_kind: string
+          id: string
+          idempotency_key: string
+          operation_id: string
+          quote_id: string
+          reserved_credit_units: number
+          reserved_customer_charge_micros: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          deposit_id?: string
+          execution_kind?: string
+          id?: string
+          idempotency_key?: string
+          operation_id?: string
+          quote_id?: string
+          reserved_credit_units?: number
+          reserved_customer_charge_micros?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_funding_reservations_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_funding_reservations_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: true
+            referencedRelation: "test_customer_spending_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_hearth_chat_paid_results: {
+        Row: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          persisted_at: string
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_hash: string
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          persisted_at?: string
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id: string
+          result_hash: string
+          result_json: Json
+          user_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          id?: string
+          input_units?: number
+          model?: string
+          operation_id?: string
+          output_units?: number
+          persisted_at?: string
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string
+          result_hash?: string
+          result_json?: Json
+          user_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_hearth_chat_paid_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "test_funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_hearth_chat_paid_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_paid_execution_authorization_events: {
+        Row: {
+          actor_id: string
+          authorization_id: string
+          created_at: string
+          event_key: string
+          event_type: string
+          id: string
+          reason: string
+          sequence: number
+        }
+        Insert: {
+          actor_id: string
+          authorization_id: string
+          created_at?: string
+          event_key: string
+          event_type: string
+          id: string
+          reason: string
+          sequence: number
+        }
+        Update: {
+          actor_id?: string
+          authorization_id?: string
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          id?: string
+          reason?: string
+          sequence?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_paid_execution_authorization_events_authorization_id_fkey"
+            columns: ["authorization_id"]
+            isOneToOne: false
+            referencedRelation: "test_paid_execution_authorizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_paid_execution_authorizations: {
+        Row: {
+          created_at: string
+          created_by: string
+          deposit_id: string
+          expires_at: string
+          id: string
+          maximum_aggregate_charge_micros: number
+          maximum_operations: number
+          model: string
+          pricing_revision_id: string
+          route_code: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          deposit_id: string
+          expires_at: string
+          id: string
+          maximum_aggregate_charge_micros: number
+          maximum_operations: number
+          model: string
+          pricing_revision_id: string
+          route_code: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          deposit_id?: string
+          expires_at?: string
+          id?: string
+          maximum_aggregate_charge_micros?: number
+          maximum_operations?: number
+          model?: string
+          pricing_revision_id?: string
+          route_code?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_paid_execution_authorizations_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "customer_deposits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_paid_execution_authorizations_pricing_revision_id_fkey"
+            columns: ["pricing_revision_id"]
+            isOneToOne: false
+            referencedRelation: "private_pricing_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_paid_execution_authorizations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_paid_execution_evidence: {
+        Row: {
+          created_at: string
+          evidence_json: Json
+          evidence_key: string
+          evidence_kind: string
+          id: string
+          reservation_id: string
+        }
+        Insert: {
+          created_at?: string
+          evidence_json: Json
+          evidence_key: string
+          evidence_kind: string
+          id: string
+          reservation_id: string
+        }
+        Update: {
+          created_at?: string
+          evidence_json?: Json
+          evidence_key?: string
+          evidence_kind?: string
+          id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_paid_execution_evidence_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "test_funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_paid_execution_settlements: {
+        Row: {
+          customer_charge_micros: number
+          evidence_json: Json
+          failure_class: string | null
+          id: string
+          outcome: string
+          reservation_id: string
+          settled_at: string
+          settlement_key: string
+        }
+        Insert: {
+          customer_charge_micros: number
+          evidence_json?: Json
+          failure_class?: string | null
+          id: string
+          outcome: string
+          reservation_id: string
+          settled_at?: string
+          settlement_key: string
+        }
+        Update: {
+          customer_charge_micros?: number
+          evidence_json?: Json
+          failure_class?: string | null
+          id?: string
+          outcome?: string
+          reservation_id?: string
+          settled_at?: string
+          settlement_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_paid_execution_settlements_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "test_funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_refill_consumptions: {
+        Row: {
+          created_at: string
+          credit_units: number
+          grant_id: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          operation_id: string
+          provider_mode: string
+        }
+        Insert: {
+          created_at?: string
+          credit_units: number
+          grant_id: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          operation_id: string
+          provider_mode: string
+        }
+        Update: {
+          created_at?: string
+          credit_units?: number
+          grant_id?: string
+          id?: string
+          idempotency_key?: string
+          journal_event_id?: string
+          operation_id?: string
+          provider_mode?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_refill_consumptions_grant_id_fkey"
+            columns: ["grant_id"]
+            isOneToOne: false
+            referencedRelation: "test_refill_grants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "test_refill_consumptions_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      test_refill_grants: {
+        Row: {
+          created_at: string
+          credit_units: number
+          expires_at: string | null
+          granted_by: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          reason: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          credit_units: number
+          expires_at?: string | null
+          granted_by: string
+          id: string
+          idempotency_key: string
+          journal_event_id: string
+          reason: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          credit_units?: number
+          expires_at?: string | null
+          granted_by?: string
+          id?: string
+          idempotency_key?: string
+          journal_event_id?: string
+          reason?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "test_refill_grants_journal_event_id_fkey"
+            columns: ["journal_event_id"]
+            isOneToOne: true
+            referencedRelation: "accounting_journal_events"
             referencedColumns: ["id"]
           },
         ]
@@ -14475,6 +31281,38 @@ export type Database = {
           },
         ]
       }
+      unified_visual_plan_historical_authorities: {
+        Row: {
+          grandfathered_at: string
+          migration_version: string
+          operation_id: string
+          provider_response_hash: string
+          receipt_hash: string
+        }
+        Insert: {
+          grandfathered_at?: string
+          migration_version: string
+          operation_id: string
+          provider_response_hash: string
+          receipt_hash: string
+        }
+        Update: {
+          grandfathered_at?: string
+          migration_version?: string
+          operation_id?: string
+          provider_response_hash?: string
+          receipt_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unified_visual_plan_historical_authorities_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: true
+            referencedRelation: "unified_visual_plan_operations"
+            referencedColumns: ["operation_id"]
+          },
+        ]
+      }
       unified_visual_plan_operations: {
         Row: {
           broll_plan_content_hash: string | null
@@ -14497,6 +31335,7 @@ export type Database = {
           normalized_inputs_json: Json
           operation_fingerprint: string
           operation_id: string
+          owner_cost_attempt_id: string | null
           provider_response_hash: string | null
           provider_response_json: Json | null
           receipt_json: Json | null
@@ -14537,6 +31376,7 @@ export type Database = {
           normalized_inputs_json: Json
           operation_fingerprint: string
           operation_id: string
+          owner_cost_attempt_id?: string | null
           provider_response_hash?: string | null
           provider_response_json?: Json | null
           receipt_json?: Json | null
@@ -14577,6 +31417,7 @@ export type Database = {
           normalized_inputs_json?: Json
           operation_fingerprint?: string
           operation_id?: string
+          owner_cost_attempt_id?: string | null
           provider_response_hash?: string | null
           provider_response_json?: Json | null
           receipt_json?: Json | null
@@ -14637,6 +31478,198 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
+          },
+        ]
+      }
+      unified_visual_plan_persistence_reconciliation_events: {
+        Row: {
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          operation_id: string
+          provider_capture_id: string
+          reservation_id: string
+          supplier_expense_id: string
+          usage_evidence_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          operation_id: string
+          provider_capture_id: string
+          reservation_id: string
+          supplier_expense_id: string
+          usage_evidence_id: string
+        }
+        Update: {
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          operation_id?: string
+          provider_capture_id?: string
+          reservation_id?: string
+          supplier_expense_id?: string
+          usage_evidence_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unified_visual_plan_persistence_reconc_provider_capture_id_fkey"
+            columns: ["provider_capture_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_provider_captures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_persistence_reconc_supplier_expense_id_fkey"
+            columns: ["supplier_expense_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_persistence_reconcil_usage_evidence_id_fkey"
+            columns: ["usage_evidence_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_usage_evidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_persistence_reconciliat_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_persistence_reconciliatio_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "unified_visual_plan_operations"
+            referencedColumns: ["operation_id"]
+          },
+        ]
+      }
+      unified_visual_plan_reconciliation_events: {
+        Row: {
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          operation_id: string
+          provider_capture_id: string
+          reservation_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          id: string
+          operation_id: string
+          provider_capture_id: string
+          reservation_id: string
+        }
+        Update: {
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          operation_id?: string
+          provider_capture_id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unified_visual_plan_reconciliation_eve_provider_capture_id_fkey"
+            columns: ["provider_capture_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_provider_captures"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_reconciliation_events_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "unified_visual_plan_operations"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_reconciliation_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      unified_visual_plan_transport_recovery_events: {
+        Row: {
+          created_at: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          failure_exposure_hold_id: string
+          id: string
+          operation_id: string
+          reservation_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_key: string
+          event_type: string
+          evidence_json: Json
+          failure_exposure_hold_id: string
+          id: string
+          operation_id: string
+          reservation_id: string
+        }
+        Update: {
+          created_at?: string
+          event_key?: string
+          event_type?: string
+          evidence_json?: Json
+          failure_exposure_hold_id?: string
+          id?: string
+          operation_id?: string
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unified_visual_plan_transport_rec_failure_exposure_hold_id_fkey"
+            columns: ["failure_exposure_hold_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_failure_exposure_holds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_transport_recovery_even_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_transport_recovery_events_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "unified_visual_plan_operations"
+            referencedColumns: ["operation_id"]
           },
         ]
       }
@@ -14741,6 +31774,193 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_narrative_interpretation_canonical_receipts: {
+        Row: {
+          canonical_content_hash: string
+          canonical_prompt_revision_id: string
+          committed_at: string
+          result_id: string
+        }
+        Insert: {
+          canonical_content_hash: string
+          canonical_prompt_revision_id: string
+          committed_at?: string
+          result_id: string
+        }
+        Update: {
+          canonical_content_hash?: string
+          canonical_prompt_revision_id?: string
+          committed_at?: string
+          result_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_narrative_interpretati_canonical_prompt_revision_id_fkey"
+            columns: ["canonical_prompt_revision_id"]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_narrative_interpretation_canonical_receip_result_id_fkey"
+            columns: ["result_id"]
+            isOneToOne: true
+            referencedRelation: "visual_narrative_interpretation_results"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_narrative_interpretation_results: {
+        Row: {
+          contracts_json: Json
+          created_at: string
+          creator_direction: string
+          customer_operation_id: string | null
+          id: string
+          image_map_revision: number
+          image_map_revision_id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id: string | null
+          provider_body_sha256: string
+          provider_request_id: string | null
+          request_fingerprint: string
+          reservation_id: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          synthesized_prompt: string
+          user_id: string
+          visual_brief_json: Json
+          visual_style: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          contracts_json: Json
+          created_at?: string
+          creator_direction: string
+          customer_operation_id?: string | null
+          id: string
+          image_map_revision: number
+          image_map_revision_id: string
+          input_units: number
+          model: string
+          operation_id: string
+          output_units: number
+          owner_cost_attempt_id?: string | null
+          provider_body_sha256: string
+          provider_request_id?: string | null
+          request_fingerprint: string
+          reservation_id?: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          synthesized_prompt: string
+          user_id: string
+          visual_brief_json: Json
+          visual_style?: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          contracts_json?: Json
+          created_at?: string
+          creator_direction?: string
+          customer_operation_id?: string | null
+          id?: string
+          image_map_revision?: number
+          image_map_revision_id?: string
+          input_units?: number
+          model?: string
+          operation_id?: string
+          output_units?: number
+          owner_cost_attempt_id?: string | null
+          provider_body_sha256?: string
+          provider_request_id?: string | null
+          request_fingerprint?: string
+          reservation_id?: string | null
+          script_approval_id?: string
+          script_approval_revision?: number
+          synthesized_prompt?: string
+          user_id?: string
+          visual_brief_json?: Json
+          visual_style?: string | null
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_narrative_interpretati_image_map_revision_id_worksp_fkey"
+            columns: [
+              "image_map_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_map_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "visual_narrative_interpretati_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "visual_narrative_interpretation__workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "visual_narrative_interpretation_results_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: true
+            referencedRelation: "funding_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_narrative_interpretation_results_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_narrative_results_customer_operation_fkey"
+            columns: ["customer_operation_id"]
+            isOneToOne: false
+            referencedRelation: "openai_text_funding_bindings"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "visual_narrative_results_owner_attempt_fkey"
+            columns: ["owner_cost_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "owner_cost_provider_attempts"
+            referencedColumns: ["attempt_id"]
           },
         ]
       }
@@ -14881,6 +32101,152 @@ export type Database = {
               "opportunity_id",
               "revision",
             ]
+          },
+        ]
+      }
+      visual_source_attribution_members: {
+        Row: {
+          attribution_revision_id: string
+          id: string
+          ordinal: number
+          role: string
+          source_revision_id: string
+          workpiece_id: string
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Insert: {
+          attribution_revision_id: string
+          id?: string
+          ordinal: number
+          role: string
+          source_revision_id: string
+          workpiece_id: string
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Update: {
+          attribution_revision_id?: string
+          id?: string
+          ordinal?: number
+          role?: string
+          source_revision_id?: string
+          workpiece_id?: string
+          workpiece_source_link_revision_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_source_attribution_mem_workpiece_source_link_revisi_fkey"
+            columns: ["workpiece_source_link_revision_id"]
+            isOneToOne: false
+            referencedRelation: "workpiece_source_link_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_source_attribution_members_attribution_revision_id_fkey"
+            columns: ["attribution_revision_id"]
+            isOneToOne: false
+            referencedRelation: "visual_source_attribution_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_source_attribution_members_source_revision_id_fkey"
+            columns: ["source_revision_id"]
+            isOneToOne: false
+            referencedRelation: "source_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_source_attribution_revisions: {
+        Row: {
+          artifact_family: string
+          child_plan_revision_id: string
+          created_at: string
+          created_by: string
+          id: string
+          immutable_revision_hash: string
+          model_evidence_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          rationale: string
+          relationship: string
+          revision: number
+          script_approval_id: string
+          state: string
+          unified_plan_operation_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          artifact_family: string
+          child_plan_revision_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          immutable_revision_hash: string
+          model_evidence_json?: Json
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          rationale?: string
+          relationship: string
+          revision: number
+          script_approval_id: string
+          state: string
+          unified_plan_operation_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          artifact_family?: string
+          child_plan_revision_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          immutable_revision_hash?: string
+          model_evidence_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          opportunity_id?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          rationale?: string
+          relationship?: string
+          revision?: number
+          script_approval_id?: string
+          state?: string
+          unified_plan_operation_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_source_attribution_revisi_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "visual_source_attribution_revisions_previous_revision_id_fkey"
+            columns: ["previous_revision_id"]
+            isOneToOne: false
+            referencedRelation: "visual_source_attribution_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_source_attribution_revisions_script_approval_id_fkey"
+            columns: ["script_approval_id"]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -15205,6 +32571,118 @@ export type Database = {
           },
         ]
       }
+      workpiece_hearth_preflight_sequences: {
+        Row: {
+          current_report_id: string | null
+          current_revision: number
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_report_id?: string | null
+          current_revision?: number
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_report_id?: string | null
+          current_revision?: number
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_hearth_preflight_se_current_report_id_workspace__fkey"
+            columns: [
+              "current_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "current_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "workpiece_hearth_preflight_seque_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workpiece_hearth_preflight_sequences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workpiece_hearth_research_sequences: {
+        Row: {
+          current_artifact_id: string | null
+          current_revision: number
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_artifact_id?: string | null
+          current_revision?: number
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_artifact_id?: string | null
+          current_revision?: number
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_hearth_research_seq_current_artifact_id_workspac_fkey"
+            columns: [
+              "current_artifact_id",
+              "workspace_id",
+              "workpiece_id",
+              "current_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_research_artifact_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "workpiece_hearth_research_sequen_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "workpiece_hearth_research_sequences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workpiece_image_map_sequences: {
         Row: {
           current_revision: number
@@ -15346,7 +32824,12 @@ export type Database = {
         Row: {
           marked_ready_at: string
           marked_ready_by: string
+          preflight_report_id: string | null
+          preflight_report_revision: number | null
+          preflight_script_hash: string | null
           publish_evidence: Json | null
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
           script_approval_hash: string | null
           script_approval_id: string | null
           script_approval_revision: number | null
@@ -15362,7 +32845,12 @@ export type Database = {
         Insert: {
           marked_ready_at?: string
           marked_ready_by: string
+          preflight_report_id?: string | null
+          preflight_report_revision?: number | null
+          preflight_script_hash?: string | null
           publish_evidence?: Json | null
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
           script_approval_hash?: string | null
           script_approval_id?: string | null
           script_approval_revision?: number | null
@@ -15378,7 +32866,12 @@ export type Database = {
         Update: {
           marked_ready_at?: string
           marked_ready_by?: string
+          preflight_report_id?: string | null
+          preflight_report_revision?: number | null
+          preflight_script_hash?: string | null
           publish_evidence?: Json | null
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
           script_approval_hash?: string | null
           script_approval_id?: string | null
           script_approval_revision?: number | null
@@ -15410,6 +32903,23 @@ export type Database = {
             ]
           },
           {
+            foreignKeyName: "ready_meta_preflight_fkey"
+            columns: [
+              "preflight_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "preflight_report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
             foreignKeyName: "workpiece_ready_script_meta_transition_id_fkey"
             columns: ["transition_id"]
             isOneToOne: false
@@ -15437,8 +32947,13 @@ export type Database = {
           created_at: string
           id: string
           idempotency_key: string
+          preflight_report_id: string | null
+          preflight_report_revision: number | null
+          preflight_script_hash: string | null
           publish_evidence: Json
           request_fingerprint: string
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
           script_approval_hash: string | null
           script_approval_id: string | null
           script_approval_revision: number | null
@@ -15453,8 +32968,13 @@ export type Database = {
           created_at?: string
           id?: string
           idempotency_key: string
+          preflight_report_id?: string | null
+          preflight_report_revision?: number | null
+          preflight_script_hash?: string | null
           publish_evidence: Json
           request_fingerprint: string
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
           script_approval_hash?: string | null
           script_approval_id?: string | null
           script_approval_revision?: number | null
@@ -15469,8 +32989,13 @@ export type Database = {
           created_at?: string
           id?: string
           idempotency_key?: string
+          preflight_report_id?: string | null
+          preflight_report_revision?: number | null
+          preflight_script_hash?: string | null
           publish_evidence?: Json
           request_fingerprint?: string
+          research_artifact_hash?: string | null
+          research_artifact_id?: string | null
           script_approval_hash?: string | null
           script_approval_id?: string | null
           script_approval_revision?: number | null
@@ -15497,6 +33022,23 @@ export type Database = {
               "workspace_id",
               "workpiece_id",
               "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "ready_transition_preflight_fkey"
+            columns: [
+              "preflight_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "preflight_report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
             ]
           },
           {
@@ -15790,6 +33332,59 @@ export type Database = {
             foreignKeyName: "workspace_default_brand_profiles_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspace_discovery_preferences: {
+        Row: {
+          auto_refresh_authorized: boolean
+          created_at: string
+          editorial_scope: string | null
+          enabled: boolean
+          genre: string
+          language: string | null
+          region: string | null
+          revision: number
+          topic_interests: string[]
+          updated_at: string
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          auto_refresh_authorized?: boolean
+          created_at?: string
+          editorial_scope?: string | null
+          enabled?: boolean
+          genre: string
+          language?: string | null
+          region?: string | null
+          revision?: number
+          topic_interests?: string[]
+          updated_at?: string
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          auto_refresh_authorized?: boolean
+          created_at?: string
+          editorial_scope?: string | null
+          enabled?: boolean
+          genre?: string
+          language?: string | null
+          region?: string | null
+          revision?: number
+          topic_interests?: string[]
+          updated_at?: string
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_discovery_preferences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -16116,32 +33711,35 @@ export type Database = {
         Row: {
           adaptive_style_ai_accelerate_enabled: boolean
           adaptive_style_alignment_enabled: boolean
-          reference_material_review_enabled: boolean
           created_at: string
           created_by: string | null
           id: string
           name: string
           org_id: string
+          reference_material_review_enabled: boolean
+          updated_at: string
         }
         Insert: {
           adaptive_style_ai_accelerate_enabled?: boolean
           adaptive_style_alignment_enabled?: boolean
-          reference_material_review_enabled?: boolean
           created_at?: string
           created_by?: string | null
           id?: string
-          name?: string
+          name: string
           org_id: string
+          reference_material_review_enabled?: boolean
+          updated_at?: string
         }
         Update: {
           adaptive_style_ai_accelerate_enabled?: boolean
           adaptive_style_alignment_enabled?: boolean
-          reference_material_review_enabled?: boolean
           created_at?: string
           created_by?: string | null
           id?: string
           name?: string
           org_id?: string
+          reference_material_review_enabled?: boolean
+          updated_at?: string
         }
         Relationships: [
           {
@@ -16149,6 +33747,158 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      youtube_publication_job_secrets: {
+        Row: {
+          credential_generation_id: string | null
+          encrypted_resumable_session_uri: string | null
+          job_id: string
+          provider_request_id: string | null
+          raw_transport_evidence: Json
+          session_ciphertext_version: string | null
+          session_encryption_key_version: string | null
+          updated_at: string
+        }
+        Insert: {
+          credential_generation_id?: string | null
+          encrypted_resumable_session_uri?: string | null
+          job_id: string
+          provider_request_id?: string | null
+          raw_transport_evidence?: Json
+          session_ciphertext_version?: string | null
+          session_encryption_key_version?: string | null
+          updated_at?: string
+        }
+        Update: {
+          credential_generation_id?: string | null
+          encrypted_resumable_session_uri?: string | null
+          job_id?: string
+          provider_request_id?: string | null
+          raw_transport_evidence?: Json
+          session_ciphertext_version?: string | null
+          session_encryption_key_version?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "youtube_publication_job_secrets_credential_generation_id_fkey"
+            columns: ["credential_generation_id"]
+            isOneToOne: false
+            referencedRelation: "publishing_provider_credential_generations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "youtube_publication_job_secrets_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: true
+            referencedRelation: "youtube_publication_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      youtube_publication_jobs: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          current_stage: string
+          external_object_id: string | null
+          external_url: string | null
+          finalized_package_id: string
+          id: string
+          last_heartbeat_at: string | null
+          lease_expires_at: string | null
+          lease_owner: string | null
+          next_run_at: string
+          provider_processing_state: string | null
+          publication_attempt_id: string
+          publication_operation_id: string
+          retryable: boolean
+          state: string
+          total_bytes: number
+          transferred_bytes: number
+          updated_at: string
+          user_action_code: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          current_stage: string
+          external_object_id?: string | null
+          external_url?: string | null
+          finalized_package_id: string
+          id?: string
+          last_heartbeat_at?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          next_run_at?: string
+          provider_processing_state?: string | null
+          publication_attempt_id: string
+          publication_operation_id: string
+          retryable?: boolean
+          state: string
+          total_bytes?: number
+          transferred_bytes?: number
+          updated_at?: string
+          user_action_code?: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          current_stage?: string
+          external_object_id?: string | null
+          external_url?: string | null
+          finalized_package_id?: string
+          id?: string
+          last_heartbeat_at?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          next_run_at?: string
+          provider_processing_state?: string | null
+          publication_attempt_id?: string
+          publication_operation_id?: string
+          retryable?: boolean
+          state?: string
+          total_bytes?: number
+          transferred_bytes?: number
+          updated_at?: string
+          user_action_code?: string | null
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "youtube_publication_jobs_finalized_package_id_fkey"
+            columns: ["finalized_package_id"]
+            isOneToOne: false
+            referencedRelation: "quench_destination_package_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "youtube_publication_jobs_finalized_package_id_workspace_id_fkey"
+            columns: ["finalized_package_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "quench_destination_package_revisions"
+            referencedColumns: ["id", "workspace_id", "workpiece_id"]
+          },
+          {
+            foreignKeyName: "youtube_publication_jobs_publication_attempt_id_fkey"
+            columns: ["publication_attempt_id"]
+            isOneToOne: true
+            referencedRelation: "publication_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "youtube_publication_jobs_publication_operation_id_fkey"
+            columns: ["publication_operation_id"]
+            isOneToOne: false
+            referencedRelation: "publication_operations"
             referencedColumns: ["id"]
           },
         ]
@@ -16241,7 +33991,13 @@ export type Database = {
         Row: {
           marked_ready_at: string | null
           marked_ready_by: string | null
+          preflight_report_id: string | null
+          preflight_report_revision: number | null
+          preflight_reviewed_at: string | null
+          preflight_script_hash: string | null
           publish_evidence: Json | null
+          research_artifact_hash: string | null
+          research_artifact_id: string | null
           script_approval_hash: string | null
           script_approval_id: string | null
           script_approval_revision: number | null
@@ -16270,6 +34026,23 @@ export type Database = {
               "workspace_id",
               "workpiece_id",
               "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "ready_meta_preflight_fkey"
+            columns: [
+              "preflight_report_id",
+              "workspace_id",
+              "workpiece_id",
+              "preflight_report_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "hearth_editorial_preflight_reports"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
             ]
           },
           {
@@ -16325,50 +34098,242 @@ export type Database = {
       user_ai_keys_safe: {
         Row: {
           created_at: string | null
-          key_label: string | null
-          key_version: number | null
-          last_used_at: string | null
-          last_validated_at: string | null
-          last_validation_status: string | null
           provider: string | null
-          provider_account_id: string | null
-          status: string | null
           updated_at: string | null
           user_id: string | null
-          validation_mode: string | null
         }
         Insert: {
           created_at?: string | null
-          key_label?: string | null
-          key_version?: number | null
-          last_used_at?: string | null
-          last_validated_at?: string | null
-          last_validation_status?: string | null
           provider?: string | null
-          provider_account_id?: string | null
-          status?: string | null
           updated_at?: string | null
           user_id?: string | null
-          validation_mode?: string | null
         }
         Update: {
           created_at?: string | null
-          key_label?: string | null
-          key_version?: number | null
-          last_used_at?: string | null
-          last_validated_at?: string | null
-          last_validation_status?: string | null
           provider?: string | null
-          provider_account_id?: string | null
-          status?: string | null
           updated_at?: string | null
           user_id?: string | null
-          validation_mode?: string | null
+        }
+        Relationships: []
+      }
+      v_calendar_events: {
+        Row: {}
+        Relationships: []
+      }
+      v_scripts_effective: {
+        Row: {
+          base_state: Database["tongs"]["Enums"]["script_base_state"] | null
+          body_anvil: string | null
+          created_at: string | null
+          effective_state:
+            | Database["tongs"]["Enums"]["script_effective_state"]
+            | null
+          effective_state_overridden_at: string | null
+          id: string | null
+          origin_spark_id: string | null
+          owner_user_id: string | null
+          relevance: Database["tongs"]["Enums"]["script_relevance"] | null
+          revision: number | null
+          title_working: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
+      v_scripts_ready_for_schedule: {
+        Row: {
+          base_state: Database["tongs"]["Enums"]["script_base_state"] | null
+          body_anvil: string | null
+          created_at: string | null
+          effective_state:
+            | Database["tongs"]["Enums"]["script_effective_state"]
+            | null
+          effective_state_overridden_at: string | null
+          id: string | null
+          origin_spark_id: string | null
+          owner_user_id: string | null
+          relevance: Database["tongs"]["Enums"]["script_relevance"] | null
+          revision: number | null
+          title_working: string | null
+          updated_at: string | null
         }
         Relationships: []
       }
     }
     Functions: {
+      _accounting_payload_hash: { Args: { p_payload: Json }; Returns: string }
+      _activate_owner_paid_execution_test_canary: {
+        Args: {
+          p_activation_id: string
+          p_actor_id: string
+          p_budget_id: string
+          p_reason: string
+          p_scope_id: string
+        }
+        Returns: Json
+      }
+      _active_customer_paid_execution_test_authorization_for_quote: {
+        Args: { p_quote_id: string }
+        Returns: {
+          authorization_expires_at: string
+          cost_policy_revision_id: string
+          created_at: string
+          created_by: string
+          id: string
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number
+          model: string
+          pricing_revision_id: string
+          provider: string
+          reason: string
+          route_code: string
+          user_id: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "customer_paid_execution_test_authorizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _active_funding_hold: {
+        Args: { p_source_id: string; p_source_type: string }
+        Returns: {
+          credit_units: number
+          customer_charge_micros: number
+          wholesale_spend_micros: number
+        }[]
+      }
+      _active_hammer_owner_sponsorship_for_quote: {
+        Args: { p_quote_id: string }
+        Returns: {
+          activation_authority_id: string
+          automatic_retries: number
+          beneficiary_user_id: string
+          canonical_recording_id: string
+          completion_id: string
+          created_at: string
+          customer_credit_units: number
+          customer_payment_micros: number
+          id: string
+          maximum_operations: number
+          maximum_provider_attempts: number
+          maximum_wholesale_exposure_micros: number
+          media_sha256: string
+          owner_budget_id: string
+          reason: string
+          recording_revision_id: string
+          reference_customer_credit_units: number
+          sponsor_operator_id: string
+          status: string
+          supplier_ceiling_micros: number
+          supporting_ceiling_micros: number
+          valid_from: string
+          valid_until: string
+          verified_duration_ms: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "hammer_owner_funded_transcription_authorities"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _active_owner_only_paid_execution_scope: {
+        Args: {
+          p_cost_policy_revision_id: string
+          p_financial_environment: string
+          p_model_or_sku: string
+          p_owner_user_id: string
+          p_pricing_revision_id: string
+          p_route_code: string
+          p_workspace_id: string
+        }
+        Returns: {
+          authorization_kind: string
+          cost_policy_revision_id: string | null
+          created_at: string
+          created_by: string
+          financial_environment: string
+          id: string
+          maximum_concurrency: number
+          maximum_customer_charge_micros: number
+          maximum_operation_count: number | null
+          maximum_wholesale_exposure_micros: number
+          model_or_sku: string
+          pricing_revision_id: string
+          provider: string
+          reason: string
+          rolling_window_seconds: number | null
+          route_code: string
+          status: string
+          user_id: string
+          valid_from: string
+          valid_until: string | null
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "customer_paid_execution_scope_authorizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _active_owner_paid_execution_canary_for_scope: {
+        Args: { p_budget_id?: string; p_scope_id: string }
+        Returns: {
+          actor_id: string
+          created_at: string
+          execution_scope_authorization_id: string
+          id: string
+          maximum_operation_count: number
+          owner_budget_id: string
+          previous_revision_id: string | null
+          reason: string
+          revision: number
+          state: string
+          valid_from: string
+          valid_until: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "owner_paid_execution_canary_activation_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _active_paid_execution_aggregate_assignment: {
+        Args: {
+          p_environment: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: {
+          created_at: string
+          id: string
+          policy_revision_id: string
+          reason: string
+          state: string
+          user_id: string
+          valid_from: string
+          valid_until: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "paid_execution_aggregate_assignments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _aggregate_funding_class: {
+        Args: {
+          p_reservation: Database["tongs"]["Tables"]["funding_reservations"]["Row"]
+        }
+        Returns: string
+      }
       _ai_credit_active_holds: { Args: { p_user_id: string }; Returns: number }
       _ai_pricing_ceil_fraction: {
         Args: { p_denominator: number; p_numerator: number }
@@ -16378,13 +34343,465 @@ export type Database = {
         Args: { p_left: number; p_right: number }
         Returns: number
       }
+      _assert_accounting_event_balanced: {
+        Args: { p_event_id: string }
+        Returns: undefined
+      }
+      _assert_openai_text_domain_result_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: undefined
+      }
+      _assert_owner_hearth_image_result_authority: {
+        Args: {
+          p_financial_environment: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_owner_cost_attempt_id: string
+          p_provider_request_id: string
+          p_route_code: string
+          p_runtime_environment: string
+          p_service: string
+          p_sku: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      _assert_owner_hearth_operation_attempt: {
+        Args: {
+          p_allowed_states: string[]
+          p_financial_environment: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_owner_cost_attempt_id: string
+          p_provider: string
+          p_route_code: string
+          p_runtime_environment: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      _assert_owner_hearth_result_authority: {
+        Args: {
+          p_financial_environment: string
+          p_model: string
+          p_owner_cost_attempt_id: string
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_runtime_environment: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      _assert_owner_hearth_script_approval: {
+        Args: {
+          p_approval_id: string
+          p_approval_revision: number
+          p_script_content_hash: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: undefined
+      }
+      _assert_owner_unified_visual_plan_persistence_authority: {
+        Args: {
+          p_created_by: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_owner_cost_attempt_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: undefined
+      }
+      _authorize_openai_text_provider_attempt_before_customer_test_sc: {
+        Args: {
+          p_attempt_key: string
+          p_attempt_number: number
+          p_evidence_json?: Json
+          p_failure_exposure_micros: number
+          p_lease_seconds: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      _available_deposit_credit_units: {
+        Args: { p_deposit_id: string }
+        Returns: number
+      }
+      _available_deposit_value_micros: {
+        Args: { p_deposit_id: string }
+        Returns: number
+      }
+      _create_accounting_event: {
+        Args: {
+          p_actor_id: string
+          p_currency: string
+          p_environment: string
+          p_event_id: string
+          p_event_type: string
+          p_idempotency_key: string
+          p_occurred_at: string
+          p_payload: Json
+          p_source_id: string
+          p_source_type: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: boolean
+      }
+      _create_customer_runway_quote_before_customer_test_scope: {
+        Args: {
+          p_duration_seconds: number
+          p_expires_at: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_quote_id: string
+          p_ratio: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      _create_customer_runway_quote_before_gen45_customer_test: {
+        Args: {
+          p_duration_seconds: number
+          p_expires_at: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_quote_id: string
+          p_ratio: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      _credential_lifecycle_metadata_safe: {
+        Args: { p_value: Json }
+        Returns: boolean
+      }
+      _current_financial_environment: { Args: never; Returns: string }
+      _current_openai_text_failure_loss_rollout: {
+        Args: { p_financial_environment: string; p_route_code: string }
+        Returns: {
+          actor_id: string | null
+          created_at: string
+          financial_environment: string
+          loss_policy_revision_id: string
+          mode: string
+          operator_decision_id: string | null
+          reason: string
+          revision: number
+          route_code: string
+          source_limit_event_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "openai_text_failure_loss_rollout_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _current_openai_text_rollout: {
+        Args: { p_route_code: string }
+        Returns: {
+          actor_id: string | null
+          cost_policy_revision_id: string | null
+          created_at: string
+          funding_scope: string
+          mode: string
+          reason: string
+          revision: number
+          route_code: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "openai_text_rollout_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _current_paid_execution_control: {
+        Args: never
+        Returns: {
+          actor_id: string | null
+          created_at: string
+          customer_settlement_enabled: boolean
+          owner_budget_spending_enabled: boolean
+          pricing_activation_enabled: boolean
+          provider_execution_enabled: boolean
+          reason: string
+          reservation_shadow_enabled: boolean
+          revision: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "paid_execution_control_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _current_runway_execution_rollout: {
+        Args: never
+        Returns: {
+          actor_id: string | null
+          created_at: string
+          mode: string
+          reason: string
+          revision: number
+        }
+        SetofOptions: {
+          from: "*"
+          to: "runway_execution_rollout_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _effective_deposit_credit_units: {
+        Args: { p_deposit_id: string }
+        Returns: number
+      }
+      _effective_markup_basis_points: {
+        Args: { p_provider: string; p_rule_revision_id: string; p_sku: string }
+        Returns: number
+      }
+      _effective_supplier_expense_amount_micros: {
+        Args: { p_supplier_expense_id: string }
+        Returns: number
+      }
+      _effective_supplier_expense_obligation_status: {
+        Args: { p_supplier_expense_id: string }
+        Returns: string
+      }
+      _eligible_ai_models_for_operation: {
+        Args: { p_operation_code: string }
+        Returns: {
+          catalog_revision: number
+          catalog_revision_id: string
+          cost_policy_revision_id: string
+          customer_credit_units: number
+          customer_selection_key: string
+          display_name: string
+          model_catalog_entry_id: string
+          model_identity_id: string
+          provider_model_id: string
+          relative_cost_class: string
+          runtime_model_id: string
+        }[]
+      }
+      _finish_customer_hearth_research_stage: {
+        Args: {
+          p_actual: number
+          p_capture: Json
+          p_event_type: string
+          p_evidence: Json
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
+      _finish_owner_hearth_research_stage: {
+        Args: {
+          p_actual: number
+          p_capture: Json
+          p_event_type: string
+          p_evidence: Json
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
+      _first_token: { Args: { txt: string }; Returns: string }
+      _funding_reservation_counts_paid_scope_concurrency: {
+        Args: { p_reservation_id: string }
+        Returns: boolean
+      }
+      _funding_reservation_state: {
+        Args: { p_reservation_id: string }
+        Returns: string
+      }
       _gpt_image_2_output_tokens: {
         Args: { p_height: number; p_quality: string; p_width: number }
         Returns: number
       }
+      _hammer_scope_has_remaining_authority: {
+        Args: { p_at?: string; p_authorization_id: string }
+        Returns: boolean
+      }
+      _hammer_scope_is_effective: {
+        Args: { p_at?: string; p_authorization_id: string }
+        Returns: boolean
+      }
       _insert_missing_org_members_from_teams: {
         Args: { p_org_id?: string }
         Returns: number
+      }
+      _is_customer_openai_paid_route: {
+        Args: { p_route_code: string }
+        Returns: boolean
+      }
+      _is_terminal_customer_runway_preprovider_failure: {
+        Args: { p_operation_id: string }
+        Returns: boolean
+      }
+      _legacy_reconciliation_user_row_count: {
+        Args: { p_relation_name: string; p_user_id: string }
+        Returns: number
+      }
+      _maybe_halt_restricted_beta_policy: {
+        Args: {
+          p_event_key: string
+          p_evidence_json?: Json
+          p_policy_revision_id: string
+        }
+        Returns: Json
+      }
+      _openai_reconciliation_batch_state: {
+        Args: { p_batch_id: string }
+        Returns: string
+      }
+      _openai_reconciliation_runtime_model_matches_snapshot: {
+        Args: { p_provider_snapshot: string; p_runtime_model: string }
+        Returns: boolean
+      }
+      _openai_reconciliation_scope_key: {
+        Args: { p_currency: string; p_raw: Json; p_source_kind: string }
+        Returns: string
+      }
+      _openai_rollout_for_funding: {
+        Args: { p_credential_funding: string; p_route_code: string }
+        Returns: {
+          actor_id: string | null
+          cost_policy_revision_id: string | null
+          created_at: string
+          funding_scope: string
+          mode: string
+          reason: string
+          revision: number
+          route_code: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "openai_text_rollout_revisions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      _openai_text_failure_loss_exposure: {
+        Args: {
+          p_financial_environment: string
+          p_rolling_window_seconds: number
+          p_route_code: string
+        }
+        Returns: {
+          committed_micros: number
+          concurrency_count: number
+        }[]
+      }
+      _openai_text_test_certification_batch_state: {
+        Args: { p_batch_id: string }
+        Returns: string
+      }
+      _openai_text_test_certification_reservation_state: {
+        Args: { p_reservation_id: string }
+        Returns: string
+      }
+      _openai_text_verified_zero_supporting_cost: {
+        Args: { p_reservation_id: string }
+        Returns: boolean
+      }
+      _owner_hearth_research_latest_authorization: {
+        Args: { p_owner: string; p_workspace: string }
+        Returns: {
+          authorization_kind: string
+          budget_id: string
+          created_at: string
+          created_by: string
+          duration_seconds: number
+          failure_loss_limit_micros: number
+          id: string
+          limit_profile: string
+          maximum_amount_micros: number
+          maximum_attempts: number
+          maximum_concurrency: number
+          maximum_http_attempts: number
+          maximum_input_tokens: number
+          maximum_operations: number
+          maximum_output_tokens: number
+          maximum_searches: number
+          maximum_sources: number
+          owner_user_id: string
+          proposal_id: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "owner_hearth_research_authorizations"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _owner_operating_budget_effective_consumed: {
+        Args: { p_budget_id: string }
+        Returns: number
+      }
+      _owner_operating_budget_effective_consumption: {
+        Args: { p_consumption_id: string }
+        Returns: number
+      }
+      _owner_paid_execution_canary_for_choice: {
+        Args: {
+          p_model: string
+          p_route_code: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: {
+          activation_id: string
+          budget_id: string
+          cost_policy_revision_id: string
+          pricing_revision_id: string
+          scope_id: string
+        }[]
+      }
+      _owner_paid_execution_canary_for_reservation: {
+        Args: { p_reservation_id: string }
+        Returns: {
+          actor_id: string
+          created_at: string
+          execution_scope_authorization_id: string
+          id: string
+          maximum_operation_count: number
+          owner_budget_id: string
+          previous_revision_id: string | null
+          reason: string
+          revision: number
+          state: string
+          valid_from: string
+          valid_until: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "owner_paid_execution_canary_activation_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       _paid_media_usage_contract_is_image: {
         Args: { p_usage_components: Json }
@@ -16394,9 +34811,261 @@ export type Database = {
         Args: { p_usage_components: Json }
         Returns: boolean
       }
+      _preview_private_price_before_rounded_customer_ceiling: {
+        Args: { p_pricing_revision_id: string }
+        Returns: Json
+      }
+      _process_openai_organization_reconciliation: {
+        Args: { p_batch_id: string }
+        Returns: Json
+      }
+      _published_pricing_revision: {
+        Args: { p_provider: string; p_sku: string }
+        Returns: {
+          actor_id: string
+          billable_failure_ceiling_micros: number | null
+          billable_failure_classes: Json
+          change_reason: string
+          content_hash: string
+          created_at: string
+          currency: string
+          customer_credit_units: number | null
+          customer_price_ceiling_micros: number | null
+          failure_cost_ceiling_micros: number
+          free_failure_classes: Json
+          full_cost_ceiling_micros: number
+          id: string
+          included_quantity: Json
+          lifecycle_state: string
+          markup_basis_points: number | null
+          policy_id: string
+          previous_revision_id: string | null
+          retention_policy: Json
+          revision: number
+          rounding_adjustment_micros: number | null
+          settled_customer_price_micros: number | null
+          unrounded_customer_price_micros: number | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "private_pricing_revisions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      _quote_owner_budget_allows: {
+        Args: { p_budget_id: string; p_quote_id: string }
+        Returns: boolean
+      }
+      _quote_payer_allows_user: {
+        Args: { p_quote_id: string; p_source_user_id: string }
+        Returns: boolean
+      }
+      _read_customer_test_billing_before_openai_text_certification: {
+        Args: { p_user_id?: string }
+        Returns: Json
+      }
+      _read_owner_billing_console_before_rounded_customer_ceiling: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      _read_owner_purchase_activity_before_test_ai_deposits: {
+        Args: { p_limit?: number; p_stripe_mode?: string }
+        Returns: Json
+      }
+      _reconcile_runway_execution_before_success_finalization: {
+        Args: {
+          p_direct_provider_actual_micros: number
+          p_evidence_json?: Json
+          p_operation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+          p_supporting_actual_micros: number
+        }
+        Returns: Json
+      }
+      _require_accounting_service_role: { Args: never; Returns: undefined }
+      _require_credential_lifecycle_reader: { Args: never; Returns: undefined }
+      _require_credential_lifecycle_writer: { Args: never; Returns: undefined }
+      _require_owner_cost_reader: { Args: never; Returns: undefined }
+      _require_pricing_service_role: { Args: never; Returns: undefined }
+      _reserve_customer_runway_quote_before_gen45_customer_test: {
+        Args: {
+          p_duration_seconds: number
+          p_idempotency_key: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_quote_id: string
+          p_ratio: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      _resolve_spending_authority: {
+        Args: {
+          p_route_code: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      _restricted_beta_policy_commitment: {
+        Args: { p_policy_revision_id: string }
+        Returns: {
+          committed_micros: number
+          outstanding_count: number
+        }[]
+      }
+      _restricted_beta_policy_execution_concurrency: {
+        Args: { p_policy_revision_id: string }
+        Returns: number
+      }
+      _sanitize_keyword: { Args: { raw: string }; Returns: string }
+      _select_customer_funding_for_quote: {
+        Args: { p_quote_id: string }
+        Returns: Json
+      }
+      _selectable_openai_text_models: {
+        Args: { p_route_code: string }
+        Returns: {
+          catalog_revision: number
+          catalog_revision_id: string
+          cost_policy_revision_id: string
+          customer_credit_units: number
+          customer_selection_key: string
+          customer_selection_state: string
+          display_name: string
+          model_catalog_entry_id: string
+          provider_model_id: string
+          quality_rank: number
+          rate_revision: number
+          runtime_model_id: string
+          tradeoff_summary: string
+        }[]
+      }
+      _settle_operation_before_zero_failure_policy: {
+        Args: {
+          p_actual_fulfillment_cost_micros: number
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
+      _test_authorization_state: {
+        Args: { p_authorization_id: string }
+        Returns: string
+      }
+      _test_reservation_state: {
+        Args: { p_reservation_id: string }
+        Returns: string
+      }
+      _transition_owner_authority_agrees: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
+      _unconsumed_deposit_credit_units: {
+        Args: { p_deposit_id: string }
+        Returns: number
+      }
+      _unconsumed_deposit_value_micros: {
+        Args: { p_deposit_id: string }
+        Returns: number
+      }
       _valid_paid_media_usage_components: {
         Args: { p_usage_components: Json }
         Returns: boolean
+      }
+      _validate_markup_overrides: {
+        Args: { p_overrides: Json }
+        Returns: undefined
+      }
+      _validate_owner_cost_attribution: {
+        Args: {
+          p_anvil_capture_execution_id: string
+          p_recording_capture_authority_id: string
+          p_recording_session_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: undefined
+      }
+      _validate_quote_authority_before_provider: {
+        Args: { p_quote_id: string; p_route_code: string }
+        Returns: boolean
+      }
+      accept_and_seal_incomplete_bellows_capture: {
+        Args: {
+          p_authority_generation: number
+          p_finding_ids: string[]
+          p_manifest: Json
+          p_manifest_sha256: string
+          p_session_id: string
+          p_workpiece_id: string
+        }
+        Returns: {
+          contract_version: number
+          created_at: string
+          hammer_handoff_id: string
+          id: string
+          incomplete_acceptance_id: string | null
+          manifest: Json
+          manifest_sha256: string
+          outcome: string
+          sealed_by_engine_at: string
+          session_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bellows_capture_packages"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      accept_barstock_discovery_story: {
+        Args: {
+          p_operation_key: string
+          p_story_revision_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      accept_hearth_chat_test_quote: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_actor_id: string
+          p_quote_hash: string
+          p_quote_id: string
+        }
+        Returns: Json
+      }
+      accept_owner_hearth_research_operation: {
+        Args: {
+          p_operation_id: string
+          p_owner_user_id: string
+          p_plan_json: Json
+          p_quote_hash: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      accept_quote: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_quote_hash: string
+          p_quote_id: string
+        }
+        Returns: Json
       }
       accept_workspace_invite: {
         Args: { p_token: string }
@@ -16416,6 +35085,192 @@ export type Database = {
           p_path: string
           p_revision_id: string
           p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      acknowledge_hearth_preflight_finding_v1: {
+        Args: {
+          p_action: string
+          p_finding_key: string
+          p_note: string
+          p_operation_id: string
+          p_report_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      acquire_openai_text_aggregate_admission: {
+        Args: {
+          p_caller_class: string
+          p_provider_mode: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      acquire_owner_hearth_aggregate_admission: {
+        Args: {
+          p_caller_class: string
+          p_provider_mode: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      acquire_owner_hearth_research_aggregate_admission: {
+        Args: {
+          p_caller_class: string
+          p_provider_mode: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      acquire_runway_aggregate_admission: {
+        Args: {
+          p_caller_class: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_mode: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_customer_hearth_chat_luna_test: {
+        Args: {
+          p_authorization_expires_at: string
+          p_authorization_id: string
+          p_cost_policy_revision_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_publication_id: string
+          p_reason: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_financial_runtime_environment: {
+        Args: { p_actor_id: string; p_environment: string; p_reason: string }
+        Returns: Json
+      }
+      activate_hammer_customer_test_acceptance: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_reason: string
+          p_user_id: string
+          p_valid_until: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_hearth_chat_luna_pilot: {
+        Args: {
+          p_authorization_expires_at: string
+          p_budget_id: string
+          p_decision_id: string
+          p_failure_loss_policy_revision_id: string
+          p_markup_rule_revision_id: string
+          p_operator_user_id: string
+          p_pricing_policy_id: string
+          p_pricing_revision_id: string
+          p_reason: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_hearth_chat_luna_retest: {
+        Args: {
+          p_authorization_expires_at: string
+          p_budget_id: string
+          p_corrected_reservation_id: string
+          p_failure_loss_policy_revision_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_reason: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_hearth_chat_pilot: {
+        Args: {
+          p_authorization_expires_at: string
+          p_budget_id: string
+          p_decision_id: string
+          p_failure_loss_policy_revision_id: string
+          p_markup_rule_revision_id: string
+          p_operator_user_id: string
+          p_pricing_policy_id: string
+          p_pricing_revision_id: string
+          p_reason: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_hearth_compatibility_package: {
+        Args: {
+          p_authorization_id: string
+          p_budget_id: string
+          p_operator_user_id: string
+          p_owner_user_id: string
+          p_reason: string
+          p_tail_authorization_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_hearth_compatibility_retry: {
+        Args: {
+          p_authorization_id: string
+          p_budget_id: string
+          p_operator_user_id: string
+          p_owner_user_id: string
+          p_prior_authorization_id: string
+          p_reason: string
+          p_tail_authorization_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_hearth_research_package: {
+        Args: {
+          p_budget_id: string
+          p_canary_authorization_id: string
+          p_owner_user_id: string
+          p_proposal_id: string
+          p_reason: string
+          p_session_authorization_id: string
+          p_storage_allowance_id: string
+          p_storage_evidence_json: Json
+          p_verified_model_terms: Json
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_paid_execution_test_canary: {
+        Args: {
+          p_activation_id: string
+          p_actor_id: string
+          p_budget_id: string
+          p_reason: string
+          p_scope_id: string
+        }
+        Returns: Json
+      }
+      activate_owner_runway_pilot_controls: {
+        Args: { p_reason: string }
+        Returns: Json
+      }
+      activate_runway_gen45_customer_test: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_reason: string
+          p_user_id: string
+          p_valid_until: string
           p_workspace_id: string
         }
         Returns: Json
@@ -16465,6 +35320,44 @@ export type Database = {
           user_id: string
         }[]
       }
+      admin_get_ai_activity_export_rows: {
+        Args: { p_days?: number; p_limit?: number; p_org_id: string }
+        Returns: {
+          action_id: string
+          billable_tokens: number
+          created_at: string
+          effective_ai_key_source: string
+          effective_billing_lane: string
+          feature: string
+          key_resolution_status: string
+          lane: string
+          model: string
+          policy_decision_type: string
+          provider: string
+          status: string
+          subfeature: string
+          user_id: string
+          workspace_id: string
+        }[]
+      }
+      admin_get_ai_activity_overview: {
+        Args: { p_org_id: string }
+        Returns: {
+          total_billable_tokens_today: number
+          total_usage_today: number
+          usage_by_feature: Json
+          usage_by_lane: Json
+        }[]
+      }
+      admin_get_ai_activity_overview_window: {
+        Args: { p_days?: number; p_org_id: string }
+        Returns: {
+          total_billable_tokens: number
+          total_usage: number
+          usage_by_feature: Json
+          usage_by_lane: Json
+        }[]
+      }
       admin_get_ai_usage_export_rows: {
         Args: { p_days?: number; p_limit?: number; p_org_id: string }
         Returns: {
@@ -16509,6 +35402,37 @@ export type Database = {
           usage_by_lane: Json
         }[]
       }
+      admin_get_user_ai_access_inspection: {
+        Args: {
+          p_org_id: string
+          p_target_user_id: string
+          p_workspace_id?: string
+        }
+        Returns: {
+          active_plan_code: string
+          byo_configured: boolean
+          byo_provider: string
+          effective_ai_key_source: string
+          fallback_available: boolean
+          fallback_used: boolean
+          founders_club_flag: boolean
+          is_founder_entitled: boolean
+          is_studio_entitled: boolean
+          member_allow_heavy_tasks: boolean
+          member_mode_override: Database["tongs"]["Enums"]["ai_mode"]
+          org_member_byo_allowed: boolean
+          org_policy_default_mode: Database["tongs"]["Enums"]["ai_mode"]
+          org_role: string
+          org_shared_ai_enabled: boolean
+          org_toolbox_allowed: boolean
+          policy_decision_type: Database["tongs"]["Enums"]["ai_decision_type"]
+          policy_reason_code: string
+          profile_tier: string
+          selected_funding_source: Database["tongs"]["Enums"]["ai_funding_source"]
+          target_user_id: string
+          workspace_role: string
+        }[]
+      }
       admin_get_user_ai_inspection: {
         Args: {
           p_org_id: string
@@ -16539,6 +35463,26 @@ export type Database = {
           selected_funding_source: Database["tongs"]["Enums"]["ai_funding_source"]
           target_user_id: string
           workspace_role: string
+        }[]
+      }
+      admin_list_ai_activity_events: {
+        Args: { p_limit?: number; p_org_id: string; p_user_id?: string }
+        Returns: {
+          action_id: string
+          billable_tokens: number
+          created_at: string
+          effective_ai_key_source: string
+          effective_billing_lane: string
+          feature: string
+          key_resolution_status: string
+          lane: string
+          model: string
+          policy_decision_type: string
+          provider: string
+          status: string
+          subfeature: string
+          user_id: string
+          workspace_id: string
         }[]
       }
       admin_list_ai_usage_events: {
@@ -16804,6 +35748,42 @@ export type Database = {
         }
         Returns: Json
       }
+      append_funding_failure_class_correction: {
+        Args: {
+          p_corrected_failure_class: string
+          p_correction_id: string
+          p_correction_key: string
+          p_correction_reason: string
+          p_evidence_json?: Json
+          p_operator_user_id: string
+          p_original_event_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      append_my_hearth_conversation_messages: {
+        Args: {
+          p_generation: number
+          p_import_completeness?: string
+          p_messages: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      append_owner_cost_attempt_event: {
+        Args: {
+          p_attempt_event_id: string
+          p_attempt_id: string
+          p_event_sequence: number
+          p_lifecycle_state: string
+          p_normalized_usage_evidence: Json
+          p_occurred_at: string
+          p_private_provider_evidence: Json
+          p_provider_reference_id: string
+        }
+        Returns: Json
+      }
       append_reference_visual_opportunity: {
         Args: {
           p_actor_id: string
@@ -16945,19 +35925,42 @@ export type Database = {
         }
         Returns: Json
       }
-      apply_ai_token_delta: {
-        Args: {
-          p_delta: number
-          p_provider_request_id?: string
-          p_reason: string
-          p_request_id: string
-          p_user_id: string
-        }
-        Returns: {
-          billing_mode: string
-          token_balance: number
-        }[]
-      }
+      apply_ai_token_delta:
+        | {
+            Args: {
+              p_delta: number
+              p_reason?: string
+              p_request_id?: string
+              p_user_id: string
+            }
+            Returns: {
+              billing_mode: string
+              created_at: string
+              token_balance: number
+              token_monthly_limit: number | null
+              updated_at: string
+              user_id: string
+            }
+            SetofOptions: {
+              from: "*"
+              to: "ai_credits"
+              isOneToOne: true
+              isSetofReturn: false
+            }
+          }
+        | {
+            Args: {
+              p_delta: number
+              p_provider_request_id?: string
+              p_reason: string
+              p_request_id: string
+              p_user_id: string
+            }
+            Returns: {
+              billing_mode: string
+              token_balance: number
+            }[]
+          }
       apply_episode_split_recovery: {
         Args: {
           p_actor_id: string
@@ -16981,6 +35984,46 @@ export type Database = {
         Returns: Json
       }
       approve_canonical_script_v2: {
+        Args: {
+          p_creator_version_label: string
+          p_expected_current_approval_revision: number
+          p_expected_source_content_hash: string
+          p_expected_source_file_revision: number
+          p_operation_id: string
+          p_script_text: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      approve_canonical_script_v3: {
+        Args: {
+          p_creator_version_label: string
+          p_expected_current_approval_revision: number
+          p_expected_source_content_hash: string
+          p_expected_source_file_revision: number
+          p_operation_id: string
+          p_preflight_report_id: string
+          p_script_text: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      approve_canonical_script_v4: {
+        Args: {
+          p_creator_version_label: string
+          p_expected_current_approval_revision: number
+          p_expected_source_content_hash: string
+          p_expected_source_file_revision: number
+          p_operation_id: string
+          p_script_text: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      approve_canonical_script_v4_commit_only: {
         Args: {
           p_creator_version_label: string
           p_expected_current_approval_revision: number
@@ -17019,16 +36062,149 @@ export type Database = {
         }
         Returns: Json
       }
+      assert_openai_result_delivery_access: {
+        Args: {
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: boolean
+      }
       assert_org_role: {
         Args: { p_min_role?: string; p_org_id: string }
         Returns: string
+      }
+      assert_unified_visual_plan_coverage_exclusive: {
+        Args: { p_plan: Json; p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
       }
       assert_workspace_role: {
         Args: { _min_role: string; _workspace_id: string }
         Returns: undefined
       }
+      authorize_hammer_first_transcription_attempt: {
+        Args: {
+          p_attempt_id: string
+          p_attempt_key: string
+          p_capacity_evidence: Json
+          p_operation_id: string
+          p_request_sha256: string
+        }
+        Returns: Json
+      }
       authorize_hammer_short_derivative_preparation: {
         Args: { p_derivative_id: string }
+        Returns: Json
+      }
+      authorize_hearth_chat_test_attempt: {
+        Args: {
+          p_attempt_key: string
+          p_evidence_json: Json
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      authorize_openai_text_provider_attempt: {
+        Args: {
+          p_attempt_key: string
+          p_attempt_number: number
+          p_evidence_json?: Json
+          p_failure_exposure_micros: number
+          p_lease_seconds: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      authorize_openai_text_provider_attempt_with_aggregate: {
+        Args: {
+          p_attempt_key: string
+          p_attempt_number: number
+          p_caller_class: string
+          p_evidence_json?: Json
+          p_failure_exposure_micros: number
+          p_lease_seconds: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      authorize_openai_text_test_certification_attempt: {
+        Args: {
+          p_attempt_key: string
+          p_attempt_number: number
+          p_evidence_json: Json
+          p_failure_exposure_micros: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      authorize_owner_cost_provider_attempt: {
+        Args: {
+          p_attempt_id: string
+          p_attempt_key: string
+          p_attempt_number: number
+          p_authorized_at: string
+          p_credential_identity_hash: string
+          p_model: string
+          p_operation_id: string
+          p_private_authorization_evidence: Json
+          p_provider: string
+          p_request_fingerprint: string
+          p_service: string
+          p_sku: string
+        }
+        Returns: Json
+      }
+      authorize_owner_hearth_provider_attempt_with_aggregate: {
+        Args: {
+          p_attempt_key: string
+          p_attempt_number: number
+          p_caller_class: string
+          p_evidence_json?: Json
+          p_failure_exposure_micros: number
+          p_lease_seconds: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      authorize_owner_hearth_research_openai_attempt: {
+        Args: {
+          p_attempt_key: string
+          p_attempt_number: number
+          p_caller_class: string
+          p_evidence_json: Json
+          p_failure_exposure_micros: number
+          p_lease_seconds: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      authorize_runway_submission: {
+        Args: {
+          p_duration_seconds: number
+          p_evidence_json?: Json
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_ratio: string
+          p_submission_attempt_id: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      authorize_runway_submission_with_aggregate: {
+        Args: {
+          p_caller_class: string
+          p_duration_seconds: number
+          p_evidence_json?: Json
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_ratio: string
+          p_submission_attempt_id: string
+          p_user_id: string
+          p_workspace_id: string
+        }
         Returns: Json
       }
       barstock_apply_assignment: {
@@ -17069,6 +36245,14 @@ export type Database = {
           p_id: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      barstock_discovery_next_eligible_at: {
+        Args: { p_user_id: string; p_workspace_id: string }
+        Returns: string
+      }
+      begin_bellows_hammer_handoff: {
+        Args: { p_package_id: string }
         Returns: Json
       }
       begin_broll_operation: {
@@ -17117,6 +36301,18 @@ export type Database = {
           p_prompt_revision_id: string
           p_ratio: string
           p_submission_attempt_id: string
+        }
+        Returns: Json
+      }
+      begin_customer_hearth_research_stage: {
+        Args: {
+          p_maximum_supplier_cost_micros: number
+          p_request_fingerprint: string
+          p_request_json: Json
+          p_reservation_id: string
+          p_stage_key: string
+          p_stage_ordinal: number
+          p_stage_type: string
         }
         Returns: Json
       }
@@ -17172,6 +36368,81 @@ export type Database = {
         }
         Returns: Json
       }
+      begin_my_hearth_script_proposal_application: {
+        Args: {
+          p_proposal_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_owner_broll_prompt_interpretation: {
+        Args: {
+          p_beat_id: string
+          p_creative_input_hash: string
+          p_creator_direction: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_financial_environment: string
+          p_interpretation_contract_version: string
+          p_interpretation_model: string
+          p_interpretation_provider: string
+          p_interpretation_request: Json
+          p_operation_fingerprint: string
+          p_owner_cost_attempt_id: string
+          p_runtime_environment: string
+          p_synthesis_contract_version: string
+          p_user_id: string
+          p_validator_version: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_owner_hearth_research_stage: {
+        Args: {
+          p_maximum_supplier_cost_micros: number
+          p_request_fingerprint: string
+          p_request_json: Json
+          p_reservation_id: string
+          p_stage_key: string
+          p_stage_ordinal: number
+          p_stage_type: string
+        }
+        Returns: Json
+      }
+      begin_owner_provider_attempt: {
+        Args: {
+          p_attempt_key: string
+          p_evidence_json?: Json
+          p_lease_seconds: number
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      begin_owner_unified_visual_plan: {
+        Args: {
+          p_expected_broll_revision: number
+          p_expected_broll_revision_id: string
+          p_expected_image_revision: number
+          p_expected_image_revision_id: string
+          p_expected_reference_revision: number
+          p_expected_reference_revision_id: string
+          p_expected_reference_visual_revision: number
+          p_expected_reference_visual_revision_id: string
+          p_financial_environment: string
+          p_model: string
+          p_normalized_inputs_json: Json
+          p_operation_fingerprint: string
+          p_owner_cost_attempt_id: string
+          p_runtime_environment: string
+          p_script_approval_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       begin_paid_media_provider_attempt: {
         Args: {
           p_attempt_id: string
@@ -17179,6 +36450,24 @@ export type Database = {
           p_paid_media_operation_id: string
           p_request_evidence_json: Json
           p_request_payload_hash: string
+        }
+        Returns: Json
+      }
+      begin_paid_operation_aggregate_attempt: {
+        Args: {
+          p_attempt_number: number
+          p_caller_class: string
+          p_event_key: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      begin_provider_attempt: {
+        Args: {
+          p_attempt_key: string
+          p_evidence_json?: Json
+          p_lease_seconds: number
+          p_reservation_id: string
         }
         Returns: Json
       }
@@ -17194,6 +36483,23 @@ export type Database = {
           p_opportunity_revision_id: string
           p_plan_revision: number
           p_plan_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_reference_review_operation_attempt: {
+        Args: {
+          p_ai_authorization?: string
+          p_expected_opportunity_revision_id: string
+          p_expected_plan_revision_id: string
+          p_expected_revisions_json?: Json
+          p_intent_kind: string
+          p_media_family: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_parent_attempt_id?: string
           p_workpiece_id: string
           p_workspace_id: string
         }
@@ -17228,19 +36534,46 @@ export type Database = {
         }
         Returns: Json
       }
-      begin_reference_visual_render_v2: {
+      begin_reference_visual_render_v2:
+        | {
+            Args: {
+              p_actor_id: string
+              p_operation_fingerprint: string
+              p_operation_id: string
+              p_opportunity_revision_id: string
+              p_recipe_revision_id: string
+              p_renderer_name: string
+              p_renderer_version: string
+              p_rights_declaration_revision_id: string
+              p_source_use_revision_id: string
+              p_workpiece_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_actor_id: string
+              p_operation_fingerprint: string
+              p_operation_id: string
+              p_opportunity_revision_id: string
+              p_recipe_revision_id: string
+              p_renderer_name: string
+              p_renderer_version: string
+              p_rights_declaration_revision_id: string
+              p_source_set_revision_id: string
+              p_source_use_revision_id: string
+              p_workpiece_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+      begin_restricted_beta_attempt: {
         Args: {
-          p_actor_id: string
-          p_operation_fingerprint: string
-          p_operation_id: string
-          p_opportunity_revision_id: string
-          p_recipe_revision_id: string
-          p_renderer_name: string
-          p_renderer_version: string
-          p_rights_declaration_revision_id: string
-          p_source_use_revision_id: string
-          p_workpiece_id: string
-          p_workspace_id: string
+          p_attempt_number: number
+          p_caller_class: string
+          p_event_key: string
+          p_hold_id: string
         }
         Returns: Json
       }
@@ -17281,7 +36614,15 @@ export type Database = {
         }
         Returns: Json
       }
+      bellows_assert_capture_participant: {
+        Args: { p_participant_id: string; p_session_id: string }
+        Returns: undefined
+      }
       billing_item_is_plan: { Args: { p_item_id: string }; Returns: boolean }
+      billing_plan_base_storage_bytes: {
+        Args: { p_plan_item_id: string }
+        Returns: number
+      }
       billing_status_entitles_access: {
         Args: { p_status: string }
         Returns: boolean
@@ -17293,6 +36634,149 @@ export type Database = {
       billing_storage_entitlement_active: {
         Args: { p_current_period_end: string; p_status: string }
         Returns: boolean
+      }
+      bind_bounded_provider_quote_request: {
+        Args: {
+          p_bounded_input_tokens: number
+          p_estimator_revision: string
+          p_maximum_attempts: number
+          p_maximum_output_tokens: number
+          p_model: string
+          p_operation_id: string
+          p_protocol_overhead_tokens: number
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_serialized_body_sha256: string
+          p_serialized_bytes: number
+          p_service_tier: string
+          p_tokenizer_input_tokens: number
+          p_tokenizer_revision: string
+          p_user_id: string
+          p_utf8_byte_token_upper_bound: number
+        }
+        Returns: Json
+      }
+      bind_bounded_provider_request: {
+        Args: {
+          p_bounded_input_tokens: number
+          p_estimator_revision: string
+          p_maximum_attempts: number
+          p_maximum_output_tokens: number
+          p_model: string
+          p_protocol_overhead_tokens: number
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_serialized_body_sha256: string
+          p_serialized_bytes: number
+          p_service_tier: string
+          p_tokenizer_input_tokens: number
+          p_tokenizer_revision: string
+          p_utf8_byte_token_upper_bound: number
+        }
+        Returns: Json
+      }
+      bind_customer_hearth_research_quote_request: {
+        Args: {
+          p_bounded_input_tokens: number
+          p_estimator_revision: string
+          p_maximum_attempts: number
+          p_maximum_output_tokens: number
+          p_model: string
+          p_protocol_overhead_tokens: number
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_serialized_body_sha256: string
+          p_serialized_bytes: number
+          p_service_tier: string
+          p_tokenizer_input_tokens: number
+          p_tokenizer_revision: string
+          p_utf8_byte_token_upper_bound: number
+        }
+        Returns: Json
+      }
+      bind_financial_environment_configuration_pair: {
+        Args: {
+          p_actor_id: string
+          p_cost_policy_revision_id: string
+          p_pricing_revision_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      bind_inactive_hammer_assemblyai_operation: {
+        Args: {
+          p_canonical_recording_id: string
+          p_id: string
+          p_operation_id: string
+          p_provider_authority_id: string
+          p_quote_id: string
+          p_recording_revision_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      bind_openai_text_funding_reservation: {
+        Args: {
+          p_cost_policy_revision_id: string
+          p_credential_funding: string
+          p_model: string
+          p_operation_id: string
+          p_reservation_id: string
+          p_route_code: string
+        }
+        Returns: Json
+      }
+      bind_owner_hearth_research_bounded_provider_request: {
+        Args: {
+          p_bounded_input_tokens: number
+          p_estimator_revision: string
+          p_maximum_attempts: number
+          p_maximum_output_tokens: number
+          p_model: string
+          p_protocol_overhead_tokens: number
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_serialized_body_sha256: string
+          p_serialized_bytes: number
+          p_service_tier: string
+          p_tokenizer_input_tokens: number
+          p_tokenizer_revision: string
+          p_utf8_byte_token_upper_bound: number
+        }
+        Returns: Json
+      }
+      bind_owner_runway_funding_reservation: {
+        Args: {
+          p_duration_seconds: number
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_operator_user_id: string
+          p_ratio: string
+          p_reservation_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      bind_runway_funding_reservation: {
+        Args: {
+          p_duration_seconds: number
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_ratio: string
+          p_reservation_id: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
       blend_structural_intent_vector: {
         Args: { p_existing: Json; p_incoming: Json; p_weight: number }
@@ -17328,6 +36812,43 @@ export type Database = {
         Args: { _workspace_id: string }
         Returns: boolean
       }
+      can_admin_org_workspace_members: {
+        Args: { _workspace_id: string }
+        Returns: boolean
+      }
+      checkpoint_youtube_publication_job: {
+        Args: {
+          p_credential_generation_id?: string
+          p_current_stage: string
+          p_encrypted_session_uri?: string
+          p_external_object_id?: string
+          p_external_url?: string
+          p_job_id: string
+          p_next_run_at: string
+          p_provider_processing_state?: string
+          p_provider_request_id?: string
+          p_raw_transport_evidence?: Json
+          p_retryable?: boolean
+          p_session_ciphertext_version?: string
+          p_session_encryption_key_version?: string
+          p_state: string
+          p_total_bytes: number
+          p_transferred_bytes: number
+          p_user_action_code?: string
+          p_worker_id: string
+        }
+        Returns: Json
+      }
+      claim_barstock_discovery_refresh: {
+        Args: {
+          p_lease_token_hash: string
+          p_operation_key: string
+          p_preference_revision: number
+          p_trigger: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       claim_broll_runway_poll: {
         Args: {
           p_operation_fingerprint: string
@@ -17336,12 +36857,106 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_hammer_scoped_live_checkout: {
+        Args: {
+          p_claim_id: string
+          p_live_price_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       claim_publication_attempt: {
         Args: { p_publication_operation_id: string; p_retry?: boolean }
         Returns: Json
       }
+      claim_youtube_publication_job: {
+        Args: { p_lease_seconds?: number; p_worker_id: string }
+        Returns: Json
+      }
+      clear_my_ai_operation_model_override: {
+        Args: { p_expected_revision?: number; p_operation_code: string }
+        Returns: Json
+      }
+      clear_my_hearth_conversation: {
+        Args: {
+          p_expected_generation: number
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       clear_workspace_default_brand_profile: {
         Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      close_customer_paid_execution_test_authorization: {
+        Args: {
+          p_authorization_id: string
+          p_operator_user_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      close_customer_paid_execution_test_authorization_for_reservatio: {
+        Args: { p_reason: string; p_reservation_id: string }
+        Returns: Json
+      }
+      close_hammer_customer_test_acceptance: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_close_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      close_hearth_test_execution_authorization: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      close_openai_text_failure_exposure: {
+        Args: {
+          p_actual_supplier_cost_micros: number
+          p_attempt_key: string
+          p_evidence_json?: Json
+          p_outcome: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      close_openai_text_test_certification: {
+        Args: { p_actor_id: string; p_batch_id: string; p_reason: string }
+        Returns: Json
+      }
+      close_owner_hearth_chat_luna_pilot: {
+        Args: {
+          p_budget_id: string
+          p_operator_user_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      close_owner_hearth_chat_pilot: {
+        Args: {
+          p_budget_id: string
+          p_operator_user_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      close_owner_hearth_unsuccessful_compatibility_batch: {
+        Args: {
+          p_authorization_id: string
+          p_operator_user_id: string
+          p_reason: string
+        }
         Returns: Json
       }
       commit_ai_pricing_policy_revision: {
@@ -17381,6 +36996,18 @@ export type Database = {
           p_prompt_revision_id: string
           p_provenance_json: Json
           p_source_kind: string
+        }
+        Returns: Json
+      }
+      commit_broll_generation_references: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_references: Json
+          p_workpiece_id: string
+          p_workspace_id: string
         }
         Returns: Json
       }
@@ -17443,6 +37070,34 @@ export type Database = {
           p_source_beat_revision_id: string
           p_synthesis_contract_version: string
           p_validator_version: string
+        }
+        Returns: Json
+      }
+      commit_chat_source_reconciliation: {
+        Args: {
+          p_actor_id: string
+          p_chat_hash: string
+          p_chat_revision: number
+          p_matches: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_recovered_sources: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_cleanup_review_discard: {
+        Args: {
+          p_actor: string
+          p_basis: Json
+          p_basis_hash: string
+          p_candidate: Json
+          p_candidate_hash: string
+          p_evidence: Json
+          p_revision: string
+          p_workpiece: string
+          p_workspace: string
         }
         Returns: Json
       }
@@ -17599,6 +37254,35 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_hearth_editorial_preflight_v1: {
+        Args: {
+          p_checker_contract_version: string
+          p_expected_revision: number
+          p_expected_revision_id: string
+          p_expected_script_hash: string
+          p_expected_source_file_revision: number
+          p_operation_id: string
+          p_report_json: Json
+          p_research_artifact_hash: string
+          p_research_artifact_id: string
+          p_script_text: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_hearth_research_artifact_v1: {
+        Args: {
+          p_artifact_json: Json
+          p_contract_version: string
+          p_expected_revision: number
+          p_expected_revision_id: string
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_image_map_revision: {
         Args: {
           p_actor_id: string
@@ -17644,6 +37328,58 @@ export type Database = {
           p_synthesis_contract_version: string
           p_validator_version: string
           p_visual_brief_json: Json
+        }
+        Returns: Json
+      }
+      commit_operator_pricing_revision: {
+        Args: {
+          p_billable_failure_classes: Json
+          p_change_reason: string
+          p_cost_components: Json
+          p_currency: string
+          p_customer_credit_units: number
+          p_expected_revision: number
+          p_free_failure_classes: Json
+          p_included_quantity: Json
+          p_markup_rule_revision_id: string
+          p_policy_code: string
+          p_policy_id: string
+          p_provider: string
+          p_retention_policy: Json
+          p_revision_id: string
+          p_scope_kind: string
+          p_sku: string
+        }
+        Returns: Json
+      }
+      commit_private_markup_rule_revision: {
+        Args: {
+          p_change_reason: string
+          p_default_markup_basis_points: number
+          p_expected_revision: number
+          p_overrides_json: Json
+          p_revision_id: string
+        }
+        Returns: Json
+      }
+      commit_private_pricing_revision: {
+        Args: {
+          p_billable_failure_classes: Json
+          p_change_reason: string
+          p_cost_components: Json
+          p_currency: string
+          p_customer_credit_units: number
+          p_expected_revision: number
+          p_free_failure_classes: Json
+          p_included_quantity: Json
+          p_markup_basis_points: number
+          p_policy_code: string
+          p_policy_id: string
+          p_provider: string
+          p_retention_policy: Json
+          p_revision_id: string
+          p_scope_kind: string
+          p_sku: string
         }
         Returns: Json
       }
@@ -17787,22 +37523,6 @@ export type Database = {
         }
         Returns: Json
       }
-      commit_reference_visual_asset_restriction: {
-        Args: {
-          p_actor_id: string
-          p_asset_id: string
-          p_availability_state: string
-          p_decision_note: string
-          p_expected_revision: number
-          p_notice_reference: string
-          p_operation_fingerprint: string
-          p_operation_id: string
-          p_reason_code: string
-          p_workpiece_id: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
       commit_reference_visual_evidence: {
         Args: {
           p_actor_id: string
@@ -17877,21 +37597,38 @@ export type Database = {
         }
         Returns: Json
       }
-      commit_reference_visual_rights_declaration: {
-        Args: {
-          p_actor_id: string
-          p_declaration: Json
-          p_declaration_id: string
-          p_expected_revision: number
-          p_operation_fingerprint: string
-          p_operation_id: string
-          p_opportunity_id: string
-          p_rights_status: string
-          p_workpiece_id: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
+      commit_reference_visual_rights_declaration:
+        | {
+            Args: {
+              p_actor_id: string
+              p_declaration: Json
+              p_declaration_id: string
+              p_expected_revision: number
+              p_operation_fingerprint: string
+              p_operation_id: string
+              p_opportunity_id: string
+              p_rights_status: string
+              p_workpiece_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_actor_id: string
+              p_declaration: Json
+              p_declaration_id: string
+              p_expected_revision: number
+              p_operation_fingerprint: string
+              p_operation_id: string
+              p_opportunity_id: string
+              p_rights_status: string
+              p_source_set_revision_id: string
+              p_workpiece_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
       commit_reference_visual_sequence: {
         Args: {
           p_actor_id: string
@@ -18009,6 +37746,27 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_visual_source_attribution: {
+        Args: {
+          p_actor_id: string
+          p_artifact_family: string
+          p_child_plan_revision_id: string
+          p_expected_revision: number
+          p_members: Json
+          p_model_evidence_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_rationale: string
+          p_relationship: string
+          p_script_approval_id: string
+          p_state: string
+          p_unified_plan_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_workpiece_source_link_revision: {
         Args: {
           p_actor_id: string
@@ -18052,6 +37810,38 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_barstock_discovery_refresh: {
+        Args: {
+          p_lease_token_hash: string
+          p_run_id: string
+          p_stories: Json
+          p_usage?: Json
+        }
+        Returns: Json
+      }
+      complete_bellows_hammer_handoff: {
+        Args: { p_hammer_import_id: string; p_package_id: string }
+        Returns: Json
+      }
+      complete_customer_hearth_research_stage: {
+        Args: {
+          p_actual_supplier_cost_micros: number
+          p_capture_json: Json
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
+      complete_hammer_first_transcription_attempt: {
+        Args: {
+          p_attempt_id: string
+          p_evidence_json: Json
+          p_operation_id: string
+          p_provider_request_id: string
+          p_response_sha256: string
+        }
+        Returns: Json
+      }
       complete_hammer_shorts_discovery: {
         Args: {
           p_ai_proposal: Json
@@ -18062,11 +37852,103 @@ export type Database = {
         }
         Returns: Json
       }
+      complete_my_hearth_script_proposal_application: {
+        Args: {
+          p_canonical_revision_id: string
+          p_proposal_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      complete_owner_hearth_research_stage: {
+        Args: {
+          p_actual_supplier_cost_micros: number
+          p_capture_json: Json
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
       complete_publishing_oauth_connection_attempt: {
         Args: {
           p_attempt_id: string
           p_failure_code?: string
           p_success: boolean
+        }
+        Returns: Json
+      }
+      configure_account_authority_classification: {
+        Args: {
+          p_account_class: string
+          p_operator_user_id: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      configure_organization_funding_account: {
+        Args: {
+          p_currency: string
+          p_org_id: string
+          p_payer_user_id: string
+          p_reason: string
+          p_status: string
+        }
+        Returns: Json
+      }
+      configure_organization_shared_spend_permission: {
+        Args: {
+          p_member_user_id: string
+          p_org_id: string
+          p_reason: string
+          p_route_codes: string[]
+          p_status: string
+        }
+        Returns: Json
+      }
+      configure_owner_testing_principal: {
+        Args: {
+          p_operator_user_id: string
+          p_reason: string
+          p_status: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      confirm_bellows_upload_part: {
+        Args: { p_part_id: string; p_sha256: string }
+        Returns: {
+          attempt_count: number
+          byte_length: number
+          created_at: string
+          id: string
+          last_error: string | null
+          participant_id: string
+          segment_id: string
+          sequence_number: number
+          session_id: string
+          sha256: string
+          storage_bucket: string
+          storage_key: string
+          updated_at: string
+          upload_state: string
+          verified_at: string | null
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bellows_upload_parts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      confirm_manual_handoff: {
+        Args: {
+          p_evidence_json?: Json
+          p_result_url: string
+          p_snapshot_id: string
+          p_supersedes_receipt_id?: string
         }
         Returns: Json
       }
@@ -18095,12 +37977,115 @@ export type Database = {
           validation_mode: string
         }[]
       }
+      consume_beta_test_credits: {
+        Args: {
+          p_allocation_key: string
+          p_consumption_id: string
+          p_credit_units: number
+          p_customer_value_micros: number
+          p_grant_id: string
+          p_metadata_json?: Json
+          p_operation_id: string
+          p_wholesale_spend_micros: number
+        }
+        Returns: Json
+      }
+      consume_customer_deposit: {
+        Args: {
+          p_allocation_key: string
+          p_consumed_at: string
+          p_consumption_id: string
+          p_credit_units: number
+          p_deposit_id: string
+          p_metadata_json?: Json
+          p_operation_id: string
+          p_revenue_micros: number
+        }
+        Returns: Json
+      }
+      consume_owner_operating_budget: {
+        Args: {
+          p_allocation_key: string
+          p_budget_id: string
+          p_consumed_at: string
+          p_consumption_id: string
+          p_evidence_json?: Json
+          p_expense_amount_micros: number
+          p_operation_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      consume_paid_allowance: {
+        Args: {
+          p_allocation_key: string
+          p_allowance_grant_id: string
+          p_consumed_at: string
+          p_consumption_id: string
+          p_entitlement_units: number
+          p_metadata_json?: Json
+          p_operation_id: string
+          p_recognized_revenue_micros: number
+          p_wholesale_spend_micros: number
+        }
+        Returns: Json
+      }
       consume_publishing_oauth_connection_attempt: {
         Args: {
           p_expected_redirect_uri: string
           p_provider: string
           p_state_hash: string
         }
+        Returns: Json
+      }
+      consume_test_refill: {
+        Args: {
+          p_consumption_id: string
+          p_credit_units: number
+          p_grant_id: string
+          p_idempotency_key: string
+          p_operation_id: string
+          p_provider_mode: string
+        }
+        Returns: Json
+      }
+      control_openai_text_failure_loss_environment: {
+        Args: {
+          p_actor_id: string
+          p_additional_loss_capacity_micros: number
+          p_decision_id: string
+          p_decision_type: string
+          p_financial_environment: string
+          p_reason: string
+          p_route_code: string
+        }
+        Returns: Json
+      }
+      correct_customer_operation_relief: {
+        Args: {
+          p_canonical_result_id: string
+          p_corrected_credit_units: number
+          p_corrected_customer_credit_micros: number
+          p_corrected_revenue_micros: number
+          p_correction_id: string
+          p_evidence_json?: Json
+          p_funding_environment: string
+          p_idempotency_key: string
+          p_operator_user_id: string
+          p_original_consumption_id: string
+          p_reason: string
+          p_reason_code: string
+          p_relief_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      correct_owner_hearth_compatibility_result_after_nonbillable_rej: {
+        Args: { p_event_key: string; p_reservation_id: string }
+        Returns: Json
+      }
+      correct_owner_hearth_nonbillable_result: {
+        Args: { p_event_key: string; p_reservation_id: string }
         Returns: Json
       }
       count_missing_org_members_for_org: {
@@ -18181,6 +38166,7 @@ export type Database = {
           acting_authority_state: string
           acting_host_participant_id: string | null
           archived_at: string | null
+          authority_generation: number
           broadcast_state: string
           calendar_event_id: string | null
           co_host_participant_ids: string[]
@@ -18243,6 +38229,85 @@ export type Database = {
         }
         Returns: Json
       }
+      create_customer_hearth_chat_quote: {
+        Args: {
+          p_expires_at: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_customer_openai_text_quote: {
+        Args: {
+          p_credential_funding: string
+          p_expires_at: string
+          p_model: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_customer_openai_transcription_quote: {
+        Args: {
+          p_credential_funding: string
+          p_expires_at: string
+          p_maximum_chunks: number
+          p_maximum_duration_seconds: number
+          p_model: string
+          p_operation_id: string
+          p_output_contract: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_source_asset_revision: string
+          p_source_bytes: number
+          p_source_sha256: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_customer_paid_execution_scope_authorization: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_cost_policy_revision_id: string
+          p_financial_environment: string
+          p_model_or_sku: string
+          p_pricing_revision_id: string
+          p_provider: string
+          p_reason: string
+          p_route_code: string
+          p_user_id: string
+          p_valid_from: string
+          p_valid_until: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_customer_runway_quote: {
+        Args: {
+          p_duration_seconds: number
+          p_expires_at: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_quote_id: string
+          p_ratio: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       create_episode_identity_internal: {
         Args: {
           p_created_by: string
@@ -18251,6 +38316,29 @@ export type Database = {
           p_workspace_id: string
         }
         Returns: string
+      }
+      create_hammer_first_transcription_quote: {
+        Args: {
+          p_canonical_recording_id: string
+          p_operation_uuid: string
+          p_quote_id: string
+          p_recording_revision_id: string
+          p_request_fingerprint: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_hearth_chat_test_quote: {
+        Args: {
+          p_authorization_id: string
+          p_expires_at: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+        }
+        Returns: Json
       }
       create_hearth_project_episode: {
         Args: {
@@ -18282,6 +38370,17 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      create_normal_customer_paid_execution_authorization: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_financial_environment: string
+          p_reason: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       create_org_team: {
         Args: { p_name: string; p_org_id: string }
         Returns: {
@@ -18291,6 +38390,127 @@ export type Database = {
           team_name: string
           updated_at: string
         }[]
+      }
+      create_owner_hearth_chat_luna_pilot_quote: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_expires_at: string
+          p_operation_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_owner_hearth_chat_pilot_quote: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_cost_policy_revision_id: string
+          p_expires_at: string
+          p_operation_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_owner_only_openai_text_execution_scope_authorization: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_financial_environment: string
+          p_model_or_sku: string
+          p_owner_user_id: string
+          p_reason: string
+          p_route_code: string
+          p_valid_from: string
+          p_valid_until: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_owner_openai_text_canary_quote: {
+        Args: {
+          p_credential_funding: string
+          p_expires_at: string
+          p_model: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_owner_operating_budget_draft: {
+        Args: {
+          p_budget_id: string
+          p_currency: string
+          p_environment: string
+          p_period_end: string
+          p_period_start: string
+          p_provider: string
+          p_reason: string
+          p_route: string
+          p_sku: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_owner_runway_spending_quote: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_duration_seconds: number
+          p_expires_at: string
+          p_model: string
+          p_operation_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_quote_id: string
+          p_ratio: string
+          p_request_fingerprint: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_owner_testing_budget_draft: {
+        Args: {
+          p_budget_id: string
+          p_currency: string
+          p_environment: string
+          p_operator_user_id: string
+          p_owner_testing_user_id: string
+          p_period_end: string
+          p_period_start: string
+          p_provider: string
+          p_reason: string
+          p_route: string
+          p_sku: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_paid_allowance_grant: {
+        Args: {
+          p_allocated_revenue_micros: number
+          p_allocation_policy_revision: string
+          p_entitlement_units: number
+          p_grant_id: string
+          p_granted_at: string
+          p_maximum_wholesale_spend_micros: number
+          p_metadata_json?: Json
+          p_receipt_id: string
+        }
+        Returns: Json
       }
       create_paid_image_authorization_quote: {
         Args: {
@@ -18365,11 +38585,13 @@ export type Database = {
         Returns: {
           calendar_event_id: string | null
           created_at: string
-          created_by: string
+          created_by: string | null
           ends_at: string | null
           id: string
+          notes: string | null
+          session_type: Database["tongs"]["Enums"]["session_type"]
           starts_at: string
-          status: string
+          status: string | null
           title: string
           updated_at: string
           workspace_id: string
@@ -18387,6 +38609,29 @@ export type Database = {
           p_origin_venue: string
           p_title: string
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_shadow_spending_quote: {
+        Args: {
+          p_expires_at: string
+          p_operation_id: string
+          p_pricing_revision_id: string
+          p_provider_funding_summary: Json
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_tool: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_standard_customer_certification_aggregate_assignment: {
+        Args: {
+          p_actor_id: string
+          p_assignment_id: string
+          p_reason: string
+          p_scope_authorization_id: string
         }
         Returns: Json
       }
@@ -18462,7 +38707,27 @@ export type Database = {
           updated_at: string
         }[]
       }
+      dismiss_barstock_discovery_story: {
+        Args: { p_story_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      enqueue_youtube_publication_job: {
+        Args: {
+          p_finalized_package_id: string
+          p_publication_attempt_id: string
+          p_publication_operation_id: string
+        }
+        Returns: Json
+      }
       ensure_personal_org: { Args: { p_user_id?: string }; Returns: string }
+      episode_label_from_spark: {
+        Args: {
+          spark_body: string
+          spark_created_at: string
+          spark_title: string
+        }
+        Returns: string
+      }
       episode_split_recovery_manifest_hash: {
         Args: { p_manifest: Json }
         Returns: string
@@ -18472,6 +38737,26 @@ export type Database = {
           p_capture_session_id: string
           p_operation_key: string
           p_recording_session_id?: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      establish_owner_cost_operation: {
+        Args: {
+          p_anvil_capture_execution_id: string
+          p_created_at: string
+          p_creation_evidence: Json
+          p_financial_environment: string
+          p_operation_id: string
+          p_operation_key: string
+          p_operation_type: string
+          p_originating_tool: string
+          p_owner_operating_budget_id: string
+          p_recording_capture_authority_id: string
+          p_recording_session_id: string
+          p_request_fingerprint: string
+          p_runtime_environment: string
           p_workpiece_id: string
           p_workspace_id: string
         }
@@ -18505,6 +38790,14 @@ export type Database = {
         }
         Returns: Json
       }
+      fail_barstock_discovery_refresh: {
+        Args: { p_lease_token_hash: string; p_reason: string; p_run_id: string }
+        Returns: Json
+      }
+      fail_bellows_hammer_handoff: {
+        Args: { p_error: string; p_package_id: string }
+        Returns: Json
+      }
       fail_broll_operation: {
         Args: {
           p_failed_stage: string
@@ -18515,6 +38808,16 @@ export type Database = {
         }
         Returns: Json
       }
+      fail_customer_hearth_research_stage: {
+        Args: {
+          p_actual_supplier_cost_micros: number
+          p_evidence_json: Json
+          p_failure_code: string
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
       fail_hammer_audio_render: {
         Args: {
           p_failure_code: string
@@ -18522,6 +38825,15 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_outcome_unknown?: boolean
+        }
+        Returns: Json
+      }
+      fail_hammer_first_transcription_attempt: {
+        Args: {
+          p_attempt_id: string
+          p_evidence_json: Json
+          p_failure_class: string
+          p_operation_id: string
         }
         Returns: Json
       }
@@ -18554,6 +38866,16 @@ export type Database = {
         }
         Returns: Json
       }
+      fail_owner_hearth_research_stage: {
+        Args: {
+          p_actual_supplier_cost_micros: number
+          p_evidence_json: Json
+          p_failure_code: string
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
       fail_reference_clip_acquisition: {
         Args: {
           p_failed_stage: string
@@ -18562,17 +38884,6 @@ export type Database = {
           p_failure_message: string
           p_operation_fingerprint: string
           p_operation_id: string
-        }
-        Returns: Json
-      }
-      fail_reference_visual_operation: {
-        Args: {
-          p_failed_stage: string
-          p_failure_code: string
-          p_failure_message: string
-          p_operation_fingerprint: string
-          p_operation_id: string
-          p_operation_kind: string
         }
         Returns: Json
       }
@@ -18611,6 +38922,106 @@ export type Database = {
       }
       finalize_hammer_short_derivative: {
         Args: { p_artifact_authority: Json; p_derivative_id: string }
+        Returns: Json
+      }
+      finalize_hearth_thumbnail_direction_generation_result: {
+        Args: {
+          p_canonical_set_id: string
+          p_canonical_source_response_hash: string
+          p_operation_id: string
+          p_reservation_id: string
+          p_result_id: string
+        }
+        Returns: Json
+      }
+      finalize_owner_hearth_compatibility_batch: {
+        Args: {
+          p_authorization_id: string
+          p_operator_user_id: string
+          p_reason: string
+          p_session_authorization_id: string
+          p_session_budget_id: string
+        }
+        Returns: Json
+      }
+      finalize_owner_hearth_thumbnail_direction_generation_result: {
+        Args: {
+          p_canonical_set_id: string
+          p_canonical_source_response_hash: string
+          p_owner_cost_attempt_id: string
+          p_result_id: string
+        }
+        Returns: Json
+      }
+      finalize_owner_timeline_image_generation_result: {
+        Args: {
+          p_asset_ids: string[]
+          p_image_map_revision_id: string
+          p_operation_fingerprint: string
+          p_owner_cost_attempt_id: string
+        }
+        Returns: Json
+      }
+      finalize_quench_destination_package: {
+        Args: {
+          p_destination_capability_revision_id: string
+          p_executable_destination_id: string
+          p_manifest_content_hash: string
+          p_manifest_snapshot_id: string
+          p_metadata_content_hash: string
+          p_metadata_revision: number
+          p_operation_key: string
+          p_resolved_package: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      finalize_timeline_image_generation_result: {
+        Args: {
+          p_asset_ids: string[]
+          p_image_map_revision_id: string
+          p_operation_id: string
+          p_request_fingerprint: string
+        }
+        Returns: Json
+      }
+      finalize_visual_narrative_interpretation_result: {
+        Args: {
+          p_canonical_content_hash: string
+          p_canonical_prompt_revision_id: string
+          p_operation_id: string
+          p_request_fingerprint: string
+        }
+        Returns: Json
+      }
+      finish_reference_review_operation_attempt: {
+        Args: {
+          p_attempt_id: string
+          p_canonical_receipt_json?: Json
+          p_failure_code?: string
+          p_failure_message?: string
+          p_outcome: string
+        }
+        Returns: Json
+      }
+      freeze_owner_hearth_research_synthesis_request: {
+        Args: {
+          p_bounded_input_tokens: number
+          p_instruction_revision: string
+          p_maximum_output_tokens: number
+          p_model: string
+          p_operation_id: string
+          p_protocol_overhead_tokens: number
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_serialized_body: string
+          p_serialized_body_sha256: string
+          p_serialized_bytes: number
+          p_source_revision_fingerprint: string
+          p_tokenizer_input_tokens: number
+          p_tokenizer_revision: string
+        }
         Returns: Json
       }
       fulfill_reference_clip_opportunity: {
@@ -18706,6 +39117,10 @@ export type Database = {
           total_billable_tokens: number
         }[]
       }
+      get_my_barstock_discovery_context: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
       get_my_henry_message_state: {
         Args: { p_workspace_id: string }
         Returns: {
@@ -18732,6 +39147,13 @@ export type Database = {
         }[]
       }
       get_my_publishing_connection_authorities: { Args: never; Returns: Json }
+      get_my_reference_material_rollout: {
+        Args: { p_workspace_id: string }
+        Returns: {
+          reference_material_review_enabled: boolean
+          workspace_id: string
+        }[]
+      }
       get_my_style_profile: {
         Args: { p_workspace_id: string }
         Returns: {
@@ -18754,13 +39176,6 @@ export type Database = {
         Returns: {
           adaptive_style_ai_accelerate_enabled: boolean
           adaptive_style_alignment_enabled: boolean
-          workspace_id: string
-        }[]
-      }
-      get_my_reference_material_rollout: {
-        Args: { p_workspace_id: string }
-        Returns: {
-          reference_material_review_enabled: boolean
           workspace_id: string
         }[]
       }
@@ -18876,6 +39291,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      grant_legacy_plan_entitlement_compatibility: {
+        Args: {
+          p_compatibility_grant_id: string
+          p_granted_at: string
+          p_metadata_json?: Json
+          p_receipt_id: string
+        }
+        Returns: Json
+      }
       grant_plan_cycle_ai_credits: {
         Args: {
           p_period_end?: string
@@ -18887,17 +39311,63 @@ export type Database = {
         }
         Returns: number
       }
-      has_workspace_role: {
-        Args: { _min_role: string; _workspace_id: string }
-        Returns: boolean
+      grant_subscription_allowance_from_receipt: {
+        Args: { p_receipt_id: string }
+        Returns: Json
       }
+      halt_owner_hearth_chat_luna_pilot: {
+        Args: {
+          p_budget_id: string
+          p_operator_user_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      has_workspace_role:
+        | {
+            Args: { _min_role: string; _workspace_id: string }
+            Returns: boolean
+          }
+        | {
+            Args: { p_roles: string[]; p_workspace_id: string }
+            Returns: boolean
+          }
       hash_bellows_join_link_token: {
         Args: { p_token: string }
         Returns: string
       }
+      hearth_preflight_finding_basis_hash: {
+        Args: { p_finding: Json }
+        Returns: string
+      }
+      hearth_research_artifact_json_is_bounded: {
+        Args: { p_artifact: Json }
+        Returns: boolean
+      }
       hearth_transition_approved_script_ready: {
         Args: {
           p_idempotency_key: string
+          p_publish_evidence: Json
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      hearth_transition_approved_script_ready_v4: {
+        Args: {
+          p_idempotency_key: string
+          p_publish_evidence: Json
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      hearth_transition_preflighted_script_ready_v3: {
+        Args: {
+          p_idempotency_key: string
+          p_preflight_report_id: string
           p_publish_evidence: Json
           p_script_approval_id: string
           p_workpiece_id: string
@@ -18918,6 +39388,15 @@ export type Database = {
         Returns: Json
       }
       image_map_plan_provenance: { Args: { p_document: Json }; Returns: string }
+      import_legacy_runway_opening_commitment: {
+        Args: {
+          p_amount_micros: number
+          p_operator_user_id: string
+          p_reason: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
       ingest_thumbnail_performance_observation: {
         Args: {
           p_audience_segment: string
@@ -18942,12 +39421,93 @@ export type Database = {
           observation_id: string
         }[]
       }
+      install_brad_hammer_first_transcription_authority_bundle: {
+        Args: {
+          p_account_checked_at: string
+          p_account_evidence_sha256: string
+          p_account_expires_at: string
+          p_account_source_url: string
+          p_actor_id: string
+          p_capacity_checked_at: string
+          p_capacity_evidence_sha256: string
+          p_capacity_expires_at: string
+          p_netlify_remaining_credit_microunits: number
+          p_reason: string
+          p_supabase_remaining_database_bytes: number
+          p_supabase_remaining_uncached_egress_bytes: number
+          p_supabase_spend_cap_enabled: boolean
+          p_valid_from: string
+          p_valid_until: string
+        }
+        Returns: Json
+      }
+      install_hammer_first_transcription_activation: {
+        Args: {
+          p_account_checked_at: string
+          p_account_evidence_sha256: string
+          p_account_expires_at: string
+          p_account_source_url: string
+          p_activation_id: string
+          p_actor_id: string
+          p_aggregate_policy_revision_id: string
+          p_canonical_recording_id: string
+          p_capacity_authority_id: string
+          p_capacity_checked_at: string
+          p_capacity_evidence_sha256: string
+          p_capacity_expires_at: string
+          p_completion_id: string
+          p_financial_environment: string
+          p_netlify_remaining_credit_microunits: number
+          p_pricing_revision_id: string
+          p_provider_authority_id: string
+          p_reason: string
+          p_recording_revision_id: string
+          p_supabase_remaining_database_bytes: number
+          p_supabase_remaining_uncached_egress_bytes: number
+          p_supabase_spend_cap_enabled: boolean
+          p_user_id: string
+          p_valid_from: string
+          p_valid_until: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      install_hammer_owner_funded_first_transcription_authority: {
+        Args: {
+          p_activation_authority_id: string
+          p_authority_id: string
+          p_budget_id: string
+          p_operator_id: string
+          p_reason: string
+          p_valid_from: string
+          p_valid_until: string
+        }
+        Returns: Json
+      }
+      install_hammer_scoped_live_funding_authority: {
+        Args: {
+          p_activation_authority_id: string
+          p_actor_id: string
+          p_authority_id: string
+          p_reason: string
+          p_valid_from: string
+          p_valid_until: string
+        }
+        Returns: Json
+      }
       is_hammer_history_component_authority: {
         Args: { p_authority: Json }
         Returns: boolean
       }
       is_hammer_history_component_sha256: {
         Args: { p_hashes: Json }
+        Returns: boolean
+      }
+      is_platform_operator: { Args: { p_user_id: string }; Returns: boolean }
+      is_workspace_admin: { Args: { ws: string }; Returns: boolean }
+      is_workspace_member: {
+        Args: { p_workspace_id: string }
         Returns: boolean
       }
       leave_workspace: {
@@ -18957,6 +39517,23 @@ export type Database = {
           user_id: string
           workspace_id: string
         }[]
+      }
+      link_owner_cost_operation: {
+        Args: {
+          p_anvil_capture_execution_id: string
+          p_anvil_recording_completion_id: string
+          p_associated_at: string
+          p_association_evidence: Json
+          p_link_id: string
+          p_link_key: string
+          p_link_type: string
+          p_operation_id: string
+          p_recording_capture_authority_id: string
+          p_recording_session_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
       list_hearth_project_episodes: {
         Args: { p_project_id: string; p_workspace_id: string }
@@ -19122,12 +39699,17 @@ export type Database = {
         }
         Returns: Json
       }
+      manual_handoff_freshness: {
+        Args: { p_snapshot_id: string }
+        Returns: string
+      }
       mark_bellows_session_latest_checkpoint: {
         Args: { p_checkpoint_id: string; p_session_id: string }
         Returns: {
           acting_authority_state: string
           acting_host_participant_id: string | null
           archived_at: string | null
+          authority_generation: number
           broadcast_state: string
           calendar_event_id: string | null
           co_host_participant_ids: string[]
@@ -19172,12 +39754,53 @@ export type Database = {
         }
         Returns: Json
       }
+      mark_customer_hearth_research_stage_unknown: {
+        Args: {
+          p_evidence_json: Json
+          p_reservation_id: string
+          p_stage_key: string
+        }
+        Returns: Json
+      }
+      mark_hammer_first_transcription_submission_unknown: {
+        Args: {
+          p_attempt_id: string
+          p_attempt_key: string
+          p_evidence_json: Json
+          p_operation_id: string
+        }
+        Returns: Json
+      }
       mark_hammer_recording_import_failure: {
         Args: {
           p_code: string
           p_details: Json
           p_import_id: string
           p_stage: string
+        }
+        Returns: Json
+      }
+      mark_hearth_chat_test_submission_unknown: {
+        Args: {
+          p_event_key: string
+          p_evidence_json: Json
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      mark_openai_text_test_certification_unknown: {
+        Args: {
+          p_event_key: string
+          p_evidence_json: Json
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      mark_owner_hearth_research_stage_unknown: {
+        Args: {
+          p_evidence_json: Json
+          p_reservation_id: string
+          p_stage_key: string
         }
         Returns: Json
       }
@@ -19200,6 +39823,15 @@ export type Database = {
         }
         Returns: Json
       }
+      mark_submission_unknown: {
+        Args: {
+          p_attempt_key: string
+          p_event_key: string
+          p_evidence_json: Json
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
       mark_thumbnail_brand_asset_ready: {
         Args: {
           p_actor_id: string
@@ -19210,6 +39842,15 @@ export type Database = {
           p_operation_id: string
           p_width?: number
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      mark_unified_visual_plan_submission_unknown: {
+        Args: {
+          p_evidence_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_reservation_id: string
         }
         Returns: Json
       }
@@ -19240,6 +39881,34 @@ export type Database = {
         }
         Returns: Json
       }
+      open_hearth_test_execution_authorization: {
+        Args: {
+          p_actor_id: string
+          p_authorization_id: string
+          p_deposit_id: string
+          p_expires_at: string
+          p_maximum_aggregate_charge_micros: number
+          p_maximum_operations: number
+          p_reason: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      open_openai_text_test_certification: {
+        Args: {
+          p_actor_id: string
+          p_batch_id: string
+          p_deposit_id: string
+          p_expires_at: string
+          p_invocation_token_hash: string
+          p_reason: string
+          p_terms: Json
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       open_quench_authority: {
         Args: {
           p_manifest_snapshot_id?: string
@@ -19250,20 +39919,452 @@ export type Database = {
         Returns: Json
       }
       org_role_rank: { Args: { p_role: string }; Returns: number }
+      persist_hammer_canonical_transcript_v2: {
+        Args: {
+          p_artifact_path: string
+          p_operation_id: string
+          p_provider_attempt_id: string
+          p_provider_request_id: string
+          p_stage_evidence_sha256: string
+          p_stage_idempotency_key: string
+          p_stage_receipt_id: string
+          p_transcript_id: string
+          p_transcript_json: Json
+          p_transcript_sha256: string
+        }
+        Returns: Json
+      }
+      persist_hammer_transcript_cleanup_assist_result: {
+        Args: {
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_chat_paid_result: {
+        Args: {
+          p_input_units: number
+          p_model: string
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_hash: string
+          p_result_id: string
+          p_result_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_chat_test_result: {
+        Args: {
+          p_input_units: number
+          p_model: string
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_hash: string
+          p_result_id: string
+          p_result_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_framing_pack_generation_result: {
+        Args: {
+          p_approval_id: string
+          p_approval_revision: number
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_script_hash: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_research_synthesis_result: {
+        Args: {
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_script_generation_proposal: {
+        Args: {
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_tag_generation_result: {
+        Args: {
+          p_approval_id: string
+          p_approval_revision: number
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_script_hash: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_thumbnail_direction_generation_result: {
+        Args: {
+          p_approval_id: string
+          p_approval_revision: number
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_script_hash: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_hearth_title_generation_result: {
+        Args: {
+          p_approval_id: string
+          p_approval_revision: number
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_script_hash: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_openai_text_paid_result: {
+        Args: {
+          p_input_units: number
+          p_model: string
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_hash: string
+          p_result_id: string
+          p_result_json: Json
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_openai_text_test_certification_result: {
+        Args: {
+          p_input_units: number
+          p_model: string
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_hash: string
+          p_result_id: string
+          p_result_json: Json
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_openai_transcription_result: {
+        Args: {
+          p_operation_id: string
+          p_provider_request_id: string
+          p_reservation_id: string
+          p_route_code: string
+          p_source_sha256: string
+          p_transcript_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_owner_hearth_research_result: {
+        Args: {
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_research_result_json: Json
+          p_reservation_id: string
+          p_result_json: Json
+          p_review_state: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_owner_hearth_text_result: {
+        Args: {
+          p_approval_id?: string
+          p_approval_revision?: number
+          p_financial_environment: string
+          p_input_units: number
+          p_model: string
+          p_output_units: number
+          p_owner_cost_attempt_id: string
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_result_hash: string
+          p_result_json: Json
+          p_route_code: string
+          p_runtime_environment: string
+          p_script_content_hash?: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      persist_quench_metadata_assist_result: {
+        Args: {
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_result_json: Json
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       plan_included_ai_credits: {
         Args: { p_plan_item_id: string }
         Returns: number
       }
+      preflight_image_prompt_interpretation: {
+        Args: {
+          p_creator_direction: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_image_map_revision_id: string
+          p_image_moment_id: string
+          p_script_approval_id: string
+          p_visual_style: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      prepare_manual_handoff: {
+        Args: {
+          p_destination_capability_revision_id: string
+          p_destination_scope_id: string
+          p_handoff_contract_version: string
+          p_handoff_snapshot: Json
+          p_manifest_content_hash: string
+          p_manifest_snapshot_id: string
+          p_prepare_key: string
+          p_release_decision_id: string
+          p_release_decision_revision: number
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      prepare_openai_text_test_certification_operation: {
+        Args: {
+          p_actor_id: string
+          p_batch_id: string
+          p_operation_id: string
+          p_operation_record_id: string
+          p_request_fingerprint: string
+          p_request_json: Json
+          p_route_code: string
+          p_scenario: string
+          p_workpiece_id: string
+        }
+        Returns: Json
+      }
+      prepare_owner_hearth_chat_luna_pilot: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_budget_id: string
+          p_expires_at: string
+          p_operation_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_reservation_key: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      prepare_owner_hearth_chat_pilot: {
+        Args: {
+          p_acceptance_id: string
+          p_acceptance_key: string
+          p_budget_id: string
+          p_cost_policy_revision_id: string
+          p_expires_at: string
+          p_operation_id: string
+          p_operator_user_id: string
+          p_pricing_revision_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_reservation_key: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      prepare_owner_hearth_operation: {
+        Args: {
+          p_acceptance_id: string
+          p_bounded_input_tokens: number
+          p_estimator_revision: string
+          p_expires_at: string
+          p_maximum_attempts: number
+          p_maximum_output_tokens: number
+          p_operation_authorization_id: string
+          p_operation_id: string
+          p_owner_user_id: string
+          p_protocol_overhead_tokens: number
+          p_provider_model_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_serialized_body_sha256: string
+          p_serialized_bytes: number
+          p_tokenizer_input_tokens: number
+          p_tokenizer_revision: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       prepare_publishing_connection_reauthorization: {
         Args: { p_connection_id: string; p_owner_user_id: string }
+        Returns: Json
+      }
+      preview_price: { Args: { p_pricing_revision_id: string }; Returns: Json }
+      preview_private_price: {
+        Args: { p_pricing_revision_id: string }
+        Returns: Json
+      }
+      promote_bellows_cohost_authority: {
+        Args: {
+          p_cohost_participant_id: string
+          p_expected_generation: number
+          p_session_id: string
+        }
+        Returns: Json
+      }
+      provision_beta_test_credits: {
+        Args: {
+          p_actor_id: string
+          p_credit_units: number
+          p_grant_id: string
+          p_idempotency_key: string
+          p_metadata_json?: Json
+          p_reason: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      publish_private_pricing_revision: {
+        Args: {
+          p_pricing_revision_id: string
+          p_publication_id: string
+          p_reason: string
+        }
         Returns: Json
       }
       publishing_destination_grant_is_active: {
         Args: { p_destination_id: string; p_workspace_id: string }
         Returns: boolean
       }
+      quench_podcast_host_capability_is_compatible: {
+        Args: { p_capabilities: Json }
+        Returns: boolean
+      }
       quench_release_decision_applicability: {
         Args: { p_decision_id: string }
+        Returns: Json
+      }
+      quote_owner_hearth_research_operation: {
+        Args: {
+          p_expires_at: string
+          p_owner_user_id: string
+          p_plan_json: Json
+          p_request_fingerprint: string
+          p_requested_provider_model_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_account_authority_classification: {
+        Args: { p_operator_user_id: string; p_user_id: string }
         Returns: Json
       }
       read_active_ai_pricing_policies: {
@@ -19307,12 +40408,21 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      read_ai_model_choices: { Args: never; Returns: Json }
+      read_ai_operation_model_choices: {
+        Args: { p_operation_code: string }
+        Returns: Json
+      }
       read_ai_pricing_policy: {
         Args: { p_pricing_policy_revision_id: string }
         Returns: Json
       }
       read_anvil_pending_take_decisions: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_bellows_authority_generation: {
+        Args: { p_session_id: string }
         Returns: Json
       }
       read_broll_operation_receipt: {
@@ -19335,7 +40445,38 @@ export type Database = {
         }
         Returns: Json
       }
+      read_cleanup_review_basis: {
+        Args: {
+          p_actor: string
+          p_revision: string
+          p_workpiece: string
+          p_workspace: string
+          p_write?: boolean
+        }
+        Returns: Json
+      }
+      read_credential_lifecycle_execution_gate: {
+        Args: {
+          p_configuration_variable_name: string
+          p_financial_environment: string
+          p_runtime_environment: string
+        }
+        Returns: Json
+      }
+      read_credential_lifecycle_report: {
+        Args: { p_as_of?: string; p_only_actionable?: boolean }
+        Returns: Json[]
+      }
+      read_credit_pack_purchase_availability: { Args: never; Returns: Json }
       read_current_broll_plan: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_current_hearth_preflight_v1: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_current_hearth_research_artifact_v1: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
@@ -19359,6 +40500,42 @@ export type Database = {
         Args: { p_source_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_current_visual_source_attributions: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_customer_paid_execution_test_authorizations: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      read_customer_test_billing: {
+        Args: { p_user_id?: string }
+        Returns: Json
+      }
+      read_existing_openai_text_funding_handle: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_existing_openai_text_test_certification_funding_handle: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_failure_class_corrections: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      read_failure_financials: { Args: { p_limit?: number }; Returns: Json }
+      read_financial_runtime_environment: { Args: never; Returns: Json }
       read_hammer_history_epoch_head_operation: {
         Args: {
           p_head_id?: string
@@ -19390,10 +40567,73 @@ export type Database = {
         }
         Returns: Json
       }
+      read_hammer_shorts_discovery_paid_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hammer_transcript_cleanup_assist_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hearth_chat_paid_result: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_hearth_chat_test_result: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_hearth_execution_authority: {
+        Args: { p_domain: string; p_operation_id: string }
+        Returns: Json
+      }
+      read_hearth_framing_pack_generation_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hearth_research_synthesis_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hearth_script_generation_proposal: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hearth_tag_generation_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hearth_thumbnail_direction_generation_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_hearth_title_generation_contract_version: {
+        Args: never
+        Returns: number
+      }
+      read_hearth_title_generation_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
       read_image_prompt_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_manual_handoffs: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_my_accounting_balances: { Args: never; Returns: Json }
       read_my_ai_credit_quote: {
         Args: { p_quote_id: string }
         Returns: {
@@ -19453,9 +40693,221 @@ export type Database = {
         Args: { p_reservation_id: string }
         Returns: Json
       }
+      read_my_ai_funding_options: {
+        Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      read_my_ai_model_preference: { Args: never; Returns: Json }
+      read_my_ai_operation_model_override: {
+        Args: { p_operation_code: string }
+        Returns: Json
+      }
+      read_my_customer_funding: { Args: never; Returns: Json }
+      read_my_customer_runway_generation_attempt: {
+        Args: {
+          p_beat_id: string
+          p_creative_input_hash: string
+          p_prompt_content_hash: string
+          p_prompt_revision: number
+          p_prompt_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_my_hammer_transcription_evidence: {
+        Args: { p_operation_id: string }
+        Returns: Json
+      }
+      read_my_hearth_conversation: {
+        Args: {
+          p_after_sequence?: number
+          p_limit?: number
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: {
+          client_message_key: string
+          completeness: string
+          content: string
+          created_at: string
+          generation: number
+          role: string
+          sequence: number
+        }[]
+      }
+      read_my_openai_text_model_preference: {
+        Args: { p_route_code: string }
+        Returns: Json
+      }
+      read_my_openai_transcription_result: {
+        Args: { p_operation_id: string }
+        Returns: Json
+      }
       read_my_paid_media_operation: {
         Args: { p_paid_media_operation_id: string }
         Returns: Json
+      }
+      read_my_pending_hearth_script_proposal: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_my_spending_operation: {
+        Args: { p_operation_id: string }
+        Returns: Json
+      }
+      read_my_spending_quote: { Args: { p_quote_id: string }; Returns: Json }
+      read_openai_execution_requirement: {
+        Args: { p_credential_funding?: string; p_route_code: string }
+        Returns: Json
+      }
+      read_openai_reconciliation_summary: { Args: never; Returns: Json }
+      read_openai_text_enforcement_readiness: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      read_openai_text_model_catalog_admin: { Args: never; Returns: Json }
+      read_openai_text_model_choices: {
+        Args: { p_route_code?: string }
+        Returns: Json
+      }
+      read_openai_text_paid_result: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_openai_text_quote_bounding_context: {
+        Args: {
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_openai_text_route_execution_requirement: {
+        Args: { p_route_code: string }
+        Returns: Json
+      }
+      read_openai_text_test_certification: {
+        Args: { p_batch_id?: string }
+        Returns: Json
+      }
+      read_openai_text_test_certification_invocation: {
+        Args: {
+          p_batch_id: string
+          p_invocation_token: string
+          p_operation_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      read_openai_text_test_certification_result: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      read_operator_legacy_credit_reconciliation_summary: {
+        Args: { p_actor_id: string }
+        Returns: Json
+      }
+      read_owner_accounting_foundation: {
+        Args: { p_limit?: number; p_user_id?: string }
+        Returns: Json
+      }
+      read_owner_billing_console: { Args: { p_limit?: number }; Returns: Json }
+      read_owner_broll_prompt_interpretation: {
+        Args: { p_owner_cost_attempt_id: string }
+        Returns: Json
+      }
+      read_owner_cost_operation: {
+        Args: { p_operation_id: string }
+        Returns: Json
+      }
+      read_owner_cost_summary: {
+        Args: { p_currency?: string; p_financial_environment: string }
+        Returns: Json
+      }
+      read_owner_hearth_activation_audit: { Args: never; Returns: Json }
+      read_owner_hearth_execution_requirement: {
+        Args: {
+          p_owner_user_id: string
+          p_route_code: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_owner_hearth_image_result: {
+        Args: { p_owner_cost_attempt_id: string; p_route_code: string }
+        Returns: Json
+      }
+      read_owner_hearth_research_canary_reconciliation: {
+        Args: { p_authorization_id: string }
+        Returns: Json
+      }
+      read_owner_hearth_research_execution_requirement: {
+        Args: {
+          p_owner_user_id: string
+          p_route_code: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_owner_hearth_research_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_owner_hearth_text_result: {
+        Args: { p_owner_cost_attempt_id: string; p_route_code: string }
+        Returns: Json
+      }
+      read_owner_operating_budget_activity: {
+        Args: { p_budget_id: string }
+        Returns: Json
+      }
+      read_owner_pricing_reservations: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      read_owner_purchase_activity: {
+        Args: { p_limit?: number; p_stripe_mode?: string }
+        Returns: Json
+      }
+      read_owner_unified_visual_plan_operation: {
+        Args: { p_owner_cost_attempt_id: string }
+        Returns: Json
+      }
+      read_owner_visual_narrative_interpretation_result: {
+        Args: { p_owner_cost_attempt_id: string }
+        Returns: Json
+      }
+      read_owner_workspace_cost_audit: {
+        Args: { p_from: string; p_to: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_paid_execution_aggregate_admin: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
+      read_pending_customer_deposits_for_fee_recovery: {
+        Args: { p_limit?: number }
+        Returns: {
+          currency: string
+          deposit_id: string
+          received_at: string
+          stripe_payment_intent_id: string
+        }[]
       }
       read_publication_operation: {
         Args: { p_publication_operation_id: string }
@@ -19467,6 +40919,10 @@ export type Database = {
           p_workpiece_id: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      read_quench_metadata_assist_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
         Returns: Json
       }
       read_reference_clip_acquisition: {
@@ -19481,12 +40937,45 @@ export type Database = {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_reference_visual_plan_source_transition: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       read_reference_visual_visual_package: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_restricted_beta_financial_controls_admin: {
+        Args: never
+        Returns: Json
+      }
+      read_runway_execution_control: { Args: never; Returns: Json }
       read_source_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_staged_hearth_thumbnail_direction_generation_result: {
+        Args: { p_operation_id: string; p_reservation_id: string }
+        Returns: Json
+      }
+      read_staged_timeline_image_generation_result: {
+        Args: { p_operation_id: string; p_request_fingerprint: string }
+        Returns: Json
+      }
+      read_staged_visual_narrative_interpretation_result: {
+        Args: { p_operation_id: string; p_request_fingerprint: string }
+        Returns: Json
+      }
+      read_stripe_customer_environment_identifier: {
+        Args: { p_financial_environment: string; p_user_id: string }
+        Returns: Json
+      }
+      read_thumbnail_base_generation_authority: {
+        Args: { p_user_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_timeline_image_generation_authority: {
+        Args: { p_user_id: string; p_workspace_id: string }
         Returns: Json
       }
       read_unified_visual_plan_operation:
@@ -19502,12 +40991,56 @@ export type Database = {
             }
             Returns: Json
           }
+      read_visual_narrative_interpretation_authority: {
+        Args: { p_user_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       read_visual_opportunity_dispositions: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
       read_workpiece_sources: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_workspace_billing_ledger: {
+        Args: { p_from: string; p_to: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_workspace_cost_ledger: {
+        Args: { p_from: string; p_to: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_youtube_publication_progress: {
+        Args: {
+          p_publication_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      rearm_owner_hearth_chat_luna_pilot: {
+        Args: {
+          p_budget_id: string
+          p_operator_user_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
+      rearm_owner_hearth_preprovider_release: {
+        Args: {
+          p_event_key: string
+          p_operator_user_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      rearm_standard_customer_preprovider_release: {
+        Args: {
+          p_actor_id: string
+          p_event_key: string
+          p_reservation_id: string
+        }
         Returns: Json
       }
       reassign_reference_clip_source: {
@@ -19555,6 +41088,48 @@ export type Database = {
         }
         Returns: Json
       }
+      reconcile_current_approved_script_ready_v1: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      reconcile_runway_execution: {
+        Args: {
+          p_direct_provider_actual_micros: number
+          p_evidence_json?: Json
+          p_operation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+          p_supporting_actual_micros: number
+        }
+        Returns: Json
+      }
+      reconcile_unified_visual_plan_reference_visual_state_failure: {
+        Args: {
+          p_expected_input_units: number
+          p_expected_output_units: number
+          p_expected_supplier_expense_micros: number
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_response_hash: string
+          p_reference_visual_plan_content_hash: string
+          p_reference_visual_plan_revision: number
+          p_reference_visual_plan_revision_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reconcile_unified_visual_plan_validation_failure: {
+        Args: {
+          p_expected_supplier_expense_micros: number
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_reservation_id: string
+          p_validation_contract_revision: string
+          p_validation_error_code: string
+        }
+        Returns: Json
+      }
       record_ai_credit_unfunded_expense: {
         Args: {
           p_attempted_charge: number
@@ -19579,6 +41154,15 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      record_barstock_discovery_provider_call: {
+        Args: {
+          p_lease_token_hash: string
+          p_provider: string
+          p_request_key: string
+          p_run_id: string
+        }
+        Returns: Json
       }
       record_billing_event: {
         Args: {
@@ -19638,15 +41222,410 @@ export type Database = {
         }
         Returns: Json
       }
+      record_credential_lifecycle_verification: {
+        Args: {
+          p_activation_deployment_id: string
+          p_activation_deployment_sha: string
+          p_actor_id: string
+          p_credential_id: string
+          p_event_key: string
+          p_occurred_at: string
+          p_verification_json: Json
+        }
+        Returns: Json
+      }
+      record_customer_deposit: {
+        Args: {
+          p_credit_units: number
+          p_currency: string
+          p_deposit_id: string
+          p_gross_amount_micros: number
+          p_livemode: boolean
+          p_metadata_json?: Json
+          p_pack_id: string
+          p_received_at: string
+          p_stripe_event_id: string
+          p_stripe_payment_intent_id: string
+          p_stripe_session_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      record_customer_deposit_processor_fee: {
+        Args: {
+          p_deposit_id: string
+          p_evidence_json?: Json
+          p_fee_amount_micros: number
+          p_fee_id: string
+          p_provider_fee_reference: string
+          p_recorded_at: string
+        }
+        Returns: Json
+      }
+      record_customer_deposit_refund: {
+        Args: {
+          p_adjustment_type: string
+          p_deposit_id: string
+          p_evidence_json?: Json
+          p_refund_amount_micros: number
+          p_refund_id: string
+          p_refunded_at: string
+          p_stripe_event_id: string
+          p_stripe_refund_id: string
+        }
+        Returns: Json
+      }
+      record_hammer_first_transcription_submission: {
+        Args: {
+          p_attempt_id: string
+          p_evidence_json: Json
+          p_operation_id: string
+          p_provider_request_id: string
+        }
+        Returns: Json
+      }
+      record_hammer_scoped_live_checkout_session: {
+        Args: {
+          p_claim_id: string
+          p_stripe_session_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      record_hearth_chat_test_evidence: {
+        Args: {
+          p_evidence_json: Json
+          p_evidence_key: string
+          p_evidence_kind: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
       record_hearth_event: {
         Args: { p_episode_id?: string; p_event_type: string; p_payload?: Json }
         Returns: string
+      }
+      record_hearth_tag_validation_failure_evidence: {
+        Args: {
+          p_input_units: number
+          p_model: string
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_raw_provider_response_text: string
+          p_reservation_id: string
+          p_validation_contract_revision: string
+          p_validation_error_code: string
+        }
+        Returns: Json
+      }
+      record_hearth_thumbnail_base_generation_result: {
+        Args: {
+          p_canonical_receipt_json: Json
+          p_concept_revision_id: string
+          p_operation_id: string
+          p_prompt_package_hash: string
+          p_provider_body_sha256: string
+          p_provider_request_id: string
+          p_provider_response_id: string
+          p_render_recipe_id: string
+          p_render_recipe_revision: number
+          p_request_fingerprint: string
+          p_staged_asset_id: string
+        }
+        Returns: Json
       }
       record_image_prompt_provider_response: {
         Args: {
           p_operation_fingerprint: string
           p_operation_id: string
           p_provider_response_json: Json
+        }
+        Returns: Json
+      }
+      record_legacy_credit_conversion_mapping: {
+        Args: {
+          p_canonical_id: string
+          p_canonical_kind: string
+          p_converted_credit_units: number
+          p_decision_id: string
+          p_evidence_json: Json
+          p_mapping_id: string
+          p_reused_existing_journal_event: boolean
+          p_source_id: string
+          p_source_kind: string
+        }
+        Returns: Json
+      }
+      record_legacy_credit_reconciliation_decision: {
+        Args: {
+          p_actor_id: string
+          p_calculation_json: Json
+          p_case_id: string
+          p_classification: string
+          p_decision: string
+          p_decision_id: string
+          p_evidence_hashes: Json
+          p_reason: string
+          p_supported_credit_units: number
+        }
+        Returns: Json
+      }
+      record_legacy_credit_reconciliation_evidence: {
+        Args: {
+          p_case_id: string
+          p_evidence_id: string
+          p_evidence_json: Json
+          p_evidence_kind: string
+          p_observed_at: string
+          p_source_identifier: string
+        }
+        Returns: Json
+      }
+      record_openai_organization_reconciliation: {
+        Args: {
+          p_batch_id: string
+          p_cost_buckets: Json
+          p_currency: string
+          p_evidence_status: string
+          p_period_end: string
+          p_period_start: string
+          p_raw_evidence_json: Json
+          p_source_key: string
+          p_source_kind: string
+          p_total_cost_micros: number
+          p_usage_buckets: Json
+        }
+        Returns: Json
+      }
+      record_openai_supplier_expense_obligation_settlement: {
+        Args: {
+          p_allocation_id: string
+          p_batch_id: string
+          p_event_key: string
+          p_evidence_json?: Json
+          p_id: string
+          p_supplier_expense_id: string
+        }
+        Returns: Json
+      }
+      record_openai_supplier_expense_reconciliation_adjustment: {
+        Args: {
+          p_allocation_id: string
+          p_batch_id: string
+          p_confirmed_amount_micros: number
+          p_evidence_json?: Json
+          p_id: string
+          p_matching_method: string
+          p_source_key: string
+          p_supplier_expense_id: string
+        }
+        Returns: Json
+      }
+      record_openai_text_failure_realized_loss_correction: {
+        Args: {
+          p_actor_id: string
+          p_attributable_variable_supporting_cost_micros: number
+          p_correction_id: string
+          p_correction_key: string
+          p_correction_kind: string
+          p_direct_cost_status: string
+          p_direct_supplier_cost_micros: number
+          p_evidence_json: Json
+          p_excluded_nonrealized_cost_micros: number
+          p_failure_event_id: string
+          p_financial_environment: string
+          p_supporting_cost_status: string
+        }
+        Returns: Json
+      }
+      record_openai_text_model_visibility: {
+        Args: {
+          p_catalog_entry_id: string
+          p_catalog_revision_id: string
+          p_checked_at: string
+          p_http_status: number
+          p_id: string
+          p_provider_model_id: string
+          p_provider_owner_label?: string
+          p_provider_project_fingerprint: string
+          p_returned_model_id?: string
+          p_sanitized_evidence_json?: Json
+          p_source_key: string
+          p_visible: boolean
+        }
+        Returns: Json
+      }
+      record_openai_text_provider_capture: {
+        Args: {
+          p_attempt_number: number
+          p_capture_id: string
+          p_capture_key: string
+          p_input_units: number
+          p_output_units: number
+          p_provider_request_id: string
+          p_reservation_id: string
+          p_response_evidence_json?: Json
+        }
+        Returns: Json
+      }
+      record_openai_text_supplier_attempt_expense: {
+        Args: {
+          p_amount_micros: number
+          p_attempt_key: string
+          p_attempt_number: number
+          p_evidence_json?: Json
+          p_evidence_status: string
+          p_provider_reference: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      record_openai_text_test_certification_capture: {
+        Args: {
+          p_attempt_number: number
+          p_capture_id: string
+          p_capture_key: string
+          p_input_units: number
+          p_output_units: number
+          p_provider_request_id: string
+          p_reservation_id: string
+          p_response_evidence_json: Json
+        }
+        Returns: Json
+      }
+      record_openai_text_test_certification_evidence: {
+        Args: {
+          p_evidence_json: Json
+          p_evidence_key: string
+          p_evidence_kind: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      record_openai_text_test_certification_expense: {
+        Args: {
+          p_amount_micros: number
+          p_component_kind: string
+          p_evidence_json: Json
+          p_expense_key: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      record_openai_text_usage: {
+        Args: {
+          p_attempt_number: number
+          p_canonical_persistence_confirmed: boolean
+          p_evidence_id: string
+          p_evidence_json?: Json
+          p_evidence_key: string
+          p_input_units: number
+          p_output_units: number
+          p_provider_reported: boolean
+          p_provider_request_id: string
+          p_reservation_id: string
+          p_result_validated: boolean
+        }
+        Returns: Json
+      }
+      record_openai_text_validation_failure_evidence: {
+        Args: {
+          p_input_units: number
+          p_model: string
+          p_operation_id: string
+          p_output_units: number
+          p_provider_request_id: string
+          p_raw_provider_response_text: string
+          p_reservation_id: string
+          p_route_code: string
+          p_validation_contract_revision: string
+          p_validation_error_code: string
+        }
+        Returns: Json
+      }
+      record_owner_cost_valuation: {
+        Args: {
+          p_amount_micros: number
+          p_attempt_id: string
+          p_cost_component: string
+          p_currency: string
+          p_normalized_usage_evidence: Json
+          p_prior_valuation_id: string
+          p_private_valuation_evidence: Json
+          p_recognition_mode: string
+          p_reconciliation_reference: string
+          p_valuation_basis: string
+          p_valuation_id: string
+          p_valuation_key: string
+          p_valued_at: string
+        }
+        Returns: Json
+      }
+      record_owner_hearth_compatibility_result: {
+        Args: {
+          p_authoritative_supplier_expense_micros: number
+          p_estimated_supplier_expense_micros: number
+          p_evidence_json?: Json
+          p_provider_request_id: string
+          p_reservation_id: string
+          p_result_key: string
+          p_status: string
+        }
+        Returns: Json
+      }
+      record_owner_hearth_research_review: {
+        Args: {
+          p_event_key: string
+          p_note?: string
+          p_result_package_id: string
+          p_review_state: string
+        }
+        Returns: Json
+      }
+      record_owner_hearth_tail_measurement: {
+        Args: {
+          p_canonical_retained_bytes: number
+          p_cost_status: string
+          p_evidence_json?: Json
+          p_evidence_retained_bytes: number
+          p_measurement_key: string
+          p_period_start: string
+          p_tail_authorization_id: string
+        }
+        Returns: Json
+      }
+      record_owner_hearth_thumbnail_base_generation_result: {
+        Args: {
+          p_canonical_receipt_json: Json
+          p_concept_revision_id: string
+          p_financial_environment: string
+          p_operation_fingerprint: string
+          p_owner_cost_attempt_id: string
+          p_prompt_package_hash: string
+          p_provider_body_sha256: string
+          p_provider_request_id: string
+          p_provider_response_id: string
+          p_render_recipe_id: string
+          p_render_recipe_revision: number
+          p_runtime_environment: string
+          p_staged_asset_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      record_owner_operating_budget_reconciliation_adjustment: {
+        Args: {
+          p_allocation_id: string
+          p_batch_id: string
+          p_confirmed_effective_amount_micros: number
+          p_evidence_json?: Json
+          p_id: string
+          p_reservation_id: string
+          p_source_key: string
+          p_supplier_expense_id: string
         }
         Returns: Json
       }
@@ -19698,6 +41677,41 @@ export type Database = {
           p_paid_media_operation_id: string
           p_release_id: string
           p_usage_components: Json
+        }
+        Returns: Json
+      }
+      record_paid_operation_aggregate_outcome: {
+        Args: {
+          p_event_key: string
+          p_evidence_json?: Json
+          p_outcome: string
+          p_reservation_id: string
+          p_supplier_obligation_micros?: number
+          p_supplier_recovery_micros?: number
+        }
+        Returns: Json
+      }
+      record_paid_operation_tail_obligation: {
+        Args: {
+          p_artifact_class: string
+          p_coverage_ends_at: string
+          p_estimated_amount_micros: number
+          p_event_key: string
+          p_evidence_json?: Json
+          p_id: string
+          p_lifecycle_state: string
+          p_reservation_id: string
+          p_retained_bytes: number
+          p_retention_reason: string
+        }
+        Returns: Json
+      }
+      record_provider_failure: {
+        Args: {
+          p_event_key: string
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_reservation_id: string
         }
         Returns: Json
       }
@@ -19754,6 +41768,182 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_source_evidence: Json
+        }
+        Returns: Json
+      }
+      record_restricted_beta_exposure_adjustment: {
+        Args: {
+          p_event_key: string
+          p_event_type: string
+          p_evidence_json?: Json
+          p_exposure_adjustment_micros: number
+          p_hold_id: string
+          p_remaining_exposure_micros: number
+          p_supplier_obligation_micros?: number
+        }
+        Returns: Json
+      }
+      record_restricted_beta_exposure_outcome: {
+        Args: {
+          p_customer_funding_delta_micros?: number
+          p_event_key: string
+          p_event_type: string
+          p_evidence_json?: Json
+          p_forge_loss_delta_micros?: number
+          p_hold_id: string
+          p_supplier_obligation_micros?: number
+          p_supplier_recovery_micros?: number
+        }
+        Returns: Json
+      }
+      record_runway_completion_for_reconciliation: {
+        Args: {
+          p_evidence_json?: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
+      record_runway_failure_for_reconciliation: {
+        Args: {
+          p_evidence_json?: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
+      record_stripe_adjustment_accounting: {
+        Args: {
+          p_adjustment_type: string
+          p_amount_micros: number
+          p_currency: string
+          p_evidence_json?: Json
+          p_livemode: boolean
+          p_record_id: string
+          p_recorded_at: string
+          p_stripe_event_id: string
+          p_stripe_payment_intent_id: string
+          p_stripe_refund_id: string
+        }
+        Returns: Json
+      }
+      record_stripe_customer_environment_identifier: {
+        Args: {
+          p_evidence_json?: Json
+          p_financial_environment: string
+          p_stripe_customer_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      record_subscription_cycle_adjustment: {
+        Args: {
+          p_adjusted_at: string
+          p_adjustment_id: string
+          p_adjustment_type: string
+          p_amount_micros: number
+          p_evidence_json?: Json
+          p_provider_object_id: string
+          p_receipt_id: string
+          p_stripe_event_id: string
+        }
+        Returns: Json
+      }
+      record_subscription_cycle_receipt: {
+        Args: {
+          p_currency: string
+          p_gross_amount_micros: number
+          p_livemode: boolean
+          p_metadata_json?: Json
+          p_period_end: string
+          p_period_start: string
+          p_plan_item_id: string
+          p_purchase_type: string
+          p_receipt_id: string
+          p_received_at: string
+          p_stripe_event_id: string
+          p_stripe_invoice_id: string
+          p_stripe_payment_intent_id: string
+          p_stripe_subscription_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      record_supplier_expense: {
+        Args: {
+          p_amount_micros: number
+          p_component_code: string
+          p_currency: string
+          p_evidence_json?: Json
+          p_evidence_status: string
+          p_expense_id: string
+          p_expense_key: string
+          p_obligation_status: string
+          p_provider: string
+          p_provider_reference: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      record_supplier_recovery: {
+        Args: {
+          p_amount_micros: number
+          p_currency: string
+          p_evidence_json?: Json
+          p_evidence_status: string
+          p_provider_reference: string
+          p_recovery_id: string
+          p_recovery_key: string
+          p_supplier_expense_id: string
+        }
+        Returns: Json
+      }
+      record_supplier_recovery_claim: {
+        Args: {
+          p_claim_id: string
+          p_claim_key: string
+          p_claimed_amount_micros: number
+          p_currency: string
+          p_evidence_json?: Json
+          p_supplier_expense_id: string
+        }
+        Returns: Json
+      }
+      record_supporting_service_plan_observation: {
+        Args: {
+          p_evidence_class: string
+          p_evidence_period_end: string
+          p_evidence_period_start: string
+          p_fixed_charge_micros: number
+          p_id: string
+          p_observed_at: string
+          p_plan_name: string
+          p_provider: string
+          p_source_key: string
+          p_source_reference: string
+          p_usage_json: Json
+        }
+        Returns: Json
+      }
+      record_test_refill: {
+        Args: {
+          p_credit_units: number
+          p_expires_at?: string
+          p_grant_id: string
+          p_idempotency_key: string
+          p_operator_user_id: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      record_unified_image_plan_membership: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_plan_revision_id: string
         }
         Returns: Json
       }
@@ -19820,13 +42010,181 @@ export type Database = {
         }
         Returns: Json
       }
+      recover_expired_unified_visual_plan_attempt: {
+        Args: { p_operation_fingerprint: string; p_operation_id: string }
+        Returns: Json
+      }
       reference_visual_candidate_assets_available: {
+        Args: { p_candidate_revision_id: string }
+        Returns: boolean
+      }
+      reference_visual_candidate_current_for_plan: {
         Args: { p_candidate_revision_id: string }
         Returns: boolean
       }
       reference_visual_candidate_release_ready: {
         Args: { p_candidate_revision_id: string }
         Returns: boolean
+      }
+      reference_visual_current_source_set: {
+        Args: {
+          p_opportunity_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      reference_visual_evidence_claim_fingerprint: {
+        Args: {
+          p_category: string
+          p_document_locator: Json
+          p_evidence_role: string
+          p_numeric_value: number
+          p_opportunity_id: string
+          p_raw_excerpt: string
+          p_source_revision_id: string
+          p_source_set_member_id: string
+          p_unit: string
+          p_workpiece_id: string
+          p_workpiece_source_link_revision_id: string
+          p_workspace_id: string
+        }
+        Returns: string
+      }
+      reference_visual_evidence_current_for_source_set: {
+        Args: {
+          p_evidence_revision_id: string
+          p_source_set_revision_id: string
+        }
+        Returns: boolean
+      }
+      reference_visual_recipe_current_for_source_set: {
+        Args: { p_recipe_revision_id: string; p_source_set_revision_id: string }
+        Returns: boolean
+      }
+      reference_visual_rights_current_for_source_set: {
+        Args: { p_rights_revision_id: string; p_source_set_revision_id: string }
+        Returns: boolean
+      }
+      reference_visual_source_use_current_for_source_set: {
+        Args: {
+          p_source_set_revision_id: string
+          p_source_use_revision_id: string
+        }
+        Returns: boolean
+      }
+      refresh_credential_lifecycle_alerts: {
+        Args: { p_actor_id: string; p_as_of: string }
+        Returns: Json
+      }
+      refresh_owner_hearth_tail_expiry: {
+        Args: { p_owner_user_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      register_bellows_capture_segment: {
+        Args: {
+          p_boundary_reason: string
+          p_capture_profile: Json
+          p_mime_type: string
+          p_participant_id: string
+          p_recorder_generation: number
+          p_segment_id: string
+          p_session_id: string
+          p_start_offset_ms: number
+          p_started_at: string
+          p_track_id: string
+        }
+        Returns: {
+          boundary_reason: string
+          byte_length: number | null
+          capture_profile: Json
+          created_at: string
+          duration_ms: number | null
+          ended_at: string | null
+          expected_part_count: number | null
+          id: string
+          integrity_state: string
+          mime_type: string
+          participant_id: string
+          recorder_generation: number
+          session_id: string
+          sha256: string | null
+          start_offset_ms: number
+          started_at: string
+          storage_bucket: string | null
+          storage_key: string | null
+          track_id: string
+          updated_at: string
+          verified_at: string | null
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bellows_segments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      register_bellows_upload_part: {
+        Args: {
+          p_byte_length: number
+          p_part_id: string
+          p_participant_id: string
+          p_segment_id: string
+          p_sequence_number: number
+          p_session_id: string
+          p_sha256: string
+          p_storage_key: string
+        }
+        Returns: {
+          attempt_count: number
+          byte_length: number
+          created_at: string
+          id: string
+          last_error: string | null
+          participant_id: string
+          segment_id: string
+          sequence_number: number
+          session_id: string
+          sha256: string
+          storage_bucket: string
+          storage_key: string
+          updated_at: string
+          upload_state: string
+          verified_at: string | null
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bellows_upload_parts"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      register_credential_lifecycle: {
+        Args: {
+          p_activated_at: string
+          p_activation_deployment_id: string
+          p_activation_deployment_sha: string
+          p_actor_id: string
+          p_affected_capability: string
+          p_configuration_variable_name: string
+          p_credential_id: string
+          p_credential_identity_hash: string
+          p_credential_purpose: string
+          p_event_key: string
+          p_expires_at: string
+          p_financial_environment: string
+          p_lifecycle_status: string
+          p_metadata_json: Json
+          p_occurred_at: string
+          p_provider: string
+          p_provider_created_at: string
+          p_rotation_lead: string
+          p_runtime_environment: string
+          p_verification_json: Json
+        }
+        Returns: Json
       }
       register_source_desk_timed_asset: {
         Args: {
@@ -19858,6 +42216,7 @@ export type Database = {
           failure_message: string | null
           height: number | null
           id: string
+          metadata: Json
           metadata_json: Json
           mime_type: string
           operation_fingerprint: string | null
@@ -19896,6 +42255,14 @@ export type Database = {
         Args: { p_candidate_id: string }
         Returns: Json
       }
+      reject_my_hearth_script_proposal: {
+        Args: {
+          p_proposal_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       release_ai_credit_reservation: {
         Args: {
           p_metadata_json?: Json
@@ -19903,6 +42270,29 @@ export type Database = {
           p_release_id: string
           p_reservation_id: string
           p_user_id: string
+        }
+        Returns: Json
+      }
+      release_operation: {
+        Args: {
+          p_evidence_json?: Json
+          p_reason: string
+          p_release_key: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      release_owner_hearth_definitive_nonbillable_rejection: {
+        Args: { p_event_key: string; p_reservation_id: string }
+        Returns: Json
+      }
+      relieve_failed_customer_operation: {
+        Args: {
+          p_evidence_json?: Json
+          p_reason: string
+          p_relief_id: string
+          p_relief_key: string
+          p_reservation_id: string
         }
         Returns: Json
       }
@@ -19940,6 +42330,10 @@ export type Database = {
           team_name: string
           updated_at: string
         }[]
+      }
+      renew_barstock_discovery_lease: {
+        Args: { p_lease_token_hash: string; p_run_id: string }
+        Returns: Json
       }
       repair_org_members_from_teams: {
         Args: { p_org_id: string }
@@ -19992,6 +42386,70 @@ export type Database = {
         }
         Returns: Json
       }
+      reserve_customer_hearth_chat_quote: {
+        Args: {
+          p_idempotency_key: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reserve_customer_openai_text_quote: {
+        Args: {
+          p_credential_funding: string
+          p_idempotency_key: string
+          p_model: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      reserve_customer_openai_transcription_quote: {
+        Args: {
+          p_credential_funding: string
+          p_idempotency_key: string
+          p_model: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      reserve_customer_runway_quote: {
+        Args: {
+          p_duration_seconds: number
+          p_idempotency_key: string
+          p_model: string
+          p_operation_fingerprint: string
+          p_quote_id: string
+          p_ratio: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reserve_hammer_first_transcription_quote: {
+        Args: {
+          p_idempotency_key: string
+          p_operation_uuid: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       reserve_hammer_recording_import: {
         Args: {
           p_expected_media_bytes: number
@@ -20036,6 +42494,82 @@ export type Database = {
         }
         Returns: Json
       }
+      reserve_hearth_chat_test_quote: {
+        Args: {
+          p_idempotency_key: string
+          p_quote_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reserve_openai_text_test_certification_operation: {
+        Args: {
+          p_idempotency_key: string
+          p_operation_record_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reserve_operation: {
+        Args: {
+          p_funding_source_id: string
+          p_funding_source_type: string
+          p_idempotency_key: string
+          p_quote_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reserve_owner_openai_text_canary_quote: {
+        Args: {
+          p_credential_funding: string
+          p_idempotency_key: string
+          p_model: string
+          p_operation_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      reserve_owner_runway_operation: {
+        Args: {
+          p_budget_id: string
+          p_idempotency_key: string
+          p_quote_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      reserve_restricted_beta_exposure: {
+        Args: {
+          p_caller_class: string
+          p_capability_code: string
+          p_customer_funding_ceiling_micros: number
+          p_event_key: string
+          p_funding_class: string
+          p_hold_id: string
+          p_lease_seconds: number
+          p_model_or_sku: string
+          p_opaque_funding_handle: string
+          p_operation_identity: string
+          p_policy_revision_id: string
+          p_provider_mode: string
+          p_request_fingerprint: string
+          p_retry_exposure_ceiling_micros: number
+          p_supplier_exposure_ceiling_micros: number
+          p_supporting_exposure_ceiling_micros: number
+          p_tail_exposure_ceiling_micros: number
+          p_unreconciled_exposure_ceiling_micros: number
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       reset_my_style_profile: {
         Args: { p_workspace_id: string }
         Returns: {
@@ -20064,9 +42598,14 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_opportunity_id: string
+          p_reset_request_id: string
           p_workpiece_id: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      resolve_account_authority_classification: {
+        Args: { p_user_id: string }
         Returns: Json
       }
       resolve_active_compound_ai_pricing_policy: {
@@ -20081,6 +42620,33 @@ export type Database = {
           p_size: string
         }
         Returns: Json
+      }
+      resolve_ai_access_policy: {
+        Args: {
+          p_action?: string
+          p_estimated_cost_usd?: number
+          p_feature?: string
+          p_model?: string
+          p_org_ai_available?: boolean
+          p_org_id: string
+          p_personal_ai_configured?: boolean
+          p_provider?: string
+          p_request_id?: string
+          p_requested_funding_source?: Database["tongs"]["Enums"]["ai_funding_source"]
+          p_requested_mode?: Database["tongs"]["Enums"]["ai_mode"]
+          p_tool: string
+          p_user_id: string
+          p_workspace_id: string
+          p_write_ledger?: boolean
+        }
+        Returns: {
+          decision_type: Database["tongs"]["Enums"]["ai_decision_type"]
+          effective_policy_snapshot: Json
+          fallback_available: boolean
+          fallback_used: boolean
+          reason_code: string
+          selected_funding_source: Database["tongs"]["Enums"]["ai_funding_source"]
+        }[]
       }
       resolve_ai_policy: {
         Args: {
@@ -20170,8 +42736,39 @@ export type Database = {
         Args: { p_operation_fingerprint: string; p_operation_id: string }
         Returns: Json
       }
+      resolve_hammer_transcription_source_authority: {
+        Args: {
+          p_canonical_recording_id: string
+          p_recording_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       resolve_hammer_video_master: {
         Args: { p_operation_fingerprint: string; p_operation_id: string }
+        Returns: Json
+      }
+      resolve_hearth_chat_paid_execution_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_hearth_chat_test_execution_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
         Returns: Json
       }
       resolve_legacy_asset_reference_exact: {
@@ -20196,12 +42793,149 @@ export type Database = {
           workspace_role: string
         }[]
       }
+      resolve_openai_text_model_for_funding_quote: {
+        Args: {
+          p_credential_funding: string
+          p_route_code: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_openai_text_model_for_quote: {
+        Args: {
+          p_credential_funding: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      resolve_openai_text_paid_execution_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_openai_text_recovery_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_openai_text_test_certification_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_route_code: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_openai_text_verified_zero_supporting_cost: {
+        Args: { p_reservation_id: string }
+        Returns: Json
+      }
+      resolve_openai_transcription_model_for_quote: {
+        Args: {
+          p_credential_funding: string
+          p_route_code: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       resolve_org_user_by_email: {
         Args: { p_email: string; p_org_id: string }
         Returns: {
           email: string
           user_id: string
         }[]
+      }
+      resolve_owner_hearth_model_for_operation: {
+        Args: {
+          p_owner_user_id: string
+          p_requested_provider_model_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_owner_hearth_paid_execution_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_owner_hearth_research_paid_execution_context: {
+        Args: {
+          p_operation_id: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_owner_openai_text_canary_eligibility: {
+        Args: {
+          p_model: string
+          p_route_code: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_runway_execution_funding: {
+        Args: {
+          p_duration_seconds: number
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_ratio: string
+          p_user_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_transition_owner_authority: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
+      resolve_visual_source_attribution: {
+        Args: {
+          p_actor_id: string
+          p_artifact_family: string
+          p_expected_attribution_revision: number
+          p_expected_opportunity_revision: number
+          p_expected_opportunity_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_source_revision_id: string
+          p_workpiece_id: string
+          p_workpiece_source_link_revision_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
       resolve_workpiece_brand_default: {
         Args: {
@@ -20237,6 +42971,32 @@ export type Database = {
         }
         Returns: Json
       }
+      retry_youtube_publication_stage: {
+        Args: {
+          p_publication_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      review_hearth_editorial_preflight_v1: {
+        Args: {
+          p_operation_id: string
+          p_report_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      revise_owner_operating_budget: {
+        Args: {
+          p_budget_id: string
+          p_maximum_amount_micros: number
+          p_reason: string
+          p_status: string
+        }
+        Returns: Json
+      }
       revoke_bellows_join_link: {
         Args: { p_join_link_id: string }
         Returns: {
@@ -20250,6 +43010,39 @@ export type Database = {
           invite_id: string
           revoked: boolean
         }[]
+      }
+      round_customer_price_micros: {
+        Args: { p_amount_micros: number; p_currency: string }
+        Returns: number
+      }
+      seal_complete_bellows_capture: {
+        Args: {
+          p_authority_generation: number
+          p_manifest: Json
+          p_manifest_sha256: string
+          p_session_id: string
+          p_workpiece_id: string
+        }
+        Returns: {
+          contract_version: number
+          created_at: string
+          hammer_handoff_id: string
+          id: string
+          incomplete_acceptance_id: string | null
+          manifest: Json
+          manifest_sha256: string
+          outcome: string
+          sealed_by_engine_at: string
+          session_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bellows_capture_packages"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       seed_my_thumbnail_brand_templates: {
         Args: { p_workspace_id: string }
@@ -20328,13 +43121,6 @@ export type Database = {
           workspace_id: string
         }[]
       }
-      set_reference_material_rollout: {
-        Args: { p_enabled: boolean; p_workspace_id: string }
-        Returns: {
-          reference_material_review_enabled: boolean
-          workspace_id: string
-        }[]
-      }
       set_brand_profile_archived: {
         Args: {
           p_archived: boolean
@@ -20353,6 +43139,61 @@ export type Database = {
           p_expected_direction_revision: number
           p_workpiece_id: string
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      set_credential_lifecycle_deadline: {
+        Args: {
+          p_actor_id: string
+          p_credential_id: string
+          p_event_key: string
+          p_evidence_json: Json
+          p_expires_at: string
+          p_occurred_at: string
+          p_rotation_lead: string
+        }
+        Returns: Json
+      }
+      set_my_ai_funding_preference: {
+        Args: {
+          p_org_id?: string
+          p_payer_kind: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      set_my_ai_model_preference: {
+        Args: { p_expected_revision?: number; p_selection_key: string }
+        Returns: Json
+      }
+      set_my_ai_operation_model_override: {
+        Args: {
+          p_expected_revision?: number
+          p_operation_code: string
+          p_selection_key: string
+        }
+        Returns: Json
+      }
+      set_my_barstock_discovery_preferences: {
+        Args: {
+          p_auto_refresh_authorized?: boolean
+          p_editorial_scope?: string
+          p_enabled?: boolean
+          p_expected_revision: number
+          p_genre: string
+          p_language?: string
+          p_region?: string
+          p_topic_interests?: string[]
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      set_my_openai_text_model_preference: {
+        Args: {
+          p_expected_revision?: number
+          p_preference_kind: string
+          p_route_code: string
+          p_selection_key?: string
         }
         Returns: Json
       }
@@ -20385,6 +43226,10 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      set_platform_operator: {
+        Args: { p_enabled: boolean; p_reason: string; p_user_id: string }
+        Returns: Json
+      }
       set_publishing_provider_connection_state: {
         Args: {
           p_actor_user_id: string
@@ -20403,6 +43248,17 @@ export type Database = {
           p_state: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      set_reference_material_rollout: {
+        Args: { p_enabled: boolean; p_workspace_id: string }
+        Returns: {
+          reference_material_review_enabled: boolean
+          workspace_id: string
+        }[]
+      }
+      set_runway_execution_rollout_mode: {
+        Args: { p_mode: string; p_reason: string }
         Returns: Json
       }
       set_visual_opportunity_disposition: {
@@ -20441,6 +43297,113 @@ export type Database = {
         }
         Returns: Json
       }
+      settle_customer_hearth_research_before_synthesis: {
+        Args: {
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      settle_hammer_first_transcription_operation: {
+        Args: {
+          p_actual_supplier_cost_micros: number
+          p_operation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+          p_supplier_evidence_json: Json
+        }
+        Returns: Json
+      }
+      settle_hearth_chat_test_operation: {
+        Args: {
+          p_evidence_json: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
+      settle_openai_customer_failure_without_duplicate_expense: {
+        Args: {
+          p_event_key: string
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_relief_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      settle_openai_text_test_certification_operation: {
+        Args: {
+          p_actual_fulfillment_cost_micros: number
+          p_evidence_json: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
+      settle_operation: {
+        Args: {
+          p_actual_fulfillment_cost_micros: number
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
+      settle_owner_hearth_operation: {
+        Args: {
+          p_actual_fulfillment_cost_micros: number
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
+      settle_owner_hearth_research_before_synthesis: {
+        Args: {
+          p_evidence_json: Json
+          p_failure_class: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
+      settle_owner_hearth_research_operation: {
+        Args: {
+          p_actual_fulfillment_cost_micros: number
+          p_evidence_json: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
+      settle_owner_operation: {
+        Args: {
+          p_actual_fulfillment_cost_micros: number
+          p_evidence_json?: Json
+          p_failure_class: string
+          p_outcome: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_settlement_key: string
+        }
+        Returns: Json
+      }
       settle_paid_media_operation: {
         Args: {
           p_operation_fingerprint: string
@@ -20459,6 +43422,99 @@ export type Database = {
           p_source_revision: number
           p_status: string
           p_validation: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      stage_owner_timeline_image_generation_result: {
+        Args: {
+          p_financial_environment: string
+          p_image_moment_id: string
+          p_operation_fingerprint: string
+          p_outputs: Json
+          p_owner_cost_attempt_id: string
+          p_prompt_content_hash: string
+          p_prompt_revision_id: string
+          p_provider_body_sha256: string
+          p_provider_request_id: string
+          p_provider_response_id: string
+          p_runtime_environment: string
+          p_semantic_authority_hash: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      stage_owner_visual_narrative_interpretation_result: {
+        Args: {
+          p_contracts_json: Json
+          p_creator_direction: string
+          p_financial_environment: string
+          p_image_map_revision: number
+          p_image_map_revision_id: string
+          p_input_units: number
+          p_model: string
+          p_output_units: number
+          p_owner_cost_attempt_id: string
+          p_provider_body_sha256: string
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_runtime_environment: string
+          p_script_approval_id: string
+          p_script_approval_revision: number
+          p_synthesized_prompt: string
+          p_user_id: string
+          p_visual_brief_json: Json
+          p_visual_style: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      stage_timeline_image_generation_result: {
+        Args: {
+          p_image_moment_id: string
+          p_operation_id: string
+          p_outputs: Json
+          p_prompt_content_hash: string
+          p_prompt_revision_id: string
+          p_provider_body_sha256: string
+          p_provider_request_id: string
+          p_provider_response_id: string
+          p_request_fingerprint: string
+          p_semantic_authority_hash: string
+        }
+        Returns: Json
+      }
+      stage_visual_narrative_interpretation_result: {
+        Args: {
+          p_contracts_json: Json
+          p_creator_direction: string
+          p_image_map_revision: number
+          p_image_map_revision_id: string
+          p_input_units: number
+          p_operation_id: string
+          p_output_units: number
+          p_provider_body_sha256: string
+          p_provider_request_id: string
+          p_request_fingerprint: string
+          p_script_approval_id: string
+          p_script_approval_revision: number
+          p_synthesized_prompt: string
+          p_visual_brief_json: Json
+          p_visual_style: string
+        }
+        Returns: Json
+      }
+      start_customer_runway_generation_attempt: {
+        Args: {
+          p_beat_id: string
+          p_creative_input_hash: string
+          p_prompt_content_hash: string
+          p_prompt_revision: number
+          p_prompt_revision_id: string
           p_workpiece_id: string
           p_workspace_id: string
         }
@@ -20494,6 +43550,20 @@ export type Database = {
           p_workspace_id: string
         }
         Returns: string
+      }
+      transition_credential_lifecycle: {
+        Args: {
+          p_actor_id: string
+          p_credential_id: string
+          p_event_key: string
+          p_expected_status: string
+          p_new_status: string
+          p_occurred_at: string
+          p_replacement_credential_id: string
+          p_revocation_confirmed_at: string
+          p_verification_json: Json
+        }
+        Returns: Json
       }
       update_creator_profile_from_event: {
         Args: { p_event_type: string; p_payload?: Json }
@@ -20618,6 +43688,22 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      upsert_script_draft_v1: {
+        Args: {
+          p_base_state: Database["tongs"]["Enums"]["script_base_state"]
+          p_body_anvil: string
+          p_origin_spark_id: string
+          p_relevance: Database["tongs"]["Enums"]["script_relevance"]
+          p_revision: number
+          p_script_id: string
+          p_title_working: string
+        }
+        Returns: {
+          revision: number
+          script_id: string
+          updated_at: string
+        }[]
+      }
       upsert_style_profile_metrics: {
         Args: {
           p_adaptation_weight?: number
@@ -20657,6 +43743,55 @@ export type Database = {
         Args: { p_brief: Json }
         Returns: string[]
       }
+      verify_accounting_reconstruction: {
+        Args: never
+        Returns: {
+          currency: string
+          event_id: string
+          imbalance_micros: number
+        }[]
+      }
+      verify_bellows_capture_segment: {
+        Args: {
+          p_byte_length: number
+          p_duration_ms: number
+          p_ended_at: string
+          p_expected_part_count: number
+          p_segment_id: string
+          p_sha256: string
+          p_storage_key: string
+        }
+        Returns: {
+          boundary_reason: string
+          byte_length: number | null
+          capture_profile: Json
+          created_at: string
+          duration_ms: number | null
+          ended_at: string | null
+          expected_part_count: number | null
+          id: string
+          integrity_state: string
+          mime_type: string
+          participant_id: string
+          recorder_generation: number
+          session_id: string
+          sha256: string | null
+          start_offset_ms: number
+          started_at: string
+          storage_bucket: string | null
+          storage_key: string | null
+          track_id: string
+          updated_at: string
+          verified_at: string | null
+          workspace_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "bellows_segments"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       verify_broll_operation_asset: {
         Args: {
           p_asset_id: string
@@ -20673,6 +43808,15 @@ export type Database = {
         }
         Returns: Json
       }
+      verify_owner_cost_reconstruction: {
+        Args: never
+        Returns: {
+          details: Json
+          issue_code: string
+          journal_event_id: string
+          valuation_id: string
+        }[]
+      }
       verify_thumbnail_brand_setup: {
         Args: {
           p_actor_id: string
@@ -20684,6 +43828,14 @@ export type Database = {
       }
       verify_unified_visual_plan: {
         Args: { p_operation_fingerprint: string; p_operation_id: string }
+        Returns: Json
+      }
+      withdraw_private_pricing_policy: {
+        Args: {
+          p_policy_id: string
+          p_publication_id: string
+          p_reason: string
+        }
         Returns: Json
       }
       workspace_is_creator: {
@@ -20707,6 +43859,16 @@ export type Database = {
         | "ORG_ONLY"
         | "PERSONAL_ONLY"
         | "ORG_FIRST_PERSONAL_FALLBACK"
+      script_base_state: "warming" | "ready"
+      script_effective_state: "warming" | "ready" | "scheduled" | "recorded"
+      script_relevance:
+        | "hot_topic"
+        | "current_events"
+        | "evergreen"
+        | "series"
+        | "other"
+      session_type: "recording" | "rehearsal"
+      take_status: "unreviewed" | "kept" | "discarded"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -20848,6 +44010,17 @@ export const Constants = {
         "PERSONAL_ONLY",
         "ORG_FIRST_PERSONAL_FALLBACK",
       ],
+      script_base_state: ["warming", "ready"],
+      script_effective_state: ["warming", "ready", "scheduled", "recorded"],
+      script_relevance: [
+        "hot_topic",
+        "current_events",
+        "evergreen",
+        "series",
+        "other",
+      ],
+      session_type: ["recording", "rehearsal"],
+      take_status: ["unreviewed", "kept", "discarded"],
     },
   },
 } as const

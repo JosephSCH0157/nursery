@@ -2,6 +2,7 @@
 param(
   [Parameter(Mandatory)][ValidateSet('baseline')][string]$Lineage,
   [string]$OutputPath = 'apps/nursery/src/lib/supabase/database.types.ts',
+  [ValidateSet('public', 'tongs')][string]$Schema = 'public',
   [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
@@ -17,7 +18,7 @@ try {
   & (Join-Path $PSScriptRoot 'new-forge-database-workdir.ps1') -OutputPath $workdir -ProjectId $projectId -ApiPort $apiPort -Lineage baseline -RepositoryRoot $repo | Out-Null
   & (Join-Path $PSScriptRoot 'invoke-forge-database.ps1') -Lineage baseline -Action Start -Workdir $workdir -RepositoryRoot $repo | Out-Null
   $started = $true
-  & (Join-Path $PSScriptRoot 'invoke-forge-database.ps1') -Lineage baseline -Action Types -Workdir $workdir -OutputPath (Join-Path $repo $OutputPath) -Schema public -RepositoryRoot $repo
+  & (Join-Path $PSScriptRoot 'invoke-forge-database.ps1') -Lineage baseline -Action Types -Workdir $workdir -OutputPath (Join-Path $repo $OutputPath) -Schema $Schema -RepositoryRoot $repo
 }
 finally {
   if ($started) {
