@@ -439,15 +439,8 @@ export async function requestHammerTranscriptPrep(
     "content-type": "application/json",
   });
   const apiToken = resolveTongsApiToken();
-  const userAccessToken = await resolveForgeUserAccessToken();
   if (apiToken && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${apiToken}`);
-  }
-  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
-    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
-  }
-  if (userAccessToken && !headers.has("x-forge-user-token")) {
-    headers.set("x-forge-user-token", userAccessToken);
   }
 
   const abortController = new AbortController();
@@ -467,8 +460,18 @@ export async function requestHammerTranscriptPrep(
         client_request_id: clientRequestId,
       });
     }
-    const submit = (body: HammerTranscriptPrepRequest, statusOnly = false) => {
+    const submit = async (body: HammerTranscriptPrepRequest, statusOnly = false) => {
       const requestHeaders = new Headers(headers);
+      // Long-running paid transcription is polled for up to fifteen minutes.
+      // Supabase may refresh the browser session during that interval, so each
+      // request must read the current token instead of retaining the token used
+      // for the initial quote challenge. The server remains authoritative and
+      // still rejects a missing or expired token.
+      const currentUserAccessToken = await resolveForgeUserAccessToken();
+      if (currentUserAccessToken) {
+        requestHeaders.set("x-forge-user-authorization", `Bearer ${currentUserAccessToken}`);
+        requestHeaders.set("x-forge-user-token", currentUserAccessToken);
+      }
       if (statusOnly) requestHeaders.set("x-hammer-transcript-status", "1");
       return fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
         method: "POST", headers: requestHeaders, body: JSON.stringify(body), signal: abortController.signal,

@@ -197,6 +197,58 @@ async function main(): Promise<void> {
     request_fingerprint: quote.request_fingerprint,
   });
 
+  // A browser session may refresh while the accepted operation is being
+  // polled. Every status request must use the current access token; retaining
+  // the quote request's token produces a false POLICY_DENIED at expiry.
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const jwt = (subject: string) => `${encode({ alg: "none" })}.${encode({ sub: subject, exp: Math.floor(Date.now() / 1000) + 3600 })}.fixture`;
+  const firstAccessToken = jwt("first-session");
+  const refreshedAccessToken = jwt("refreshed-session");
+  let currentAccessToken = firstAccessToken;
+  runtimeWindow.localStorage.getItem = (key: string) => key === "forge-auth"
+    ? JSON.stringify({ currentSession: { access_token: currentAccessToken } })
+    : null;
+  Object.assign(runtimeWindow, { __forgeHammerTranscriptStatusPollMs__: 1 });
+  const observedAuthorizationHeaders: string[] = [];
+  let refreshRequestCount = 0;
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    refreshRequestCount += 1;
+    const requestHeaders = new Headers(init?.headers);
+    observedAuthorizationHeaders.push(requestHeaders.get("x-forge-user-token") ?? "missing");
+    if (refreshRequestCount === 1) {
+      return new Response(JSON.stringify({
+        ok: false,
+        error: { code: "transcription_spending_confirmation_required", message: "Acceptance required." },
+        billing_quote: quote,
+      }), { status: 409, headers: { "content-type": "application/json" } });
+    }
+    if (refreshRequestCount === 2) {
+      currentAccessToken = refreshedAccessToken;
+      return new Response(JSON.stringify({ ok: true, data: { state: "processing" } }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({
+      ok: true,
+      data: {
+        provider: "assemblyai", model: "universal-3-5-pro", provider_request_id: "provider-request-2",
+        text: "refreshed session transcript",
+        segments: [{ id: "seg_1", start: 0, end: 1, text: "refreshed session transcript", speaker: "A" }],
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const refreshed = await requestHammerTranscriptPrep({
+    workspace_id: "ws_01",
+    workpiece_id: "wp_01",
+    media_kind: "recording_video",
+    canonical_workpiece_path: "recordings/episode.webm",
+    client_request_id: "assemblyai-request-token-refresh",
+  }, { confirmSpendingQuote: () => true });
+  assert.equal(refreshed.ok, true);
+  assert.deepEqual(observedAuthorizationHeaders, [firstAccessToken, firstAccessToken, refreshedAccessToken]);
+  runtimeWindow.localStorage.getItem = () => null;
+
   // Declining the application-rendered quote must stop before acceptance and
   // return a stable, non-retryable result instead of collapsing the expected
   // 409 challenge into a generic failure.
