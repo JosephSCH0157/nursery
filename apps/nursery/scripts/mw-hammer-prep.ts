@@ -921,6 +921,42 @@ function readJsonObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+export function createTongsUserRpcGate(args: {
+  supabaseUrl: string;
+  supabaseRpcKey: string;
+  userAccessToken: string;
+  fetchImpl?: typeof fetch;
+}): OpenAiTextGateClient {
+  const fetchImpl = args.fetchImpl ?? fetch;
+  return {
+    rpc: async (name: string, rpcArgs: Record<string, unknown>) => {
+      const response = await fetchImpl(`${args.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
+        method: "POST",
+        headers: {
+          apikey: args.supabaseRpcKey,
+          authorization: `Bearer ${args.userAccessToken}`,
+          "content-type": "application/json",
+          "content-profile": "tongs",
+          "accept-profile": "tongs",
+        },
+        body: JSON.stringify(rpcArgs),
+      });
+      const data = await response.json().catch(() => null);
+      return response.ok
+        ? { data, error: null }
+        : {
+            data: null,
+            error: {
+              message: readTrimmed(readJsonObject(data)?.message) ?? `RPC ${name} failed`,
+              code: readTrimmed(readJsonObject(data)?.code) ?? undefined,
+              details: readTrimmed(readJsonObject(data)?.details) ?? undefined,
+              hint: readTrimmed(readJsonObject(data)?.hint) ?? undefined,
+            },
+          };
+    },
+  };
+}
+
 function readErrorMessage(payload: unknown, fallback: string): string {
   const row = readJsonObject(payload);
   const error = readJsonObject(row?.error);
@@ -1867,6 +1903,7 @@ async function loadCanonicalWorkpieceMediaFile(
 
 type HammerAssemblyAiStatusResult =
   | { state: "pending"; operationId: string }
+  | { state: "pre_admission_failed"; operationId: string }
   | { state: "submission_unknown"; operationId: string }
   | { state: "provider_failed"; operationId: string }
   | { state: "persisted"; operationId: string; transcript: Record<string, unknown> };
@@ -1904,7 +1941,20 @@ async function readHammerAssemblyAiStatus(args: {
     .maybeSingle();
   if (operationResponse.error) throw new Error(`read Hammer transcription operation: ${operationResponse.error.message}`);
   const operation = operationResponse.data;
-  if (!operation) return { state: "pending", operationId: args.operationId };
+  if (!operation) {
+    const quoteResponse = await store
+      .from("customer_spending_quotes")
+      .select("expires_at")
+      .eq("id", args.quoteId)
+      .eq("user_id", args.userId)
+      .maybeSingle();
+    if (quoteResponse.error) throw new Error(`read Hammer spending quote: ${quoteResponse.error.message}`);
+    const expiresAt = quoteResponse.data?.expires_at;
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+      return { state: "pre_admission_failed", operationId: args.operationId };
+    }
+    return { state: "pending", operationId: args.operationId };
+  }
 
   const attemptResponse = await store
     .from("hammer_transcription_provider_attempts")
@@ -3314,19 +3364,11 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             requestFingerprint: request.spending_acceptance.requestFingerprint,
           }
           : null;
-        const userGate = {
-          rpc: async (name: string, args: Record<string, unknown>) => {
-            const response = await fetch(`${runtimeConfig.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
-              method: "POST",
-              headers: { apikey: runtimeConfig.supabaseRpcKey!, authorization: `Bearer ${userAccessToken}`, "content-type": "application/json" },
-              body: JSON.stringify(args),
-            });
-            const data = await response.json().catch(() => null);
-            return response.ok
-              ? { data, error: null }
-              : { data: null, error: { message: readTrimmed(readJsonObject(data)?.message) ?? `RPC ${name} failed` } };
-          },
-        };
+        const userGate = createTongsUserRpcGate({
+          supabaseUrl: runtimeConfig.supabaseUrl,
+          supabaseRpcKey: runtimeConfig.supabaseRpcKey,
+          userAccessToken,
+        });
         const statusOnly = readHeaderString(req.headers["x-hammer-transcript-status"]) === "1";
         if (statusOnly) {
           if (!acceptance || acceptance.requestFingerprint !== requestFingerprint) {
@@ -3342,6 +3384,13 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           });
           if (status.state === "pending") {
             sendJson(res, 202, { ok: true, data: { state: "pending", operation_id: status.operationId } });
+            return;
+          }
+          if (status.state === "pre_admission_failed") {
+            sendJson(res, 409, { ok: false, error: {
+              code: "transcription_start_failed",
+              message: "The accepted transcription did not start before the quote expired. No charge was made.",
+            } });
             return;
           }
           if (status.state === "submission_unknown") {
@@ -3387,6 +3436,19 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         if (acceptance && executionMode === "enqueue") {
           if (acceptance.requestFingerprint !== requestFingerprint) {
             sendJson(res, 409, { ok: false, error: { code: "quote_request_mismatch", message: "The accepted quote no longer matches this exact recording request." } });
+            return;
+          }
+          const accepted = await userGate.rpc("accept_quote", {
+            p_quote_id: acceptance.quoteId,
+            p_acceptance_id: crypto.randomUUID(),
+            p_acceptance_key: `hammer:${acceptance.quoteId}:accepted`,
+            p_quote_hash: acceptance.quoteHash,
+          });
+          if (accepted.error) {
+            sendJson(res, 409, { ok: false, error: {
+              code: "quote_acceptance_failed",
+              message: "Hammer could not durably record the accepted transcription quote. No charge was made.",
+            } });
             return;
           }
           const trustedRequestOrigin = readHeaderString(req.headers["x-forge-request-origin"]);
@@ -3687,19 +3749,11 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           recordingRevisionId: policy.exactRecordingRevisionId,
           source: sourceAuthority,
         });
-        const userGate = {
-          rpc: async (name: string, args: Record<string, unknown>) => {
-            const response = await fetch(`${runtimeConfig.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
-              method: "POST",
-              headers: { apikey: runtimeConfig.supabaseRpcKey!, authorization: `Bearer ${userAccessToken}`, "content-type": "application/json" },
-              body: JSON.stringify(args),
-            });
-            const data = await response.json().catch(() => null);
-            return response.ok
-              ? { data, error: null }
-              : { data: null, error: { message: readTrimmed(readJsonObject(data)?.message) ?? `RPC ${name} failed` } };
-          },
-        };
+        const userGate = createTongsUserRpcGate({
+          supabaseUrl: runtimeConfig.supabaseUrl,
+          supabaseRpcKey: runtimeConfig.supabaseRpcKey,
+          userAccessToken,
+        });
         const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(
           openAiTextGate,
           userGate,

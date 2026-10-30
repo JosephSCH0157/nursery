@@ -6,11 +6,16 @@ import { createNetlifyHammerFunction } from "../netlify/_hammer-handler";
 import hammerPaid, { config as hammerPaidConfig } from "../netlify/functions/hammer-paid";
 import { config as hammerTranscriptionBackgroundConfig } from "../netlify/functions/hammer-transcription-background";
 import unavailable, { config as unavailableConfig } from "../netlify/functions/openai-unavailable";
-import { createHammerPrepMiddleware, type HammerPrepMiddlewareOptions } from "../scripts/mw-hammer-prep";
+import {
+  createHammerPrepMiddleware,
+  createTongsUserRpcGate,
+  type HammerPrepMiddlewareOptions,
+} from "../scripts/mw-hammer-prep";
 import { buildHammerShortsPaidRequestIdentity, type HammerShortsDiscoveryBody } from "../scripts/hammer-shorts-discovery";
 import { HAMMER_PRODUCTION_TEXT_ROUTES } from "../server/hammer/create-hammer-paid-handler";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY } from "@forge/tongs/server/hammer-assemblyai-resource-policy";
+import { fingerprintHammerAssemblyAiRequest } from "@forge/tongs/server/hammer-assemblyai-transcription";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
@@ -185,6 +190,126 @@ test("production routing exposes the governed Hammer transcript route and leaves
     const response = await unavailable(request(pathname, {}));
     assert.equal(response.status, 503);
     assert.equal((await response.json()).error.code, "paid_execution_unavailable");
+  }
+});
+
+test("customer quote acceptance RPCs remain user-scoped and target the governed Tongs schema", async () => {
+  let observedUrl = "";
+  let observedHeaders = new Headers();
+  let observedBody = "";
+  const gate = createTongsUserRpcGate({
+    supabaseUrl: "https://fixture.supabase.co",
+    supabaseRpcKey: "fixture-anon-key",
+    userAccessToken: "fixture-user-token",
+    fetchImpl: async (input, init) => {
+      observedUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      observedHeaders = new Headers(init?.headers);
+      observedBody = String(init?.body ?? "");
+      return Response.json({ accepted: true });
+    },
+  });
+
+  const result = await gate.rpc("accept_quote", { p_quote_id: "fixture-quote" });
+
+  assert.deepEqual(result, { data: { accepted: true }, error: null });
+  assert.equal(observedUrl, "https://fixture.supabase.co/rest/v1/rpc/accept_quote");
+  assert.equal(observedHeaders.get("authorization"), "Bearer fixture-user-token");
+  assert.equal(observedHeaders.get("apikey"), "fixture-anon-key");
+  assert.equal(observedHeaders.get("content-profile"), "tongs");
+  assert.equal(observedHeaders.get("accept-profile"), "tongs");
+  assert.equal(observedBody, JSON.stringify({ p_quote_id: "fixture-quote" }));
+});
+
+test("accepted owner-sponsored quote is durable before the background executor starts", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalProvider = process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+  const originalCredential = process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+  const originalCapacity = process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON;
+  const policy = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY;
+  const requestFingerprint = fingerprintHammerAssemblyAiRequest({
+    workspaceId: WORKSPACE_ID,
+    workpieceId: policy.exactWorkpieceId,
+    canonicalRecordingId: policy.exactCanonicalRecordingId,
+    recordingRevisionId: policy.exactRecordingRevisionId,
+    source: {
+      schema: "forge.hammer.transcription-source-authority.v1",
+      completionId: policy.exactCompletionId,
+      mediaRevision: policy.exactMediaRevision,
+      mediaPath: policy.exactMediaPath,
+      mediaSha256: policy.exactMediaSha256,
+      mediaBytes: policy.exactSourceBytes,
+      mediaContentType: "video/webm",
+      durationMs: policy.exactSourceDurationMs,
+      hasAudioStream: true,
+      verificationSource: "trusted_tongs_storage_readback",
+      probeImplementation: "tongs:certified-canonical-readback",
+    },
+  });
+  const calls: string[] = [];
+  process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = "assemblyai";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = "fixture-assemblyai-key";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON = "{}";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith("/auth/v1/user")) return Response.json({ id: USER_ID });
+    if (url.includes("/rest/v1/workspaces?id=eq.")) return Response.json([{ org_id: ORG_ID }]);
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
+      return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.endsWith("/rest/v1/rpc/accept_quote")) {
+      calls.push("accept_quote");
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("content-profile"), "tongs");
+      assert.equal(headers.get("authorization"), "Bearer fixture-user-token");
+      const acceptanceBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      assert.match(String(acceptanceBody.p_acceptance_id), /^[0-9a-f-]{36}$/i);
+      assert.deepEqual({ ...acceptanceBody, p_acceptance_id: "<uuid>" }, {
+        p_quote_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        p_acceptance_id: "<uuid>",
+        p_acceptance_key: "hammer:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:accepted",
+        p_quote_hash: "c".repeat(64),
+      });
+      return Response.json({ accepted: true });
+    }
+    if (url.endsWith("/.netlify/functions/hammer-transcription-background")) {
+      calls.push("background");
+      return new Response(null, { status: 202 });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  try {
+    const response = await createNetlifyHammerFunction({
+      runtimeConfig: runtimeConfig({
+        supabaseUrl: "https://fixture.supabase.co",
+        supabaseServiceRoleKey: "fixture-service-key",
+        supabaseRpcKey: "fixture-anon-key",
+      }),
+      hammerAssemblyAiExecutionMode: "enqueue",
+    })(request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: policy.exactWorkpieceId,
+      media_kind: "recording_video",
+      canonical_workpiece_path: policy.exactMediaPath,
+      mime_type: "video/webm",
+      spending_acceptance: {
+        quote_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        operation_id: "hammer-assemblyai:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        quote_hash: "c".repeat(64),
+        request_fingerprint: requestFingerprint,
+      },
+    }), { deploy: { context: "production" } });
+
+    assert.equal(response.status, 202);
+    assert.deepEqual(calls, ["accept_quote", "background"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalProvider == null) delete process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+    else process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = originalProvider;
+    if (originalCredential == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = originalCredential;
+    if (originalCapacity == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON = originalCapacity;
   }
 });
 
