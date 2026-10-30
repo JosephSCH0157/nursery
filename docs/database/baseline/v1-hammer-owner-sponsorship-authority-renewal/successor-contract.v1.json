@@ -16,7 +16,7 @@
   "sharedTailAddition": {
     "version": "20261030224605",
     "path": "supabase/migrations/20261030224605_hammer_owner_sponsorship_authority_renewal.sql",
-    "sha256": "baca25ebba8e936833a20d31f94cbd62aac8ba90b6b308aed62271620c7af559"
+    "sha256": "ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1"
   },
   "historicalSuccessor": {
     "finalRows": 427,

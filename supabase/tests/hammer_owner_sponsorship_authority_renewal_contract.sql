@@ -79,7 +79,7 @@ begin
     raise exception 'provider attempt authorization does not fail closed after revocation';
   end if;
   definition:=pg_get_functiondef(
-    'tongs.create_hammer_owner_funded_first_transcription_quote(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text)'::regprocedure
+    'tongs.create_hammer_first_transcription_quote(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text)'::regprocedure
   );
   if position('hammer_first_transcription_activation_revocations' in definition)=0 then
     raise exception 'owner-sponsored quote selection does not exclude revoked authority';

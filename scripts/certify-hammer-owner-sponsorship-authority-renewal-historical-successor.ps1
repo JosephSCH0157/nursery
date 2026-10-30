@@ -22,9 +22,10 @@ $source=Replace-Exact $source '$predecessorHistoryRows=424' '$predecessorHistory
 $source=Replace-Exact $source '$successorHistoryRows=425' '$successorHistoryRows=427' 'successor row count'
 $source=Replace-Exact $source "'20261029154824')" "'20261029154824','20261029172356','20261030090719')" 'predecessor pending list'
 $source=Replace-Exact $source "docs/database/baseline/v1-hammer-owner-funded-first-transcription/successor-catalog-fingerprint.json" "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-catalog-fingerprint.json" 'catalog path'
-$source=Replace-Exact $source "'9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488'" "'baca25ebba8e936833a20d31f94cbd62aac8ba90b6b308aed62271620c7af559'" 'migration hash' 2
+$source=Replace-Exact $source "'9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488'" "'ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1'" 'migration hash' 2
 $source=Replace-Exact $source "'supabase/tests/hammer_owner_funded_first_transcription_contract.sql'))" "'supabase/tests/hammer_owner_funded_first_transcription_contract.sql','supabase/tests/hammer_owner_sponsorship_reservation_compatibility_contract.sql','supabase/tests/hammer_owner_sponsorship_authority_renewal_contract.sql'))" 'database contract test list'
 $source=Replace-Exact $source "(Join-Path `$repo 'packages/tongs/tests/hammer-brad-first-transcription-authority-bundle.test.mjs')" "(Join-Path `$repo 'packages/tongs/tests/hammer-brad-first-transcription-authority-bundle.test.mjs') (Join-Path `$repo 'packages/tongs/tests/hammer-owner-sponsorship-authority-renewal.test.mjs')" 'migration contract test list'
+$source=Replace-Exact $source "if(`$LASTEXITCODE -ne 0){throw 'Hammer owner-funded first-transcription successor upgrade failed; output suppressed.'}" "if(`$LASTEXITCODE -ne 0){throw \"Hammer authority-renewal successor upgrade failed.`n`$targetUpgrade\"}" 'target upgrade diagnostic'
 
 $scriptsLiteral=$PSScriptRoot.Replace("'","''")
 $source=$source.Replace('$PSScriptRoot',"'$scriptsLiteral'")

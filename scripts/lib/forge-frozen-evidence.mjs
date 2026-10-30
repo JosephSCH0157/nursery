@@ -32,7 +32,7 @@ export const HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256 =
 export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-sponsorship-reservation-compatibility/successor-contract.v1.json";
 export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRACT_SHA256 = "ff4012911ef8e683309a80959b6351d3104659712ea000e1d7556b7e078fa0b5";
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-contract.v1.json";
-export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "d613d7ca60664614b8bb9d1d3920f9b5ddf9f9880f8d0f211f1e204abb17dfac";
+export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "cfaf647681035cdaf945bfe10767ae933dadbfb8a62c3aab346cbeadd404bc69";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -666,7 +666,7 @@ function loadHammerOwnerSponsorshipAuthorityRenewalSuccessorContract(root, head)
       contract.predecessor?.contractSha256 !== HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRACT_SHA256 ||
       addition?.version !== "20261030224605" ||
       addition?.path !== "supabase/migrations/20261030224605_hammer_owner_sponsorship_authority_renewal.sql" ||
-      addition?.sha256 !== "baca25ebba8e936833a20d31f94cbd62aac8ba90b6b308aed62271620c7af559" ||
+      addition?.sha256 !== "ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1" ||
       contract.catalogSuccessor?.fileSha256 !== "0000000000000000000000000000000000000000000000000000000000000000" ||
       contract.catalogSuccessor?.normalizedContractSha256 !== "0000000000000000000000000000000000000000000000000000000000000000" ||
       contract.rejectAdditionalProtectedPathChanges !== true) {

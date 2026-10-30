@@ -273,8 +273,7 @@ declare
   new_guard text;
 begin
   foreach signature in array array[
-    'tongs.create_hammer_first_transcription_quote(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text)'::regprocedure,
-    'tongs.create_hammer_owner_funded_first_transcription_quote(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text)'::regprocedure
+    'tongs.create_hammer_first_transcription_quote(uuid,uuid,uuid,uuid,uuid,uuid,uuid,text)'::regprocedure
   ] loop
     select pg_get_functiondef(signature) into definition;
     old_guard := 'and not exists(select 1 from tongs.hammer_first_transcription_activation_consumptions c where c.activation_authority_id=a.id)';
@@ -287,8 +286,7 @@ begin
   end loop;
 
   foreach signature in array array[
-    'tongs.reserve_hammer_first_transcription_quote(uuid,uuid,uuid,uuid,text,text)'::regprocedure,
-    'tongs.reserve_hammer_owner_funded_first_transcription_quote(uuid,uuid,uuid,uuid,text,text)'::regprocedure
+    'tongs.reserve_hammer_first_transcription_quote(uuid,uuid,uuid,uuid,text,text)'::regprocedure
   ] loop
     select pg_get_functiondef(signature) into definition;
     old_guard := 'or exists(select 1 from tongs.hammer_first_transcription_activation_consumptions c where c.activation_authority_id=authority.id)';
