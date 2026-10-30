@@ -33,6 +33,10 @@ const ownerFundingSql = readFileSync(new URL(
   "../../../supabase/migrations/20261029172356_hammer_owner_funded_first_transcription.sql",
   import.meta.url,
 ), "utf8");
+const ownerSponsorshipReservationCompatibilitySql = readFileSync(new URL(
+  "../../../supabase/migrations/20261030090719_hammer_owner_sponsorship_reservation_compatibility.sql",
+  import.meta.url,
+), "utf8");
 const hammerPrepHandler = readFileSync(new URL(
   "../../../apps/nursery/scripts/mw-hammer-prep.ts",
   import.meta.url,
@@ -215,6 +219,96 @@ test("owner sponsorship presents the reviewed reference quote with zero customer
     assert.equal(error.quote.fundingSource, "owner_budget");
     return true;
   });
+});
+
+test("accepted owner sponsorship reaches the durable reservation gate without weakening ordinary owner authority", () => {
+  assert.match(
+    ownerSponsorshipReservationCompatibilitySql,
+    /not tongs\._quote_owner_budget_allows\(v_quote\.id, v_budget\.id\)\s+and not exists/i,
+  );
+  assert.match(
+    ownerSponsorshipReservationCompatibilitySql,
+    /tongs\._active_hammer_owner_sponsorship_for_quote\(v_quote\.id\)/i,
+  );
+  assert.match(
+    ownerSponsorshipReservationCompatibilitySql,
+    /sponsorship\.owner_budget_id=v_budget\.id/i,
+  );
+  assert.match(
+    ownerSponsorshipReservationCompatibilitySql,
+    /sponsorship\.beneficiary_user_id=v_quote\.user_id/i,
+  );
+  assert.match(ownerSponsorshipReservationCompatibilitySql, /owner-budget spending is not activated/i);
+  assert.match(ownerSponsorshipReservationCompatibilitySql, /insufficient owner operating budget/i);
+  assert.match(ownerSponsorshipReservationCompatibilitySql, /service-only ACL changed/i);
+  assert.doesNotMatch(ownerSponsorshipReservationCompatibilitySql, /insert\s+into\s+tongs\./i);
+});
+
+test("accepted owner sponsorship advances once from reservation through canonical persistence", async () => {
+  const quoteId = "10000000-0000-4000-8000-000000000001";
+  const operationUuid = "20000000-0000-4000-8000-000000000001";
+  const operationId = `hammer-assemblyai:${operationUuid}`;
+  const quoteHash = "a".repeat(64);
+  const requestFingerprint = input().requestFingerprint;
+  const calls = [];
+  const gate = {
+    async rpc(name) {
+      calls.push(name);
+      if (name === "create_hammer_first_transcription_quote") return { data: {
+        quote_id: quoteId, operation_id: operationId, quote_hash: quoteHash,
+        request_fingerprint: requestFingerprint, customer_credit_units: 0,
+        maximum_customer_charge_micros: 0, reference_customer_credit_units: 12,
+        funding_source: "owner_budget", funding_eligible: true,
+        funding_label: "Owner-sponsored certification; no customer charge",
+        expires_at: new Date(Date.now() + 60_000).toISOString(), accepted: true,
+      }, error: null };
+      if (name === "accept_quote") return { data: { accepted: true }, error: null };
+      if (name === "reserve_hammer_first_transcription_quote") return { data: {
+        operation_id: operationUuid, reservation_id: "40000000-0000-4000-8000-000000000001",
+      }, error: null };
+      if (name === "authorize_hammer_first_transcription_attempt") return { data: {
+        provider_execution_authorized: true, operation_id: operationUuid,
+        funding_source: "owner_budget", complete_wholesale_ceiling_micros: 44_589,
+      }, error: null };
+      if ([
+        "record_hammer_first_transcription_submission",
+        "complete_hammer_first_transcription_attempt",
+        "persist_hammer_canonical_transcript_v2",
+      ].includes(name)) return { data: { ok: true }, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    },
+  };
+  let submissions = 0;
+  const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(gate, gate, {
+    async submit() {
+      submissions += 1;
+      return { id: "assemblyai-request-1", status: "queued" };
+    },
+    async read() {
+      return {
+        id: "assemblyai-request-1", status: "completed", text: "Welcome.",
+        utterances: [{ speaker: "A", start: 0, end: 900, text: "Welcome." }],
+      };
+    },
+  }, (() => {
+    let value = 3;
+    return () => `${String(value++).padStart(8, "0")}-0000-4000-8000-000000000001`;
+  })(), async () => {});
+
+  const result = await coordinator.execute(input({
+    quoteId, quoteHash, operationId, requestFingerprint,
+  }));
+  assert.equal(result.state, "persisted_awaiting_reconciliation");
+  assert.equal(submissions, 1);
+  assert.deepEqual(calls, [
+    "create_hammer_first_transcription_quote",
+    "accept_quote",
+    "reserve_hammer_first_transcription_quote",
+    "authorize_hammer_first_transcription_attempt",
+    "record_hammer_first_transcription_submission",
+    "complete_hammer_first_transcription_attempt",
+    "persist_hammer_canonical_transcript_v2",
+  ]);
 });
 
 test("canonical normalization binds provider utterances to the exact recording", () => {
