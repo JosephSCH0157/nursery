@@ -108,6 +108,7 @@ import { resolveAudioPolishInputSource } from "../prep/resolveAudioPolishInputSo
 import {
   requestHammerTranscriptPrep,
 } from "../prep/hammerPrepApi";
+import { useHammerTranscriptQuoteDecision } from "../prep/HammerTranscriptQuoteDialog";
 import { confirmHammerPreparationReady } from "../prep/hammerPreparationReadyAuthority";
 import {
   createWorkpieceJob,
@@ -472,6 +473,7 @@ export default function HammerWorkspaceEditor(
   const [regenAiTranscriptError, setRegenAiTranscriptError] = useState<string | null>(null);
   const [regenAiTranscriptResult, setRegenAiTranscriptResult] = useState<HammerAiTranscriptRegenerationResult | null>(null);
   const [prepTranscriptJobId, setPrepTranscriptJobId] = useState<string | null>(null);
+  const transcriptQuoteDecision = useHammerTranscriptQuoteDecision();
   const activePreparationAttemptRef = useRef<HammerPreparationAttemptRecord | null>(null);
   const canonicalHydrationInFlightRef = useRef(false);
   const [prepJobHydrationReady, setPrepJobHydrationReady] = useState(
@@ -538,6 +540,7 @@ export default function HammerWorkspaceEditor(
   const prepInFlightRunKeyRef = useRef<string | null>(null);
   const legacyTranscriptMissingByWorkpieceRef = useRef<Map<string, number>>(new Map());
   const prepJobHydrationProbeTargetRef = useRef<string | null>(null);
+
   const prepExecutionIdRef = useRef(0);
   const isMountedRef = useRef(true);
   const dynamicStyleScopeIdRef = useRef(`hammer-workspace-editor-${Math.random().toString(36).slice(2, 10)}`);
@@ -3318,7 +3321,9 @@ export default function HammerWorkspaceEditor(
         // explicit regeneration, but prep must not enter the legacy OpenAI
         // background runner: that runner cannot satisfy the certified
         // AssemblyAI source, quote, reservation, and one-attempt contract.
-        const transcriptPrep = await requestHammerTranscriptPrep(transcriptRequest);
+        const transcriptPrep = await requestHammerTranscriptPrep(transcriptRequest, {
+          confirmSpendingQuote: transcriptQuoteDecision.request,
+        });
         if (!transcriptPrep.ok) {
           if (prepAiFallbackSelectionRef.current) {
             prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
@@ -3484,6 +3489,7 @@ export default function HammerWorkspaceEditor(
     props.prepAiNoticeEffectiveLane,
     props.prepAiNoticeResolutionError,
     props.prepAiNoticeResolutionState,
+    transcriptQuoteDecision.request,
     targetKey,
   ]);
 
@@ -5282,6 +5288,8 @@ export default function HammerWorkspaceEditor(
           </section>
         </div>
       ) : null}
+
+      {transcriptQuoteDecision.dialog}
 
       {prepAiNoticeModal}
 

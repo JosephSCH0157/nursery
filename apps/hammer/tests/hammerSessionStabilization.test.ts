@@ -154,12 +154,16 @@ test("created, failed, and cancelled job states are terminal for automatic submi
 
 test("initial AI fallback uses the paid transcript endpoint and cannot enter the legacy OpenAI job runner", () => {
   const editor = readFileSync(new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url), "utf8");
+  const quoteDialog = readFileSync(new URL("../src/prep/HammerTranscriptQuoteDialog.tsx", import.meta.url), "utf8");
   const start = editor.indexOf("const transcriptRequest = {");
   const end = editor.indexOf("outcome = \"prepared\";", start);
   assert.notEqual(start, -1, "initial AI fallback request block must remain present");
   assert.notEqual(end, -1, "initial AI fallback completion block must remain present");
   const initialFallback = editor.slice(start, end);
-  assert.match(initialFallback, /requestHammerTranscriptPrep\(transcriptRequest\)/);
+  assert.match(initialFallback, /requestHammerTranscriptPrep\(transcriptRequest,\s*\{\s*confirmSpendingQuote: transcriptQuoteDecision\.request/);
+  assert.match(quoteDialog, /Owner-sponsored AssemblyAI transcription/);
+  assert.match(quoteDialog, /Customer charge: \{quote\.credit_charge\} Forge Credits/);
+  assert.match(quoteDialog, /Accept quote and start transcription/);
   assert.doesNotMatch(initialFallback, /createWorkpieceJob\(/);
   assert.match(initialFallback, /paid-transcript-prep:/);
 });

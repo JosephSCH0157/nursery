@@ -1,7 +1,9 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import {
+  customerSpendingAcceptance,
   readCustomerSpendingQuote,
   requestCustomerSpendingAcceptance,
+  type CustomerSpendingQuote,
 } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export const HAMMER_TRANSCRIPT_PREP_ROUTE = "/api/hammer/prep/transcript";
@@ -65,6 +67,7 @@ export type HammerTranscriptPrepErrorCode =
   | "OPENAI_UPSTREAM_ERROR"
   | "NORMALIZE_EMPTY"
   | "INVALID_REQUEST"
+  | "TRANSCRIPTION_QUOTE_NOT_ACCEPTED"
   | "UNKNOWN_ERROR";
 
 export type HammerTranscriptPrepError = {
@@ -85,6 +88,10 @@ export type HammerTranscriptPrepMeta = {
 export type HammerTranscriptPrepResult =
   | { ok: true; status: number; data: HammerTranscriptPrepResponse; meta?: HammerTranscriptPrepMeta }
   | { ok: false; status: number; error: HammerTranscriptPrepError; meta?: HammerTranscriptPrepMeta };
+
+export type HammerTranscriptPrepOptions = Readonly<{
+  confirmSpendingQuote?: (quote: CustomerSpendingQuote) => boolean | Promise<boolean>;
+}>;
 
 const DEFAULT_TRANSCRIPT_PREP_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_TRANSCRIPT_STATUS_POLL_MS = 3_000;
@@ -401,6 +408,7 @@ function normalizeErrorEnvelope(payload: unknown): { error: HammerTranscriptPrep
 
 export async function requestHammerTranscriptPrep(
   request: HammerTranscriptPrepRequest,
+  options: HammerTranscriptPrepOptions = {},
 ): Promise<HammerTranscriptPrepResult> {
   const debugEnabled = resolveTranscriptPrepDebugEnabled();
   const startedAt = typeof performance !== "undefined" ? performance.now() : null;
@@ -471,11 +479,34 @@ export async function requestHammerTranscriptPrep(
     if (response.status === 409 || response.status === 402) {
       const quoted = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quoted);
-      const acceptance = quote ? requestCustomerSpendingAcceptance(quote, {
-        workspace_id: request.workspace_id,
-        workpiece_id: request.workpiece_id,
-        route_code: "hammer.transcript_prep",
-      }) : null;
+      const acceptance = quote
+        ? options.confirmSpendingQuote
+          ? await options.confirmSpendingQuote(quote)
+            ? customerSpendingAcceptance(quote)
+            : null
+          : requestCustomerSpendingAcceptance(quote, {
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            route_code: "hammer.transcript_prep",
+          })
+        : null;
+      if (quote && !acceptance) {
+        return {
+          ok: false,
+          status: response.status,
+          error: {
+            code: "TRANSCRIPTION_QUOTE_NOT_ACCEPTED",
+            message: "The transcription quote was not accepted. No charge was made.",
+            retryable: false,
+          },
+          meta: {
+            timestamp: new Date().toISOString(),
+            workspace_id: request.workspace_id,
+            workpiece_id: request.workpiece_id,
+            client_request_id: clientRequestId,
+          },
+        };
+      }
       if (acceptance) {
         acceptedRequest = { ...effectiveRequest, spending_acceptance: acceptance };
         response = await submit(acceptedRequest);

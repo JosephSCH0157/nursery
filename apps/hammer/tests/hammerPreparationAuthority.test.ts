@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 const root=resolve(import.meta.dirname,"../../..");
 const migration=readFileSync(resolve(root,"supabase/migrations/20260827120000_tongs_hammer_preparation_authority.sql"),"utf8");
 const editor=readFileSync(resolve(root,"apps/hammer/src/editor/HammerWorkspaceEditor.tsx"),"utf8");
+const quoteDialog=readFileSync(resolve(root,"apps/hammer/src/prep/HammerTranscriptQuoteDialog.tsx"),"utf8");
 const persistence=readFileSync(resolve(root,"apps/hammer/src/persistence/hammerRecordingRevisionPersistence.ts"),"utf8");
 const tongs=readFileSync(resolve(root,"packages/tongs/src/workpiece-commit-api.ts"),"utf8");
 
@@ -21,7 +22,9 @@ test("the client consumes preparation authority and cannot infer a stall from lo
   assert.match(persistence,/hammer\/open-authority/);
   assert.match(editor,/const preparationAttemptId = activePreparationAttemptRef\.current\?\.id \?\? null/);
   assert.match(editor,/claimHammerAiFallbackJobRequest\(\{[\s\S]*?preparationAttemptId,[\s\S]*?\}\)/);
-  assert.match(editor,/requestHammerTranscriptPrep\(transcriptRequest\)/);
+  assert.match(editor,/requestHammerTranscriptPrep\(transcriptRequest,\s*\{\s*confirmSpendingQuote: transcriptQuoteDecision\.request/);
+  assert.match(quoteDialog,/Owner-sponsored AssemblyAI transcription/);
+  assert.match(quoteDialog,/Accept quote and start transcription/);
   assert.match(editor,/attempt: activePreparationAttemptRef\.current/);
   assert.doesNotMatch(editor,/preparation_stalled/);
   assert.doesNotMatch(editor,/shouldTerminateIdleHammerLoadingContext/);

@@ -142,12 +142,7 @@ async function main(): Promise<void> {
     model_tradeoff_summary: "US processing with the certified account settings.",
     expires_at: "2030-01-01T00:00:00.000Z",
   };
-  (globalThis as typeof globalThis & { confirm: (message?: string) => boolean }).confirm = (message) => {
-    assert.match(String(message), /Owner-sponsored certification; no customer charge/);
-    assert.match(String(message), /Reference price: 12 Credits/);
-    assert.match(String(message), /Customer charge: 0 Credits/);
-    return true;
-  };
+  let presentedQuote: typeof quote | null = null;
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     assert.equal(String(input), HAMMER_TRANSCRIPT_PREP_ROUTE);
     paidRequestCount += 1;
@@ -184,8 +179,14 @@ async function main(): Promise<void> {
     canonical_workpiece_path: "recordings/episode.webm",
     mime_type: "video/webm",
     client_request_id: "assemblyai-request-1",
+  }, {
+    confirmSpendingQuote: (presented) => {
+      presentedQuote = presented;
+      return true;
+    },
   });
   assert.equal(paidRequestCount, 2);
+  assert.deepEqual(presentedQuote, quote);
   assert.equal(paid.ok, true);
   if (paid.ok) assert.equal(paid.data.provider, "assemblyai");
   const spendingAcceptance = (acceptedBody as Record<string, unknown> | null)?.spending_acceptance as Record<string, unknown> | undefined;
@@ -195,6 +196,40 @@ async function main(): Promise<void> {
     quote_hash: quote.quote_hash,
     request_fingerprint: quote.request_fingerprint,
   });
+
+  // Declining the application-rendered quote must stop before acceptance and
+  // return a stable, non-retryable result instead of collapsing the expected
+  // 409 challenge into a generic failure.
+  let declinedRequestCount = 0;
+  globalThis.fetch = async (): Promise<Response> => {
+    declinedRequestCount += 1;
+    return new Response(JSON.stringify({
+      ok: false,
+      error: {
+        code: "transcription_spending_confirmation_required",
+        message: "Explicit acceptance of the fixed Hammer transcription quote is required.",
+      },
+      billing_quote: quote,
+    }), { status: 409, headers: { "content-type": "application/json" } });
+  };
+  const declined = await requestHammerTranscriptPrep({
+    workspace_id: "ws_01",
+    workpiece_id: "wp_01",
+    media_kind: "recording_video",
+    canonical_workpiece_path: "recordings/episode.webm",
+    mime_type: "video/webm",
+    client_request_id: "assemblyai-request-declined",
+  }, {
+    confirmSpendingQuote: () => false,
+  });
+  assert.equal(declinedRequestCount, 1);
+  assert.equal(declined.ok, false);
+  if (!declined.ok) {
+    assert.equal(declined.status, 409);
+    assert.equal(declined.error.code, "TRANSCRIPTION_QUOTE_NOT_ACCEPTED");
+    assert.equal(declined.error.retryable, false);
+    assert.match(declined.error.message, /No charge was made/);
+  }
 
   console.log("Hammer transcript prep API tests passed.");
 }
