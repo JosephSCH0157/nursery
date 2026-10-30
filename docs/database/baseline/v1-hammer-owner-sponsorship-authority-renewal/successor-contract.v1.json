@@ -43,9 +43,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-catalog-fingerprint.json",
-    "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "objectCount": 0,
-    "normalizedContractSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "fileSha256": "95972c1b45e472bbf1e0c04b75f4189a67fc9c523ac7b85352189e4368685053",
+    "objectCount": 16414,
+    "normalizedContractSha256": "3cdd35e49204a84556f0c764e50009b56332af87d7c8084e7eb2677ebef46bf4"
   },
   "inactivityContract": {
     "migrationCreatesAuthorityRows": 0,

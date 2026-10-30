@@ -682,6 +682,46 @@ sponsorship guard, service-only execution, global Test preservation, and zero
 Brad reservation, operation, provider-attempt, transcript, or customer charge
 from the failed pre-426 attempts.
 
+Migration 427 is the explicit successor to the installed 426-row Hammer
+owner-sponsorship state. It adds an immutable, forced-RLS revocation ledger and
+a service-only renewal RPC for an expired or explicitly revoked exact-recording
+authority. The renewal contract serializes competing requests, forbids
+overlapping active authorities, and preserves a consumed or ambiguous provider
+attempt across every renewal. Applying migration 427 creates no authority,
+reservation, operation, provider attempt, transcript, or customer charge.
+
+```powershell
+pnpm certify:db:hammer-owner-sponsorship-authority-renewal:historical
+pnpm test:db:hammer-owner-sponsorship-authority-renewal:hosted-deployment
+pnpm preflight:db:hammer-owner-sponsorship-authority-renewal:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+Preflight requires exactly 426 installed rows headed by `20261030090719`,
+`historical-v1`, migration `20261030224605` as the sole pending version,
+SHA-256
+`ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1`,
+fresh release-specific recovery evidence, the managed Windows Credential
+Manager credential, and Supabase CLI 2.84.2. Apply is a hosted write and
+requires the exact token:
+
+```powershell
+./scripts/invoke-hammer-owner-sponsorship-authority-renewal-427-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-HAMMER-OWNER-SPONSORSHIP-AUTHORITY-RENEWAL-427
+```
+
+PostVerify requires 427 rows headed by `20261030224605`, unchanged
+`historical-v1`, forced RLS and service-only execution, both exact-source
+serialization guards, the absence of the obsolete source-uniqueness
+constraint, global Test preservation, and zero migration-created revocations,
+reservations, operations, provider attempts, transcripts, or customer charges.
+Renewing Brad's authority through the RPC is a separate production write and
+requires its own exact reviewed authority bundle after PostVerify.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell

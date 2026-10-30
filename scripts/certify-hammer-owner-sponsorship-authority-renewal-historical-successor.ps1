@@ -25,7 +25,6 @@ $source=Replace-Exact $source "docs/database/baseline/v1-hammer-owner-funded-fir
 $source=Replace-Exact $source "'9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488'" "'ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1'" 'migration hash' 2
 $source=Replace-Exact $source "'supabase/tests/hammer_owner_funded_first_transcription_contract.sql'))" "'supabase/tests/hammer_owner_funded_first_transcription_contract.sql','supabase/tests/hammer_owner_sponsorship_reservation_compatibility_contract.sql','supabase/tests/hammer_owner_sponsorship_authority_renewal_contract.sql'))" 'database contract test list'
 $source=Replace-Exact $source "(Join-Path `$repo 'packages/tongs/tests/hammer-brad-first-transcription-authority-bundle.test.mjs')" "(Join-Path `$repo 'packages/tongs/tests/hammer-brad-first-transcription-authority-bundle.test.mjs') (Join-Path `$repo 'packages/tongs/tests/hammer-owner-sponsorship-authority-renewal.test.mjs')" 'migration contract test list'
-$source=Replace-Exact $source "if(`$LASTEXITCODE -ne 0){throw 'Hammer owner-funded first-transcription successor upgrade failed; output suppressed.'}" "if(`$LASTEXITCODE -ne 0){throw \"Hammer authority-renewal successor upgrade failed.`n`$targetUpgrade\"}" 'target upgrade diagnostic'
 
 $scriptsLiteral=$PSScriptRoot.Replace("'","''")
 $source=$source.Replace('$PSScriptRoot',"'$scriptsLiteral'")

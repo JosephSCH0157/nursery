@@ -32,7 +32,7 @@ export const HAMMER_OWNER_FUNDED_FIRST_TRANSCRIPTION_SUCCESSOR_CONTRACT_SHA256 =
 export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-sponsorship-reservation-compatibility/successor-contract.v1.json";
 export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRACT_SHA256 = "ff4012911ef8e683309a80959b6351d3104659712ea000e1d7556b7e078fa0b5";
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-contract.v1.json";
-export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "cfaf647681035cdaf945bfe10767ae933dadbfb8a62c3aab346cbeadd404bc69";
+export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "c17ef0d9ba26b62764da6a782d9031e2c95c86d0b0271387168ed653f864eb88";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -667,8 +667,8 @@ function loadHammerOwnerSponsorshipAuthorityRenewalSuccessorContract(root, head)
       addition?.version !== "20261030224605" ||
       addition?.path !== "supabase/migrations/20261030224605_hammer_owner_sponsorship_authority_renewal.sql" ||
       addition?.sha256 !== "ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1" ||
-      contract.catalogSuccessor?.fileSha256 !== "0000000000000000000000000000000000000000000000000000000000000000" ||
-      contract.catalogSuccessor?.normalizedContractSha256 !== "0000000000000000000000000000000000000000000000000000000000000000" ||
+      contract.catalogSuccessor?.fileSha256 !== "95972c1b45e472bbf1e0c04b75f4189a67fc9c523ac7b85352189e4368685053" ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "3cdd35e49204a84556f0c764e50009b56332af87d7c8084e7eb2677ebef46bf4" ||
       contract.rejectAdditionalProtectedPathChanges !== true) {
     throw new Error("Hammer owner-sponsorship authority-renewal successor contract has an invalid predecessor or shared-tail addition.");
   }
