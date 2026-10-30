@@ -1,4 +1,4 @@
-import type { Context } from "@netlify/functions";
+import type { Config, Context } from "@netlify/functions";
 
 import { HAMMER_TRANSCRIPT_PREP_ROUTE } from "../../../hammer/src/prep/hammerPrepApi";
 import { createNetlifyHammerFunction } from "./_hammer-handler";
@@ -21,3 +21,5 @@ export default async function hammerTranscriptionBackground(
     throw new Error(`Hammer transcription background execution failed (${response.status}): ${detail.slice(0, 500)}`);
   }
 }
+
+export const config: Config = { background: true };

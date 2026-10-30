@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { createNetlifyHammerFunction } from "../netlify/functions/_hammer-handler";
 import hammerPaid, { config as hammerPaidConfig } from "../netlify/functions/hammer-paid";
+import { config as hammerTranscriptionBackgroundConfig } from "../netlify/functions/hammer-transcription-background";
 import unavailable, { config as unavailableConfig } from "../netlify/functions/openai-unavailable";
 import { createHammerPrepMiddleware, type HammerPrepMiddlewareOptions } from "../scripts/mw-hammer-prep";
 import { buildHammerShortsPaidRequestIdentity, type HammerShortsDiscoveryBody } from "../scripts/hammer-shorts-discovery";
@@ -176,6 +177,7 @@ function installNullFundingShortsFixtureFetch(): { restore(): void; domainCalls(
 
 test("production routing exposes the governed Hammer transcript route and leaves Quench halted", async () => {
   assert.deepEqual(hammerPaidConfig.path, [...HAMMER_PRODUCTION_TEXT_ROUTES]);
+  assert.equal(hammerTranscriptionBackgroundConfig.background, true);
   assert.deepEqual(unavailableConfig.path, [
     "/api/quench/metadata/assist",
   ]);
