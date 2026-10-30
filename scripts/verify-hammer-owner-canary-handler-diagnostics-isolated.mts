@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import pg from "pg";
 
-import { createNetlifyHammerFunction } from "../apps/nursery/netlify/functions/_hammer-handler.ts";
+import { createNetlifyHammerFunction } from "../apps/nursery/netlify/_hammer-handler.ts";
 import type { HammerPrivateDiagnostic } from "../apps/nursery/scripts/mw-hammer-prep.ts";
 import type { OpenAiTextGateClient } from "../packages/tongs/src/providers/paid-openai-text-execution-coordinator.ts";
 

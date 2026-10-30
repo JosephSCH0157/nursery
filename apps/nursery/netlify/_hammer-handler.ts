@@ -1,8 +1,8 @@
-import { runWithOwnerRuntimeEnvironment } from "../../server/accounting/owner-runtime-environment";
+import { runWithOwnerRuntimeEnvironment } from "../server/accounting/owner-runtime-environment";
 import {
   createHammerPaidHandler,
   type HammerPrepMiddlewareOptions,
-} from "../../server/hammer/create-hammer-paid-handler";
+} from "../server/hammer/create-hammer-paid-handler";
 
 export function createNetlifyHammerFunction(options: HammerPrepMiddlewareOptions = {}) {
   const handler = createHammerPaidHandler(options);

@@ -1,4 +1,4 @@
-import { createNetlifyHammerFunction } from "./_hammer-handler";
+import { createNetlifyHammerFunction } from "../_hammer-handler";
 
 export default createNetlifyHammerFunction({ hammerAssemblyAiExecutionMode: "enqueue" });
 

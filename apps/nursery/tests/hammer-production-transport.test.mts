@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 
-import { createNetlifyHammerFunction } from "../netlify/functions/_hammer-handler";
+import { createNetlifyHammerFunction } from "../netlify/_hammer-handler";
 import hammerPaid, { config as hammerPaidConfig } from "../netlify/functions/hammer-paid";
 import { config as hammerTranscriptionBackgroundConfig } from "../netlify/functions/hammer-transcription-background";
 import unavailable, { config as unavailableConfig } from "../netlify/functions/openai-unavailable";

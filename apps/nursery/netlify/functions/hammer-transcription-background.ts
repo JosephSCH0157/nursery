@@ -1,7 +1,7 @@
 import type { Config, Context } from "@netlify/functions";
 
 import { HAMMER_TRANSCRIPT_PREP_ROUTE } from "../../../hammer/src/prep/hammerPrepApi";
-import { createNetlifyHammerFunction } from "./_hammer-handler";
+import { createNetlifyHammerFunction } from "../_hammer-handler";
 
 const execute = createNetlifyHammerFunction({ hammerAssemblyAiExecutionMode: "background" });
 
