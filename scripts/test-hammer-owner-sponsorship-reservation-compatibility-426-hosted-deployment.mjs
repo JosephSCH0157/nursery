@@ -28,4 +28,7 @@ test("wrapper is linked-tail-only and independently verifies ACL and inactivity"
   assert.match(source,/public_execute_denied/);
   assert.match(source,/provider_attempts/);
   assert.match(source,/customer_charge_micros/);
+  assert.match(source,/funding_reservation_events/);
+  assert.match(source,/event\.customer_charge_micros/);
+  assert.doesNotMatch(source,/sum\(normal_maximum_charge_micros\)/);
 });

@@ -74,7 +74,10 @@ select
   (select count(*) from tongs.hammer_transcription_operations o join hammer_quotes q on q.id=o.quote_id) as operations,
   (select count(*) from tongs.hammer_transcription_provider_attempts a join tongs.hammer_transcription_operations o on o.id=a.operation_id join hammer_quotes q on q.id=o.quote_id) as provider_attempts,
   (select count(*) from tongs.hammer_canonical_transcripts_v2 t join tongs.hammer_transcription_operations o on o.id=t.operation_id join hammer_quotes q on q.id=o.quote_id) as transcripts,
-  (select coalesce(sum(normal_maximum_charge_micros),0) from hammer_quotes) as customer_charge_micros;
+  (select coalesce(sum(event.customer_charge_micros),0)
+   from tongs.funding_reservation_events event
+   join tongs.funding_reservations reservation on reservation.id=event.reservation_id
+   join hammer_quotes q on q.id=reservation.quote_id) as customer_charge_micros;
 '@
   $columns=@('lineage','owner_sponsorship_guard','public_execute_denied','anon_execute_denied','authenticated_execute_denied','service_execute_granted','financial_environment','reservations','operations','provider_attempts','transcripts','customer_charge_micros')
   $rows=@(Read-LinkedCsv $sql $columns 'migration 426 post-apply contract')
