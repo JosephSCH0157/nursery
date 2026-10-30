@@ -1,0 +1,65 @@
+{
+  "schema": "forge.hammer-owner-sponsorship-authority-renewal-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer owner-sponsorship reservation compatibility",
+    "contractPath": "docs/database/baseline/v1-hammer-owner-sponsorship-reservation-compatibility/successor-contract.v1.json",
+    "contractSha256": "ff4012911ef8e683309a80959b6351d3104659712ea000e1d7556b7e078fa0b5",
+    "historicalRows": 426
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "hammerOwnerSponsorshipReservationCompatibilitySuccessorContractSha256": "ff4012911ef8e683309a80959b6351d3104659712ea000e1d7556b7e078fa0b5"
+  },
+  "sharedTailAddition": {
+    "version": "20261030224605",
+    "path": "supabase/migrations/20261030224605_hammer_owner_sponsorship_authority_renewal.sql",
+    "sha256": "baca25ebba8e936833a20d31f94cbd62aac8ba90b6b308aed62271620c7af559"
+  },
+  "historicalSuccessor": {
+    "finalRows": 427,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719",
+      "20261030224605"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-catalog-fingerprint.json",
+    "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "objectCount": 0,
+    "normalizedContractSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "inactivityContract": {
+    "migrationCreatesAuthorityRows": 0,
+    "migrationCreatesFundingRows": 0,
+    "migrationCreatesReservations": 0,
+    "migrationCreatesProviderAttempts": 0,
+    "migrationCreatesCustomerCredits": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "anonymousExecuteDenied": true,
+    "authenticatedExecuteDenied": true,
+    "serviceRoleExecuteRequired": true,
+    "immutableHistoryPreserved": true,
+    "overlappingAuthorityDenied": true,
+    "crossRenewalAttemptResetDenied": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

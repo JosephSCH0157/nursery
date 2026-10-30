@@ -50,4 +50,3 @@ test("renewal remains exact, service-only, zero-debit, and provider-inactive", (
   assert.match(migration, /grant execute on function tongs\.renew_hammer_owner_funded_first_transcription_authority[\s\S]*to service_role/);
   assert.doesNotMatch(migration, /grant execute on function tongs\.renew_hammer_owner_funded_first_transcription_authority[\s\S]*to authenticated/);
 });
-
