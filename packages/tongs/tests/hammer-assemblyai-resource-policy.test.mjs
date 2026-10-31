@@ -8,6 +8,7 @@ import {
   assertHammerAssemblyAiPayloadSize,
   certifyHammerAssemblyAiCapacity,
   fingerprintHammerAssemblyAiCapacityEvidence,
+  hammerAssemblyAiCapacityEvidenceFromAuthority,
   planHammerAssemblyAiFailureRelief,
 } from "../dist/server/hammer-assemblyai-resource-policy.js";
 
@@ -133,6 +134,37 @@ test("capacity evidence must be fresh, hashed, and sufficient for the complete o
   assert.throws(
     () => certifyHammerAssemblyAiCapacity(capacity({ activeHammerOperationCount: 1 }), now),
     isCode("hammer_concurrency_capacity_unverified"),
+  );
+});
+
+test("a governed database capacity authority reconstructs the exact runtime evidence", () => {
+  const expected = capacity();
+  assert.deepEqual(hammerAssemblyAiCapacityEvidenceFromAuthority({
+    evidence_sha256: expected.evidenceSha256,
+    checked_at: expected.checkedAt,
+    expires_at: expected.expiresAt,
+    netlify_plan: expected.netlify.plan,
+    netlify_remaining_credit_microunits: expected.netlify.remainingCreditsMicrounits,
+    supabase_plan: expected.supabase.plan,
+    supabase_spend_cap_enabled: expected.supabase.spendCapEnabled,
+    supabase_remaining_uncached_egress_bytes: expected.supabase.remainingUncachedEgressBytes,
+    supabase_remaining_database_bytes: expected.supabase.remainingDatabaseBytes,
+    observed_active_hammer_operations: expected.activeHammerOperationCount,
+  }, now), expected);
+  assert.throws(
+    () => hammerAssemblyAiCapacityEvidenceFromAuthority({
+      evidence_sha256: expected.evidenceSha256,
+      checked_at: expected.checkedAt,
+      expires_at: expected.expiresAt,
+      netlify_plan: expected.netlify.plan,
+      netlify_remaining_credit_microunits: expected.netlify.remainingCreditsMicrounits,
+      supabase_plan: expected.supabase.plan,
+      supabase_spend_cap_enabled: expected.supabase.spendCapEnabled,
+      supabase_remaining_uncached_egress_bytes: expected.supabase.remainingUncachedEgressBytes,
+      supabase_remaining_database_bytes: expected.supabase.remainingDatabaseBytes,
+      observed_active_hammer_operations: 1,
+    }, now),
+    isCode("capacity_evidence_hash_invalid"),
   );
 });
 

@@ -722,6 +722,67 @@ reservations, operations, provider attempts, transcripts, or customer charges.
 Renewing Brad's authority through the RPC is a separate production write and
 requires its own exact reviewed authority bundle after PostVerify.
 
+### Automated Hammer capacity evidence and authority renewal
+
+Migration 427 remains the only authority-renewal mechanism. The operator helper
+does not add a second financial path: it obtains authenticated capacity facts,
+creates the private SHA-256 evidence, and invokes that exact service-only RPC.
+It never creates a quote, acceptance, reservation, provider attempt, customer
+debit, or provider request.
+
+One-time credential enrollment stores a Netlify account-read token and a
+Supabase organization billing-read token in Windows Credential Manager. The
+tokens must grant no write capability where the platform supports scoped
+tokens. They are never command-line arguments, files, output, or Netlify
+variables:
+
+```powershell
+./scripts/invoke-hammer-capacity-read-credentials.ps1 `
+  -Action Enroll `
+  -Authorization ENROLL-HAMMER-CAPACITY-READ-CREDENTIALS
+```
+
+Status is read-only and reveals no secret:
+
+```powershell
+./scripts/invoke-hammer-capacity-read-credentials.ps1 -Action Status
+```
+
+Collect a fresh private observation without changing hosted data:
+
+```powershell
+./scripts/invoke-hammer-capacity-authority-renewal.ps1 `
+  -Action Collect `
+  -Operator 42c3de1d-bd24-41fe-abd9-640f17518b2c
+```
+
+Collection requires hosted head `20261030224605`, Supabase CLI 2.84.2, the
+managed database password, authenticated Pro-plan API responses, Spend Cap on,
+the current billing-period uncached-egress counter, a current database-size
+query, and zero active Hammer operations. Every source receipt must be within
+five minutes of the evidence timestamp. Any missing metric, API/schema change,
+stale response, concurrency, or insufficient resource bound stops before a
+write. The evidence file is created with no-overwrite semantics under
+`.git/forge-private-evidence` and contains response hashes rather than response
+bodies or credentials.
+
+After reviewing the sanitized collection receipt, the bounded production write
+is a single invocation:
+
+```powershell
+./scripts/invoke-hammer-capacity-authority-renewal.ps1 `
+  -Action Renew `
+  -Operator 42c3de1d-bd24-41fe-abd9-640f17518b2c `
+  -Authorization RENEW-HAMMER-BRAD-OWNER-SPONSORSHIP-AUTHORITY
+```
+
+The renewal uses fresh UUIDs and immutable rows, retains the exact Brad source,
+44,589-micro owner ceiling, zero customer payment/debit, one cross-renewal
+provider-attempt limit, and 24-hour maximum validity. It cannot reset consumed
+or ambiguous execution authority; the migration-427 serialization and
+revocation guards remain authoritative. The returned receipt contains IDs,
+expiry, and the evidence digest only.
+
 The authenticated browser route is certified against a uniquely isolated B1-plus-current-tail workdir with synthetic data and process-only local credentials:
 
 ```powershell

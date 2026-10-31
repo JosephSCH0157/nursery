@@ -8740,6 +8740,38 @@ export type Database = {
           },
         ]
       }
+      hammer_first_transcription_activation_revocations: {
+        Row: {
+          activation_authority_id: string
+          id: string
+          reason: string
+          revoked_at: string
+          revoked_by: string
+        }
+        Insert: {
+          activation_authority_id: string
+          id: string
+          reason: string
+          revoked_at?: string
+          revoked_by: string
+        }
+        Update: {
+          activation_authority_id?: string
+          id?: string
+          reason?: string
+          revoked_at?: string
+          revoked_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_first_transcription_activa_activation_authority_id_fkey1"
+            columns: ["activation_authority_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_first_transcription_activation_authorities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hammer_first_transcription_capacity_authorities: {
         Row: {
           checked_at: string
@@ -42335,6 +42367,27 @@ export type Database = {
         Args: { p_lease_token_hash: string; p_run_id: string }
         Returns: Json
       }
+      renew_hammer_owner_funded_first_transcription_authority: {
+        Args: {
+          p_activation_id: string
+          p_capacity_authority_id: string
+          p_capacity_checked_at: string
+          p_capacity_evidence_sha256: string
+          p_capacity_expires_at: string
+          p_netlify_remaining_credit_microunits: number
+          p_operator_id: string
+          p_owner_authority_id: string
+          p_owner_budget_id: string
+          p_previous_activation_id: string
+          p_reason: string
+          p_supabase_remaining_database_bytes: number
+          p_supabase_remaining_uncached_egress_bytes: number
+          p_supabase_spend_cap_enabled: boolean
+          p_valid_from: string
+          p_valid_until: string
+        }
+        Returns: Json
+      }
       repair_org_members_from_teams: {
         Args: { p_org_id: string }
         Returns: {
@@ -43003,6 +43056,15 @@ export type Database = {
           join_link_id: string
           revoked: boolean
         }[]
+      }
+      revoke_hammer_first_transcription_activation: {
+        Args: {
+          p_activation_authority_id: string
+          p_actor_id: string
+          p_reason: string
+          p_revocation_id: string
+        }
+        Returns: Json
       }
       revoke_workspace_invite: {
         Args: { p_invite_id: string }

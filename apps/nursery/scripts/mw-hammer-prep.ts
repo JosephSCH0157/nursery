@@ -96,6 +96,7 @@ import {
 } from "@forge/tongs/server/hammer-assemblyai-transcription";
 import {
   HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY,
+  hammerAssemblyAiCapacityEvidenceFromAuthority,
   type HammerAssemblyAiCapacityEvidence,
 } from "@forge/tongs/server/hammer-assemblyai-resource-policy";
 import {
@@ -104,6 +105,14 @@ import {
 } from "./hammer-forge-ffmpeg-client";
 
 type Next = (err?: unknown) => void;
+
+type HammerCapacityIdentity = Readonly<{
+  userId: string;
+  workspaceId: string;
+  workpieceId: string;
+  canonicalRecordingId: string;
+  recordingRevisionId: string;
+}>;
 
 const DEFAULT_TRANSCRIBE_MODEL = "gpt-4o-transcribe-diarize";
 const DEFAULT_CHAT_FALLBACK_MODEL = "gpt-4o-mini";
@@ -122,6 +131,53 @@ const MEDIA_CONTENT_TYPES: Partial<Record<string, string>> = {
   ".mp3": "audio/mpeg",
   ".m4a": "audio/mp4",
 };
+
+export async function readCurrentHammerAssemblyAiCapacityEvidence(
+  supabaseService: SupabaseClient<Database>,
+  identity: HammerCapacityIdentity,
+  now = new Date(),
+): Promise<Readonly<HammerAssemblyAiCapacityEvidence>> {
+  const nowIso = now.toISOString();
+  const tongs = supabaseService.schema("tongs");
+  const activation = await tongs
+    .from("hammer_first_transcription_activation_authorities")
+    .select("id,capacity_authority_id")
+    .eq("financial_environment", "live")
+    .eq("user_id", identity.userId)
+    .eq("workspace_id", identity.workspaceId)
+    .eq("workpiece_id", identity.workpieceId)
+    .eq("canonical_recording_id", identity.canonicalRecordingId)
+    .eq("recording_revision_id", identity.recordingRevisionId)
+    .eq("completion_id", HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactCompletionId)
+    .eq("media_sha256", HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactMediaSha256)
+    .eq("media_bytes", HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceBytes)
+    .eq("verified_duration_ms", HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactSourceDurationMs)
+    .lte("valid_from", nowIso)
+    .gt("valid_until", nowIso)
+    .order("valid_until", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (activation.error || !activation.data?.capacity_authority_id) {
+    throw new Error("active_hammer_capacity_authority_unavailable");
+  }
+  const revocation = await tongs
+    .from("hammer_first_transcription_activation_revocations")
+    .select("id")
+    .eq("activation_authority_id", activation.data.id)
+    .limit(1);
+  if (revocation.error || (revocation.data?.length ?? 0) !== 0) {
+    throw new Error("active_hammer_capacity_authority_revoked");
+  }
+  const capacity = await tongs
+    .from("hammer_first_transcription_capacity_authorities")
+    .select("evidence_sha256,checked_at,expires_at,netlify_plan,netlify_remaining_credit_microunits,supabase_plan,supabase_spend_cap_enabled,supabase_remaining_uncached_egress_bytes,supabase_remaining_database_bytes,observed_active_hammer_operations")
+    .eq("id", activation.data.capacity_authority_id)
+    .maybeSingle();
+  if (capacity.error || !capacity.data) {
+    throw new Error("hammer_capacity_authority_evidence_unavailable");
+  }
+  return hammerAssemblyAiCapacityEvidenceFromAuthority(capacity.data, now);
+}
 
 type TranscriptUploadMode = "auto" | "direct" | "transcoded" | "compare";
 
@@ -2228,6 +2284,10 @@ export type HammerPrepMiddlewareOptions = {
   diagnosticUserIdResolver?: (accessToken: string) => Promise<string | null>;
   diagnosticPolicyPreflight?: () => Promise<{ ok: true } | { ok: false; status?: number; error: string }>;
   diagnosticUserGate?: OpenAiTextGateClient;
+  /** Test-only seam; production resolves the governed capacity authority from Tongs. */
+  diagnosticCapacityEvidenceResolver?: (
+    identity: HammerCapacityIdentity,
+  ) => Promise<Readonly<HammerAssemblyAiCapacityEvidence>>;
   /** Netlify uses a foreground quote/status function and a durable background executor. */
   hammerAssemblyAiExecutionMode?: "synchronous" | "enqueue" | "background";
 };
@@ -3326,13 +3386,27 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           } });
           return;
         }
-        let capacityEvidence: HammerAssemblyAiCapacityEvidence;
+        let capacityEvidence: Readonly<HammerAssemblyAiCapacityEvidence>;
         try {
-          capacityEvidence = JSON.parse(readTrimmed(process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON) ?? "") as HammerAssemblyAiCapacityEvidence;
+          capacityEvidence = await (options.diagnosticCapacityEvidenceResolver
+            ? options.diagnosticCapacityEvidenceResolver({
+                userId,
+                workspaceId: request.workspace_id,
+                workpieceId: request.workpiece_id,
+                canonicalRecordingId: policy.exactCanonicalRecordingId,
+                recordingRevisionId: policy.exactRecordingRevisionId,
+              })
+            : readCurrentHammerAssemblyAiCapacityEvidence(supabaseService, {
+                userId,
+                workspaceId: request.workspace_id,
+                workpieceId: request.workpiece_id,
+                canonicalRecordingId: policy.exactCanonicalRecordingId,
+                recordingRevisionId: policy.exactRecordingRevisionId,
+              }));
         } catch {
           sendJson(res, 503, { ok: false, error: {
             code: "capacity_evidence_unavailable",
-            message: "Current private Netlify and Supabase capacity evidence is required.",
+            message: "A current governed Netlify and Supabase capacity authority is required.",
           } });
           return;
         }
@@ -3709,13 +3783,27 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           } });
           return;
         }
-        let capacityEvidence: HammerAssemblyAiCapacityEvidence;
+        let capacityEvidence: Readonly<HammerAssemblyAiCapacityEvidence>;
         try {
-          capacityEvidence = JSON.parse(readTrimmed(process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON) ?? "") as HammerAssemblyAiCapacityEvidence;
+          capacityEvidence = await (options.diagnosticCapacityEvidenceResolver
+            ? options.diagnosticCapacityEvidenceResolver({
+                userId,
+                workspaceId: request.workspace_id,
+                workpieceId: request.workpiece_id,
+                canonicalRecordingId: policy.exactCanonicalRecordingId,
+                recordingRevisionId: policy.exactRecordingRevisionId,
+              })
+            : readCurrentHammerAssemblyAiCapacityEvidence(supabaseService, {
+                userId,
+                workspaceId: request.workspace_id,
+                workpieceId: request.workpiece_id,
+                canonicalRecordingId: policy.exactCanonicalRecordingId,
+                recordingRevisionId: policy.exactRecordingRevisionId,
+              }));
         } catch {
           sendJson(res, 503, { ok: false, error: {
             code: "capacity_evidence_unavailable",
-            message: "Current private Netlify and Supabase capacity evidence is required.",
+            message: "A current governed Netlify and Supabase capacity authority is required.",
           } });
           return;
         }

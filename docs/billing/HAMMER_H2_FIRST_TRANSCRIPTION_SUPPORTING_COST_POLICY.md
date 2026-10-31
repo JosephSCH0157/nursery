@@ -53,6 +53,38 @@ Fresh private capacity evidence must cover at least 671,178 Netlify credit
 microunits, 243,332,008 bytes of Supabase uncached egress, and 8 MiB of database
 headroom. It expires within 24 hours and is admitted only by SHA-256 fingerprint.
 
+## Repeatable authenticated capacity observation
+
+Ordinary authority renewal does not require a new owner Dashboard inspection.
+The governed operator command `scripts/invoke-hammer-capacity-authority-renewal.ps1`
+collects the four authoritative observations used by the policy:
+
+- the Netlify account and credit-balance APIs prove the Pro plan and exact
+  remaining credit balance;
+- the Supabase organization subscription API proves the Pro plan, current
+  billing period, and that `usage_billing_enabled` is false (Spend Cap on);
+- the Supabase organization daily-usage API supplies the billing-period
+  `EGRESS` counter, which is subtracted from the documented 250 GB Pro
+  allowance using decimal bytes; and
+- a linked, read-only database query supplies current database bytes and the
+  count of queued, processing, or submission-unknown Hammer operations.
+
+The two API tokens are read only from Windows Credential Manager and exist in
+the collector process environment only for the authenticated requests. Raw
+responses and tokens are not retained. The private evidence records response
+digests and server `Date` headers, requires every observation within five
+minutes of the evidence timestamp, refuses overwrite, and remains under
+`.git/forge-private-evidence`. Missing fields, API errors, response-schema
+drift, stale observations, Spend Cap off, concurrent Hammer work, or any
+insufficient bound fail closed before the renewal RPC.
+
+Production Hammer reconstructs the same fingerprinted evidence from the active
+service-only capacity authority admitted by migration 427. It does not rely on
+an expiring Netlify environment snapshot or require a rebuild for each renewal.
+The existing 24-hour authority limit, exact-recording scope, owner exposure
+ceiling, one-attempt boundary, zero customer debit, and explicit quote
+acceptance remain unchanged.
+
 ## Full-episode payload evidence
 
 The retained 1 MiB provider-response and canonical-transcript limits were

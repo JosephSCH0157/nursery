@@ -67,6 +67,19 @@ export type HammerAssemblyAiCapacityEvidence = {
   activeHammerOperationCount: 0;
 };
 
+export type HammerAssemblyAiCapacityAuthorityRecord = {
+  evidence_sha256: string;
+  checked_at: string;
+  expires_at: string;
+  netlify_plan: string;
+  netlify_remaining_credit_microunits: number;
+  supabase_plan: string;
+  supabase_spend_cap_enabled: boolean;
+  supabase_remaining_uncached_egress_bytes: number;
+  supabase_remaining_database_bytes: number;
+  observed_active_hammer_operations: number;
+};
+
 export type HammerAssemblyAiFailureKind =
   | "provider_verified_failure"
   | "submission_unknown"
@@ -95,6 +108,35 @@ export function fingerprintHammerAssemblyAiCapacityEvidence(
     supabase: evidence.supabase,
     active_hammer_operation_count: evidence.activeHammerOperationCount,
   })).digest("hex");
+}
+
+/**
+ * Reconstructs the private runtime capacity contract from the service-only
+ * authority admitted by the governed renewal RPC. This deliberately rejects
+ * coercion and aliases: database rows with drifted plans, counters, or hashes
+ * must fail closed before quote admission or provider execution.
+ */
+export function hammerAssemblyAiCapacityEvidenceFromAuthority(
+  authority: HammerAssemblyAiCapacityAuthorityRecord,
+  now = new Date(),
+): Readonly<HammerAssemblyAiCapacityEvidence> {
+  const evidence: HammerAssemblyAiCapacityEvidence = {
+    evidenceSha256: authority.evidence_sha256,
+    checkedAt: authority.checked_at,
+    expiresAt: authority.expires_at,
+    netlify: {
+      plan: authority.netlify_plan as "pro",
+      remainingCreditsMicrounits: authority.netlify_remaining_credit_microunits,
+    },
+    supabase: {
+      plan: authority.supabase_plan as "pro",
+      spendCapEnabled: authority.supabase_spend_cap_enabled as true,
+      remainingUncachedEgressBytes: authority.supabase_remaining_uncached_egress_bytes,
+      remainingDatabaseBytes: authority.supabase_remaining_database_bytes,
+    },
+    activeHammerOperationCount: authority.observed_active_hammer_operations as 0,
+  };
+  return certifyHammerAssemblyAiCapacity(evidence, now);
 }
 
 function nonNegativeSafeInteger(value: number, code: string): number {

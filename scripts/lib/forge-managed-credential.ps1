@@ -3,6 +3,8 @@ Set-StrictMode -Version Latest
 $script:ForgeCredentialTypeGeneric = 1
 $script:ForgeCredentialPersistLocalMachine = 2
 $script:ForgeDatabaseCredentialTarget = 'PodcastersForge/Supabase/wtvdjndyxegudufrompx/database-password'
+$script:ForgeNetlifyCapacityReadCredentialTarget = 'PodcastersForge/Capacity/Netlify/read-token'
+$script:ForgeSupabaseCapacityReadCredentialTarget = 'PodcastersForge/Capacity/Supabase/read-token'
 
 function Initialize-ForgeCredentialNativeType {
   if ($null -ne ('Forge.WindowsCredentialNative' -as [type])) { return }
@@ -109,6 +111,14 @@ function Get-ForgeDatabaseCredentialTarget {
   return $script:ForgeDatabaseCredentialTarget
 }
 
+function Get-ForgeNetlifyCapacityReadCredentialTarget {
+  return $script:ForgeNetlifyCapacityReadCredentialTarget
+}
+
+function Get-ForgeSupabaseCapacityReadCredentialTarget {
+  return $script:ForgeSupabaseCapacityReadCredentialTarget
+}
+
 function Test-ForgeManagedCredential {
   [CmdletBinding()]
   param([string]$Target = $script:ForgeDatabaseCredentialTarget)
@@ -161,5 +171,30 @@ function Invoke-WithForgeManagedDatabaseCredential {
   } finally {
     [Environment]::SetEnvironmentVariable('SUPABASE_DB_PASSWORD', $null, 'Process')
     $secret = $null
+  }
+}
+
+function Invoke-WithForgeManagedCapacityReadCredentials {
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][scriptblock]$Operation)
+  foreach ($name in @('FORGE_NETLIFY_CAPACITY_READ_TOKEN','FORGE_SUPABASE_CAPACITY_READ_TOKEN')) {
+    if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, 'Process'))) {
+      throw "Refusing to overwrite an existing process-scoped $name."
+    }
+  }
+  Initialize-ForgeCredentialNativeType
+  $netlify = $null
+  $supabase = $null
+  try {
+    $netlify = [Forge.WindowsCredentialNative]::Read($script:ForgeNetlifyCapacityReadCredentialTarget)
+    $supabase = [Forge.WindowsCredentialNative]::Read($script:ForgeSupabaseCapacityReadCredentialTarget)
+    [Environment]::SetEnvironmentVariable('FORGE_NETLIFY_CAPACITY_READ_TOKEN', $netlify, 'Process')
+    [Environment]::SetEnvironmentVariable('FORGE_SUPABASE_CAPACITY_READ_TOKEN', $supabase, 'Process')
+    return & $Operation
+  } finally {
+    [Environment]::SetEnvironmentVariable('FORGE_NETLIFY_CAPACITY_READ_TOKEN', $null, 'Process')
+    [Environment]::SetEnvironmentVariable('FORGE_SUPABASE_CAPACITY_READ_TOKEN', $null, 'Process')
+    $netlify = $null
+    $supabase = $null
   }
 }

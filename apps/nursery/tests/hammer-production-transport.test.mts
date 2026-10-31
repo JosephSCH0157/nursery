@@ -14,7 +14,10 @@ import {
 import { buildHammerShortsPaidRequestIdentity, type HammerShortsDiscoveryBody } from "../scripts/hammer-shorts-discovery";
 import { HAMMER_PRODUCTION_TEXT_ROUTES } from "../server/hammer/create-hammer-paid-handler";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
-import { HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY } from "@forge/tongs/server/hammer-assemblyai-resource-policy";
+import {
+  HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY,
+  fingerprintHammerAssemblyAiCapacityEvidence,
+} from "@forge/tongs/server/hammer-assemblyai-resource-policy";
 import { fingerprintHammerAssemblyAiRequest } from "@forge/tongs/server/hammer-assemblyai-transcription";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -31,6 +34,23 @@ const MODEL_SELECTION = {
   display_name: "Fixture Certified Model",
   tradeoff_summary: "Fixture-only certified choice.",
 };
+
+function currentCapacityEvidence() {
+  const checkedAt = new Date(Date.now() - 60_000).toISOString();
+  const evidence = {
+    checkedAt,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+    netlify: { plan: "pro" as const, remainingCreditsMicrounits: 2_700_900_000 },
+    supabase: {
+      plan: "pro" as const,
+      spendCapEnabled: true as const,
+      remainingUncachedEgressBytes: 249_323_500_000,
+      remainingDatabaseBytes: 7_962_989_421,
+    },
+    activeHammerOperationCount: 0 as const,
+  };
+  return { ...evidence, evidenceSha256: fingerprintHammerAssemblyAiCapacityEvidence(evidence) };
+}
 
 function runtimeConfig(overrides: Partial<HearthRuntimeConfig> = {}): HearthRuntimeConfig {
   return {
@@ -286,6 +306,7 @@ test("accepted owner-sponsored quote is durable before the background executor s
         supabaseRpcKey: "fixture-anon-key",
       }),
       hammerAssemblyAiExecutionMode: "enqueue",
+      diagnosticCapacityEvidenceResolver: async () => currentCapacityEvidence(),
     })(request("/api/hammer/prep/transcript", {
       workspace_id: WORKSPACE_ID,
       workpiece_id: policy.exactWorkpieceId,
@@ -379,6 +400,7 @@ test("AssemblyAI quote preparation never reads the 120 MB canonical object or ca
           }, error: null };
         },
       },
+      diagnosticCapacityEvidenceResolver: async () => currentCapacityEvidence(),
     })(request("/api/hammer/prep/transcript", {
       workspace_id: WORKSPACE_ID,
       workpiece_id: HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY.exactWorkpieceId,
