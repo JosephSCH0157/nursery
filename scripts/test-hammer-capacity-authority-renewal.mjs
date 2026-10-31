@@ -45,6 +45,10 @@ test("renewal is pinned to migration 427 and invokes only the service-role renew
   assert.match(renewal, /customerPaymentMicros=0/);
   assert.match(renewal, /customerCreditUnits=0/);
   assert.match(renewal, /providerAttemptCreated=\$false/);
+  assert.match(renewal, /yyyy-MM-ddTHH:mm:ss\.fff'Z'/);
+  assert.match(renewal, /ReplaceCurrentUnusableAuthority/);
+  assert.match(renewal, /revoke_hammer_first_transcription_activation/);
+  assert.match(renewal, /from \$renewalSource/);
   assert.doesNotMatch(renewal, /AssemblyAI|stripe|customer_spending_quotes\s+set/i);
 });
 

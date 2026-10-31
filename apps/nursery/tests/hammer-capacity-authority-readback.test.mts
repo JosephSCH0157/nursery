@@ -75,6 +75,23 @@ test("Hammer reads and verifies the current exact-recording capacity authority",
   assert.ok(fake.filters.some(([, column, value]) => column === "recording_revision_id" && value === identity.recordingRevisionId));
 });
 
+test("Hammer accepts equivalent PostgreSQL timestamptz serialization", async () => {
+  const fake = client({
+    hammer_first_transcription_activation_authorities: { data: { id: "activation-1", capacity_authority_id: "capacity-1" }, error: null },
+    hammer_first_transcription_activation_revocations: { data: [], error: null },
+    hammer_first_transcription_capacity_authorities: {
+      data: {
+        ...capacityRow,
+        checked_at: "2026-10-31T00:59:00+00:00",
+        expires_at: "2026-11-01T00:59:00+00:00",
+      },
+      error: null,
+    },
+  });
+  const evidence = await readCurrentHammerAssemblyAiCapacityEvidence(fake as never, identity, now);
+  assert.equal(evidence.evidenceSha256, capacityRow.evidence_sha256);
+});
+
 test("missing, stale, or drifted database capacity authority fails closed", async () => {
   await assert.rejects(
     readCurrentHammerAssemblyAiCapacityEvidence(client({

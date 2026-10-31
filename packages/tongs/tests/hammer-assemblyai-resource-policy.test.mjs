@@ -168,6 +168,24 @@ test("a governed database capacity authority reconstructs the exact runtime evid
   );
 });
 
+test("capacity fingerprints survive PostgreSQL timestamp normalization", () => {
+  const expected = capacity();
+  const reconstructed = hammerAssemblyAiCapacityEvidenceFromAuthority({
+    evidence_sha256: expected.evidenceSha256,
+    checked_at: "2026-10-28T12:00:00+00:00",
+    expires_at: "2026-10-28T13:00:00+00:00",
+    netlify_plan: expected.netlify.plan,
+    netlify_remaining_credit_microunits: expected.netlify.remainingCreditsMicrounits,
+    supabase_plan: expected.supabase.plan,
+    supabase_spend_cap_enabled: expected.supabase.spendCapEnabled,
+    supabase_remaining_uncached_egress_bytes: expected.supabase.remainingUncachedEgressBytes,
+    supabase_remaining_database_bytes: expected.supabase.remainingDatabaseBytes,
+    observed_active_hammer_operations: expected.activeHammerOperationCount,
+  }, now);
+  assert.equal(reconstructed.evidenceSha256, expected.evidenceSha256);
+  assert.equal(reconstructed.checkedAt, "2026-10-28T12:00:00+00:00");
+});
+
 test("only an exact project-scoped signed Supabase source URL is accepted", () => {
   const accepted = assertHammerAssemblyAiDirectSourceUrl(
     signedSourceUrl(),

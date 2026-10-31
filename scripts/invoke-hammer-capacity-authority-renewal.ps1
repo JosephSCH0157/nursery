@@ -3,6 +3,7 @@ param(
   [Parameter(Mandatory)][ValidateSet('Collect','Renew')][string]$Action,
   [Parameter(Mandatory)][guid]$Operator,
   [string]$Authorization,
+  [switch]$ReplaceCurrentUnusableAuthority,
   [string]$OutputName=('hammer-capacity-'+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')+'.json'),
   [string]$RepositoryRoot=(Split-Path -Parent $PSScriptRoot)
 )
@@ -11,6 +12,9 @@ $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath($RepositoryRoot)
 . (Join-Path $PSScriptRoot 'lib/forge-managed-credential.ps1')
 . (Join-Path $PSScriptRoot 'lib/forge-supabase-cli.ps1')
+if($ReplaceCurrentUnusableAuthority -and $Action -ne 'Renew'){
+  throw 'Replacing an unusable authority is valid only during an authorized renewal.'
+}
 
 function Invoke-Supabase([string[]]$Arguments){Invoke-ForgeSupabaseCli -Arguments $Arguments}
 function Read-Csv([string]$Sql,[string[]]$Columns,[string]$Context){
@@ -110,7 +114,7 @@ $result=Invoke-WithForgeManagedDatabaseCredential -Operation {
   $evidenceDocument=Get-Content -LiteralPath $evidencePath -Raw|ConvertFrom-Json
   $evidence=$evidenceDocument.evidence
   foreach($field in @('evidenceSha256','checkedAt','expiresAt')){if([string]::IsNullOrWhiteSpace([string]$evidence.$field)){throw "Capacity evidence $field is missing."}}
-  $ids=[ordered]@{activation=[guid]::NewGuid();capacity=[guid]::NewGuid();ownerAuthority=[guid]::NewGuid();ownerBudget=[guid]::NewGuid()}
+  $ids=[ordered]@{activation=[guid]::NewGuid();capacity=[guid]::NewGuid();ownerAuthority=[guid]::NewGuid();ownerBudget=[guid]::NewGuid();revocation=[guid]::NewGuid()}
   $previous=@(Read-Csv @'
 select id from tongs.hammer_first_transcription_activation_authorities
 where user_id='71daf61b-57b3-4e5f-a8c8-64befecb5950'::uuid
@@ -122,23 +126,37 @@ order by valid_until desc limit 1
 '@ @('id') 'previous Hammer activation authority')
   if($previous.Count -ne 1){throw 'The previous exact Hammer activation authority is unavailable.'}
   $previousId=[guid]$previous[0].id
+  $checkedAt=([datetimeoffset]$evidence.checkedAt).ToUniversalTime()
+  $capacityExpiry=([datetimeoffset]$evidence.expiresAt).ToUniversalTime()
   $validFrom=[datetimeoffset]::UtcNow
   $validUntil=$validFrom.AddHours(24)
-  $capacityExpiry=[datetimeoffset]$evidence.expiresAt
   if($validUntil -gt $capacityExpiry){$validUntil=$capacityExpiry}
   if($validUntil -le $validFrom){throw 'Capacity evidence cannot support a renewed authority window.'}
+  $checkedAtSql=$checkedAt.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'",[Globalization.CultureInfo]::InvariantCulture)
+  $capacityExpirySql=$capacityExpiry.ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'",[Globalization.CultureInfo]::InvariantCulture)
+  $validFromSql=$validFrom.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'",[Globalization.CultureInfo]::InvariantCulture)
+  $validUntilSql=$validUntil.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fff'Z'",[Globalization.CultureInfo]::InvariantCulture)
+  $revocationCte=if($ReplaceCurrentUnusableAuthority){@"
+, revoked as (
+  select tongs.revoke_hammer_first_transcription_activation(
+    '$($ids.revocation)'::uuid,'$previousId'::uuid,'$Operator'::uuid,
+    'Replace an unconsumed authority whose capacity timestamp serialization invalidated its evidence fingerprint.'
+  ) as receipt from service_context
+)
+"@}else{''}
+  $renewalSource=if($ReplaceCurrentUnusableAuthority){'revoked'}else{'service_context'}
   $sql=@"
 with service_context as (
   select set_config('request.jwt.claim.role','service_role',true)
-)
+)$revocationCte
 select tongs.renew_hammer_owner_funded_first_transcription_authority(
   '$previousId'::uuid,'$($ids.activation)'::uuid,'$($ids.capacity)'::uuid,
   '$($ids.ownerAuthority)'::uuid,'$($ids.ownerBudget)'::uuid,'$Operator'::uuid,
-  '$([string]$evidence.evidenceSha256)','$([datetimeoffset]$evidence.checkedAt)'::timestamptz,'$capacityExpiry'::timestamptz,
+  '$([string]$evidence.evidenceSha256)','$checkedAtSql'::timestamptz,'$capacityExpirySql'::timestamptz,
   $([int64]$evidence.netlify.remainingCreditsMicrounits),$([int64]$evidence.supabase.remainingUncachedEgressBytes),
-  $([int64]$evidence.supabase.remainingDatabaseBytes),true,'$validFrom'::timestamptz,'$validUntil'::timestamptz,
+  $([int64]$evidence.supabase.remainingDatabaseBytes),true,'$validFromSql'::timestamptz,'$validUntilSql'::timestamptz,
   'Automated authenticated capacity evidence renewal for the exact owner-sponsored Brad transcription.'
-) as receipt from service_context;
+) as receipt from $renewalSource;
 "@
   $renewed=@(Read-Csv $sql @('receipt') 'Hammer authority renewal')
   if($renewed.Count -ne 1){throw 'Hammer authority renewal did not return a receipt.'}

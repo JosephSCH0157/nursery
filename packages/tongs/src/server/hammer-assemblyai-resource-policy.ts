@@ -100,10 +100,14 @@ export class HammerAssemblyAiResourceBoundaryError extends Error {
 export function fingerprintHammerAssemblyAiCapacityEvidence(
   evidence: Omit<HammerAssemblyAiCapacityEvidence, "evidenceSha256">,
 ): string {
+  const canonicalTimestamp = (value: string): string => {
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : value;
+  };
   return createHash("sha256").update(JSON.stringify({
     schema: "forge.hammer.assemblyai-capacity-evidence.v1",
-    checked_at: evidence.checkedAt,
-    expires_at: evidence.expiresAt,
+    checked_at: canonicalTimestamp(evidence.checkedAt),
+    expires_at: canonicalTimestamp(evidence.expiresAt),
     netlify: evidence.netlify,
     supabase: evidence.supabase,
     active_hammer_operation_count: evidence.activeHammerOperationCount,
