@@ -1,0 +1,60 @@
+{
+  "schema": "forge.account-admission-authority-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Hammer owner sponsorship authority renewal",
+    "contractPath": "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-contract.v1.json",
+    "contractSha256": "c17ef0d9ba26b62764da6a782d9031e2c95c86d0b0271387168ed653f864eb88",
+    "historicalRows": 427
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "predecessorSuccessorContractSha256": "c17ef0d9ba26b62764da6a782d9031e2c95c86d0b0271387168ed653f864eb88"
+  },
+  "sharedTailAddition": {
+    "version": "20261031123320",
+    "path": "supabase/migrations/20261031123320_forge_beta_admission_foundation.sql",
+    "sha256": "17409cfb561112cb9889758019b16f1e961c56d356abab7bcba957111feb483f"
+  },
+  "historicalSuccessor": {
+    "finalRows": 428,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719",
+      "20261030224605",
+      "20261031123320"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-account-admission-authority/successor-catalog-fingerprint.json",
+    "status": "pending_local_materialization"
+  },
+  "inactivityContract": {
+    "admissionEnforcementActivated": false,
+    "existingRlsPoliciesChanged": 0,
+    "financialObjectsChanged": 0,
+    "authConfigurationChanged": false,
+    "netlifyIntakeDefaultEnabled": false,
+    "legacyRevocationMustWin": true,
+    "projectionDirectMutationDenied": true,
+    "serviceRoleTablePrivileges": 0
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

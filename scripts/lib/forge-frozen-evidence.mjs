@@ -33,6 +33,8 @@ export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRA
 export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRACT_SHA256 = "ff4012911ef8e683309a80959b6351d3104659712ea000e1d7556b7e078fa0b5";
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-contract.v1.json";
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "c17ef0d9ba26b62764da6a782d9031e2c95c86d0b0271387168ed653f864eb88";
+export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-authority/successor-contract.v1.json";
+export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "27bbba8e20bec84fb1721e5701588cb0a2833354608066014f618c8f27e1f47e";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -684,6 +686,37 @@ function loadHammerOwnerSponsorshipAuthorityRenewalSuccessorContract(root, head)
   return contract;
 }
 
+function loadAccountAdmissionAuthoritySuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH])
+    .get(ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Account-admission authority successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.account-admission-authority-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261031123320" ||
+      addition?.path !== "supabase/migrations/20261031123320_forge_beta_admission_foundation.sql" ||
+      addition?.sha256 !== "17409cfb561112cb9889758019b16f1e961c56d356abab7bcba957111feb483f" ||
+      contract.catalogSuccessor?.status !== "pending_local_materialization" ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Account-admission authority successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Account-admission authority successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Account-admission authority successor-contract working bytes differ from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -1031,6 +1064,7 @@ export function verifyFrozenEvidence({
   const hammerOwnerFundedFirstTranscription = loadHammerOwnerFundedFirstTranscriptionSuccessorContract(root, head);
   const hammerOwnerSponsorshipReservationCompatibility = loadHammerOwnerSponsorshipReservationCompatibilitySuccessorContract(root, head);
   const hammerOwnerSponsorshipAuthorityRenewal = loadHammerOwnerSponsorshipAuthorityRenewalSuccessorContract(root, head);
+  const accountAdmissionAuthority = loadAccountAdmissionAuthoritySuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
@@ -1044,6 +1078,7 @@ export function verifyFrozenEvidence({
     { gate: "hammer-owner-funded-first-transcription", contract: hammerOwnerFundedFirstTranscription },
     { gate: "hammer-owner-sponsorship-reservation-compatibility", contract: hammerOwnerSponsorshipReservationCompatibility },
     { gate: "hammer-owner-sponsorship-authority-renewal", contract: hammerOwnerSponsorshipAuthorityRenewal },
+    { gate: "account-admission-authority", contract: accountAdmissionAuthority },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }
