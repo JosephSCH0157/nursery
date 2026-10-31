@@ -2,7 +2,8 @@
 param(
   [ValidateSet('permissive','restrictive')]
   [string]$DefaultPrivilegeMode = 'permissive',
-  [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot)
+  [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+  [switch]$MaterializeSuccessorCatalog
 )
 
 $ErrorActionPreference = 'Stop'
@@ -105,6 +106,7 @@ $restrictive_defaults$
     'supabase/tests/gate6p_storage_bucket_contract.sql'
     'supabase/tests/hammer_first_transcription_activation_contract.sql'
     'supabase/tests/hammer_brad_first_transcription_authority_bundle_contract.sql'
+    'supabase/tests/account_admission_authority.sql'
   )) {
     $source = Join-Path $repo $test
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -126,9 +128,17 @@ $restrictive_defaults$
   if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
 
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
+  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-account-admission-authority/successor-catalog-fingerprint.json'
   Push-Location $workdir
   try {
-    $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-hammer-brad-first-transcription-authority/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+    if ($MaterializeSuccessorCatalog) {
+      if ($DefaultPrivilegeMode -ne 'permissive') { throw 'Successor catalog materialization is permitted only in the permissive lane.' }
+      if (Test-Path -LiteralPath $successorFingerprint) { throw 'Successor catalog evidence already exists; refusing to overwrite it.' }
+      $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $successorFingerprint -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+    }
+    else {
+      $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath $successorFingerprint -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+    }
   }
   finally { Pop-Location }
 

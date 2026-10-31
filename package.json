@@ -88,6 +88,8 @@
     "test:db:hammer-owner-sponsorship-reservation-compatibility:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-owner-sponsorship-reservation-compatibility-426-hosted-deployment.mjs",
     "test:db:hammer-owner-sponsorship-authority-renewal:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-hammer-owner-sponsorship-authority-renewal-427-hosted-deployment.mjs",
     "prepare:db:recovery-evidence": "node scripts/new-hosted-recovery-readiness-evidence.mjs",
+    "backfill:beta-admission": "node scripts/backfill-beta-admission-applications.mjs",
+    "test:beta-admission-backfill": "node --test scripts/test-beta-admission-backfill.mjs",
     "test:db:recovery-evidence": "node --test scripts/test-hosted-recovery-readiness-evidence.mjs",
     "test:hammer:capacity-evidence": "node --test scripts/test-hammer-capacity-evidence.mjs scripts/test-hammer-capacity-authority-renewal.mjs",
     "collect:hammer:capacity-evidence": "pwsh -NoProfile -File scripts/invoke-hammer-capacity-authority-renewal.ps1 -Action Collect",
