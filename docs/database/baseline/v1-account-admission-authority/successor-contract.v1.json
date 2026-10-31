@@ -44,7 +44,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-account-admission-authority/successor-catalog-fingerprint.json",
-    "status": "pending_local_materialization"
+    "fileSha256": "e2a4359335b23f2847a764c1a012fa618f630c9cec4a249965ee855089d8ff8f",
+    "objectCount": 16555,
+    "normalizedContractSha256": "dfba269b9c0de143984bb74bb246390ae771ffba7cfe60365cdaf39e93baddd0"
   },
   "inactivityContract": {
     "admissionEnforcementActivated": false,
