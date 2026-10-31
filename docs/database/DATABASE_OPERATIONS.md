@@ -96,17 +96,15 @@ pnpm certify:db:canonical-baseline
 
 For a disposable B1 workdir created before the new migration existed, destroy it and create a new one rather than copying the file by hand.
 
-Governed hosted shared-tail applications use single-purpose entrypoints. The
-Anvil recording-authority entrypoint is bounded to 418 to 419; the Hammer H2-C
-entrypoint is bounded to 419 to 420. Each pins the Forge project and migration
-bytes, requires fresh owner-reviewed recovery evidence, an enrolled managed
-database password, exact operator authorization, and exactly one pending
-version. Neither is a general hosted SQL or migration executor. See section 6
-for their preflight and apply commands.
-
-All other hosted T applications remain unimplemented and unauthorized. Do not
-use `--include-all`, `migration repair`, direct history writes, or B1 to force
-discovery.
+Governed hosted shared-tail applications use single-purpose, version-specific
+entrypoints. Each pins the Forge project, predecessor, migration bytes, and
+installed count; requires fresh owner-reviewed recovery evidence, an enrolled
+managed database password, exact operator authorization, and exactly one
+pending version; and provides bounded Preflight, Apply, and PostVerify
+operations. None is a general hosted SQL or migration executor. Section 6
+lists every implemented entrypoint. Any T version without a named, certified
+entrypoint remains unimplemented and unauthorized. Do not use `--include-all`,
+`migration repair`, direct history writes, or B1 to force discovery.
 
 **Not yet implemented/certified:** any unbounded or general historical-upgrade
 executor. Only the version-specific entrypoints named here are governed.
@@ -721,6 +719,76 @@ constraint, global Test preservation, and zero migration-created revocations,
 reservations, operations, provider attempts, transcripts, or customer charges.
 Renewing Brad's authority through the RPC is a separate production write and
 requires its own exact reviewed authority bundle after PostVerify.
+
+### Forge inactive account-admission authority migration 428
+
+Migration 428 is the sole forward-tail successor to the installed 427-row
+Hammer state. It creates the six-table inactive account-admission foundation,
+the event-maintained current-state projection, the immutable legacy UUID
+snapshot, and the bounded intake/operator/check RPCs. It does not activate an
+admission gate, change signup or OAuth configuration, enable Netlify intake,
+backfill an application, or alter workspace or financial authority.
+
+Before any hosted operation, certify the migration-specific wrapper and create
+fresh recovery evidence using the procedure above:
+
+```powershell
+pnpm test:db:account-admission-authority:hosted-deployment
+pnpm preflight:db:account-admission-authority:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+The evidence `owner_approval_reference` must start with
+`FORGE-ADMISSION-S1-428:` and include a non-empty, unique change-window suffix.
+Migration-427 evidence is not valid for migration 428. Preflight requires the
+exact project `wtvdjndyxegudufrompx`, `historical-v1`, exactly 427 installed
+rows headed by `20261030224605`, migration `20261031123320` as the sole pending
+version, SHA-256
+`d59bc289ccd2b14f39e811586b9588e3fedc76bcdd9336c318b9c87453689d0d`,
+fresh release-specific recovery evidence, the managed credential, and
+Supabase CLI 2.84.2. It verifies the immutable database artifacts, snapshots
+all pre-existing workspace/financial authority and Auth routines, lists the
+linked migrations, and performs only the exact dry run.
+
+Apply is a hosted schema write and requires separate owner authorization plus
+the exact migration-specific token:
+
+```powershell
+./scripts/invoke-forge-account-admission-authority-428-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-FORGE-ACCOUNT-ADMISSION-AUTHORITY-428
+```
+
+The wrapper permits one normal linked `db push` and immediately verifies 428
+rows headed by `20261031123320`; the six forced-RLS tables and explicit table
+and function privileges; internally consistent legacy, event, and projection
+state; no application backfill; no admission dependency in existing functions,
+RLS policies, or database role settings; unchanged pre-existing authority and
+Auth routines; and unchanged financial/provider-attempt counters. The pinned
+Netlify handler remains fail-closed unless `FORGE_BETA_INTAKE_ENABLED` is
+explicitly set to `true`; this procedure does not read or change hosted Netlify
+configuration. The release operator must separately confirm the production
+environment has not enabled that variable before a later application-intake
+release.
+
+An independent read-only database postflight is:
+
+```powershell
+./scripts/invoke-forge-account-admission-authority-428-hosted-deployment.ps1 -Action PostVerify
+```
+
+Standalone PostVerify proves the resulting database structure and internal
+consistency but cannot reconstruct the exact migration-time Auth population or
+prove an external Netlify/Auth platform setting. The immediate Apply postflight
+therefore additionally compares the legacy snapshot with its pre-Apply
+`auth.users` count and compares the pre/post database fingerprints. Any Apply
+or postflight failure is a hard stop. Do not retry Apply, repair history,
+manually reverse DDL, enable intake, or mutate admissions. Preserve sanitized
+evidence and obtain owner direction for a reviewed forward correction or a
+separately authorized whole-database recovery.
 
 ### Automated Hammer capacity evidence and authority renewal
 
