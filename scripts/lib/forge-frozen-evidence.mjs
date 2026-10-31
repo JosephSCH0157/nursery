@@ -34,7 +34,7 @@ export const HAMMER_OWNER_SPONSORSHIP_RESERVATION_COMPATIBILITY_SUCCESSOR_CONTRA
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-owner-sponsorship-authority-renewal/successor-contract.v1.json";
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "c17ef0d9ba26b62764da6a782d9031e2c95c86d0b0271387168ed653f864eb88";
 export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-authority/successor-contract.v1.json";
-export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "7136907eeabf689c6834a2c2091dabe11c4cb66816932f34ef236b1243ec1d8e";
+export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "83b76055a3b6d8f945aa1ee59263984f749df848187264e6376d345c7a1c1859";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -700,7 +700,7 @@ function loadAccountAdmissionAuthoritySuccessorContract(root, head) {
       contract.predecessor?.contractSha256 !== HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 ||
       addition?.version !== "20261031123320" ||
       addition?.path !== "supabase/migrations/20261031123320_forge_beta_admission_foundation.sql" ||
-      addition?.sha256 !== "17409cfb561112cb9889758019b16f1e961c56d356abab7bcba957111feb483f" ||
+      addition?.sha256 !== "d59bc289ccd2b14f39e811586b9588e3fedc76bcdd9336c318b9c87453689d0d" ||
       contract.catalogSuccessor?.fileSha256 !== "e2a4359335b23f2847a764c1a012fa618f630c9cec4a249965ee855089d8ff8f" ||
       contract.catalogSuccessor?.objectCount !== 16555 ||
       contract.catalogSuccessor?.normalizedContractSha256 !== "dfba269b9c0de143984bb74bb246390ae771ffba7cfe60365cdaf39e93baddd0" ||

@@ -144,4 +144,3 @@ export function getBetaAdmissionServiceClient(): BetaAdmissionRpcClient {
   ) as unknown as BetaAdmissionRpcClient;
   return serviceClient;
 }
-

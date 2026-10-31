@@ -37,7 +37,8 @@ for (const [label, path, parsesWireQuote, usesExplicitCard = false] of ordinaryC
 
 test("unfunded creator navigation abandons the quote and requires a new action", () => {
   const helper = source("packages/tongs/src/customer-spending-confirmation.ts");
-  assert.match(helper, /funding=required&return_to=/);
+  assert.match(helper, /new URLSearchParams\(\{ funding: "required", return_to: returnTo \}\)/);
+  assert.match(helper, /location\.assign\(`\/app\/subscriptions\?\$\{params\.toString\(\)\}`\)/);
   assert.match(helper, /retry this action and accept a fresh quote/i);
   assert.match(helper, /return null;/);
 });

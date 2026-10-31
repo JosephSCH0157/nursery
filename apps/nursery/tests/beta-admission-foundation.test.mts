@@ -117,4 +117,3 @@ test("migration preserves the six-table inactive authority boundary", () => {
   assert.match(migration, /platform operator authority required/);
   assert.doesNotMatch(migration, /create policy/i);
 });
-

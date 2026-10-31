@@ -37,7 +37,7 @@ test("Anvil chunk action binds stable owner-cost authority before one provider s
 test("Hammer interactive prep blocks unpriced transcode and persists before settlement", () => {
   const client = source("apps/hammer/src/prep/hammerPrepApi.ts");
   const server = source("apps/nursery/scripts/mw-hammer-prep.ts");
-  assert.match(client, /requestCustomerSpendingAcceptance\(quote\)/);
+  assert.match(client, /requestCustomerSpendingAcceptance\(quote, \{\s*workspace_id: request\.workspace_id,\s*workpiece_id: request\.workpiece_id,\s*route_code: "hammer\.transcript_prep",\s*\}\)/);
   assert.match(server, /supporting_cost_not_authorized/);
   assert.match(server, /routeCode: "hammer\.transcript_prep"/);
   assert.match(server, /persist_openai_transcription_result/);

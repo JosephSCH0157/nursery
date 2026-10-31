@@ -548,4 +548,3 @@ revoke all on function tongs.is_account_admitted(uuid) from public, anon, authen
 grant execute on function tongs.is_account_admitted(uuid) to authenticated, service_role;
 
 commit;
-

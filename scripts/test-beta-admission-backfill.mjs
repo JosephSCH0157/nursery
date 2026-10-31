@@ -58,4 +58,3 @@ test("submission listing follows every Link page without mutating Netlify", asyn
   assert.equal(requests[0].options.method, undefined);
   assert.equal(APPLY_AUTHORIZATION, "IMPORT-FORGE-BETA-APPLICATIONS");
 });
-
