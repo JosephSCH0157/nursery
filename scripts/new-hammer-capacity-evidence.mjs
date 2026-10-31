@@ -29,11 +29,15 @@ function parse(argv) {
   return result;
 }
 async function get(url, token, name, accept = "application/json") {
-  const response = await fetch(url, { headers: { authorization: `Bearer ${token}`, accept } });
-  const responseDate = response.headers.get("date");
-  if (!response.ok || !responseDate) throw new Error(`${name}_request_failed:${response.status}`);
+  const response = await fetch(url, { headers: { authorization: `Bearer ${token}`, accept, "cache-control": "no-cache" } });
+  if (!response.ok) throw new Error(`${name}_request_failed:${response.status}`);
   const payload = accept === "application/json" ? await response.json() : await response.text();
-  return { payload, receipt: responseReceipt(payload, responseDate) };
+  const receipt = {
+    ...responseReceipt(payload, new Date().toISOString()),
+    server_response_date: response.headers.get("date"),
+    cache_age_seconds: Number(response.headers.get("age") ?? 0),
+  };
+  return { payload, receipt };
 }
 
 const args = parse(process.argv.slice(2));
@@ -43,9 +47,10 @@ if (!netlifyToken || !supabaseToken) throw new Error("managed_capacity_read_cred
 const databaseObservation = JSON.parse(Buffer.from(args["database-observation-base64"] ?? "", "base64url").toString("utf8"));
 const attestationPath = resolve(process.cwd(), args["supabase-control-attestation"] ?? "");
 const supabaseControlAttestation = JSON.parse(readFileSync(attestationPath, "utf8"));
+const requestNonce = Date.now();
 const [netlifyAccount, netlifyCredits, supabaseMetrics] = await Promise.all([
-  get(`https://api.netlify.com/api/v1/accounts/${encodeURIComponent(args["netlify-team-slug"])}`, netlifyToken, "netlify_account"),
-  get(`https://api.netlify.com/api/v1/${encodeURIComponent(args["netlify-team-slug"])}/billing/credits`, netlifyToken, "netlify_credits"),
+  get(`https://api.netlify.com/api/v1/accounts/${encodeURIComponent(args["netlify-team-slug"])}?forge_observed_at=${requestNonce}`, netlifyToken, "netlify_account"),
+  get(`https://api.netlify.com/api/v1/${encodeURIComponent(args["netlify-team-slug"])}/billing/credits?forge_observed_at=${requestNonce}`, netlifyToken, "netlify_credits"),
   get(`https://api.supabase.com/v1/projects/${encodeURIComponent(args["supabase-project-ref"])}/analytics/endpoints/metrics`, supabaseToken, "supabase_metrics", "text/plain"),
 ]);
 const observedAt = new Date();

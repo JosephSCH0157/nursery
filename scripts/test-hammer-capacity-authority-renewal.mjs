@@ -26,6 +26,9 @@ test("authenticated collection pins Netlify billing and the supported Supabase m
   assert.match(generator, /supabase-control-attestation/);
   assert.doesNotMatch(generator, /platform\/organizations|billing\/subscription|usage\/daily/);
   assert.match(generator, /authorization: `Bearer \$\{token\}`/);
+  assert.match(generator, /"cache-control": "no-cache"/);
+  assert.match(generator, /server_response_date/);
+  assert.match(generator, /cache_age_seconds/);
   assert.match(generator, /openSync\(outputPath, "wx", 0o600\)/);
   assert.match(generator, /responseBodiesRetained: false/);
   assert.match(generator, /forge_capacity_error=/);
