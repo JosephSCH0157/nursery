@@ -26,6 +26,7 @@ test("wrapper is linked-tail-only and independently verifies ACL and inactivity"
   assert.doesNotMatch(source,/--include-all|migration['"]?\s*,?['"]?repair|insert\s+into\s+supabase_migrations/i);
   assert.match(source,/owner_sponsorship_guard/);
   assert.match(source,/renewal_hardened/);
+  assert.match(source,/Hammer renewal cannot reset or duplicate prior execution authority/);
   assert.match(source,/revocation_rls/);
   assert.match(source,/overlap_guard/);
   assert.match(source,/cross_renewal_attempt_guard/);

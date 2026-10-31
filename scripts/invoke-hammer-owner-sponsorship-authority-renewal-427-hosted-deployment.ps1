@@ -70,7 +70,7 @@ with reserve_contract as (
 select
   (select lineage from forge_meta.database_lineage where singleton=true) as lineage,
   (select position('_quote_owner_budget_allows(v_quote.id, v_budget.id)' in definition)>0 and position('_active_hammer_owner_sponsorship_for_quote(v_quote.id)' in definition)>0 and position('sponsorship.owner_budget_id=v_budget.id' in definition)>0 and position('sponsorship.beneficiary_user_id=v_quote.user_id' in definition)>0 from reserve_contract) as owner_sponsorship_guard,
-  (select prosecdef and postgres_owned and position('submission_unknown' in definition)>0 and position('provider-attempt allowance is already consumed' in definition)>0 from renewal_contract) as renewal_hardened,
+  (select prosecdef and postgres_owned and position('submission_unknown' in definition)>0 and position('Hammer renewal cannot reset or duplicate prior execution authority' in definition)>0 from renewal_contract) as renewal_hardened,
   not has_function_privilege('public','tongs.renew_hammer_owner_funded_first_transcription_authority(uuid,uuid,uuid,uuid,uuid,uuid,text,timestamptz,timestamptz,bigint,bigint,bigint,boolean,timestamptz,timestamptz,text)','EXECUTE') as public_execute_denied,
   not has_function_privilege('anon','tongs.renew_hammer_owner_funded_first_transcription_authority(uuid,uuid,uuid,uuid,uuid,uuid,text,timestamptz,timestamptz,bigint,bigint,bigint,boolean,timestamptz,timestamptz,text)','EXECUTE') as anon_execute_denied,
   not has_function_privilege('authenticated','tongs.renew_hammer_owner_funded_first_transcription_authority(uuid,uuid,uuid,uuid,uuid,uuid,text,timestamptz,timestamptz,bigint,bigint,bigint,boolean,timestamptz,timestamptz,text)','EXECUTE') as authenticated_execute_denied,
