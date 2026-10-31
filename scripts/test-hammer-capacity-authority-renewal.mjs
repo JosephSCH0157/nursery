@@ -50,6 +50,8 @@ test("renewal is pinned to migration 427 and invokes only the service-role renew
 
 test("Windows governance invokes WSL Node without putting capacity credentials on the command line", () => {
   assert.match(renewal, /Get-Command wsl\.exe/);
+  assert.match(renewal, /function ConvertFrom-WslPath/);
+  assert.match(renewal, /ConvertFrom-WslPath \(\[string\]\$receipt\.outputPath\)/);
   assert.match(renewal, /Diagnostics\.ProcessStartInfo/);
   assert.match(renewal, /FORGE_NETLIFY_CAPACITY_READ_TOKEN/);
   assert.match(renewal, /FORGE_SUPABASE_CAPACITY_READ_TOKEN/);

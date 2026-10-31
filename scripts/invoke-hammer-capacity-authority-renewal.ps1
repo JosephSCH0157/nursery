@@ -40,6 +40,13 @@ function ConvertTo-WslPath([string]$WindowsPath) {
   $tail=$match.Groups['tail'].Value.Replace('\','/')
   "/mnt/$drive/$tail"
 }
+function ConvertFrom-WslPath([string]$WslPath) {
+  $match=[regex]::Match($WslPath,'^/mnt/(?<drive>[A-Za-z])/(?<tail>.*)$')
+  if(-not $match.Success){throw 'Capacity evidence did not return a Windows-drive WSL path.'}
+  $drive=$match.Groups['drive'].Value.ToUpperInvariant()
+  $tail=$match.Groups['tail'].Value.Replace('/','\')
+  "${drive}:\$tail"
+}
 function Invoke-WslNode([string]$ScriptPath,[string[]]$Arguments) {
   $wsl=(Get-Command wsl.exe -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1)
   if($null -eq $wsl -or [string]::IsNullOrWhiteSpace($wsl.Source)){throw 'Windows WSL executable is unavailable.'}
@@ -99,7 +106,8 @@ $result=Invoke-WithForgeManagedDatabaseCredential -Operation {
   $receipt=Invoke-WithForgeManagedCapacityReadCredentials -Operation {New-CapacityEvidence}
   if($Action -eq 'Collect'){return $receipt}
   if($Authorization -cne 'RENEW-HAMMER-BRAD-OWNER-SPONSORSHIP-AUTHORITY'){throw 'Exact Brad authority-renewal authorization is required.'}
-  $evidenceDocument=Get-Content -LiteralPath $receipt.outputPath -Raw|ConvertFrom-Json
+  $evidencePath=ConvertFrom-WslPath ([string]$receipt.outputPath)
+  $evidenceDocument=Get-Content -LiteralPath $evidencePath -Raw|ConvertFrom-Json
   $evidence=$evidenceDocument.evidence
   foreach($field in @('evidenceSha256','checkedAt','expiresAt')){if([string]::IsNullOrWhiteSpace([string]$evidence.$field)){throw "Capacity evidence $field is missing."}}
   $ids=[ordered]@{activation=[guid]::NewGuid();capacity=[guid]::NewGuid();ownerAuthority=[guid]::NewGuid();ownerBudget=[guid]::NewGuid()}
