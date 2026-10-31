@@ -1,0 +1,12 @@
+{
+  "schema": "forge.supabase.capacity-control-attestation.v1",
+  "organizationSlug": "nclurylekhseghlhrvxg",
+  "projectRef": "wtvdjndyxegudufrompx",
+  "observedDate": "2026-10-29",
+  "validThroughExclusiveDate": "2026-11-05",
+  "plan": "pro",
+  "spendCapEnabled": true,
+  "uncachedEgressAllowanceBytes": 250000000000,
+  "observedUncachedEgressUsedBytes": 676500000,
+  "authority": "owner-attested authenticated Supabase Billing Cost Control dashboard"
+}

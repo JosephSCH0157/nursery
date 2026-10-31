@@ -33,11 +33,64 @@ select clock_timestamp() as observed_at,
   if($rows.Count -ne 1){throw 'Capacity database observation is unavailable.'}
   [ordered]@{observed_at=([datetimeoffset]$rows[0].observed_at).ToUniversalTime().ToString('o');database_used_bytes=[int64]$rows[0].database_used_bytes;active_hammer_operation_count=[int]$rows[0].active_hammer_operation_count}
 }
+function ConvertTo-WslPath([string]$WindowsPath) {
+  $match=[regex]::Match($WindowsPath,'^(?<drive>[A-Za-z]):\\(?<tail>.*)$')
+  if(-not $match.Success){throw 'The Forge repository must be on a Windows drive for the governed WSL Node runner.'}
+  $drive=$match.Groups['drive'].Value.ToLowerInvariant()
+  $tail=$match.Groups['tail'].Value.Replace('\','/')
+  "/mnt/$drive/$tail"
+}
+function Invoke-WslNode([string]$ScriptPath,[string[]]$Arguments) {
+  $wsl=(Get-Command wsl.exe -CommandType Application -ErrorAction SilentlyContinue|Select-Object -First 1)
+  if($null -eq $wsl -or [string]::IsNullOrWhiteSpace($wsl.Source)){throw 'Windows WSL executable is unavailable.'}
+  $priorWslEnv=[Environment]::GetEnvironmentVariable('WSLENV','Process')
+  $entries=[Collections.Generic.List[string]]::new()
+  if(-not [string]::IsNullOrWhiteSpace($priorWslEnv)){
+    foreach($entry in $priorWslEnv.Split(':',[StringSplitOptions]::RemoveEmptyEntries)){
+      $name=$entry.Split('/')[0]
+      if($name -notin @('FORGE_NETLIFY_CAPACITY_READ_TOKEN','FORGE_SUPABASE_CAPACITY_READ_TOKEN')){$entries.Add($entry)}
+    }
+  }
+  $entries.Add('FORGE_NETLIFY_CAPACITY_READ_TOKEN')
+  $entries.Add('FORGE_SUPABASE_CAPACITY_READ_TOKEN')
+  [Environment]::SetEnvironmentVariable('WSLENV',($entries -join ':'),'Process')
+  $start=[Diagnostics.ProcessStartInfo]::new()
+  $start.FileName=$wsl.Source
+  $start.UseShellExecute=$false
+  $start.CreateNoWindow=$true
+  $start.RedirectStandardOutput=$true
+  $start.RedirectStandardError=$true
+  foreach($argument in @('--distribution','Ubuntu','--exec','sh','-lc','exec "$HOME/.local/bin/node" "$@"','sh',$ScriptPath)+$Arguments){[void]$start.ArgumentList.Add($argument)}
+  $process=[Diagnostics.Process]::new()
+  $process.StartInfo=$start
+  try{
+    if(-not $process.Start()){throw 'WSL Node process did not start.'}
+    $stdoutTask=$process.StandardOutput.ReadToEndAsync()
+    $stderrTask=$process.StandardError.ReadToEndAsync()
+    $process.WaitForExit()
+    $stdout=$stdoutTask.GetAwaiter().GetResult()
+    $stderr=$stderrTask.GetAwaiter().GetResult()
+    if($process.ExitCode -ne 0){
+      $match=[regex]::Match($stderr,'(?m)(?:forge_capacity_error=)?(managed_capacity_read_credentials_required|authenticated_api_fetch_failed|runtime_path_unavailable|runtime_path_permission_denied|private_evidence_output_already_exists|(?:netlify|supabase|capacity|hammer)_[a-z0-9_]+(?::[0-9]{3})?)')
+      $diagnostic=if($match.Success){$match.Groups[1].Value}
+        elseif($stderr -match '(?i)\.local/bin/node.*(?:not found|no such file)'){'node_runtime_unavailable'}
+        elseif($stderr -match '(?i)(?:syntax error|unexpected token)'){'wsl_shell_invocation_invalid'}
+        elseif($stderr -match '(?i)(?:wsl.*error|wsl_e_)'){'wsl_invocation_failed'}
+        else{'unclassified'}
+      throw "Capacity evidence WSL Node failed (exit $($process.ExitCode); diagnostic $diagnostic); response output withheld."
+    }
+    $stdout
+  }finally{
+    $process.Dispose()
+    [Environment]::SetEnvironmentVariable('WSLENV',$priorWslEnv,'Process')
+  }
+}
 function New-CapacityEvidence {
   $database=New-DatabaseObservation
   $databaseBase64=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($database|ConvertTo-Json -Compress))).TrimEnd('=').Replace('+','-').Replace('/','_')
-  $receipt=& node (Join-Path $PSScriptRoot 'new-hammer-capacity-evidence.mjs') --netlify-team-slug jschramer --supabase-org-slug nclurylekhseghlhrvxg --database-observation-base64 $databaseBase64 --output-name $OutputName
-  if($LASTEXITCODE -ne 0){throw 'Capacity evidence collection failed.'}
+  $scriptPath=(ConvertTo-WslPath (Join-Path $PSScriptRoot 'new-hammer-capacity-evidence.mjs'))
+  $attestationPath=(ConvertTo-WslPath (Join-Path $repo 'config/hammer/supabase-capacity-control-attestation.json'))
+  $receipt=Invoke-WslNode -ScriptPath $scriptPath -Arguments @('--netlify-team-slug','jschramer','--supabase-project-ref','wtvdjndyxegudufrompx','--supabase-control-attestation',$attestationPath,'--database-observation-base64',$databaseBase64,'--output-name',$OutputName)
   $receipt|ConvertFrom-Json
 }
 

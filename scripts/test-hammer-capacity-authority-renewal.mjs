@@ -18,15 +18,19 @@ test("capacity credentials remain managed, process-scoped, and absent from recei
   assert.doesNotMatch(credentials, /ConvertFrom-SecureString/);
 });
 
-test("authenticated collection pins the exact Netlify and Supabase read endpoints", () => {
+test("authenticated collection pins Netlify billing and the supported Supabase metrics endpoint", () => {
   assert.match(generator, /api\.netlify\.com\/api\/v1\/accounts/);
   assert.match(generator, /billing\/credits/);
-  assert.match(generator, /api\.supabase\.com\/platform\/organizations/);
-  assert.match(generator, /billing\/subscription/);
-  assert.match(generator, /usage\/daily/);
+  assert.match(generator, /api\.supabase\.com\/v1\/projects/);
+  assert.match(generator, /analytics\/endpoints\/metrics/);
+  assert.match(generator, /supabase-control-attestation/);
+  assert.doesNotMatch(generator, /platform\/organizations|billing\/subscription|usage\/daily/);
   assert.match(generator, /authorization: `Bearer \$\{token\}`/);
   assert.match(generator, /openSync\(outputPath, "wx", 0o600\)/);
   assert.match(generator, /responseBodiesRetained: false/);
+  assert.match(generator, /forge_capacity_error=/);
+  assert.match(generator, /safeFailureDiagnostic/);
+  assert.doesNotMatch(generator, /process\.stderr\.write\([^)]*error\?\.message/);
 });
 
 test("renewal is pinned to migration 427 and invokes only the service-role renewal RPC", () => {
@@ -39,6 +43,19 @@ test("renewal is pinned to migration 427 and invokes only the service-role renew
   assert.match(renewal, /customerCreditUnits=0/);
   assert.match(renewal, /providerAttemptCreated=\$false/);
   assert.doesNotMatch(renewal, /AssemblyAI|stripe|customer_spending_quotes\s+set/i);
+});
+
+test("Windows governance invokes WSL Node without putting capacity credentials on the command line", () => {
+  assert.match(renewal, /Get-Command wsl\.exe/);
+  assert.match(renewal, /Diagnostics\.ProcessStartInfo/);
+  assert.match(renewal, /FORGE_NETLIFY_CAPACITY_READ_TOKEN/);
+  assert.match(renewal, /FORGE_SUPABASE_CAPACITY_READ_TOKEN/);
+  assert.match(renewal, /SetEnvironmentVariable\('WSLENV'/);
+  assert.match(renewal, /exec \"\$HOME\/\.local\/bin\/node\" \"\$@\"/);
+  assert.match(renewal, /diagnostic \$diagnostic/);
+  assert.match(renewal, /response output withheld/);
+  assert.doesNotMatch(renewal, /&\s+node\b/);
+  assert.doesNotMatch(renewal, /Arguments.*FORGE_(?:NETLIFY|SUPABASE)_CAPACITY_READ_TOKEN/);
 });
 
 test("production Hammer consumes the governed database authority instead of an expiring environment snapshot", () => {
