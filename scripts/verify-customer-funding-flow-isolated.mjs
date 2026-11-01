@@ -22,7 +22,7 @@ const historicalRunwayQuote = resolve(migrations, "20261011740000_runway_custome
 const alignmentMigrationSha256 = "4ddb04a9eeba6b203f75f01df40a6d0f8dca9a5f6389b987514063d34a97b057";
 const historicalCreditEconomySha256 = "e5dc137d677d935896542d7ba7879355648ef584275a8723cb2aed956350a000";
 const fundingRegressionSha256 = "d318b914ba960530e905c502f30ef886a59ea20f5ac913f6445f5aadfd7f4028";
-const creditContractFixtureSha256 = "432aa106850660249064534a4c64d881a0b73cf9831370e0779695db6d6e6307";
+const creditContractFixtureSha256 = "daf5fc38461ac334e16b6aae43ddff45cbe9d45cc5863387b0e58b6b0d109bc6";
 const fundingSelectorSha256 = "4334055af650823d1aa2a5df928f4bc80b208f29f77e1dfe0e96e42f8e77b052";
 const reconciliationSha256 = "9c07e382772c3e2b9ee63b14a677496b1ee07d08022c02a9672a42cc0c16e0ea";
 const runwayQuoteSha256 = "478fc574c90b829ea47bab7da0bd34c5901c8690bfe689d313bca81b688e7354";
@@ -197,8 +197,8 @@ select json_build_object(
   const expected = {
     lineage: "baseline-v1",
     lineage_count: 1,
-    migration_count: 15,
-    latest_migration: "20261031123320",
+    migration_count: 16,
+    latest_migration: "20261101084703",
     historical_alignment_count: 0,
     contract_version: "forge.customer-funding.v4",
     function_sha256: customerFundingV4FunctionSha256,

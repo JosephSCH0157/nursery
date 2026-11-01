@@ -232,6 +232,22 @@ const recipients = JSON.stringify(messages.messages ?? []).toLowerCase();
 assert.ok(recipients.includes(concurrentEmail));
 assert.ok(recipients.includes(ambiguousEmail));
 assert.equal(recipients.includes(existingEmail), false, "confirmed collision unexpectedly dispatched an invitation");
+const concurrentMessage = (messages.messages ?? []).find((message) =>
+  JSON.stringify(message.To ?? []).toLowerCase().includes(concurrentEmail));
+assert.ok(concurrentMessage?.ID);
+const messageResponse = await fetch(new URL(`/api/v1/message/${concurrentMessage.ID}`, mailpitUrl));
+assert.equal(messageResponse.ok, true);
+const message = await messageResponse.json();
+const inviteHref = message.HTML?.match(/href="([^"]+)"/)?.[1]?.replaceAll("&amp;", "&");
+assert.ok(inviteHref?.includes("type=invite"));
+assert.equal(
+  new URL(inviteHref).searchParams.get("redirect_to"),
+  "http://127.0.0.1:3000/auth/callback?type=invite",
+);
+const verification = await fetch(inviteHref, { redirect: "manual" });
+assert.ok([302, 303].includes(verification.status));
+const callbackLocation = verification.headers.get("location");
+assert.ok(callbackLocation?.startsWith("http://127.0.0.1:3000/auth/callback?type=invite"));
 
 const authContainer = execFileSync(
   "docker",
@@ -249,6 +265,7 @@ console.log(JSON.stringify({
   ambiguousRetry: "existing_unconfirmed",
   ambiguousIdentityCount: 1,
   confirmedCollisionAcknowledged: true,
+  inviteCallbackIntentPreserved: true,
   mailpitMessages: messages.total ?? messages.messages_count ?? null,
   hostedRequests: 0,
   externalInvitations: 0,

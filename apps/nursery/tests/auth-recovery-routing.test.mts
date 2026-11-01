@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  isInvitationAuthCallback,
   isRecoveryAuthCallback,
   readAuthCallbackType,
 } from "../src/lib/auth-callback-intent";
@@ -26,6 +27,7 @@ test("legacy query and implicit-hash recovery links remain supported", () => {
 test("ordinary magic-link callbacks are not promoted to password recovery", () => {
   assert.equal(isRecoveryAuthCallback(location("/auth/callback", "?code=magic-code")), false);
   assert.equal(readAuthCallbackType(location("/auth/callback", "?type=invite")), "invite");
+  assert.equal(isInvitationAuthCallback(location("/auth/callback", "?type=invite&code=invite-code")), true);
 });
 
 test("password-reset issuers use the current session-establishing recovery form and retain legacy callbacks", () => {

@@ -248,7 +248,7 @@ async function dispatchInvitation(
   let inviteErrorCode: string | null = null;
   try {
     const result = await dependencies.auth.inviteUserByEmail(claim.email, {
-      redirectTo: `${publicOrigin}/auth/callback`,
+      redirectTo: `${publicOrigin}/auth/callback?type=invite`,
     });
     if (result.error || !result.data.user?.id) {
       inviteErrorCode = result.error?.code?.trim() || "auth_invitation_result_ambiguous";

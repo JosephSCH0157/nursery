@@ -22,9 +22,9 @@ begin
   select count(*), max(version)
     into v_migration_count, v_migration_head
   from supabase_migrations.schema_migrations;
-  if v_migration_count is distinct from 15
-     or v_migration_head is distinct from '20261031123320' then
-    raise exception 'customer-funding fixture requires the certified 15-migration head 20261031123320';
+  if v_migration_count is distinct from 16
+     or v_migration_head is distinct from '20261101084703' then
+    raise exception 'customer-funding fixture requires the certified 16-migration head 20261101084703';
   end if;
 
   if exists(select 1 from tongs.forge_credit_contract_revisions)

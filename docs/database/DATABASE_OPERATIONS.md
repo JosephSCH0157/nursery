@@ -791,6 +791,64 @@ manually reverse DDL, enable intake, or mutate admissions. Preserve sanitized
 evidence and obtain owner direction for a reviewed forward correction or a
 separately authorized whole-database recovery.
 
+### Forge beta invitation and provisioning successor 429
+
+Migration `20261101084703` is the local-only Slice 2A successor to hosted
+migration 428. It adds one forced-RLS, append-only invitation-event journal,
+service-only dispatch/binding RPCs, operator listing, exact-UUID collision
+acknowledgement, and admission-aware profile/workspace provisioning. The
+journal is audit evidence only: `account_admission_events` remains the canonical
+admission authority and `account_admissions` remains its projection. The
+migration does not add admission checks to existing RLS, Storage, Realtime, or
+financial paths.
+
+The application endpoint is fail-closed unless
+`FORGE_BETA_INVITATIONS_ENABLED=true`. Local and production defaults therefore
+send no invitations. `FORGE_BETA_INTAKE_ENABLED` remains an independent intake
+flag and stays disabled. Public signup is retired only in the application UI;
+this successor does not change hosted Auth signup or provider configuration.
+
+Generate `tongs` TypeScript types only from a running, owned disposable B1
+workdir that already contains migration 429:
+
+```powershell
+./scripts/invoke-forge-database.ps1 -Lineage baseline -Action Types `
+  -Workdir $disposableWorkdir `
+  -Schema tongs `
+  -OutputPath ./packages/tongs/src/db.types.ts
+```
+
+The exact local Supabase Auth certification uses CLI `2.84.2`, its pinned
+GoTrue image, a disposable B1 stack with Mailpit enabled only in that workdir,
+and the owned database container:
+
+```powershell
+$env:S2A_LOCAL_SUPABASE_URL = $status.API_URL
+$env:S2A_LOCAL_ANON_KEY = $status.ANON_KEY
+$env:S2A_LOCAL_SERVICE_ROLE_KEY = $status.SERVICE_ROLE_KEY
+$env:S2A_LOCAL_MAILPIT_URL = $status.MAILPIT_URL
+$env:SUPABASE_DB_CONTAINER = $ownedContainer
+pnpm certify:db:beta-invitation-auth-local
+```
+
+The harness proves one Auth UUID under concurrent dispatch, ambiguous-response
+reconciliation without duplicate identity creation, explicit confirmed-UUID
+acknowledgement, local invitation email/callback intent, atomic grant/binding/
+provisioning, and zero hosted requests. Destroy the owned stack afterward; do
+not delete immutable journal rows as cleanup.
+
+Run both canonical lanes and the historical successor only after the catalog
+contract has been pinned:
+
+```powershell
+pnpm certify:db:canonical-baseline
+pnpm certify:db:beta-invitation-provisioning:historical
+```
+
+No hosted migration-429 procedure or Apply authorization exists in Slice 2A.
+Local certification is not authority to push, deploy, change Auth settings, or
+send production invitations.
+
 ### Automated Hammer capacity evidence and authority renewal
 
 Migration 427 remains the only authority-renewal mechanism. The operator helper

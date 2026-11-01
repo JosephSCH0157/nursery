@@ -5,11 +5,10 @@ import "./Login.css";
 
 type OnboardingState = {
   admitted: boolean;
-  admission_origin: string | null;
-  application_id: string | null;
+  origin_kind: string | null;
   effective_state: string | null;
-  profile_exists: boolean;
-  workspace_id: string | null;
+  profile_ready: boolean;
+  workspace_ready: boolean;
 };
 
 export default function InvitationWelcome() {
@@ -59,7 +58,7 @@ export default function InvitationWelcome() {
           </p>
           {state ? (
             <p className="forge-login-card__meta">
-              Admission: {state.effective_state ?? "unavailable"} · Workspace: {state.workspace_id ? "ready" : "pending"}
+              Admission: {state.effective_state ?? "unavailable"} · Workspace: {state.workspace_ready ? "ready" : "pending"}
             </p>
           ) : null}
           {!complete ? (
