@@ -8,6 +8,12 @@ import {
   PRIVATE_EVIDENCE_DIRECTORY,
   writePrivateRecoveryReadinessEvidence,
 } from "./lib/hosted-recovery-readiness-evidence.mjs";
+import {
+  buildManagementApiBackupObservation,
+  buildManagementApiRecoveryEvidence,
+  validateHostedRecoveryEvidence,
+} from "./lib/hosted-recovery-readiness-policy.mjs";
+import { collectManagementApiBackupObservation } from "./collect-hosted-recovery-readiness-evidence.mjs";
 
 const now = new Date("2026-10-28T12:00:00.000Z");
 const goodInput = () => ({
@@ -83,4 +89,89 @@ test("the helper has no credential, network, child-process, or database executio
 test("the documented pnpm argument separator is accepted", () => {
   const source = readFileSync(new URL("./new-hosted-recovery-readiness-evidence.mjs", import.meta.url), "utf8");
   assert.match(source, /if \(token === "--"\) continue/);
+});
+
+const apiNow = new Date("2026-11-01T18:54:51.202Z");
+const apiResponse = JSON.stringify({
+  region: "us-east-1",
+  walg_enabled: true,
+  pitr_enabled: false,
+  backups: [{ id: 2133034324, is_physical_backup: true, status: "COMPLETED", inserted_at: "2026-11-01T06:28:20.071Z" }],
+});
+const apiObservation = () => buildManagementApiBackupObservation({
+  projectRef: "wtvdjndyxegudufrompx",
+  responseText: apiResponse,
+  responseDate: "2026-11-01T18:54:50.000Z",
+  observedAt: apiNow.toISOString(),
+}, apiNow);
+const apiEvidence = () => buildManagementApiRecoveryEvidence({
+  projectRef: "wtvdjndyxegudufrompx",
+  recoveryOperator: "same authorized owner",
+  restoreAuthorizer: "same authorized owner",
+  ownerApprovalReference: "FORGE-ADMISSION-S2A-429:api-window-a",
+  restoreScopeAcknowledged: true,
+  unrelatedDataImpactAcknowledged: true,
+}, apiObservation(), apiNow);
+
+test("authenticated project-bound API evidence satisfies the shared recovery contract", () => {
+  const result = validateHostedRecoveryEvidence(apiEvidence(), {
+    projectRef: "wtvdjndyxegudufrompx",
+    approvalPrefix: "FORGE-ADMISSION-S2A-429:",
+    targetVersion: "20261101084703",
+    apiObservation: apiObservation(),
+    now: apiNow,
+  });
+  assert.equal(result.verificationSource, "supabase_management_api");
+  assert.match(result.recoveryUseKey, /^[0-9a-f]{64}$/);
+});
+
+test("caller-authored API claims fail without a fresh independent observation", () => {
+  assert.throws(() => validateHostedRecoveryEvidence(apiEvidence(), {
+    projectRef: "wtvdjndyxegudufrompx",
+    approvalPrefix: "FORGE-ADMISSION-S2A-429:",
+    targetVersion: "20261101084703",
+    now: apiNow,
+  }), /observation_required/);
+});
+
+test("API recovery evidence rejects wrong projects, stale backups, and missing authorities", () => {
+  const wrong = apiObservation();
+  wrong.project_ref = "wrong-project";
+  assert.throws(() => validateHostedRecoveryEvidence(apiEvidence(), {
+    projectRef: "wtvdjndyxegudufrompx", approvalPrefix: "FORGE-ADMISSION-S2A-429:", targetVersion: "20261101084703", apiObservation: wrong, now: apiNow,
+  }), /management_api_project/);
+  const staleResponse = JSON.stringify({
+    pitr_enabled: false,
+    backups: [{ id: 1, is_physical_backup: true, status: "COMPLETED", inserted_at: "2026-10-29T06:00:00.000Z" }],
+  });
+  assert.throws(() => buildManagementApiBackupObservation({
+    projectRef: "wtvdjndyxegudufrompx", responseText: staleResponse, responseDate: apiNow.toISOString(), observedAt: apiNow.toISOString(),
+  }, apiNow), /backup_stale/);
+  const missing = apiEvidence();
+  missing.recovery_operator = "";
+  assert.throws(() => validateHostedRecoveryEvidence(missing, {
+    projectRef: "wtvdjndyxegudufrompx", approvalPrefix: "FORGE-ADMISSION-S2A-429:", targetVersion: "20261101084703", apiObservation: apiObservation(), now: apiNow,
+  }), /recovery_operator_missing/);
+  const missingRestoreAuthority = apiEvidence();
+  missingRestoreAuthority.restore_authorizer = "";
+  assert.throws(() => validateHostedRecoveryEvidence(missingRestoreAuthority, {
+    projectRef: "wtvdjndyxegudufrompx", approvalPrefix: "FORGE-ADMISSION-S2A-429:", targetVersion: "20261101084703", apiObservation: apiObservation(), now: apiNow,
+  }), /restore_authorizer_missing/);
+});
+
+test("collector authenticates a read-only project-bound GET and returns no token", async () => {
+  let request;
+  const observation = await collectManagementApiBackupObservation({
+    projectRef: "wtvdjndyxegudufrompx",
+    accessToken: "fixture-secret",
+    now: apiNow,
+    fetchImplementation: async (url, init) => {
+      request = { url, init };
+      return new Response(apiResponse, { status: 200, headers: { date: "Sat, 01 Nov 2026 18:54:50 GMT" } });
+    },
+  });
+  assert.equal(request.url, "https://api.supabase.com/v1/projects/wtvdjndyxegudufrompx/database/backups");
+  assert.equal(request.init.method, "GET");
+  assert.equal(request.init.headers.Authorization, "Bearer fixture-secret");
+  assert.doesNotMatch(JSON.stringify(observation), /fixture-secret/);
 });

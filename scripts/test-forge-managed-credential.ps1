@@ -60,6 +60,22 @@ $env:SUPABASE_DB_PASSWORD = $null
 Assert-Throws { Invoke-WithForgeManagedDatabaseCredential -Operation { 'unreachable' } } 'not enrolled'
 Assert-True ([string]::IsNullOrWhiteSpace($env:SUPABASE_DB_PASSWORD)) 'Missing credential path left process state behind.'
 
+[Forge.WindowsCredentialNative]::Secret = 'fixture-supabase-read-token'
+$readResult = Invoke-WithForgeManagedSupabaseCapacityReadCredential -Operation {
+  Assert-True ($env:FORGE_SUPABASE_CAPACITY_READ_TOKEN -eq 'fixture-supabase-read-token') 'Supabase read token was not injected.'
+  Assert-True ([string]::IsNullOrWhiteSpace($env:FORGE_NETLIFY_CAPACITY_READ_TOKEN)) 'Supabase-only operation exposed the Netlify token.'
+  return [pscustomobject]@{ok=$true;secretReturned=$false}
+}
+Assert-True ($readResult.ok) 'Supabase-only managed operation failed.'
+Assert-True ([string]::IsNullOrWhiteSpace($env:FORGE_SUPABASE_CAPACITY_READ_TOKEN)) 'Supabase read token was not cleared after success.'
+[Forge.WindowsCredentialNative]::Secret = 'fixture-supabase-read-token'
+Assert-Throws { Invoke-WithForgeManagedSupabaseCapacityReadCredential -Operation { throw 'synthetic-supabase-read-failure' } } 'synthetic-supabase-read-failure'
+Assert-True ([string]::IsNullOrWhiteSpace($env:FORGE_SUPABASE_CAPACITY_READ_TOKEN)) 'Supabase read token was not cleared after failure.'
+$env:FORGE_SUPABASE_CAPACITY_READ_TOKEN = 'preexisting-value'
+Assert-Throws { Invoke-WithForgeManagedSupabaseCapacityReadCredential -Operation { 'unreachable' } } 'Refusing to overwrite'
+Assert-True ($env:FORGE_SUPABASE_CAPACITY_READ_TOKEN -eq 'preexisting-value') 'Preexisting Supabase read token was modified.'
+$env:FORGE_SUPABASE_CAPACITY_READ_TOKEN = $null
+
 $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'lib/forge-managed-credential.ps1') -Raw
 $entrypoint = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'invoke-forge-managed-credential.ps1') -Raw
 Assert-True ($source -notmatch 'Write-Host|Write-Output.*secret|ConvertFrom-SecureString') 'Credential library contains a secret-output or persistence primitive.'

@@ -7,10 +7,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { resolve, sep } from "node:path";
-import {
-  FORGE_PROJECT_REF,
-  validateRecoveryEvidence,
-} from "./hammer-h2c-420-hosted-deployment-policy.mjs";
+import { RECOVERY_EVIDENCE_V1 } from "./hosted-recovery-readiness-policy.mjs";
+
+export const FORGE_PROJECT_REF = "wtvdjndyxegudufrompx";
 
 export const PRIVATE_EVIDENCE_DIRECTORY = ".git/forge-private-evidence";
 
@@ -33,7 +32,7 @@ export function buildRecoveryReadinessEvidence(input, now = new Date()) {
   }
 
   const evidence = {
-    schema: "forge.hosted-recovery-readiness.v1",
+    schema: RECOVERY_EVIDENCE_V1,
     project_ref: FORGE_PROJECT_REF,
     dashboard_verified: true,
     backup_kind: requireString(input.backupKind, "backup_kind"),
@@ -46,7 +45,12 @@ export function buildRecoveryReadinessEvidence(input, now = new Date()) {
     unrelated_data_impact_acknowledged: true,
   };
 
-  validateRecoveryEvidence(evidence, now);
+  const verifiedAt = new Date(evidence.verified_at);
+  const restorableAt = new Date(evidence.latest_restorable_at);
+  if (!Number.isFinite(verifiedAt.getTime()) || !Number.isFinite(restorableAt.getTime())) throw new Error("recovery_timestamp_invalid");
+  const age = now.getTime() - verifiedAt.getTime();
+  if (age < 0 || age > 24 * 60 * 60 * 1000) throw new Error("recovery_evidence_stale");
+  if (restorableAt.getTime() > verifiedAt.getTime()) throw new Error("latest_restorable_at_after_verification");
   return evidence;
 }
 

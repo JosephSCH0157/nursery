@@ -127,6 +127,42 @@ const recovery = () => ({
   restore_scope_acknowledged: true,
   unrelated_data_impact_acknowledged: true,
 });
+const apiObservation = () => ({
+  schema: "forge.supabase-management-backup-observation.v1",
+  project_ref: FORGE_PROJECT_REF,
+  endpoint: `/v1/projects/${FORGE_PROJECT_REF}/database/backups`,
+  http_status: 200,
+  observed_at: "2026-11-01T15:59:00.000Z",
+  response_date: "2026-11-01T15:58:59.000Z",
+  response_sha256: sha("a"),
+  backup_id: "2133034324",
+  backup_status: "COMPLETED",
+  backup_timestamp: "2026-11-01T06:28:20.071Z",
+  recovery_method: "daily_physical_backup",
+  pitr_enabled: false,
+});
+const apiRecovery = () => ({
+  schema: "forge.hosted-recovery-readiness.v2",
+  verification_source: "supabase_management_api",
+  project_ref: FORGE_PROJECT_REF,
+  backup_kind: "daily",
+  verified_at: "2026-11-01T15:15:00.000Z",
+  latest_restorable_at: "2026-11-01T06:28:20.071Z",
+  recovery_operator: "platform owner",
+  restore_authorizer: "platform owner",
+  owner_approval_reference: `${RECOVERY_APPROVAL_PREFIX}api-window-a`,
+  restore_scope_acknowledged: true,
+  unrelated_data_impact_acknowledged: true,
+  management_api: {
+    endpoint: `/v1/projects/${FORGE_PROJECT_REF}/database/backups`,
+    backup_id: "2133034324",
+    backup_status: "COMPLETED",
+    backup_timestamp: "2026-11-01T06:28:20.071Z",
+    recovery_method: "daily_physical_backup",
+    response_sha256: sha("a"),
+    observed_at: "2026-11-01T15:15:00.000Z",
+  },
+});
 
 test("accepts only the exact 428 to 429 Preflight and Apply contract", () => {
   assert.deepEqual(validateHostedState(state(), { action: "Preflight", operator: "release operator" }), { operator: "release operator" });
@@ -225,6 +261,18 @@ test("recovery evidence use keys are stable per change window and unique across 
   assert.notEqual(validateRecoveryEvidence(next, NOW).recoveryUseKey, first);
 });
 
+test("accepts independently corroborated Management API evidence and rejects forged claims", () => {
+  const validated = validateRecoveryEvidence(apiRecovery(), NOW, apiObservation());
+  assert.equal(validated.verificationSource, "supabase_management_api");
+  assert.throws(() => validateRecoveryEvidence(apiRecovery(), NOW), /observation_required/);
+  const wrongProject = apiObservation();
+  wrongProject.project_ref = "wrong-project";
+  assert.throws(() => validateRecoveryEvidence(apiRecovery(), NOW, wrongProject), /management_api_project/);
+  const forgedStatus = apiObservation();
+  forgedStatus.backup_status = "FAILED";
+  assert.throws(() => validateRecoveryEvidence(apiRecovery(), NOW, forgedStatus), /backup_status/);
+});
+
 test("wrapper is one-tail-only, fail-closed, and has no retry or history-repair path", () => {
   const source = wrapperSource();
   const ordinaryPush = /Invoke-Supabase @\('db','push','--linked','--workdir',\$repo,'--agent=no'\)/g;
@@ -239,6 +287,10 @@ test("wrapper is one-tail-only, fail-closed, and has no retry or history-repair 
   assert.doesNotMatch(source, /Remove-Item[^\n]+migration-429-/);
   assert.match(source, /if\(\$versions\.Count -ne 429/);
   assert.match(source, /if\(\$Action -eq 'Apply' -and \$Authorization -cne \$token\)/);
+  assert.match(source, /Invoke-WithForgeManagedSupabaseCapacityReadCredential/);
+  assert.match(source, /collect-hosted-recovery-readiness-evidence\.mjs/);
+  assert.match(source, /--action Observe/);
+  assert.match(source, /--api-observation/);
 });
 
 test("failed or interrupted Apply consumes its change window and cannot blind-retry", () => {

@@ -164,20 +164,28 @@ Record its lineage result, hosted history range/digest, migration list, and dry-
 
 ### Create private recovery-readiness evidence
 
-Every governed hosted migration requires a fresh JSON document conforming to
-`forge.hosted-recovery-readiness.v1`. The document is operational evidence, not
+Every governed hosted migration requires a fresh private recovery-readiness JSON
+document. Human Dashboard evidence uses `forge.hosted-recovery-readiness.v1`;
+authenticated Supabase Management API evidence uses
+`forge.hosted-recovery-readiness.v2`. The document is operational evidence, not
 deployment authorization. Store it only under `.git/forge-private-evidence`,
 which is outside Git tracking and application serving. Keep that directory
 access-restricted to the Windows operator and never copy the document into a
 tracked path, build artifact, support ticket, or command-line argument.
 
-An authorized owner must first open the exact project in the Supabase Dashboard,
-select **Database > Backups**, and inspect either **Scheduled backups** for a
-daily backup or the PITR recovery window. Confirm the project reference, backup
-kind, availability/status, and latest restorable UTC timestamp. Record the UTC
-time at which the owner performed that inspection separately as `verified_at`.
-Do not click **Restore**. Entering a backup timestamp is not evidence that this
-Dashboard inspection occurred. Evidence expires 24 hours after `verified_at`.
+Technical recovery verification may come from either of two governed sources:
+
+1. An authorized owner genuinely inspects **Database > Backups** for the exact
+   project and attests the recovery method, status, and restorable timestamp.
+2. The checked-in collector authenticates to the project-bound Supabase
+   Management API, requires HTTP 200 and a completed supported backup, and
+   records response provenance. The deployment wrapper independently repeats
+   that authenticated GET before Preflight or Apply. Caller-authored JSON alone
+   never satisfies this path.
+
+Do not click **Restore**. Evidence expires 24 hours after `verified_at`; an
+independent API observation must be no more than five minutes old, and a daily
+physical backup must be no more than 48 hours old when observed.
 The current platform behavior and recovery limitations are documented in the
 [Supabase Database Backups guide](https://supabase.com/docs/guides/platform/backups).
 
@@ -185,21 +193,21 @@ The evidence fields are:
 
 | Field | Required meaning |
 | --- | --- |
-| `schema` | Exact value `forge.hosted-recovery-readiness.v1`. |
-| `project_ref` | Exact hosted project reviewed in the Dashboard. |
-| `dashboard_verified` | `true` only after the authorized owner completes the Dashboard inspection. |
+| `schema` | `forge.hosted-recovery-readiness.v1` for Dashboard evidence or `forge.hosted-recovery-readiness.v2` for API evidence. |
+| `project_ref` | Exact hosted project verified by the selected source. |
+| verification source | v1 requires genuine `dashboard_verified: true`; v2 requires `verification_source: supabase_management_api` and API provenance. |
 | `backup_kind` | `daily` or `pitr`, matching the reviewed recovery source. |
-| `verified_at` | Current UTC time of the owner's Dashboard inspection, less than 24 hours old. |
-| `latest_restorable_at` | Latest restorable UTC timestamp shown by the Dashboard; it is not the verification time. |
+| `verified_at` | UTC time of the genuine Dashboard or authenticated API inspection, less than 24 hours old. |
+| `latest_restorable_at` | Verified backup/recovery timestamp; it is not the verification time. |
 | `recovery_operator` | Named person responsible for executing and monitoring recovery if directed. |
 | `restore_authorizer` | Named person authorized to approve a whole-database restore; naming them does not pre-authorize restoration. |
 | `owner_approval_reference` | Traceable owner-approved change-window identifier or record. |
 | `restore_scope_acknowledged` | Explicit acknowledgment that an in-place restore affects the whole hosted database. |
 | `unrelated_data_impact_acknowledged` | Explicit acknowledgment that restoration can affect unrelated hosted data. |
 
-After collecting those facts, generate the file with the credential-free local
-helper. Replace every angle-bracketed value; do not reuse identities or a change
-window from an earlier release:
+For a genuine Dashboard inspection, generate v1 evidence with the credential-free
+helper. Named authorities may be the same authorized owner and may serve again
+on later releases; the change-window reference itself must be new and unconsumed:
 
 ```powershell
 $recoveryEvidencePath = Join-Path (Get-Location) '.git\forge-private-evidence\hammer-h2c-20261028.json'
@@ -227,7 +235,28 @@ backup, or perform a database operation. Its explicit
 `--attest-dashboard-verified` flag records the human attestation; it never
 infers verification from `--latest-restorable-at`.
 
-The resulting structure is exactly:
+For authenticated API evidence, use the managed collector. It reads the token
+from Windows Credential Manager, sends only a read-only GET to the exact project
+backup endpoint, creates the private file with no-overwrite semantics, returns
+no token or response body, and performs no database operation. The package
+command delegates to `invoke-hosted-recovery-readiness-evidence.ps1`:
+
+```powershell
+pnpm prepare:db:recovery-evidence:api -- `
+  -ProjectRef wtvdjndyxegudufrompx `
+  -RecoveryOperator '<named recovery operator>' `
+  -RestoreAuthorizer '<named restore authorizer>' `
+  -OwnerApprovalReference 'FORGE-ADMISSION-S2A-429:<unique change window>' `
+  -OutputName 'forge-admission-s2a-429.json' `
+  -AcknowledgeRestoreScope `
+  -AcknowledgeUnrelatedDataImpact
+```
+
+The v2 provenance records the endpoint, backup ID, `COMPLETED` status, backup
+timestamp, recovery method, response SHA-256, and observation time. The governed
+wrapper must still independently re-query the API using the managed read token.
+
+The v1 Dashboard-attestation structure is exactly:
 
 ```json
 {
@@ -248,18 +277,22 @@ The resulting structure is exactly:
 Daily database backups do not restore deleted Storage objects and do not retain
 custom-role passwords. Account for those limitations in the recovery plan. A
 PITR add-on and a daily backup are different recovery sources; record only what
-the Dashboard actually shows.
+the selected authenticated source actually verifies. Current API automation is
+fail-closed to completed daily physical backups; use genuine Dashboard evidence
+for PITR unless a separately reviewed API contract adds that recovery method.
 
 The release operations have these boundaries:
 
 | Operation | Effect |
 | --- | --- |
-| Evidence helper and contract tests | Local private-file or temporary-file writes only; no credential or database access. |
+| Dashboard evidence helper and contract tests | Local private-file or temporary-file writes only; no credential or database access. |
+| Management API evidence collector | Authenticated read-only project backup GET plus a private no-overwrite evidence file; no database write. |
 | `Preflight` | Connected read-only lineage/history/contract queries plus `db push --dry-run`; applies no migration. |
 | `Apply` | Connected schema write through the bounded normal `db push`; requires separate owner authorization and the exact migration token. |
 | `PostVerify` | Connected read-only verification of the already-applied state; makes no new schema or data write. |
 
-If evidence is absent, stale, contradictory, or names no authorities/change
+If evidence is absent, stale, contradictory, lacks independent API corroboration
+when v2 is used, or names no authorities/change
 window, stop before credential retrieval. If Preflight reports any lineage,
 history, hash, or pending-version mismatch, do not Apply. If Apply or immediate
 verification fails, do not retry, repair migration history, reverse DDL by hand,
@@ -751,6 +784,11 @@ Supabase CLI 2.84.2. It verifies the immutable database artifacts, snapshots
 all pre-existing workspace/financial authority and Auth routines, lists the
 linked migrations, and performs only the exact dry run.
 
+The retained migration-428 wrapper imports the shared recovery validator and
+can independently corroborate v2 API evidence for a future audit or governed
+reconstruction. This tooling compatibility does not alter applied migration
+428, its historical bytes, or hosted migration history.
+
 Apply is a hosted schema write and requires separate owner authorization plus
 the exact migration-specific token:
 
@@ -875,8 +913,9 @@ requires project `wtvdjndyxegudufrompx`, lineage `historical-v1`, exactly 428
 installed rows headed by `20261031123320`, migration `20261101084703` as the
 sole pending version, SHA-256
 `12989ba74c00c2bdc8a9d4c5d38ee4e3be3f1f4d23b9b0f8d2a1b145c7b7dbc7`,
-fresh release-specific recovery evidence, the enrolled managed credential, and
-Supabase CLI 2.84.2. It verifies immutable database artifacts, fingerprints
+fresh release-specific recovery evidence (including a fresh independently
+authenticated Management API observation for v2), the enrolled managed
+credentials, and Supabase CLI 2.84.2. It verifies immutable database artifacts, fingerprints
 pre-existing Auth, workspace, Storage, Realtime, admission, and financial
 authority, lists linked migrations, and performs only the exact dry run.
 

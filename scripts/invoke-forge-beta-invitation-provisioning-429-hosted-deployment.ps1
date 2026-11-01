@@ -21,10 +21,36 @@ $hubSha256='7783984c6bd0347052f00337a4a12eba7880a6fdf65b77523b3fa5d53d3bd800'
 $clientSha256='1322269852dd11db322674b094bfde2849f97f575a479f1d15d87ff56bded59f'
 $welcomeSha256='16159df8765e1d498249eaec7bf75c6def4f63cb8bb7a7257ea09912d7dca99a'
 $statePath=$null
+$apiObservationPath=$null
 . (Join-Path $PSScriptRoot 'lib/forge-managed-credential.ps1')
 . (Join-Path $PSScriptRoot 'lib/forge-supabase-cli.ps1')
 
 function Invoke-Supabase([string[]]$Arguments){Invoke-ForgeSupabaseCli -Arguments $Arguments}
+function New-TrustedRecoveryApiObservation([string]$EvidencePath){
+  $evidence=Get-Content -LiteralPath $EvidencePath -Raw|ConvertFrom-Json
+  if([string]$evidence.schema -eq 'forge.hosted-recovery-readiness.v1'){return $null}
+  if([string]$evidence.schema -cne 'forge.hosted-recovery-readiness.v2' -or
+     [string]::IsNullOrWhiteSpace([string]$evidence.management_api.backup_id)){
+    throw 'Migration 429 recovery evidence schema or Management API backup identity is invalid.'
+  }
+  $collector=Join-Path $PSScriptRoot 'collect-hosted-recovery-readiness-evidence.mjs'
+  $observation=Invoke-WithForgeManagedSupabaseCapacityReadCredential -Operation {
+    $lines=@(& node $collector --action Observe --project-ref $projectRef --expected-backup-id ([string]$evidence.management_api.backup_id))
+    if($LASTEXITCODE -ne 0){throw 'Authenticated Supabase Management API backup verification failed.'}
+    return ($lines -join [Environment]::NewLine)
+  }
+  $parsed=$observation|ConvertFrom-Json
+  if([string]$parsed.project_ref -cne $projectRef -or [string]$parsed.backup_status -cne 'COMPLETED'){
+    throw 'Authenticated Supabase Management API observation is invalid.'
+  }
+  $path=Join-Path ([IO.Path]::GetTempPath()) ('forge-beta-invitation-429-recovery-observation-'+[guid]::NewGuid().ToString('N')+'.json')
+  $stream=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  try{
+    $bytes=[Text.UTF8Encoding]::new($false).GetBytes($observation)
+    $stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)
+  } finally {$stream.Dispose()}
+  return $path
+}
 function Read-LinkedCsv([string]$Sql,[string[]]$Columns,[string]$Context){
   $result=Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,$Sql)
   @(ConvertFrom-ForgeSupabaseCsv -StandardOutput $result.StandardOutput -ExpectedColumns $Columns -Context $Context)
@@ -419,17 +445,20 @@ if(-not $recoveryEvidenceFullPath.StartsWith($privateEvidencePrefix,[StringCompa
   throw 'Migration 429 recovery evidence must be stored under .git/forge-private-evidence.'
 }
 Assert-StaticPrerequisites|Out-Null
-$verify=Join-Path $PSScriptRoot 'verify-forge-beta-invitation-provisioning-429-hosted-deployment-policy.mjs'
-$localArgs=@($verify,'--local-only','--action',$Action,'--recovery',$recoveryEvidenceFullPath,'--operator',$Operator)
-if($Authorization){$localArgs+=@('--authorization',$Authorization)}
-& node @localArgs|Out-Null
-if($LASTEXITCODE -ne 0){throw 'Local migration 429 hosted policy rejected the operation.'}
 try{
+  $apiObservationPath=New-TrustedRecoveryApiObservation -EvidencePath $recoveryEvidenceFullPath
+  $verify=Join-Path $PSScriptRoot 'verify-forge-beta-invitation-provisioning-429-hosted-deployment-policy.mjs'
+  $localArgs=@($verify,'--local-only','--action',$Action,'--recovery',$recoveryEvidenceFullPath,'--operator',$Operator)
+  if($apiObservationPath){$localArgs+=@('--api-observation',$apiObservationPath)}
+  if($Authorization){$localArgs+=@('--authorization',$Authorization)}
+  & node @localArgs|Out-Null
+  if($LASTEXITCODE -ne 0){throw 'Local migration 429 hosted policy rejected the operation.'}
   Invoke-WithForgeManagedDatabaseCredential -Operation {
     $state=Get-HostedState
     $script:statePath=Join-Path ([IO.Path]::GetTempPath()) ('forge-beta-invitation-429-state-'+[guid]::NewGuid().ToString('N')+'.json')
     [IO.File]::WriteAllText($script:statePath,($state|ConvertTo-Json -Depth 6 -Compress),[Text.UTF8Encoding]::new($false))
     $args=@($verify,'--action',$Action,'--state',$script:statePath,'--recovery',$recoveryEvidenceFullPath,'--operator',$Operator)
+    if($apiObservationPath){$args+=@('--api-observation',$apiObservationPath)}
     if($Authorization){$args+=@('--authorization',$Authorization)}
     $audit=@(& node @args);if($LASTEXITCODE -ne 0){throw 'Hosted migration 429 deployment policy rejected the operation.'}
     $auditReceipt=($audit -join [Environment]::NewLine)|ConvertFrom-Json
@@ -444,4 +473,5 @@ try{
   }
 } finally {
   if($statePath -and(Test-Path -LiteralPath $statePath)){Remove-Item -LiteralPath $statePath -Force}
+  if($apiObservationPath -and(Test-Path -LiteralPath $apiObservationPath)){Remove-Item -LiteralPath $apiObservationPath -Force}
 }

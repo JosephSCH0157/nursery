@@ -198,3 +198,22 @@ function Invoke-WithForgeManagedCapacityReadCredentials {
     $supabase = $null
   }
 }
+
+function Invoke-WithForgeManagedSupabaseCapacityReadCredential {
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][scriptblock]$Operation)
+  $name = 'FORGE_SUPABASE_CAPACITY_READ_TOKEN'
+  if (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name, 'Process'))) {
+    throw "Refusing to overwrite an existing process-scoped $name."
+  }
+  Initialize-ForgeCredentialNativeType
+  $supabase = $null
+  try {
+    $supabase = [Forge.WindowsCredentialNative]::Read($script:ForgeSupabaseCapacityReadCredentialTarget)
+    [Environment]::SetEnvironmentVariable($name, $supabase, 'Process')
+    return & $Operation
+  } finally {
+    [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    $supabase = $null
+  }
+}

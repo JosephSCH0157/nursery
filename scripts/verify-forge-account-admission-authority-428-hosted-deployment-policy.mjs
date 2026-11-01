@@ -33,7 +33,9 @@ if (action === "PostVerify") {
 }
 
 const evidence = JSON.parse(readFileSync(values.get("--recovery"), "utf8"));
-const recovery = validateRecoveryEvidence(evidence);
+const apiObservationPath = values.get("--api-observation");
+const apiObservation = apiObservationPath ? JSON.parse(readFileSync(apiObservationPath, "utf8")) : undefined;
+const recovery = validateRecoveryEvidence(evidence, new Date(), apiObservation);
 validateOperatorAuthorization({ action, operator, authorization });
 if (!values.get("--local-only")) {
   const state = JSON.parse(readFileSync(values.get("--state"), "utf8"));
@@ -45,6 +47,7 @@ process.stdout.write(`${JSON.stringify({
   schema: "forge.account-admission-authority-428-hosted-policy.v1",
   recoveryEvidenceSha256: recovery.evidenceSha256,
   recoveryUseKey: recovery.recoveryUseKey,
+  recoveryVerificationSource: recovery.verificationSource,
   customerDataReturned: false,
   credentialsReturned: false,
 })}\n`);

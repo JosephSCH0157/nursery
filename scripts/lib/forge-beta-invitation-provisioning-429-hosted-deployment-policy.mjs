@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { validateHostedRecoveryEvidence } from "./hosted-recovery-readiness-policy.mjs";
 
 export const FORGE_PROJECT_REF = "wtvdjndyxegudufrompx";
 export const EXPECTED_LINEAGE = "historical-v1";
@@ -71,31 +71,14 @@ export function validateAuthoritySnapshot(state) {
   return true;
 }
 
-export function validateRecoveryEvidence(evidence, now = new Date()) {
-  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) throw new Error("recovery_evidence_missing");
-  exact(evidence.schema, "forge.hosted-recovery-readiness.v1", "recovery_schema");
-  exact(evidence.project_ref, FORGE_PROJECT_REF, "recovery_project");
-  exact(evidence.dashboard_verified, true, "recovery_dashboard_verification");
-  exact(evidence.restore_scope_acknowledged, true, "restore_scope_acknowledgement");
-  exact(evidence.unrelated_data_impact_acknowledged, true, "unrelated_data_impact_acknowledgement");
-  if (!new Set(["daily", "pitr"]).has(evidence.backup_kind)) throw new Error("backup_kind_invalid");
-  const verifiedAt = new Date(required(evidence.verified_at, "recovery_verified_at"));
-  const restorableAt = new Date(required(evidence.latest_restorable_at, "latest_restorable_at"));
-  if (!Number.isFinite(verifiedAt.getTime()) || !Number.isFinite(restorableAt.getTime())) throw new Error("recovery_timestamp_invalid");
-  const age = now.getTime() - verifiedAt.getTime();
-  if (age < 0 || age > 24 * 60 * 60 * 1000) throw new Error("recovery_evidence_stale");
-  if (restorableAt.getTime() > verifiedAt.getTime()) throw new Error("latest_restorable_at_after_verification");
-  if (restorableAt.getTime() > now.getTime()) throw new Error("latest_restorable_at_invalid");
-  required(evidence.recovery_operator, "recovery_operator");
-  required(evidence.restore_authorizer, "restore_authorizer");
-  const approvalReference = required(evidence.owner_approval_reference, "owner_approval_reference");
-  if (!approvalReference.startsWith(RECOVERY_APPROVAL_PREFIX) || !approvalReference.slice(RECOVERY_APPROVAL_PREFIX.length).trim()) {
-    throw new Error("recovery_release_reference_mismatch");
-  }
-  return {
-    evidenceSha256: createHash("sha256").update(JSON.stringify(evidence)).digest("hex"),
-    recoveryUseKey: createHash("sha256").update(`${TARGET_VERSION}\n${approvalReference}`).digest("hex"),
-  };
+export function validateRecoveryEvidence(evidence, now = new Date(), apiObservation) {
+  return validateHostedRecoveryEvidence(evidence, {
+    projectRef: FORGE_PROJECT_REF,
+    approvalPrefix: RECOVERY_APPROVAL_PREFIX,
+    targetVersion: TARGET_VERSION,
+    apiObservation,
+    now,
+  });
 }
 
 export function validateOperatorAuthorization(options = {}) {

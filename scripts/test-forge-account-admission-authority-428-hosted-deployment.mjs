@@ -246,6 +246,9 @@ test("wrapper is one-tail-only, fail-closed, and has no retry or history repair 
   assert.match(source, /installedCount=428;hostedHead=\$targetVersion/);
   assert.match(source, /if\(\$versions\.Count -ne 428/);
   assert.match(source, /if\(\$Action -eq 'Apply' -and \$Authorization -cne \$token\)/);
+  assert.match(source, /Invoke-WithForgeManagedSupabaseCapacityReadCredential/);
+  assert.match(source, /collect-hosted-recovery-readiness-evidence\.mjs/);
+  assert.match(source, /--api-observation/);
 });
 
 test("wrapper independently verifies admission structure, inactivity, and unaffected authority", () => {

@@ -94,6 +94,7 @@
     "test:db:beta-invitation-provisioning:historical-tooling": "node --test scripts/test-beta-invitation-provisioning-historical-successor.mjs",
     "certify:db:beta-invitation-auth-local": "pnpm --dir apps/nursery exec tsx ../../scripts/certify-beta-invitation-auth-local.mjs",
     "prepare:db:recovery-evidence": "node scripts/new-hosted-recovery-readiness-evidence.mjs",
+    "prepare:db:recovery-evidence:api": "pwsh -NoProfile -File scripts/invoke-hosted-recovery-readiness-evidence.ps1 -Action CreateManagementApi",
     "backfill:beta-admission": "node scripts/backfill-beta-admission-applications.mjs",
     "test:beta-admission-backfill": "node --test scripts/test-beta-admission-backfill.mjs",
     "test:db:recovery-evidence": "node --test scripts/test-hosted-recovery-readiness-evidence.mjs",

@@ -272,6 +272,8 @@ foreach ($command in @(
   'pnpm test:db:beta-invitation-provisioning:hosted-deployment',
   'pnpm preflight:db:beta-invitation-provisioning:hosted',
   'prepare:db:recovery-evidence',
+  'prepare:db:recovery-evidence:api',
+  'invoke-hosted-recovery-readiness-evidence.ps1',
   'invoke-hammer-h2c-420-hosted-deployment.ps1',
   'invoke-hammer-first-transcription-421-hosted-deployment.ps1',
   'invoke-hammer-scoped-live-funding-422-hosted-deployment.ps1',
@@ -283,6 +285,16 @@ foreach ($command in @(
   'pnpm supabase:types'
 )) {
   if ($operationsText -notmatch [regex]::Escape($command)) { $failures.Add("DATABASE_OPERATIONS.md omits supported command: $command") }
+}
+foreach ($recoveryContract in @(
+  'forge.hosted-recovery-readiness.v2',
+  'supabase_management_api',
+  'Caller-authored JSON',
+  'independently re-query',
+  'same authorized owner',
+  'change-window reference itself must be new and unconsumed'
+)) {
+  if ($operationsText -notmatch [regex]::Escape($recoveryContract)) { $failures.Add("DATABASE_OPERATIONS.md omits shared recovery governance: $recoveryContract") }
 }
 foreach ($evidence in @(
   '87524f872e76f24de631d1cbf58580674c9df2a9',
