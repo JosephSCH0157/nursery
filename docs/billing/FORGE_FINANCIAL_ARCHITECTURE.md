@@ -5,6 +5,10 @@
 Authority level: **Canonical System Manifest**.  
 If code behavior contradicts this document, the code is wrong.
 
+Document status: **Canonical financial architecture**. Verified production
+pricing and activation state are recorded separately in
+[`BILLING_CURRENT.md`](BILLING_CURRENT.md).
+
 ### Maintenance & Authority Rule
 The single source of truth for Forge's financial architecture lives in this document. Agent instructions and repository policies (`AGENTS.md`, `.github/copilot-instructions.md`, etc.) must summarize the core invariant and reference this manifest directly rather than duplicating exhaustive rules, preventing documentation drift.
 

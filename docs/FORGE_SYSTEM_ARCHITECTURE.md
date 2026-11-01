@@ -1,5 +1,10 @@
 # Forge System Architecture (Canonical View)
 
+Status: **Canonical system-orientation architecture; needs reconciliation where
+it makes current implementation or media-custody claims**. Use
+[`../DOC_AUTHORITY.md`](../DOC_AUTHORITY.md) for domain routing. This document
+does not prove current production state.
+
 ## 1) The Big Picture
 
 Forge is a pipeline of specialized tools sharing one canonical backbone.

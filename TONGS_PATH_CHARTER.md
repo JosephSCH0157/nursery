@@ -1,5 +1,8 @@
 # Tongs Path Charter v1
 
+Status: **Canonical storage-path contract**. Current hosted objects and
+configuration require separate dated verification.
+
 Last updated: 2026-03-18
 
 This document defines the canonical file layout for Forge workpieces and workspaces.
