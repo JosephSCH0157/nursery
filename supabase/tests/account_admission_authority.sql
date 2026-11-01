@@ -154,7 +154,10 @@ do $$ begin
         'list_beta_invitation_applications','claim_beta_invitation_dispatch',
         'record_beta_invitation_dispatch','bind_beta_access_application_as_operator',
         'bind_existing_beta_access_application_as_operator',
-        'record_beta_invitation_binding_failure','read_my_admission_onboarding','handle_new_user'
+        'record_beta_invitation_binding_failure','read_my_admission_onboarding','handle_new_user',
+        'account_admission_enforcement_version','require_account_admission',
+        'current_request_is_admitted','account_admission_pre_request',
+        '_guard_new_customer_financial_authorization'
       )
       and pg_get_functiondef(p.oid) ~ '(beta_access_|account_admission)'
   ) then raise exception 'existing runtime function acquired admission enforcement dependency'; end if;

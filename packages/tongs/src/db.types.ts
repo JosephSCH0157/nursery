@@ -35459,6 +35459,8 @@ export type Database = {
         }[]
       }
       account_admission_authority_version: { Args: never; Returns: string }
+      account_admission_enforcement_version: { Args: never; Returns: string }
+      account_admission_pre_request: { Args: never; Returns: undefined }
       acknowledge_hammer_editorial_authority: {
         Args: {
           p_canonical_recording_id: string
@@ -39095,6 +39097,7 @@ export type Database = {
           name: string
         }[]
       }
+      current_request_is_admitted: { Args: never; Returns: boolean }
       decide_beta_access_application: {
         Args: {
           p_application_id: string
@@ -42899,6 +42902,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      require_account_admission: {
+        Args: { p_user_id: string }
+        Returns: undefined
       }
       reserve_ai_credits: {
         Args: {

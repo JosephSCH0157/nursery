@@ -17,9 +17,9 @@ begin
   select count(*), max(version) into v_migration_count, v_migration_head
   from supabase_migrations.schema_migrations;
   if v_lineage_count is distinct from 1 or v_lineage is distinct from 'baseline-v1'
-     or v_migration_count is distinct from 16
-     or v_migration_head is distinct from '20261101084703' then
-    raise exception 'current-authority race fixture requires certified baseline-v1 head 20261101084703';
+     or v_migration_count is distinct from 17
+     or v_migration_head is distinct from '20261101201817' then
+    raise exception 'current-authority race fixture requires certified baseline-v1 head 20261101201817';
   end if;
 
   if exists(select 1 from tongs.openai_text_provider_rate_revisions)

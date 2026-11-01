@@ -1,0 +1,65 @@
+{
+  "schema": "forge.inactive-admission-enforcement-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Beta invitation provisioning",
+    "contractPath": "docs/database/baseline/v1-beta-invitation-provisioning/successor-contract.v1.json",
+    "contractSha256": "88353a9b0afe6a0f3013c8fcc8f3b3691236c5be69d345c94c39800cc072859b",
+    "historicalRows": 429
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "predecessorSuccessorContractSha256": "88353a9b0afe6a0f3013c8fcc8f3b3691236c5be69d345c94c39800cc072859b"
+  },
+  "sharedTailAddition": {
+    "version": "20261101201817",
+    "path": "supabase/migrations/20261101201817_forge_inactive_admission_enforcement.sql",
+    "sha256": "ed35a3138ba4b15f63a50b5b8e8624ad45dcb9fdd2a6a9d990d52db42017c1bb"
+  },
+  "historicalSuccessor": {
+    "finalRows": 430,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719",
+      "20261030224605",
+      "20261031123320",
+      "20261101084703",
+      "20261101201817"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-inactive-admission-enforcement/successor-catalog-fingerprint.json",
+    "fileSha256": "40f1e1fdaed3aa3420682c7aba84e4d0f85415c40d663157892ff32cf649748a",
+    "objectCount": 16612,
+    "normalizedContractSha256": "d66e0ab3440f2ac93dfc1a482510b895a8d494331325656b6577f30c1ec85a64"
+  },
+  "inactivityContract": {
+    "admissionEnforcementActivated": false,
+    "postgrestPreRequestRegistered": false,
+    "storagePoliciesInstalled": 0,
+    "serverFlagDefaultEnabled": false,
+    "frontendFlagDefaultEnabled": false,
+    "financialGuardDefaultEnabled": false,
+    "existingRlsPoliciesChanged": 0,
+    "hostedAuthConfigurationChanged": false,
+    "legacyAdmissionOriginMustBePreserved": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

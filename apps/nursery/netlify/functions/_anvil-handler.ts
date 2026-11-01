@@ -2,6 +2,7 @@ import {
   createAnvilWhisperHandler,
   resolveAnvilWhisperRuntimeConfig,
 } from "../../server/anvil/create-anvil-whisper-handler";
+import { withAdmissionEnforcement } from "../../server/auth/admission-enforcement";
 
 const handler = createAnvilWhisperHandler(resolveAnvilWhisperRuntimeConfig());
 
@@ -11,6 +12,10 @@ export function createNetlifyAnvilFunction(pathname: string) {
     url.pathname = pathname;
     url.search = new URL(request.url).search;
     const forwarded = new Request(url.toString(), request);
-    return handler(forwarded);
+    return withAdmissionEnforcement(
+      request,
+      "new_customer_operation",
+      () => handler(forwarded),
+    );
   };
 }

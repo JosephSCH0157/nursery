@@ -27,7 +27,7 @@ const reviewedArtifacts = new Map([
 ]);
 
 // Updated only after review of the fixture itself. A mismatch stops before Docker.
-const fixtureSha256 = "5aa6361d434e863d1702d0582d1ea3350594f82cada1fd573817ccc56d012134";
+const fixtureSha256 = "262f40ac432757877941aba90467829e86e5f1f1fb0c2d6db313130252ae61c6";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -230,7 +230,7 @@ export async function runCurrentAuthorityReservationConcurrency() {
         'migration_head',(select max(version) from supabase_migrations.schema_migrations)
       )::text;
     `));
-    if (lineage.lineage !== "baseline-v1" || lineage.lineage_count !== 1 || lineage.migration_count !== 16 || lineage.migration_head !== "20261101084703") {
+    if (lineage.lineage !== "baseline-v1" || lineage.lineage_count !== 1 || lineage.migration_count !== 17 || lineage.migration_head !== "20261101201817") {
       throw new Error(`Canonical B1 lineage mismatch: ${JSON.stringify(lineage)}`);
     }
 

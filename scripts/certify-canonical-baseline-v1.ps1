@@ -99,7 +99,7 @@ $restrictive_defaults$
   }
 
   $container = "supabase_db_$projectId"
-  $successorParityPath = Join-Path $workdir 'beta-invitation-public-slice-a-catalog-parity.sql'
+  $successorParityPath = Join-Path $workdir 'inactive-admission-enforcement-public-slice-a-catalog-parity.sql'
   & (Join-Path $repo 'scripts/new-beta-invitation-public-slice-a-parity.ps1') -OutputPath $successorParityPath -RepositoryRoot $repo | Out-Null
   foreach ($test in @(
     $successorParityPath,
@@ -110,6 +110,7 @@ $restrictive_defaults$
     'supabase/tests/hammer_brad_first_transcription_authority_bundle_contract.sql'
     'supabase/tests/account_admission_authority.sql'
     'supabase/tests/beta_invitation_provisioning.sql'
+    'supabase/tests/account_admission_enforcement_inactive.sql'
   )) {
     $source = if ([IO.Path]::IsPathFullyQualified($test)) { $test } else { Join-Path $repo $test }
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -131,7 +132,7 @@ $restrictive_defaults$
   if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
 
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
-  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-beta-invitation-provisioning/successor-catalog-fingerprint.json'
+  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-inactive-admission-enforcement/successor-catalog-fingerprint.json'
   Push-Location $workdir
   try {
     if ($MaterializeSuccessorCatalog) {
@@ -147,7 +148,7 @@ $restrictive_defaults$
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.beta-invitation-provisioning-baseline-successor-certification.v1'
+    schema = 'forge.inactive-admission-enforcement-baseline-successor-certification.v1'
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

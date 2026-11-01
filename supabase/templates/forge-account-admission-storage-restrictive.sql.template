@@ -1,0 +1,21 @@
+-- REVIEWED TEMPLATE ONLY. This file is outside supabase/migrations and is not
+-- executable release authority. A future activation migration must re-inventory
+-- every storage.objects policy before using these restrictive conjuncts.
+
+create policy forge_account_admission_storage_select_restrictive
+on storage.objects
+as restrictive
+for select
+to authenticated
+using (tongs.current_request_is_admitted());
+
+create policy forge_account_admission_storage_insert_restrictive
+on storage.objects
+as restrictive
+for insert
+to authenticated
+with check (tongs.current_request_is_admitted());
+
+-- At Slice 2B certification time, authenticated Storage authority has SELECT
+-- and INSERT policies only. Any later UPDATE or DELETE policy must receive a
+-- matching restrictive admission policy before activation.

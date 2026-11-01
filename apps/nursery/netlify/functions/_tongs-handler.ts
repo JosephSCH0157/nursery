@@ -1,6 +1,7 @@
 import { createTongsCommitApiHandler } from "../../../../packages/tongs/src/workpiece-commit-api.ts";
 import { resolveNurseryTongsProviderBoundary } from "../../scripts/mw-tongs-commit-api";
 import { runWithOwnerRuntimeEnvironment } from "../../server/accounting/owner-runtime-environment";
+import { withAdmissionEnforcement } from "../../server/auth/admission-enforcement";
 import { resolveTongsRuntimeConfig } from "../../server/tongs/tongs-runtime-config";
 
 const config = resolveTongsRuntimeConfig();
@@ -65,7 +66,11 @@ export function createNetlifyTongsFunction(routePrefix = "/tongs") {
       // same-origin function boundary; route handlers still validate the user
       // token and enforce workspace roles/RLS before touching canonical state.
       const forwarded = authorizeFirstPartyUserRequest(remapped, config.options.apiToken);
-      return handler(forwarded);
+      return withAdmissionEnforcement(
+        request,
+        "new_customer_operation",
+        () => handler(forwarded),
+      );
     });
   };
 }

@@ -3,6 +3,7 @@ import {
   createHammerPaidHandler,
   type HammerPrepMiddlewareOptions,
 } from "../server/hammer/create-hammer-paid-handler";
+import { withAdmissionEnforcement } from "../server/auth/admission-enforcement";
 
 export function createNetlifyHammerFunction(options: HammerPrepMiddlewareOptions = {}) {
   const handler = createHammerPaidHandler(options);
@@ -10,6 +11,12 @@ export function createNetlifyHammerFunction(options: HammerPrepMiddlewareOptions
     request: Request,
     context?: { deploy?: { context?: string } },
   ): Promise<Response> {
-    return runWithOwnerRuntimeEnvironment(context?.deploy?.context, () => handler(request));
+    const operationClass = options.hammerAssemblyAiExecutionMode === "background"
+      ? "existing_authorized_operation"
+      : "new_customer_operation";
+    return runWithOwnerRuntimeEnvironment(
+      context?.deploy?.context,
+      () => withAdmissionEnforcement(request, operationClass, () => handler(request)),
+    );
   };
 }

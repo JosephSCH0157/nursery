@@ -92,6 +92,8 @@
     "test:db:beta-invitation-provisioning:hosted-deployment": "pwsh -NoProfile -File scripts/test-anvil-419-supabase-cli.ps1 && node --test scripts/test-forge-beta-invitation-provisioning-429-hosted-deployment.mjs",
     "certify:db:beta-invitation-provisioning:historical": "pwsh -NoProfile -File scripts/certify-beta-invitation-provisioning-historical-successor.ps1",
     "test:db:beta-invitation-provisioning:historical-tooling": "node --test scripts/test-beta-invitation-provisioning-historical-successor.mjs",
+    "certify:db:inactive-admission-enforcement:historical": "pwsh -NoProfile -File scripts/certify-inactive-admission-enforcement-historical-successor.ps1",
+    "test:db:inactive-admission-enforcement:historical-tooling": "node --test scripts/test-inactive-admission-enforcement-historical-successor.mjs packages/tongs/tests/inactive-admission-enforcement-migration-contract.test.mjs",
     "certify:db:beta-invitation-auth-local": "pnpm --dir apps/nursery exec tsx ../../scripts/certify-beta-invitation-auth-local.mjs",
     "prepare:db:recovery-evidence": "node scripts/new-hosted-recovery-readiness-evidence.mjs",
     "prepare:db:recovery-evidence:api": "pwsh -NoProfile -File scripts/invoke-hosted-recovery-readiness-evidence.ps1 -Action CreateManagementApi",

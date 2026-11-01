@@ -40,6 +40,7 @@
     "test:beta-admission": "tsx tests/beta-admission-foundation.test.mts",
     "test:beta-invitation": "tsx tests/beta-invitation-orchestration.test.mts",
     "test:beta-invitation-routing": "tsx tests/beta-invitation-routing.test.mts",
+    "test:admission-enforcement-preparation": "tsx --test tests/admission-enforcement-preparation.test.mts",
     "test:youtube-publishing-connection": "tsx tests/youtube-publishing-connection.test.mts",
     "test:workspace-label": "tsx tests/workspace-label.test.mts",
     "test:workspace-access-union": "tsx tests/workspace-access-union.test.mts",

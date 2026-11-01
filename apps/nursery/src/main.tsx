@@ -21,6 +21,7 @@ import RouteFallback from "./components/RouteFallback";
 import { EpisodeWorkspaceProvider } from "./workspace/EpisodeWorkspaceContext";
 import EpisodeWorkspaceShell from "./shell/EpisodeWorkspaceShell";
 import { HenryRouteBoundary } from "./henry/HenryRouteBoundary";
+import AdmissionBoundary from "./components/AdmissionBoundary";
 
 const TongsRoute = lazy(() => import("./routes/Tongs"));
 const BarstockRoute = lazy(() => import("./routes/Barstock"));
@@ -64,6 +65,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <EpisodeWorkspaceProvider>
       <ForgeNoticeProvider>
       <HenryRouteBoundary>
+        <AdmissionBoundary>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
@@ -140,6 +142,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/" element={<Navigate to="/app" replace />} />
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
+        </AdmissionBoundary>
       </HenryRouteBoundary>
       </ForgeNoticeProvider>
       </EpisodeWorkspaceProvider>
