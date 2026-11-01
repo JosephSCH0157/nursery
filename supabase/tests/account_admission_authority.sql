@@ -46,6 +46,7 @@ begin
   if not has_function_privilege('service_role', 'tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz)', 'execute')
      or not has_function_privilege('service_role', 'tongs.account_admission_authority_version()', 'execute')
      or has_function_privilege('authenticated', 'tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz)', 'execute')
+     or has_function_privilege('authenticated', 'tongs.bind_beta_access_application(uuid,uuid,text,uuid)', 'execute')
      or has_function_privilege('service_role', 'tongs.decide_beta_access_application(uuid,text,text,uuid)', 'execute') then
     raise exception 'RPC privilege boundary is incorrect';
   end if;
@@ -85,10 +86,12 @@ begin
   result := tongs.decide_beta_access_application(application_id, 'approved', 'approved for binding proof',
     'ad100000-0000-4000-8000-000000000002');
   if result->>'decision' <> 'approved' then raise exception 'approval was not recorded'; end if;
-  result := tongs.bind_beta_access_application(application_id,
-    'ad000000-0000-4000-8000-000000000003', 'bind approved identity',
-    'ad100000-0000-4000-8000-000000000003');
-  if result->>'effective_state' <> 'admitted' then raise exception 'approved binding was not admitted'; end if;
+  begin
+    perform tongs.bind_beta_access_application(application_id,
+      'ad000000-0000-4000-8000-000000000003', 'legacy direct bind must remain retired',
+      'ad100000-0000-4000-8000-000000000003');
+    raise exception 'legacy direct binding bypass remained executable';
+  exception when insufficient_privilege then null; end;
 
   result := tongs.set_account_admission_state('ad000000-0000-4000-8000-000000000002',
     'revoked', 'explicit legacy revocation proof', 'ad100000-0000-4000-8000-000000000004');
@@ -115,7 +118,7 @@ reset role;
 do $$ begin
   begin
     update tongs.account_admissions set effective_state='revoked'
-    where user_id='ad000000-0000-4000-8000-000000000003';
+    where user_id='ad000000-0000-4000-8000-000000000002';
     raise exception 'projection allowed direct mutation';
   exception when object_not_in_prerequisite_state then null; end;
   begin

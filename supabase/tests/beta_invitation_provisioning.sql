@@ -6,6 +6,62 @@ insert into auth.users(id, email, email_confirmed_at) values
   ('b2000000-0000-4000-8000-000000000004', 's2a-unconfirmed@example.test', null),
   ('b2000000-0000-4000-8000-000000000005', 's2a-legacy@example.test', clock_timestamp());
 
+create function public._s2a_reject_profile_bootstrap()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  if new.user_id = 'b2000000-0000-4000-8000-000000000006'::uuid then
+    raise exception 'simulated profile bootstrap failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger s2a_reject_profile_bootstrap
+before insert on public.profiles
+for each row execute function public._s2a_reject_profile_bootstrap();
+insert into auth.users(id, email, email_confirmed_at) values
+  ('b2000000-0000-4000-8000-000000000006', 's2a-profile-fail-open@example.test', clock_timestamp());
+drop trigger s2a_reject_profile_bootstrap on public.profiles;
+drop function public._s2a_reject_profile_bootstrap();
+
+create function tongs._s2a_reject_workspace_bootstrap()
+returns trigger
+language plpgsql
+set search_path = pg_catalog
+as $$
+begin
+  if new.created_by = 'b2000000-0000-4000-8000-000000000007'::uuid then
+    raise exception 'simulated workspace bootstrap failure';
+  end if;
+  return new;
+end;
+$$;
+create trigger s2a_reject_workspace_bootstrap
+before insert on tongs.workspaces
+for each row execute function tongs._s2a_reject_workspace_bootstrap();
+insert into auth.users(id, email, email_confirmed_at) values
+  ('b2000000-0000-4000-8000-000000000007', 's2a-workspace-fail-open@example.test', clock_timestamp());
+drop trigger s2a_reject_workspace_bootstrap on tongs.workspaces;
+drop function tongs._s2a_reject_workspace_bootstrap();
+
+do $$
+begin
+  if not exists (
+    select 1 from auth.users where id='b2000000-0000-4000-8000-000000000006'
+  ) then raise exception 'profile bootstrap failure aborted ordinary Auth signup'; end if;
+  if exists (
+    select 1 from public.profiles where user_id='b2000000-0000-4000-8000-000000000006'
+  ) then raise exception 'simulated profile failure unexpectedly provisioned a profile'; end if;
+  if not exists (
+    select 1 from auth.users where id='b2000000-0000-4000-8000-000000000007'
+  ) then raise exception 'workspace bootstrap failure aborted ordinary Auth signup'; end if;
+  if exists (
+    select 1 from tongs.workspace_members where user_id='b2000000-0000-4000-8000-000000000007'
+  ) then raise exception 'simulated workspace failure unexpectedly provisioned membership'; end if;
+end $$;
+
 insert into tongs.platform_operators(user_id, reason, granted_by) values
   ('b2000000-0000-4000-8000-000000000001', 'Slice 2A rollback-only proof', 'b2000000-0000-4000-8000-000000000001');
 
@@ -42,6 +98,7 @@ begin
   if has_function_privilege('authenticated', 'tongs.claim_beta_invitation_dispatch(uuid,uuid,uuid,uuid,text,timestamptz)', 'execute')
      or not has_function_privilege('service_role', 'tongs.claim_beta_invitation_dispatch(uuid,uuid,uuid,uuid,text,timestamptz)', 'execute')
      or not has_function_privilege('authenticated', 'tongs.list_beta_invitation_applications(text,integer,timestamptz,uuid)', 'execute')
+     or has_function_privilege('authenticated', 'tongs.bind_beta_access_application(uuid,uuid,text,uuid)', 'execute')
      or has_function_privilege('anon', 'tongs.read_my_admission_onboarding()', 'execute') then
     raise exception 'invitation RPC ACL boundary is incorrect';
   end if;

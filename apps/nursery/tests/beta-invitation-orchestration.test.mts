@@ -149,6 +149,33 @@ const baseConfig = {
 
 {
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  let authInviteCalled = false;
+  const deps = dependencies(calls, {
+    claim_beta_invitation_dispatch: [{
+      application_id: applicationId,
+      attempt_id: attemptId,
+      decision_revision: 1,
+      disposition: "dispatch_claimed",
+      email: "creator@example.test",
+      lease_expires_at: "2026-11-01T12:02:00.000Z",
+      replayed: true,
+    }],
+  }, async () => {
+    authInviteCalled = true;
+    return { data: { user: { id: invitedUserId } }, error: null };
+  });
+  const response = await createBetaInvitationHandler(baseConfig, deps)(request(body()));
+  assert.equal(response.status, 409);
+  assert.equal(
+    (await response.json() as Record<string, unknown>).code,
+    "dispatch_claim_replayed_requires_reconciliation",
+  );
+  assert.equal(authInviteCalled, false, "a replayed dispatch claim must not repeat the Auth side effect");
+  assert.deepEqual(calls.map((call) => call.name), ["claim_beta_invitation_dispatch"]);
+}
+
+{
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   const deps = dependencies(calls, {
     claim_beta_invitation_dispatch: [{
       application_id: applicationId,
@@ -183,6 +210,54 @@ const baseConfig = {
   assert.equal(response.status, 200);
   assert.equal(calls[0]?.name, "bind_existing_beta_access_application_as_operator");
   assert.equal(calls[0]?.args.p_user_id, invitedUserId);
+}
+
+{
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const deps = dependencies(calls, {
+    claim_beta_invitation_dispatch: [{
+      application_id: applicationId,
+      attempt_id: attemptId,
+      decision_revision: 1,
+      disposition: "journaled_invitation",
+      email: "creator@example.test",
+      auth_user_id: invitedUserId,
+    }],
+    bind_beta_access_application_as_operator: [],
+  });
+  deps.rpc.rpc = async (name, args) => {
+    calls.push({ name, args });
+    if (name === "claim_beta_invitation_dispatch") {
+      return {
+        data: {
+          application_id: applicationId,
+          attempt_id: attemptId,
+          decision_revision: 1,
+          disposition: "journaled_invitation",
+          email: "creator@example.test",
+          auth_user_id: invitedUserId,
+        },
+        error: null,
+      };
+    }
+    if (name === "bind_beta_access_application_as_operator") {
+      return { data: null, error: { code: "42501", message: "binding rejected" } };
+    }
+    if (name === "record_beta_invitation_binding_failure") {
+      return { data: null, error: { code: "42501", message: "audit rejected" } };
+    }
+    return { data: null, error: null };
+  };
+  const response = await createBetaInvitationHandler(baseConfig, deps)(request(body({ action: "retry" })));
+  assert.equal(response.status, 409);
+  const result = await response.json() as Record<string, unknown>;
+  assert.equal(result.code, "operator_authority_required");
+  assert.equal(result.audit_recorded, false, "resolved audit RPC errors must be surfaced");
+  assert.deepEqual(calls.map((call) => call.name), [
+    "claim_beta_invitation_dispatch",
+    "bind_beta_access_application_as_operator",
+    "record_beta_invitation_binding_failure",
+  ]);
 }
 
 console.log("beta invitation orchestration tests passed");

@@ -422,6 +422,9 @@ begin
 end;
 $$;
 
+comment on function tongs.bind_beta_access_application(uuid,uuid,text,uuid) is
+  'Retained for historical signature compatibility. Slice 2A removes client execution; binding must use a journal-aware service RPC.';
+
 create or replace function tongs.list_beta_invitation_applications(
   p_state text default null,
   p_limit integer default 100,
@@ -1136,19 +1139,30 @@ begin
     return new;
   end if;
 
-  insert into public.profiles (user_id)
-  values (new.id)
-  on conflict (user_id) do nothing;
+  begin
+    if pg_catalog.to_regclass('public.profiles') is not null then
+      insert into public.profiles (user_id)
+      values (new.id)
+      on conflict (user_id) do nothing;
+    end if;
+  exception when others then
+    raise warning '[handle_new_user] profile bootstrap failed for user %: % (%)',
+      new.id, SQLERRM, SQLSTATE;
+  end;
 
-  if exists (
-    select 1
-    from tongs.workspace_members member
-    where member.user_id = new.id
-  ) then
-    return new;
-  end if;
+  begin
+    if not exists (
+      select 1
+      from tongs.workspace_members member
+      where member.user_id = new.id
+    ) then
+      perform tongs.create_workspace_admin('My Workspace', new.id);
+    end if;
+  exception when others then
+    raise warning '[handle_new_user] workspace bootstrap failed for user %: % (%)',
+      new.id, SQLERRM, SQLSTATE;
+  end;
 
-  perform tongs.create_workspace_admin('My Workspace', new.id);
   return new;
 end;
 $$;
@@ -1181,8 +1195,6 @@ revoke all on function tongs._bind_beta_access_application_core(uuid,uuid,text,u
 
 revoke all on function tongs.bind_beta_access_application(uuid,uuid,text,uuid)
   from public, anon, authenticated, service_role;
-grant execute on function tongs.bind_beta_access_application(uuid,uuid,text,uuid)
-  to authenticated;
 
 revoke all on function tongs.list_beta_invitation_applications(text,integer,timestamptz,uuid)
   from public, anon, authenticated, service_role;

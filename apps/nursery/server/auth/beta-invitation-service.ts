@@ -144,9 +144,9 @@ async function recordBindingFailure(
     authUserId: string;
     outcomeCode: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   try {
-    await dependencies.rpc.rpc("record_beta_invitation_binding_failure", {
+    const result = await dependencies.rpc.rpc("record_beta_invitation_binding_failure", {
       p_actor_id: args.actorId,
       p_application_id: args.applicationId,
       p_attempt_id: args.attemptId,
@@ -154,8 +154,10 @@ async function recordBindingFailure(
       p_auth_user_id: args.authUserId,
       p_outcome_code: args.outcomeCode,
     });
+    return result.error == null;
   } catch {
     // This secondary audit attempt must not hide the authoritative bind failure.
+    return false;
   }
 }
 
@@ -181,7 +183,7 @@ async function bindJournaledInvitation(
     p_journal_operation_id: journalOperationId,
   });
   if (result.error) {
-    await recordBindingFailure(dependencies, {
+    const auditRecorded = await recordBindingFailure(dependencies, {
       actorId,
       applicationId,
       attemptId,
@@ -194,6 +196,7 @@ async function bindJournaledInvitation(
       code: rpcErrorCode(result.error, "binding_failed"),
       attempt_id: attemptId,
       auth_user_id: authUserId,
+      audit_recorded: auditRecorded,
     });
   }
   return json(200, {
@@ -231,6 +234,15 @@ async function dispatchInvitation(
     return bindJournaledInvitation(
       dependencies, actorId, input, applicationId, attemptId, claim.auth_user_id,
     );
+  }
+  if (claim.disposition === "dispatch_claimed" && claim.replayed === true) {
+    return json(409, {
+      ok: false,
+      code: "dispatch_claim_replayed_requires_reconciliation",
+      application_id: applicationId,
+      attempt_id: attemptId,
+      lease_expires_at: claim.lease_expires_at ?? null,
+    });
   }
   if (claim.disposition !== "dispatch_claimed") {
     const status = claim.disposition === "already_bound" ? 200 : 409;

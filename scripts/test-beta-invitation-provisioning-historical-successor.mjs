@@ -13,7 +13,7 @@ test("migration 429 certifier pins the exact successor lineage and contract test
     "'$successorHistoryRows=429'",
     "20261031123320",
     "beta_invitation_provisioning.sql",
-    "874191695f41999ff77244dbf549d20611b1018f3991b728a38b1e7003bbe389",
+    "12989ba74c00c2bdc8a9d4c5d38ee4e3be3f1f4d23b9b0f8d2a1b145c7b7dbc7",
   ]) assert.ok(certifier.includes(required), `missing successor assertion: ${required}`);
 });
 
