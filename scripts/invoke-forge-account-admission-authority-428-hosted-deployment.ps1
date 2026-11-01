@@ -78,7 +78,7 @@ with admission_relations(name) as (values
   where n.nspname in ('tongs','public','storage') and c.relkind in ('r','p','v','m','S')
     and not (n.nspname='tongs' and c.relname in (select name from admission_relations))
   union all
-  select 'trigger|'||n.nspname||'.'||c.relname||'|'||t.tgname||'|'||t.tgenabled||'|'||pg_get_triggerdef(t.oid,true)
+  select 'trigger|'||n.nspname||'.'||c.relname||'|'||t.tgname||'|'||t.tgenabled::text||'|'||pg_get_triggerdef(t.oid,true)
   from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace
   where not t.tgisinternal and n.nspname in ('tongs','public','storage')
     and not (n.nspname='tongs' and c.relname in (select name from admission_relations))
@@ -87,7 +87,7 @@ with admission_relations(name) as (values
          coalesce(array_to_string(p.proconfig,','),'')||'|'||coalesce(p.proacl::text,'')||'|'||pg_get_functiondef(p.oid) as value
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='auth' and p.prokind<>'a'
   union all
-  select 'trigger|'||c.relname||'|'||t.tgname||'|'||t.tgenabled||'|'||pg_get_triggerdef(t.oid,true)
+  select 'trigger|'||c.relname||'|'||t.tgname||'|'||t.tgenabled::text||'|'||pg_get_triggerdef(t.oid,true)
   from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace
   where not t.tgisinternal and n.nspname='auth'
 )

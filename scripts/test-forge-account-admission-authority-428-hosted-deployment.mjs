@@ -19,6 +19,16 @@ const DATABASE_CONTAINER = process.env.SUPABASE_DB_CONTAINER?.trim();
 const DATABASE_PROJECT_ID = process.env.FORGE_OWNED_DATABASE_PROJECT_ID?.trim();
 const sha = (character) => character.repeat(64);
 const wrapperSource = () => readFileSync(new URL("./invoke-forge-account-admission-authority-428-hosted-deployment.ps1", import.meta.url), "utf8");
+const authoritySnapshotSql = () => {
+  const marker = `$sql=@'\n`;
+  const source = wrapperSource();
+  const start = source.indexOf(marker);
+  assert.ok(start >= 0, "Authority-snapshot SQL block is unavailable");
+  const sqlStart = start + marker.length;
+  const end = source.indexOf("\n'@", sqlStart);
+  assert.ok(end > sqlStart, "Authority-snapshot SQL terminator is unavailable");
+  return source.slice(sqlStart, end);
+};
 const postVerifySql = () => {
   const marker = `$sql=@'\n`;
   const source = wrapperSource();
@@ -264,6 +274,24 @@ test("wrapper independently verifies admission structure, inactivity, and unaffe
   ]) assert.match(source, new RegExp(contract));
   assert.match(source, /legacy_count -ne \[int64\]\$PreApplyState\.authUserCount/);
   assert.equal(source.match(/p\.prokind<>'a'/g)?.length, 3);
+});
+
+test("PostgreSQL 17 authority snapshot casts and retains both trigger-state values", () => {
+  const sql = authoritySnapshotSql();
+  assert.equal(sql.match(/t\.tgenabled::text/g)?.length, 2);
+  assert.doesNotMatch(sql, /t\.tgenabled(?!::text)/);
+  assert.equal(sql.match(/\|\|t\.tgenabled::text\|\|'\|'\|\|pg_get_triggerdef\(t\.oid,true\)/g)?.length, 2);
+});
+
+test("PostgreSQL 17 executes the complete authority-snapshot fingerprint query", { skip: !DATABASE_CONTAINER }, () => {
+  assertDisposableBaseline();
+  const serverVersion = Number(runDisposableDatabaseSql("show server_version_num;").trim());
+  assert.ok(serverVersion >= 170000 && serverVersion < 180000, `PostgreSQL 17 is required, received ${serverVersion}`);
+  const row = runDisposableDatabaseSql(authoritySnapshotSql()).trim().split("|");
+  assert.equal(row.length, 8, "authority snapshot must preserve both fingerprints and all six counters");
+  assert.match(row[0], /^[0-9a-f]{64}$/);
+  assert.match(row[1], /^[0-9a-f]{64}$/);
+  for (const counter of row.slice(2)) assert.match(counter, /^\d+$/);
 });
 
 test("postflight rejects unexpected direct and inherited ACL grantees", () => {
