@@ -61,6 +61,7 @@ export function validateRecoveryEvidence(evidence, now = new Date()) {
   const age = now.getTime() - verifiedAt.getTime();
   if (age < 0 || age > 24 * 60 * 60 * 1000) throw new Error("recovery_evidence_stale");
   if (restorableAt.getTime() > now.getTime()) throw new Error("latest_restorable_at_invalid");
+  if (restorableAt.getTime() > verifiedAt.getTime()) throw new Error("latest_restorable_at_after_verification");
   required(evidence.recovery_operator, "recovery_operator");
   required(evidence.restore_authorizer, "restore_authorizer");
   const approvalReference = required(evidence.owner_approval_reference, "owner_approval_reference");

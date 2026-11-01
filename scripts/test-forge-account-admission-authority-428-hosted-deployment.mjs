@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
@@ -14,7 +15,55 @@ import {
 } from "./lib/forge-account-admission-authority-428-hosted-deployment-policy.mjs";
 
 const NOW = new Date("2026-10-31T16:00:00Z");
+const DATABASE_CONTAINER = process.env.SUPABASE_DB_CONTAINER?.trim();
+const DATABASE_PROJECT_ID = process.env.FORGE_OWNED_DATABASE_PROJECT_ID?.trim();
 const sha = (character) => character.repeat(64);
+const wrapperSource = () => readFileSync(new URL("./invoke-forge-account-admission-authority-428-hosted-deployment.ps1", import.meta.url), "utf8");
+const postVerifySql = () => {
+  const marker = `$sql=@'\n`;
+  const source = wrapperSource();
+  const starts = [];
+  let offset = -1;
+  while ((offset = source.indexOf(marker, offset + 1)) >= 0) starts.push(offset + marker.length);
+  assert.ok(starts.length >= 2, "PostVerify SQL block is unavailable");
+  const end = source.indexOf("\n'@", starts[1]);
+  assert.ok(end > starts[1], "PostVerify SQL terminator is unavailable");
+  return source.slice(starts[1], end);
+};
+const runDisposableDatabaseSql = (sql) => {
+  assert.ok(DATABASE_CONTAINER, "SUPABASE_DB_CONTAINER is required");
+  assert.match(DATABASE_PROJECT_ID ?? "", /^[a-z0-9][a-z0-9-]{2,62}$/, "FORGE_OWNED_DATABASE_PROJECT_ID is required");
+  const containerName = execFileSync("docker", ["inspect", "--format={{.Name}}", DATABASE_CONTAINER], { encoding: "utf8" }).trim();
+  assert.equal(containerName, `/supabase_db_${DATABASE_PROJECT_ID}`, "target must match the explicitly owned local Supabase project");
+  return execFileSync("docker", [
+    "exec", "-i", DATABASE_CONTAINER, "psql", "-U", "postgres", "-d", "postgres", "-X", "-q", "-A", "-t", "-F", "|",
+  ], { encoding: "utf8", input: sql });
+};
+const assertDisposableBaseline = () => {
+  const identity = runDisposableDatabaseSql(`
+select lineage||'|'||migration_count::text||'|'||hosted_head
+from forge_meta.database_lineage
+cross join lateral (
+  select count(*) as migration_count,max(version) as hosted_head
+  from supabase_migrations.schema_migrations
+) history
+where singleton=true;
+`).trim();
+  assert.equal(identity, "baseline-v1|15|20261031123320");
+};
+const runAclProbe = (probeSql) => {
+  assertDisposableBaseline();
+  const output = runDisposableDatabaseSql(`
+begin;
+create role forge_acl_probe;
+${probeSql}
+${postVerifySql()}
+rollback;
+`);
+  const row = output.split(/\r?\n/).find((line) => line.startsWith("baseline-v1|"));
+  assert.ok(row, "PostVerify probe row is unavailable");
+  return row.split("|");
+};
 const state = () => ({
   projectRef: FORGE_PROJECT_REF,
   lineage: "historical-v1",
@@ -122,15 +171,35 @@ test("requires the exact release-specific Apply token", () => {
   }), { operator: "release operator" });
 });
 
-test("rejects stale, future, wrong-project, and reused recovery evidence", () => {
-  const stale = recovery();
-  stale.verified_at = "2026-10-30T15:59:59Z";
-  assert.throws(() => validateRecoveryEvidence(stale, NOW), /stale/);
+test("accepts valid recovery chronology, including an equal restore and verification time", () => {
+  assert.match(validateRecoveryEvidence(recovery(), NOW).evidenceSha256, /^[0-9a-f]{64}$/);
 
+  const equalBoundary = recovery();
+  equalBoundary.latest_restorable_at = equalBoundary.verified_at;
+  assert.match(validateRecoveryEvidence(equalBoundary, NOW).evidenceSha256, /^[0-9a-f]{64}$/);
+});
+
+test("rejects a restore point after its verification time", () => {
+  const invalidChronology = recovery();
+  invalidChronology.latest_restorable_at = "2026-10-31T15:30:00Z";
+  assert.throws(() => validateRecoveryEvidence(invalidChronology, NOW), /after_verification/);
+});
+
+test("rejects a verification time in the future", () => {
   const future = recovery();
   future.verified_at = "2026-10-31T16:00:01Z";
+  future.latest_restorable_at = "2026-10-31T16:00:00Z";
   assert.throws(() => validateRecoveryEvidence(future, NOW), /stale/);
+});
 
+test("rejects stale recovery evidence", () => {
+  const stale = recovery();
+  stale.verified_at = "2026-10-30T15:59:59Z";
+  stale.latest_restorable_at = "2026-10-30T15:30:00Z";
+  assert.throws(() => validateRecoveryEvidence(stale, NOW), /stale/);
+});
+
+test("rejects wrong-project and reused recovery evidence", () => {
   const wrongProject = recovery();
   wrongProject.project_ref = "wrong-project";
   assert.throws(() => validateRecoveryEvidence(wrongProject, NOW), /project/);
@@ -173,9 +242,11 @@ test("wrapper independently verifies admission structure, inactivity, and unaffe
   const source = readFileSync(new URL("./invoke-forge-account-admission-authority-428-hosted-deployment.ps1", import.meta.url), "utf8");
   for (const contract of [
     "six_forced_rls_tables",
-    "table_acl_denied",
+    "table_acl_exact",
+    "table_effective_acl_contract",
     "function_ownership_and_path",
     "complete_function_acl_contract",
+    "function_effective_acl_contract",
     "intake_service_only",
     "operator_execute_contract",
     "admission_check_contract",
@@ -192,8 +263,43 @@ test("wrapper independently verifies admission structure, inactivity, and unaffe
     "FORGE_BETA_INTAKE_ENABLED",
   ]) assert.match(source, new RegExp(contract));
   assert.match(source, /legacy_count -ne \[int64\]\$PreApplyState\.authUserCount/);
-  assert.match(source, /admissionEnforcementActive=\$false;netlifyIntakeEnabled=\$false/);
   assert.equal(source.match(/p\.prokind<>'a'/g)?.length, 3);
+});
+
+test("postflight rejects unexpected direct and inherited ACL grantees", () => {
+  const source = wrapperSource();
+  assert.match(source, /where acl\.grantee<>c\.relowner/);
+  assert.match(source, /function_acl_actual as \(/);
+  assert.match(source, /not \(actual\.grantee_name=any\(expectation\.allowed_grantees\)\)/);
+  assert.match(source, /actual\.privilege_type<>'EXECUTE' or actual\.is_grantable/);
+  assert.match(source, /has_table_privilege\(role\.role_name,relation\.oid,privilege\.privilege_name\)/);
+  assert.match(source, /select rolname,rolname='supabase_admin' from pg_roles/);
+  assert.match(source, /has_function_privilege\(role\.role_name,expectation\.signature,'EXECUTE'\)=/);
+  assert.match(source, /role\.administrative_exempt or role\.role_name=any\(expectation\.allowed_grantees\)/);
+  assert.doesNotMatch(source, /forge_acl_probe|unexpected_custom_role/);
+});
+
+test("database postflight rejects an unexpected custom-role table grant", { skip: !DATABASE_CONTAINER }, () => {
+  const row = runAclProbe("grant select on tongs.beta_access_applications to forge_acl_probe;");
+  assert.equal(row[2], "f", "table_acl_exact must reject the custom grantee");
+});
+
+test("database postflight rejects an unexpected custom-role function grant", { skip: !DATABASE_CONTAINER }, () => {
+  const row = runAclProbe("grant execute on function tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz) to forge_acl_probe;");
+  assert.equal(row[5], "f", "complete_function_acl_contract must reject the custom grantee");
+  assert.equal(row[6], "f", "function_effective_acl_contract must reject its effective execution");
+});
+
+test("database postflight rejects a custom role inheriting an authorized grantee", { skip: !DATABASE_CONTAINER }, () => {
+  const row = runAclProbe("alter role forge_acl_probe login; grant authenticated to forge_acl_probe;");
+  assert.equal(row[5], "t", "the inherited probe must leave direct function ACLs unchanged");
+  assert.equal(row[6], "f", "function_effective_acl_contract must reject inherited execution");
+});
+
+test("postflight receipt leaves Netlify intake configuration explicitly unverified", () => {
+  const source = wrapperSource();
+  assert.match(source, /admissionEnforcementActive=\$false;netlifyIntakeConfigurationVerified=\$false/);
+  assert.doesNotMatch(source, /netlifyIntakeEnabled=/);
 });
 
 test("wrapper performs no Auth, Netlify, provider, or general hosted command", () => {

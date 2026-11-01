@@ -781,8 +781,9 @@ An independent read-only database postflight is:
 ```
 
 Standalone PostVerify proves the resulting database structure and internal
-consistency but cannot reconstruct the exact migration-time Auth population or
-prove an external Netlify/Auth platform setting. The immediate Apply postflight
+consistency and reports `netlifyIntakeConfigurationVerified=false`; it cannot
+reconstruct the exact migration-time Auth population or prove an external
+Netlify/Auth platform setting. The immediate Apply postflight
 therefore additionally compares the legacy snapshot with its pre-Apply
 `auth.users` count and compares the pre/post database fingerprints. Any Apply
 or postflight failure is a hard stop. Do not retry Apply, repair history,

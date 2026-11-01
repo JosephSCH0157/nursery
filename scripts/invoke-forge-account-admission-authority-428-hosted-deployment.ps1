@@ -183,14 +183,13 @@ with admission_relations(name) as (values
   select c.oid,c.relname,c.relrowsecurity,c.relforcerowsecurity,c.relacl,c.relowner
   from pg_class c join pg_namespace n on n.oid=c.relnamespace
   where n.nspname='tongs' and c.relname in (select name from admission_relations) and c.relkind='r'
-), forbidden_table_acl as (
+), unexpected_table_acl as (
   select 1
   from relation_contract c
   cross join lateral aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) acl
-  left join pg_roles role on role.oid=acl.grantee
-  where acl.grantee=0 or role.rolname in ('anon','authenticated','service_role')
+  where acl.grantee<>c.relowner
 ), admission_functions as (
-  select p.oid,p.proname,p.proowner,p.prosecdef,p.proconfig
+  select p.oid,p.proname,p.proowner,p.prosecdef,p.proconfig,p.proacl
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
   where n.nspname='tongs' and p.proname in (
     '_reject_account_admission_immutable_mutation','_guard_account_admissions_projection',
@@ -199,17 +198,30 @@ with admission_relations(name) as (values
     'decide_beta_access_application','bind_beta_access_application',
     'set_account_admission_state','is_account_admitted'
   )
-), function_acl_expectations(signature,public_execute,anon_execute,authenticated_execute,service_execute) as (values
-  ('tongs._reject_account_admission_immutable_mutation()',false,false,false,false),
-  ('tongs._guard_account_admissions_projection()',false,false,false,false),
-  ('tongs._project_account_admission_event()',false,false,false,false),
-  ('tongs.account_admission_authority_version()',false,false,false,true),
-  ('tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz)',false,false,false,true),
-  ('tongs.list_beta_access_applications(text,integer)',false,false,true,false),
-  ('tongs.decide_beta_access_application(uuid,text,text,uuid)',false,false,true,false),
-  ('tongs.bind_beta_access_application(uuid,uuid,text,uuid)',false,false,true,false),
-  ('tongs.set_account_admission_state(uuid,text,text,uuid)',false,false,true,false),
-  ('tongs.is_account_admitted(uuid)',false,false,true,true)
+), function_acl_expectations(signature,allowed_grantees) as (values
+  ('tongs._reject_account_admission_immutable_mutation()',array['postgres']::text[]),
+  ('tongs._guard_account_admissions_projection()',array['postgres']::text[]),
+  ('tongs._project_account_admission_event()',array['postgres']::text[]),
+  ('tongs.account_admission_authority_version()',array['postgres','service_role']::text[]),
+  ('tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz)',array['postgres','service_role']::text[]),
+  ('tongs.list_beta_access_applications(text,integer)',array['postgres','authenticated']::text[]),
+  ('tongs.decide_beta_access_application(uuid,text,text,uuid)',array['postgres','authenticated']::text[]),
+  ('tongs.bind_beta_access_application(uuid,uuid,text,uuid)',array['postgres','authenticated']::text[]),
+  ('tongs.set_account_admission_state(uuid,text,text,uuid)',array['postgres','authenticated']::text[]),
+  ('tongs.is_account_admitted(uuid)',array['postgres','authenticated','service_role']::text[])
+), function_acl_actual as (
+  select expectation.signature,coalesce(role.rolname,'PUBLIC') as grantee_name,
+         acl.privilege_type,acl.is_grantable
+  from function_acl_expectations expectation
+  join admission_functions function on function.oid=to_regprocedure(expectation.signature)
+  cross join lateral aclexplode(coalesce(function.proacl,acldefault('f',function.proowner))) acl
+  left join pg_roles role on role.oid=acl.grantee
+), client_roles(role_name) as (values ('public'),('anon'),('authenticated'),('service_role')),
+function_effective_roles(role_name,administrative_exempt) as (
+  select rolname,rolname='supabase_admin' from pg_roles
+),
+table_privileges(privilege_name) as (values
+  ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),('REFERENCES'),('TRIGGER')
 ), projection_mismatch as (
   select admission.user_id
   from tongs.account_admissions admission
@@ -226,17 +238,36 @@ with admission_relations(name) as (values
 select
   (select lineage from forge_meta.database_lineage where singleton=true) as lineage,
   (select count(*)=6 and bool_and(relowner='postgres'::regrole and relrowsecurity and relforcerowsecurity) from relation_contract) as six_forced_rls_tables,
-  not exists(select 1 from forbidden_table_acl) as table_acl_denied,
+  not exists(select 1 from unexpected_table_acl) as table_acl_exact,
+  not exists(
+    select 1 from relation_contract relation
+    cross join client_roles role cross join table_privileges privilege
+    where has_table_privilege(role.role_name,relation.oid,privilege.privilege_name)
+  ) as table_effective_acl_contract,
   (select count(*)=10 and bool_and(proowner='postgres'::regrole) and bool_and(proconfig @> array['search_path=pg_catalog'])
     and bool_and(prosecdef=(proname in ('_project_account_admission_event','ingest_beta_access_application',
       'list_beta_access_applications','decide_beta_access_application','bind_beta_access_application',
       'set_account_admission_state','is_account_admitted'))) from admission_functions) as function_ownership_and_path,
-  (select count(*)=10 and bool_and(
-    has_function_privilege('public',signature,'EXECUTE')=public_execute
-    and has_function_privilege('anon',signature,'EXECUTE')=anon_execute
-    and has_function_privilege('authenticated',signature,'EXECUTE')=authenticated_execute
-    and has_function_privilege('service_role',signature,'EXECUTE')=service_execute
-  ) from function_acl_expectations) as complete_function_acl_contract,
+  (select count(*)=10 from function_acl_expectations)
+    and not exists(
+      select 1 from function_acl_actual actual
+      join function_acl_expectations expectation using(signature)
+      where not (actual.grantee_name=any(expectation.allowed_grantees))
+        or actual.privilege_type<>'EXECUTE' or actual.is_grantable
+    ) and not exists(
+      select 1 from function_acl_expectations expectation
+      cross join lateral unnest(expectation.allowed_grantees) expected(grantee_name)
+      where not exists(
+        select 1 from function_acl_actual actual
+        where actual.signature=expectation.signature
+          and actual.grantee_name=expected.grantee_name
+          and actual.privilege_type='EXECUTE' and not actual.is_grantable
+      )
+    ) as complete_function_acl_contract,
+  (select bool_and(
+    has_function_privilege(role.role_name,expectation.signature,'EXECUTE')=
+      (role.administrative_exempt or role.role_name=any(expectation.allowed_grantees))
+  ) from function_acl_expectations expectation cross join function_effective_roles role) as function_effective_acl_contract,
   has_function_privilege('service_role','tongs.account_admission_authority_version()','EXECUTE')
     and has_function_privilege('service_role','tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz)','EXECUTE')
     and not has_function_privilege('anon','tongs.ingest_beta_access_application(text,text,text,text,text,text,text,text,text,text,timestamptz)','EXECUTE')
@@ -270,11 +301,11 @@ select
     select 1 from pg_db_role_setting where lower(array_to_string(setconfig,',')) ~ '(is_account_admitted|account_admissions)'
   ) as admission_enforcement_inactive;
 '@
-  $columns=@('lineage','six_forced_rls_tables','table_acl_denied','function_ownership_and_path','complete_function_acl_contract','intake_service_only','operator_execute_contract','admission_check_contract','legacy_count','legacy_grants','legacy_projections','projection_consistent','no_application_admission_events','no_application_backfill','admission_enforcement_inactive')
+  $columns=@('lineage','six_forced_rls_tables','table_acl_exact','table_effective_acl_contract','function_ownership_and_path','complete_function_acl_contract','function_effective_acl_contract','intake_service_only','operator_execute_contract','admission_check_contract','legacy_count','legacy_grants','legacy_projections','projection_consistent','no_application_admission_events','no_application_backfill','admission_enforcement_inactive')
   $rows=@(Read-LinkedCsv $sql $columns 'migration 428 post-apply contract')
   if($rows.Count -ne 1){throw 'Migration 428 post-apply contract is unavailable.'}
   $row=$rows[0]
-  foreach($name in @('six_forced_rls_tables','table_acl_denied','function_ownership_and_path','complete_function_acl_contract','intake_service_only','operator_execute_contract','admission_check_contract','projection_consistent','no_application_admission_events','no_application_backfill','admission_enforcement_inactive')){
+  foreach($name in @('six_forced_rls_tables','table_acl_exact','table_effective_acl_contract','function_ownership_and_path','complete_function_acl_contract','function_effective_acl_contract','intake_service_only','operator_execute_contract','admission_check_contract','projection_consistent','no_application_admission_events','no_application_backfill','admission_enforcement_inactive')){
     if([string]$row.$name -notmatch '^(t|true)$'){throw "Migration 428 post-apply $name failed."}
   }
   if([string]$row.lineage -cne 'historical-v1' -or [int64]$row.legacy_count -ne [int64]$row.legacy_grants -or [int64]$row.legacy_count -ne [int64]$row.legacy_projections){throw 'Migration 428 legacy snapshot or projection verification failed.'}
@@ -282,7 +313,7 @@ select
   [pscustomobject]@{
     ok=$true;schema='forge.account-admission-authority-428-hosted-postverify.v1';projectRef=$projectRef
     installedCount=428;hostedHead=$targetVersion;lineage='historical-v1';legacyCohortCount=[int64]$row.legacy_count
-    admissionEnforcementActive=$false;netlifyIntakeEnabled=$false;customerDataReturned=$false;credentialsReturned=$false
+    admissionEnforcementActive=$false;netlifyIntakeConfigurationVerified=$false;customerDataReturned=$false;credentialsReturned=$false
   }|ConvertTo-Json -Compress
 }
 
