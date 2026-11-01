@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import type { ForgeAppId } from "@forge/tongs";
 import type { AppShellContext } from "./AppShell";
+import { tongsSupabase } from "../lib/supabase";
 import "./ForgeHub.css";
 
 type HubLink = {
@@ -103,6 +105,20 @@ export default function ForgeHub() {
   const shell = useOutletContext<AppShellContext>();
   const session = shell?.session ?? null;
   const showBackdrop = !!session;
+  const [platformOperator, setPlatformOperator] = useState(false);
+
+  useEffect(() => {
+    if (!session) return;
+    const client = tongsSupabase as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
+    };
+    client.rpc("list_beta_invitation_applications", {
+      p_decision: null,
+      p_before_submitted_at: null,
+      p_before_application_id: null,
+      p_limit: 1,
+    }).then(({ error }) => setPlatformOperator(!error));
+  }, [session]);
 
   return (
     <div className={`forge-hub${showBackdrop ? " is-backed" : ""}`}>
@@ -120,6 +136,15 @@ export default function ForgeHub() {
       ) : null}
 
       <div className="forge-hub__grid">
+        {platformOperator ? (
+          <Link to="/app/platform/admissions" className="forge-hub__card">
+            <div className="forge-hub__card-header">
+              <div className="forge-hub__card-title">Beta admissions</div>
+              <div className="forge-hub__card-hint">Platform operator</div>
+            </div>
+            <div className="forge-hub__card-desc">Approve applicants, reconcile Auth identities, and dispatch invitations.</div>
+          </Link>
+        ) : null}
         {LINKS.map((x) => (
           x.href ? (
             <a

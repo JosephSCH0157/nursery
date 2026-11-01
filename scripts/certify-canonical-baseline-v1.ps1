@@ -107,6 +107,7 @@ $restrictive_defaults$
     'supabase/tests/hammer_first_transcription_activation_contract.sql'
     'supabase/tests/hammer_brad_first_transcription_authority_bundle_contract.sql'
     'supabase/tests/account_admission_authority.sql'
+    'supabase/tests/beta_invitation_provisioning.sql'
   )) {
     $source = Join-Path $repo $test
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -128,7 +129,7 @@ $restrictive_defaults$
   if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
 
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
-  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-account-admission-authority/successor-catalog-fingerprint.json'
+  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-beta-invitation-provisioning/successor-catalog-fingerprint.json'
   Push-Location $workdir
   try {
     if ($MaterializeSuccessorCatalog) {
@@ -144,7 +145,7 @@ $restrictive_defaults$
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.hammer-brad-first-transcription-authority-baseline-successor-certification.v1'
+    schema = 'forge.beta-invitation-provisioning-baseline-successor-certification.v1'
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { isRecoveryAuthCallback } from "../lib/auth-callback-intent";
+import { isInvitationAuthCallback, isRecoveryAuthCallback } from "../lib/auth-callback-intent";
 import "./AuthCallback.css";
 
 const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
@@ -91,6 +91,7 @@ export default function AuthCallback() {
         }
 
         const recoveryCallback = isRecoveryAuthCallback(window.location);
+        const invitationCallback = isInvitationAuthCallback(window.location);
 
         const code = new URLSearchParams(window.location.search).get("code");
         if (code) {
@@ -111,7 +112,7 @@ export default function AuthCallback() {
 
         if (session) {
           clearCallbackNext();
-          nav(next, { replace: true });
+          nav(invitationCallback ? "/welcome/invitation" : next, { replace: true });
           return;
         }
 

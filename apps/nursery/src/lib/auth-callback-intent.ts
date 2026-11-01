@@ -17,3 +17,7 @@ export function readAuthCallbackType(location: AuthCallbackLocation): string | n
 export function isRecoveryAuthCallback(location: AuthCallbackLocation): boolean {
   return readAuthCallbackType(location) === "recovery";
 }
+
+export function isInvitationAuthCallback(location: AuthCallbackLocation): boolean {
+  return readAuthCallbackType(location) === "invite";
+}

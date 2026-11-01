@@ -1,0 +1,38 @@
+.platform-admissions {
+  min-height: 100vh;
+  padding: 2rem clamp(1rem, 4vw, 4rem);
+  color: #f7f3eb;
+  background: #090b12;
+}
+
+.platform-admissions__header,
+.platform-admissions__summary,
+.platform-admissions__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.platform-admissions__header h1,
+.platform-admissions__card h2 { margin: 0; }
+.platform-admissions__eyebrow { color: #f4cfa0; text-transform: uppercase; letter-spacing: .12em; }
+.platform-admissions__header a { color: #ffd56b; }
+.platform-admissions__list { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.platform-admissions__card { padding: 1rem; border: 1px solid #343948; border-radius: 12px; background: #121620; }
+.platform-admissions__summary span { padding: .2rem .55rem; border-radius: 999px; background: #2b3342; text-transform: capitalize; }
+.platform-admissions__summary p { margin: .25rem 0 0; color: #aeb6c6; }
+.platform-admissions__card dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .75rem; }
+.platform-admissions__card dl div { min-width: 0; }
+.platform-admissions__card dt { color: #aeb6c6; font-size: .8rem; }
+.platform-admissions__card dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
+.platform-admissions__identity { overflow-wrap: anywhere; }
+.platform-admissions__actions { justify-content: flex-start; flex-wrap: wrap; }
+.platform-admissions button { padding: .55rem .8rem; border: 1px solid #6c768c; border-radius: 8px; color: #fff; background: #2c3547; cursor: pointer; }
+.platform-admissions button:disabled { opacity: .5; cursor: progress; }
+.platform-admissions__notice { margin-top: 1rem; padding: .75rem; border: 1px solid #527c60; border-radius: 8px; background: #16291c; }
+.platform-admissions__notice.is-error { border-color: #945252; background: #321b1b; }
+
+@media (max-width: 620px) {
+  .platform-admissions__header { align-items: flex-start; flex-direction: column; }
+}

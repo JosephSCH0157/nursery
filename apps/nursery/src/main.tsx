@@ -45,6 +45,8 @@ const HammerLaunchStubRoute = lazy(() => import("./routes/HammerLaunchStub"));
 const HammerRelinkRoute = lazy(() => import("./routes/HammerRelink"));
 const HammerStandalone = lazy(() => import("./routes/HammerStandalone"));
 const HammerAcceptanceRoute = lazy(() => import("./routes/HammerAcceptance"));
+const InvitationWelcome = lazy(() => import("./routes/InvitationWelcome"));
+const PlatformAdmissions = lazy(() => import("./routes/PlatformAdmissions"));
 
 seedTongsRequestTokenBridge();
 
@@ -68,6 +70,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/auth/callback/recovery" element={<AuthCallback />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/welcome/invitation" element={withRouteFallback(<InvitationWelcome />, "Loading invitation...")} />
           <Route path="/app/hammer/acceptance" element={withRouteFallback(<HammerAcceptanceRoute />, "Loading Hammer acceptance...")} />
 
           <Route
@@ -90,6 +93,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="subscriptions" element={<SubscriptionsRoute />} />
             <Route path="account" element={<SubscriptionsRoute />} />
             <Route path="admin" element={withRouteFallback(<AdminRoute />, "Loading Admin...")} />
+            <Route path="platform/admissions" element={withRouteFallback(<PlatformAdmissions />, "Loading beta admissions...")} />
             <Route path="mobile-demo" element={<MobilePrimitivesDemo />} />
             <Route path="settings" element={withRouteFallback(<SettingsLayout />, "Loading Settings...")}>
               <Route index element={withRouteFallback(<SettingsHome />, "Loading Settings...")} />
