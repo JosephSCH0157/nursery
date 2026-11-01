@@ -113,7 +113,7 @@ export default function ForgeHub() {
       rpc: (name: string, args: Record<string, unknown>) => Promise<{ error: unknown }>;
     };
     client.rpc("list_beta_invitation_applications", {
-      p_decision: null,
+      p_state: null,
       p_before_submitted_at: null,
       p_before_application_id: null,
       p_limit: 1,
