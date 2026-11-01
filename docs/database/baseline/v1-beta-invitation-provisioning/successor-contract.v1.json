@@ -1,0 +1,62 @@
+{
+  "schema": "forge.beta-invitation-provisioning-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Account admission authority",
+    "contractPath": "docs/database/baseline/v1-account-admission-authority/successor-contract.v1.json",
+    "contractSha256": "83b76055a3b6d8f945aa1ee59263984f749df848187264e6376d345c7a1c1859",
+    "historicalRows": 428
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "predecessorSuccessorContractSha256": "83b76055a3b6d8f945aa1ee59263984f749df848187264e6376d345c7a1c1859"
+  },
+  "sharedTailAddition": {
+    "version": "20261101084703",
+    "path": "supabase/migrations/20261101084703_forge_beta_invitation_provisioning.sql",
+    "sha256": "5414a87dac653c862f49720750c89c148694200a40c76279cc9da0213b30ae1c"
+  },
+  "historicalSuccessor": {
+    "finalRows": 429,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719",
+      "20261030224605",
+      "20261031123320",
+      "20261101084703"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-beta-invitation-provisioning/successor-catalog-fingerprint.json",
+    "status": "pending_local_materialization"
+  },
+  "inactivityContract": {
+    "admissionEnforcementActivated": false,
+    "existingRlsPoliciesChanged": 0,
+    "financialObjectsChanged": 0,
+    "hostedAuthConfigurationChanged": false,
+    "netlifyInvitationMutationsDefaultEnabled": false,
+    "netlifyIntakeDefaultEnabled": false,
+    "publicSignupRouteRetired": true,
+    "legacyAdmissionOriginMustBePreserved": true,
+    "serviceRoleTablePrivileges": 0
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

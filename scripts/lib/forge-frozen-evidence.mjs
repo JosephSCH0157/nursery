@@ -35,6 +35,8 @@ export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_PATH 
 export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "c17ef0d9ba26b62764da6a782d9031e2c95c86d0b0271387168ed653f864eb88";
 export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-authority/successor-contract.v1.json";
 export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "83b76055a3b6d8f945aa1ee59263984f749df848187264e6376d345c7a1c1859";
+export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-beta-invitation-provisioning/successor-contract.v1.json";
+export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_SHA256 = "494a4a2b9fdc178b39ad7dc633aca0913bde08d0d6acc17add29edd01399cc82";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -719,6 +721,37 @@ function loadAccountAdmissionAuthoritySuccessorContract(root, head) {
   return contract;
 }
 
+function loadBetaInvitationProvisioningSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH])
+    .get(BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Beta invitation-provisioning successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.beta-invitation-provisioning-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261101084703" ||
+      addition?.path !== "supabase/migrations/20261101084703_forge_beta_invitation_provisioning.sql" ||
+      addition?.sha256 !== "5414a87dac653c862f49720750c89c148694200a40c76279cc9da0213b30ae1c" ||
+      contract.catalogSuccessor?.status !== "pending_local_materialization" ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Beta invitation-provisioning successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Beta invitation-provisioning successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Beta invitation-provisioning successor-contract working bytes differ from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -1067,6 +1100,7 @@ export function verifyFrozenEvidence({
   const hammerOwnerSponsorshipReservationCompatibility = loadHammerOwnerSponsorshipReservationCompatibilitySuccessorContract(root, head);
   const hammerOwnerSponsorshipAuthorityRenewal = loadHammerOwnerSponsorshipAuthorityRenewalSuccessorContract(root, head);
   const accountAdmissionAuthority = loadAccountAdmissionAuthoritySuccessorContract(root, head);
+  const betaInvitationProvisioning = loadBetaInvitationProvisioningSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
@@ -1081,6 +1115,7 @@ export function verifyFrozenEvidence({
     { gate: "hammer-owner-sponsorship-reservation-compatibility", contract: hammerOwnerSponsorshipReservationCompatibility },
     { gate: "hammer-owner-sponsorship-authority-renewal", contract: hammerOwnerSponsorshipAuthorityRenewal },
     { gate: "account-admission-authority", contract: accountAdmissionAuthority },
+    { gate: "beta-invitation-provisioning", contract: betaInvitationProvisioning },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }
