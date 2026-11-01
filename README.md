@@ -1,5 +1,8 @@
 # Podcasters Forge
 
+Status: **Repository orientation and documentation index**. Domain authorities
+are routed by [`DOC_AUTHORITY.md`](DOC_AUTHORITY.md).
+
 **Current tagged release: Forge v1.2.12 — Fire Burning**
 
 Podcasters Forge is an integrated creator-production system for taking an idea from first spark through scripting, recording, editing, publishing, and operational review. Nursery provides the **front door, shared authentication, workspace context, and navigation** for the Forge ecosystem.

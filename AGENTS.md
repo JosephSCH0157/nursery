@@ -8,6 +8,32 @@ Canonical lifecycle constitution: `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
 
 ---
 
+## Documentation Routing (Canonical)
+
+Start with `DOC_AUTHORITY.md` for document status, conflict handling, and
+current-state evidence requirements.
+
+- Billing architecture: `docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md`;
+  verified operational state: `docs/billing/BILLING_CURRENT.md`.
+- Persistence: this file's SSOT policy and
+  `docs/database/DATABASE_ARCHITECTURE.md`; supported database procedures:
+  `docs/database/DATABASE_OPERATIONS.md`; storage paths: `TONGS_PATH_CHARTER.md`.
+- Lifecycle: `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`; operational companion:
+  `STATE_MACHINE_DIAGRAM.md`.
+- Tool behavior: use the tool manifest or authority contract linked from the
+  `README.md` canonical documentation index, plus the nearest scoped
+  `AGENTS.md`.
+- Deployment policy: this file's Production Deployment Policy; verified
+  operational state: `docs/ops/PRODUCTION_CURRENT.md`.
+
+Architecture and policy documents do not prove current production state.
+Update the applicable current-state record when an actual production
+deployment, pricing state, or financial activation state changes, with dated
+evidence. Ordinary code changes that do not alter verified operational state do
+not require a current-state documentation update.
+
+---
+
 ## Production Deployment Policy (Canonical)
 
 The Podcaster's Forge Netlify production site is released only by the Git-backed

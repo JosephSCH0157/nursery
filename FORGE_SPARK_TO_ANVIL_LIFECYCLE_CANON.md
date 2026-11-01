@@ -1,5 +1,8 @@
 # Forge Spark To Anvil Lifecycle Canon
 
+Status: **Canonical lifecycle constitution**. This document defines lifecycle
+semantics; it does not prove current production state.
+
 This document supersedes all prior lifecycle descriptions of Sparks, Episodes, Workpieces, Script States, and Bar Stock cleanup behavior.
 
 Companion operational reference: `STATE_MACHINE_DIAGRAM.md`.

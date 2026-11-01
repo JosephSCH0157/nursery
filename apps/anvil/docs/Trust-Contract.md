@@ -1,5 +1,18 @@
 # Trust Contract
 
+Status: **Needs reconciliation**. The transparency, consent, disclosure, and
+anti-dark-pattern principles remain applicable. The financial-model provisions
+under "Pricing & Subscription Model"—especially provider-only billing guidance,
+BYOK preference as the pricing basis, and "No usage-based pricing"—are historical
+where they conflict with
+[`docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md`](../../../docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md).
+That canonical manifest governs Forge Credits, Forge-funded usage, pricing,
+reservations, settlement, refunds, and subscription allowances. Anvil's
+[`MANIFEST.md`](../MANIFEST.md) governs Anvil runtime architecture only; it is not
+repository-wide financial or product-policy authority. This scoped
+clarification preserves the remaining Trust Contract rather than silently
+resolving unrelated provisions.
+
 This one-page contract aligns with `MANIFEST.md`, which is the canonical source for repository policy and product principles. Update `MANIFEST.md` first; this file mirrors the trust rules.
 
 ## AI & API Usage Principles

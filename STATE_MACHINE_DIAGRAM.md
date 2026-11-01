@@ -1,5 +1,8 @@
 # Forge Lifecycle State Machine Diagram
 
+Status: **Operational companion reference**. It does not replace or amend the
+canonical lifecycle constitution.
+
 Companion reference only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
 
 This document turns the lifecycle canon into operational diagrams and policy guidance without replacing the canon.
