@@ -20,7 +20,7 @@ test("migration 429 certifier pins the exact successor lineage and contract test
 test("public Slice A parity remains exact except for the reviewed invitation-aware trigger function", () => {
   assert.match(parityAdapter, /Expected exactly one immutable handle_new_user predecessor fingerprint/);
   assert.match(parityAdapter, /654de3745cc64b79795168d6800a0c3c/);
-  assert.match(parityAdapter, /d0f79321297efa0ae5abb63eac26f58d/);
+  assert.match(parityAdapter, /d0bade4f9d8fd07572f67ba262b0b3b3/);
   assert.match(certifier, /new-beta-invitation-public-slice-a-parity\.ps1/);
 });
 

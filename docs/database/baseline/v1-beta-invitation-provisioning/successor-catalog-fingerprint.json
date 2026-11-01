@@ -20,7 +20,7 @@
     "trigger": 460,
     "type": 555
   },
-  "contractSha256": "641c8fb3523027636ec0e09f94798d3cc2b580f4268836d33d39ec54b91c7c1e",
+  "contractSha256": "d5a153d42a9fa0a3f53564dde10dec7388d4d386ebf563c5783645f4c82fb29f",
   "entries": [
     {
       "category": "column",
@@ -60300,7 +60300,7 @@
     {
       "category": "function",
       "identity": "public.handle_new_user()",
-      "sha256": "50687ce55cb8f4e2a710b15eaad9e25a9af4df400eeb0c82b42bc6d1843d2cde"
+      "sha256": "9e3e75a39f5ea03b7179eb57fa60d099fb0d881cc4bcc82ff44e24f95c429821"
     },
     {
       "category": "function",
@@ -61640,7 +61640,7 @@
     {
       "category": "function",
       "identity": "tongs.bind_beta_access_application(p_application_id uuid, p_user_id uuid, p_reason text, p_operation_id uuid)",
-      "sha256": "679c467051ef26030adde68d0d2099b6cbb74a669b4443b34f6f0cc859df3a9a"
+      "sha256": "4fb04886398dedb6fa4b00243a5503c275b2f74a80687f839d72740dd6a6cfd9"
     },
     {
       "category": "function",
