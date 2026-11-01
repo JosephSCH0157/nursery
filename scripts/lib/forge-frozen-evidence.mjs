@@ -36,7 +36,7 @@ export const HAMMER_OWNER_SPONSORSHIP_AUTHORITY_RENEWAL_SUCCESSOR_CONTRACT_SHA25
 export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-authority/successor-contract.v1.json";
 export const ACCOUNT_ADMISSION_AUTHORITY_SUCCESSOR_CONTRACT_SHA256 = "83b76055a3b6d8f945aa1ee59263984f749df848187264e6376d345c7a1c1859";
 export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-beta-invitation-provisioning/successor-contract.v1.json";
-export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_SHA256 = "f7ee17aa9e308a815a6d0b85f5c229e2bda266718b15ba5f54e6c7e2d9806f64";
+export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_SHA256 = "6a391aea3e3a7d4237fb9dfe196fdecc80306a2b0d11134f66fac881be755324";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -736,7 +736,9 @@ function loadBetaInvitationProvisioningSuccessorContract(root, head) {
       addition?.version !== "20261101084703" ||
       addition?.path !== "supabase/migrations/20261101084703_forge_beta_invitation_provisioning.sql" ||
       addition?.sha256 !== "874191695f41999ff77244dbf549d20611b1018f3991b728a38b1e7003bbe389" ||
-      contract.catalogSuccessor?.status !== "pending_local_materialization" ||
+      contract.catalogSuccessor?.fileSha256 !== "8d06ab33528512e089b53222ee6d6f07166a89ced42d1f4cf18ce42b91d78417" ||
+      contract.catalogSuccessor?.objectCount !== 16605 ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "641c8fb3523027636ec0e09f94798d3cc2b580f4268836d33d39ec54b91c7c1e" ||
       contract.rejectAdditionalProtectedPathChanges !== true) {
     throw new Error("Beta invitation-provisioning successor contract has an invalid predecessor or shared-tail addition.");
   }

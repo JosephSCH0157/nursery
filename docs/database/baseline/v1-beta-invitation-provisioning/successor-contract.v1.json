@@ -45,7 +45,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-beta-invitation-provisioning/successor-catalog-fingerprint.json",
-    "status": "pending_local_materialization"
+    "fileSha256": "8d06ab33528512e089b53222ee6d6f07166a89ced42d1f4cf18ce42b91d78417",
+    "objectCount": 16605,
+    "normalizedContractSha256": "641c8fb3523027636ec0e09f94798d3cc2b580f4268836d33d39ec54b91c7c1e"
   },
   "inactivityContract": {
     "admissionEnforcementActivated": false,

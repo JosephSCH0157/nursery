@@ -99,8 +99,10 @@ $restrictive_defaults$
   }
 
   $container = "supabase_db_$projectId"
+  $successorParityPath = Join-Path $workdir 'beta-invitation-public-slice-a-catalog-parity.sql'
+  & (Join-Path $repo 'scripts/new-beta-invitation-public-slice-a-parity.ps1') -OutputPath $successorParityPath -RepositoryRoot $repo | Out-Null
   foreach ($test in @(
-    'supabase/tests/public_slice_a_catalog_parity.sql',
+    $successorParityPath,
     'supabase/tests/public_slice_a_security_behavior.sql',
     'supabase/tests/gate6o_episode_storage_tier_contract.sql'
     'supabase/tests/gate6p_storage_bucket_contract.sql'
@@ -109,7 +111,7 @@ $restrictive_defaults$
     'supabase/tests/account_admission_authority.sql'
     'supabase/tests/beta_invitation_provisioning.sql'
   )) {
-    $source = Join-Path $repo $test
+    $source = if ([IO.Path]::IsPathFullyQualified($test)) { $test } else { Join-Path $repo $test }
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
     & docker cp $source "${container}:$target"
     if ($LASTEXITCODE -ne 0) { throw "Unable to copy $test into the disposable database." }
