@@ -9,6 +9,118 @@ export type Json =
 export type Database = {
   tongs: {
     Tables: {
+      account_admission_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          operation_id: string
+          origin_application_id: string | null
+          origin_kind: string
+          origin_legacy_user_id: string | null
+          reason: string
+          revision: number
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          operation_id: string
+          origin_application_id?: string | null
+          origin_kind: string
+          origin_legacy_user_id?: string | null
+          reason: string
+          revision: number
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          operation_id?: string
+          origin_application_id?: string | null
+          origin_kind?: string
+          origin_legacy_user_id?: string | null
+          reason?: string
+          revision?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_admission_events_origin_application_id_fkey"
+            columns: ["origin_application_id"]
+            isOneToOne: false
+            referencedRelation: "beta_access_identity_bindings"
+            referencedColumns: ["application_id"]
+          },
+          {
+            foreignKeyName: "account_admission_events_origin_legacy_user_id_fkey"
+            columns: ["origin_legacy_user_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_account_admission_cohort"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      account_admissions: {
+        Row: {
+          current_event_id: string
+          effective_state: string
+          event_revision: number
+          origin_application_id: string | null
+          origin_kind: string
+          origin_legacy_user_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          current_event_id: string
+          effective_state: string
+          event_revision: number
+          origin_application_id?: string | null
+          origin_kind: string
+          origin_legacy_user_id?: string | null
+          updated_at: string
+          user_id: string
+        }
+        Update: {
+          current_event_id?: string
+          effective_state?: string
+          event_revision?: number
+          origin_application_id?: string | null
+          origin_kind?: string
+          origin_legacy_user_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_admissions_current_event_id_fkey"
+            columns: ["current_event_id"]
+            isOneToOne: true
+            referencedRelation: "account_admission_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_admissions_origin_application_id_fkey"
+            columns: ["origin_application_id"]
+            isOneToOne: false
+            referencedRelation: "beta_access_identity_bindings"
+            referencedColumns: ["application_id"]
+          },
+          {
+            foreignKeyName: "account_admissions_origin_legacy_user_id_fkey"
+            columns: ["origin_legacy_user_id"]
+            isOneToOne: false
+            referencedRelation: "legacy_account_admission_cohort"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       account_authority_classification_events: {
         Row: {
           account_class: string
@@ -3892,6 +4004,174 @@ export type Database = {
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      beta_access_application_decisions: {
+        Row: {
+          actor_id: string
+          application_id: string
+          created_at: string
+          decision: string
+          id: string
+          operation_id: string
+          reason: string
+          revision: number
+        }
+        Insert: {
+          actor_id: string
+          application_id: string
+          created_at?: string
+          decision: string
+          id?: string
+          operation_id: string
+          reason: string
+          revision: number
+        }
+        Update: {
+          actor_id?: string
+          application_id?: string
+          created_at?: string
+          decision?: string
+          id?: string
+          operation_id?: string
+          reason?: string
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "beta_access_application_decisions_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "beta_access_applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      beta_access_applications: {
+        Row: {
+          applicant_email_normalized: string
+          application_snapshot: Json
+          id: string
+          received_at: string
+          source: string
+          source_payload_sha256: string
+          source_reference: string
+          submitted_at: string
+        }
+        Insert: {
+          applicant_email_normalized: string
+          application_snapshot: Json
+          id?: string
+          received_at?: string
+          source?: string
+          source_payload_sha256: string
+          source_reference: string
+          submitted_at: string
+        }
+        Update: {
+          applicant_email_normalized?: string
+          application_snapshot?: Json
+          id?: string
+          received_at?: string
+          source?: string
+          source_payload_sha256?: string
+          source_reference?: string
+          submitted_at?: string
+        }
+        Relationships: []
+      }
+      beta_access_identity_bindings: {
+        Row: {
+          application_id: string
+          bound_at: string
+          bound_by: string
+          operation_id: string
+          user_id: string
+        }
+        Insert: {
+          application_id: string
+          bound_at?: string
+          bound_by: string
+          operation_id: string
+          user_id: string
+        }
+        Update: {
+          application_id?: string
+          bound_at?: string
+          bound_by?: string
+          operation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "beta_access_identity_bindings_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: true
+            referencedRelation: "beta_access_applications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      beta_access_invitation_events: {
+        Row: {
+          actor_id: string
+          application_id: string
+          attempt_id: string
+          auth_user_id: string | null
+          created_at: string
+          decision_revision: number
+          event_sequence: number
+          event_type: string
+          id: string
+          identity_disposition: string | null
+          lease_expires_at: string | null
+          lease_token_sha256: string | null
+          operation_id: string
+          outcome_code: string | null
+          reason: string
+        }
+        Insert: {
+          actor_id: string
+          application_id: string
+          attempt_id: string
+          auth_user_id?: string | null
+          created_at?: string
+          decision_revision: number
+          event_sequence: number
+          event_type: string
+          id?: string
+          identity_disposition?: string | null
+          lease_expires_at?: string | null
+          lease_token_sha256?: string | null
+          operation_id: string
+          outcome_code?: string | null
+          reason: string
+        }
+        Update: {
+          actor_id?: string
+          application_id?: string
+          attempt_id?: string
+          auth_user_id?: string | null
+          created_at?: string
+          decision_revision?: number
+          event_sequence?: number
+          event_type?: string
+          id?: string
+          identity_disposition?: string | null
+          lease_expires_at?: string | null
+          lease_token_sha256?: string | null
+          operation_id?: string
+          outcome_code?: string | null
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "beta_access_invitation_events_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "beta_access_applications"
             referencedColumns: ["id"]
           },
         ]
@@ -14139,6 +14419,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      legacy_account_admission_cohort: {
+        Row: {
+          captured_at: string
+          migration_version: string
+          user_id: string
+        }
+        Insert: {
+          captured_at?: string
+          migration_version?: string
+          user_id: string
+        }
+        Update: {
+          captured_at?: string
+          migration_version?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       legacy_credit_conversion_mappings: {
         Row: {
@@ -34375,6 +34673,45 @@ export type Database = {
         Args: { p_left: number; p_right: number }
         Returns: number
       }
+      _append_beta_access_invitation_event: {
+        Args: {
+          p_actor_id: string
+          p_application_id: string
+          p_attempt_id: string
+          p_auth_user_id: string
+          p_decision_revision: number
+          p_event_type: string
+          p_identity_disposition: string
+          p_lease_expires_at: string
+          p_lease_token_sha256: string
+          p_operation_id: string
+          p_outcome_code: string
+          p_reason: string
+        }
+        Returns: {
+          actor_id: string
+          application_id: string
+          attempt_id: string
+          auth_user_id: string | null
+          created_at: string
+          decision_revision: number
+          event_sequence: number
+          event_type: string
+          id: string
+          identity_disposition: string | null
+          lease_expires_at: string | null
+          lease_token_sha256: string | null
+          operation_id: string
+          outcome_code: string | null
+          reason: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "beta_access_invitation_events"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       _assert_accounting_event_balanced: {
         Args: { p_event_id: string }
         Returns: undefined
@@ -34478,6 +34815,16 @@ export type Database = {
       _available_deposit_value_micros: {
         Args: { p_deposit_id: string }
         Returns: number
+      }
+      _bind_beta_access_application_core: {
+        Args: {
+          p_actor_id: string
+          p_application_id: string
+          p_operation_id: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       _create_accounting_event: {
         Args: {
@@ -34851,6 +35198,10 @@ export type Database = {
         Args: { p_batch_id: string }
         Returns: Json
       }
+      _provision_bound_beta_account: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       _published_pricing_revision: {
         Args: { p_provider: string; p_sku: string }
         Returns: {
@@ -35107,6 +35458,7 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      account_admission_authority_version: { Args: never; Returns: string }
       acknowledge_hammer_editorial_authority: {
         Args: {
           p_canonical_recording_id: string
@@ -36667,6 +37019,27 @@ export type Database = {
         Args: { p_current_period_end: string; p_status: string }
         Returns: boolean
       }
+      bind_beta_access_application: {
+        Args: {
+          p_application_id: string
+          p_operation_id: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      bind_beta_access_application_as_operator: {
+        Args: {
+          p_actor_id: string
+          p_application_id: string
+          p_attempt_id: string
+          p_binding_operation_id: string
+          p_journal_operation_id: string
+          p_reason: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       bind_bounded_provider_quote_request: {
         Args: {
           p_bounded_input_tokens: number
@@ -36725,6 +37098,19 @@ export type Database = {
           p_tokenizer_input_tokens: number
           p_tokenizer_revision: string
           p_utf8_byte_token_upper_bound: number
+        }
+        Returns: Json
+      }
+      bind_existing_beta_access_application_as_operator: {
+        Args: {
+          p_acknowledgement_operation_id: string
+          p_actor_id: string
+          p_application_id: string
+          p_attempt_id: string
+          p_binding_operation_id: string
+          p_journal_operation_id: string
+          p_reason: string
+          p_user_id: string
         }
         Returns: Json
       }
@@ -36878,6 +37264,17 @@ export type Database = {
           p_preference_revision: number
           p_trigger: string
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      claim_beta_invitation_dispatch: {
+        Args: {
+          p_actor_id: string
+          p_application_id: string
+          p_attempt_id: string
+          p_lease_expires_at: string
+          p_lease_token_sha256: string
+          p_operation_id: string
         }
         Returns: Json
       }
@@ -38698,6 +39095,15 @@ export type Database = {
           name: string
         }[]
       }
+      decide_beta_access_application: {
+        Args: {
+          p_application_id: string
+          p_decision: string
+          p_operation_id: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       decide_thumbnail_candidate_historical_brand: {
         Args: {
           p_active_binding_id: string
@@ -39429,6 +39835,25 @@ export type Database = {
         }
         Returns: Json
       }
+      ingest_beta_access_application: {
+        Args: {
+          p_creator_type: string
+          p_email: string
+          p_frequency: string
+          p_frustrations?: string
+          p_goals: string
+          p_name: string
+          p_notes?: string
+          p_payload_sha256: string
+          p_source_reference: string
+          p_submitted_at?: string
+          p_teleprompter_used?: string
+        }
+        Returns: {
+          application_id: string
+          disposition: string
+        }[]
+      }
       ingest_thumbnail_performance_observation: {
         Args: {
           p_audience_segment: string
@@ -39528,6 +39953,7 @@ export type Database = {
         }
         Returns: Json
       }
+      is_account_admitted: { Args: { p_user_id: string }; Returns: boolean }
       is_hammer_history_component_authority: {
         Args: { p_authority: Json }
         Returns: boolean
@@ -39566,6 +39992,44 @@ export type Database = {
           p_workspace_id: string
         }
         Returns: Json
+      }
+      list_beta_access_applications: {
+        Args: { p_decision?: string; p_limit?: number }
+        Returns: {
+          applicant_email: string
+          application_id: string
+          application_snapshot: Json
+          bound_user_id: string
+          current_decision: string
+          decision_revision: number
+          effective_admission_state: string
+          submitted_at: string
+        }[]
+      }
+      list_beta_invitation_applications: {
+        Args: {
+          p_before_application_id?: string
+          p_before_submitted_at?: string
+          p_limit?: number
+          p_state?: string
+        }
+        Returns: {
+          applicant_email: string
+          application_id: string
+          application_snapshot: Json
+          auth_identity_match_count: number
+          bound_user_id: string
+          current_decision: string
+          decision_revision: number
+          effective_admission_state: string
+          invitation_attempt_id: string
+          invitation_event_type: string
+          invitation_state: string
+          matched_auth_identity_confirmed: boolean
+          matched_auth_identity_invited_at: string
+          matched_auth_user_id: string
+          submitted_at: string
+        }[]
       }
       list_hearth_project_episodes: {
         Args: { p_project_id: string; p_workspace_id: string }
@@ -40666,6 +41130,7 @@ export type Database = {
         Returns: Json
       }
       read_my_accounting_balances: { Args: never; Returns: Json }
+      read_my_admission_onboarding: { Args: never; Returns: Json }
       read_my_ai_credit_quote: {
         Args: { p_quote_id: string }
         Returns: {
@@ -41193,6 +41658,30 @@ export type Database = {
           p_provider: string
           p_request_key: string
           p_run_id: string
+        }
+        Returns: Json
+      }
+      record_beta_invitation_binding_failure: {
+        Args: {
+          p_actor_id: string
+          p_application_id: string
+          p_attempt_id: string
+          p_auth_user_id: string
+          p_operation_id: string
+          p_outcome_code: string
+        }
+        Returns: Json
+      }
+      record_beta_invitation_dispatch: {
+        Args: {
+          p_actor_id: string
+          p_application_id: string
+          p_attempt_id: string
+          p_auth_user_id: string
+          p_lease_token: string
+          p_operation_id: string
+          p_outcome: string
+          p_outcome_code: string
         }
         Returns: Json
       }
@@ -43171,6 +43660,15 @@ export type Database = {
         }
         Returns: Json
       }
+      set_account_admission_state: {
+        Args: {
+          p_operation_id: string
+          p_reason: string
+          p_state: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       set_adaptive_style_features: {
         Args: {
           p_ai_accelerate_enabled: boolean
@@ -44086,3 +44584,4 @@ export const Constants = {
     },
   },
 } as const
+

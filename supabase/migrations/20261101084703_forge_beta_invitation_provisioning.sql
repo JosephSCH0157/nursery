@@ -599,7 +599,7 @@ declare
   v_journaled boolean;
   v_disposition text;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+  if auth.role() is distinct from 'service_role'
      or not tongs.is_platform_operator(p_actor_id) then
     raise exception 'platform operator service authority required' using errcode = '42501';
   end if;
@@ -784,7 +784,7 @@ declare
   v_email text;
   v_event_type text;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+  if auth.role() is distinct from 'service_role'
      or not tongs.is_platform_operator(p_actor_id) then
     raise exception 'platform operator service authority required' using errcode = '42501';
   end if;
@@ -915,7 +915,7 @@ declare
   v_result jsonb;
   v_event tongs.beta_access_invitation_events%rowtype;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+  if auth.role() is distinct from 'service_role'
      or not tongs.is_platform_operator(p_actor_id) then
     raise exception 'platform operator service authority required' using errcode = '42501';
   end if;
@@ -976,7 +976,7 @@ declare
   v_event tongs.beta_access_invitation_events%rowtype;
   v_result jsonb;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+  if auth.role() is distinct from 'service_role'
      or not tongs.is_platform_operator(p_actor_id) then
     raise exception 'platform operator service authority required' using errcode = '42501';
   end if;
@@ -1054,7 +1054,7 @@ declare
   v_first tongs.beta_access_invitation_events%rowtype;
   v_event tongs.beta_access_invitation_events%rowtype;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role'
+  if auth.role() is distinct from 'service_role'
      or not tongs.is_platform_operator(p_actor_id) then
     raise exception 'platform operator service authority required' using errcode = '42501';
   end if;

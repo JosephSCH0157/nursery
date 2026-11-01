@@ -7,17 +7,15 @@ export type BetaInvitationApplication = {
   submitted_at: string;
   current_decision: "pending" | "approved" | "denied";
   decision_revision: number | null;
-  invitation_state: string | null;
   invitation_attempt_id: string | null;
-  invitation_auth_user_id: string | null;
-  invitation_outcome_code: string | null;
-  exact_auth_match_count: number;
-  exact_auth_user_id: string | null;
-  exact_auth_email_confirmed: boolean | null;
-  exact_auth_invited_at: string | null;
+  invitation_event_type: string | null;
+  invitation_state: string;
+  auth_identity_match_count: number;
+  matched_auth_user_id: string | null;
+  matched_auth_identity_confirmed: boolean | null;
+  matched_auth_identity_invited_at: string | null;
   bound_user_id: string | null;
   effective_admission_state: string | null;
-  operator_state: string;
 };
 
 type RpcClient = {

@@ -13,7 +13,7 @@ function describeState(application: BetaInvitationApplication): string {
   if (application.effective_admission_state === "revoked") return "revoked";
   if (application.bound_user_id) return "bound";
   if (application.invitation_state === "dispatch_succeeded") return "invited";
-  return application.operator_state.replaceAll("_", " ");
+  return application.invitation_state.replaceAll("_", " ");
 }
 
 export default function PlatformAdmissions() {
@@ -69,7 +69,7 @@ export default function PlatformAdmissions() {
   }
 
   function acknowledge(application: BetaInvitationApplication) {
-    const exactUserId = application.exact_auth_user_id;
+    const exactUserId = application.matched_auth_user_id;
     if (!exactUserId) return;
     const confirmation = window.prompt(
       `Type the exact Auth UUID to acknowledge this confirmed identity:\n${exactUserId}`,
@@ -115,14 +115,14 @@ export default function PlatformAdmissions() {
               </div>
               <dl>
                 <div><dt>Decision</dt><dd>{application.current_decision}</dd></div>
-                <div><dt>Auth match</dt><dd>{application.exact_auth_match_count}</dd></div>
+                <div><dt>Auth match</dt><dd>{application.auth_identity_match_count}</dd></div>
                 <div><dt>Bound UUID</dt><dd>{application.bound_user_id ?? "—"}</dd></div>
                 <div><dt>Attempt</dt><dd>{application.invitation_attempt_id ?? "—"}</dd></div>
               </dl>
-              {application.exact_auth_user_id ? (
+              {application.matched_auth_user_id ? (
                 <p className="platform-admissions__identity">
-                  Exact Auth UUID: <code>{application.exact_auth_user_id}</code><br />
-                  Email confirmed: {application.exact_auth_email_confirmed ? "yes" : "no"}
+                  Exact Auth UUID: <code>{application.matched_auth_user_id}</code><br />
+                  Email confirmed: {application.matched_auth_identity_confirmed ? "yes" : "no"}
                 </p>
               ) : null}
               <div className="platform-admissions__actions">
@@ -133,13 +133,13 @@ export default function PlatformAdmissions() {
                   </>
                 ) : null}
                 {application.current_decision === "approved" && !application.bound_user_id
-                  && application.operator_state === "existing_confirmed_requires_ack" ? (
+                  && application.invitation_state === "confirmed_identity_review" ? (
                     <button disabled={isBusy} onClick={() => acknowledge(application)}>
                       Acknowledge exact UUID and bind
                     </button>
                   ) : null}
                 {application.current_decision === "approved" && !application.bound_user_id
-                  && application.operator_state !== "existing_confirmed_requires_ack" ? (
+                  && application.invitation_state !== "confirmed_identity_review" ? (
                     <button disabled={isBusy} onClick={() => dispatch(application)}>
                       {application.invitation_attempt_id ? "Reconcile / retry" : "Send beta invitation"}
                     </button>

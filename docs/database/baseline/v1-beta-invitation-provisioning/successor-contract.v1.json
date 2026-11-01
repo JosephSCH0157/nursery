@@ -16,7 +16,7 @@
   "sharedTailAddition": {
     "version": "20261101084703",
     "path": "supabase/migrations/20261101084703_forge_beta_invitation_provisioning.sql",
-    "sha256": "5414a87dac653c862f49720750c89c148694200a40c76279cc9da0213b30ae1c"
+    "sha256": "874191695f41999ff77244dbf549d20611b1018f3991b728a38b1e7003bbe389"
   },
   "historicalSuccessor": {
     "finalRows": 429,
