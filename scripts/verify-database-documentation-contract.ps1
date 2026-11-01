@@ -269,6 +269,8 @@ foreach ($command in @(
   'pnpm preflight:db:hammer-brad-first-transcription-authority:hosted',
   'pnpm test:db:account-admission-authority:hosted-deployment',
   'pnpm preflight:db:account-admission-authority:hosted',
+  'pnpm test:db:beta-invitation-provisioning:hosted-deployment',
+  'pnpm preflight:db:beta-invitation-provisioning:hosted',
   'prepare:db:recovery-evidence',
   'invoke-hammer-h2c-420-hosted-deployment.ps1',
   'invoke-hammer-first-transcription-421-hosted-deployment.ps1',
@@ -276,6 +278,7 @@ foreach ($command in @(
   'invoke-hammer-trigger-acl-hardening-423-hosted-deployment.ps1',
   'invoke-hammer-brad-first-transcription-authority-424-hosted-deployment.ps1',
   'invoke-forge-account-admission-authority-428-hosted-deployment.ps1',
+  'invoke-forge-beta-invitation-provisioning-429-hosted-deployment.ps1',
   'pnpm verify:db:historical-integrity',
   'pnpm supabase:types'
 )) {

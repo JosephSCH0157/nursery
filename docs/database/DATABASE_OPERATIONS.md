@@ -793,7 +793,7 @@ separately authorized whole-database recovery.
 
 ### Forge beta invitation and provisioning successor 429
 
-Migration `20261101084703` is the local-only Slice 2A successor to hosted
+Migration `20261101084703` is the Slice 2A forward-tail successor to hosted
 migration 428. It adds one forced-RLS, append-only invitation-event journal,
 service-only dispatch/binding RPCs, operator listing, exact-UUID collision
 acknowledgement, and admission-aware profile/workspace provisioning. The
@@ -845,9 +845,80 @@ pnpm certify:db:canonical-baseline
 pnpm certify:db:beta-invitation-provisioning:historical
 ```
 
-No hosted migration-429 procedure or Apply authorization exists in Slice 2A.
-Local certification is not authority to push, deploy, change Auth settings, or
-send production invitations.
+#### Governed hosted release for migration 429
+
+Migration 429 has a version-specific governed wrapper. The required release
+order is **database before application**. The Slice 2A application contains
+authenticated frontend calls to migration-429 RPCs; those calls fail closed on
+the hosted migration-428 schema, but an application-first deployment would
+still create avoidable failed requests and a manually entered invitation route
+could display a missing-RPC error. Applying migration 429 first is compatible
+with the currently published application because the migration does not remove
+an RPC used by that application, ordinary signup remains fail-open, invited
+identities are not created while the invitation endpoint is absent or disabled,
+and the new database authority is inactive until explicitly invoked.
+
+Before any hosted operation, run the wrapper policy tests and create fresh
+migration-specific recovery evidence using the procedure above:
+
+```powershell
+pnpm test:db:beta-invitation-provisioning:hosted-deployment
+pnpm preflight:db:beta-invitation-provisioning:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+The evidence `owner_approval_reference` must start with
+`FORGE-ADMISSION-S2A-429:` and include a non-empty, unique change-window suffix.
+Evidence used for migration 428 or another release is invalid. Preflight
+requires project `wtvdjndyxegudufrompx`, lineage `historical-v1`, exactly 428
+installed rows headed by `20261031123320`, migration `20261101084703` as the
+sole pending version, SHA-256
+`12989ba74c00c2bdc8a9d4c5d38ee4e3be3f1f4d23b9b0f8d2a1b145c7b7dbc7`,
+fresh release-specific recovery evidence, the enrolled managed credential, and
+Supabase CLI 2.84.2. It verifies immutable database artifacts, fingerprints
+pre-existing Auth, workspace, Storage, Realtime, admission, and financial
+authority, lists linked migrations, and performs only the exact dry run.
+
+Apply is a hosted schema write and requires separate owner authorization plus
+the exact migration-specific token:
+
+```powershell
+./scripts/invoke-forge-beta-invitation-provisioning-429-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-FORGE-BETA-INVITATION-PROVISIONING-429
+```
+
+The wrapper consumes the release-specific recovery evidence before permitting
+one normal linked `db push`; it has no retry, history-repair, `--include-all`,
+or historical-root reset path. An interrupted or failed Apply is ambiguous and
+must be followed by read-only hosted inspection and owner direction, never a
+blind second attempt.
+
+Immediate postflight requires 429 rows headed by `20261101084703`, the exact
+seven-table forced-RLS and twenty-two-function ownership/ACL contracts,
+effective-role rejection for unexpected inherited privileges, immutable journal
+triggers, journal-aware binding, an empty invitation journal, internally
+consistent admission projection, unchanged legacy cohort and application
+authority, unchanged Auth/workspace/Storage/Realtime authority, and unchanged
+financial/provider-attempt counters. It also proves runtime admission
+enforcement remains inactive. A later independent read-only check is:
+
+```powershell
+./scripts/invoke-forge-beta-invitation-provisioning-429-hosted-deployment.ps1 -Action PostVerify
+```
+
+PostVerify reports `netlifyConfigurationVerified=false` and
+`authConfigurationVerified=false`; it does not claim to inspect external
+Netlify or hosted Auth settings. Before publishing the application, separately
+verify that `FORGE_BETA_INVITATIONS_ENABLED` and `FORGE_BETA_INTAKE_ENABLED`
+remain absent or false. Then publish through the Git-backed `main` deployment,
+verify the exact deployed commit and application health, and leave invitation
+dispatch disabled until a separately authorized activation. Local certification
+does not authorize any hosted Apply, Git push, deployment, Auth change, or
+invitation dispatch.
 
 ### Automated Hammer capacity evidence and authority renewal
 
