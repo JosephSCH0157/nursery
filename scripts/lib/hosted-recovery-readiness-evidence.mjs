@@ -30,12 +30,14 @@ export function buildRecoveryReadinessEvidence(input, now = new Date()) {
   if (input.unrelatedDataImpactAcknowledged !== true) {
     throw new Error("unrelated_data_impact_acknowledgement_required");
   }
+  const backupKind = requireString(input.backupKind, "backup_kind");
+  if (!new Set(["daily", "pitr"]).has(backupKind)) throw new Error("backup_kind_invalid");
 
   const evidence = {
     schema: RECOVERY_EVIDENCE_V1,
     project_ref: FORGE_PROJECT_REF,
     dashboard_verified: true,
-    backup_kind: requireString(input.backupKind, "backup_kind"),
+    backup_kind: backupKind,
     verified_at: requireString(input.verifiedAt, "verified_at"),
     latest_restorable_at: requireString(input.latestRestorableAt, "latest_restorable_at"),
     recovery_operator: requireString(input.recoveryOperator, "recovery_operator"),

@@ -36,6 +36,19 @@ test("builds the exact validated recovery-readiness contract", () => {
   assert.equal(evidence.latest_restorable_at, "2026-10-28T06:27:08.354Z");
 });
 
+test("accepts only the exact v1 daily and pitr backup kinds", () => {
+  const daily = goodInput();
+  assert.equal(buildRecoveryReadinessEvidence(daily, now).backup_kind, "daily");
+
+  const pitr = goodInput();
+  pitr.backupKind = "pitr";
+  assert.equal(buildRecoveryReadinessEvidence(pitr, now).backup_kind, "pitr");
+
+  const unsupported = goodInput();
+  unsupported.backupKind = "snapshot";
+  assert.throws(() => buildRecoveryReadinessEvidence(unsupported, now), /backup_kind_invalid/);
+});
+
 test("a timestamp alone never claims Dashboard verification", () => {
   const input = goodInput();
   input.dashboardVerifiedAttestation = false;
