@@ -32,7 +32,7 @@ insert into tongs.account_admission_events(
 
 do $$
 begin
-  if tongs.account_admission_enforcement_version() <> 'forge.account-admission-enforcement.v1' then
+  if tongs.account_admission_enforcement_version() <> 'forge.account-admission-enforcement.v2' then
     raise exception 'unexpected admission enforcement contract';
   end if;
   if not exists (
