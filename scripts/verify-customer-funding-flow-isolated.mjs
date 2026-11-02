@@ -197,8 +197,8 @@ select json_build_object(
   const expected = {
     lineage: "baseline-v1",
     lineage_count: 1,
-    migration_count: 17,
-    latest_migration: "20261101201817",
+    migration_count: 18,
+    latest_migration: "20261102032722",
     historical_alignment_count: 0,
     contract_version: "forge.customer-funding.v4",
     function_sha256: customerFundingV4FunctionSha256,

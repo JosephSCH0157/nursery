@@ -230,7 +230,7 @@ export async function runCurrentAuthorityReservationConcurrency() {
         'migration_head',(select max(version) from supabase_migrations.schema_migrations)
       )::text;
     `));
-    if (lineage.lineage !== "baseline-v1" || lineage.lineage_count !== 1 || lineage.migration_count !== 17 || lineage.migration_head !== "20261101201817") {
+    if (lineage.lineage !== "baseline-v1" || lineage.lineage_count !== 1 || lineage.migration_count !== 18 || lineage.migration_head !== "20261102032722") {
       throw new Error(`Canonical B1 lineage mismatch: ${JSON.stringify(lineage)}`);
     }
 
