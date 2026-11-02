@@ -52,9 +52,11 @@ export function readAdmissionGuardRuntime(
 ): AdmissionGuardRuntime {
   return {
     enabled: environment[ADMISSION_ENFORCEMENT_FLAG]?.trim().toLowerCase() === "true",
-    supabaseUrl: environment.SUPABASE_URL?.trim()
+    supabaseUrl: environment.TONGS_SUPABASE_URL?.trim()
+      || environment.SUPABASE_URL?.trim()
       || environment.VITE_SUPABASE_URL?.trim(),
-    serviceRoleKey: environment.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+    serviceRoleKey: environment.TONGS_SERVICE_ROLE_KEY?.trim()
+      || environment.SUPABASE_SERVICE_ROLE_KEY?.trim(),
   };
 }
 

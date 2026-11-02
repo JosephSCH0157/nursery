@@ -49,6 +49,93 @@ test("server admission guard is disabled unless the exact flag is true", async (
   assert.equal(nextCalls, 1);
 });
 
+test("admission runtime resolves Tongs credentials first and preserves Supabase fallbacks", () => {
+  const tongsOnly = readAdmissionGuardRuntime({
+    FORGE_ADMISSION_ENFORCEMENT_ENABLED: "true",
+    TONGS_SUPABASE_URL: "https://tongs-only.supabase.test",
+    TONGS_SERVICE_ROLE_KEY: "tongs-test-service-key",
+  });
+  assert.equal(tongsOnly.enabled, true);
+  assert.equal(tongsOnly.supabaseUrl, "https://tongs-only.supabase.test");
+  assert.equal(tongsOnly.serviceRoleKey, "tongs-test-service-key");
+
+  const both = readAdmissionGuardRuntime({
+    FORGE_ADMISSION_ENFORCEMENT_ENABLED: "true",
+    TONGS_SUPABASE_URL: "https://preferred-tongs.supabase.test",
+    TONGS_SERVICE_ROLE_KEY: "preferred-tongs-test-key",
+    SUPABASE_URL: "https://fallback-standard.supabase.test",
+    VITE_SUPABASE_URL: "https://fallback-browser.supabase.test",
+    SUPABASE_SERVICE_ROLE_KEY: "fallback-standard-test-key",
+  });
+  assert.equal(both.supabaseUrl, "https://preferred-tongs.supabase.test");
+  assert.equal(both.serviceRoleKey, "preferred-tongs-test-key");
+
+  const standard = readAdmissionGuardRuntime({
+    FORGE_ADMISSION_ENFORCEMENT_ENABLED: "true",
+    SUPABASE_URL: "https://standard.supabase.test",
+    SUPABASE_SERVICE_ROLE_KEY: "standard-test-service-key",
+  });
+  assert.equal(standard.supabaseUrl, "https://standard.supabase.test");
+  assert.equal(standard.serviceRoleKey, "standard-test-service-key");
+});
+
+test("enabled guard fails closed when database configuration is missing", async () => {
+  let nextCalls = 0;
+  const result = await withAdmissionEnforcement(
+    request({ authorization: "Bearer customer-token" }),
+    "new_customer_operation",
+    async () => { nextCalls += 1; return new Response("must-not-run"); },
+    readAdmissionGuardRuntime({ FORGE_ADMISSION_ENFORCEMENT_ENABLED: "true" }),
+  );
+  assert.equal(result.status, 503);
+  assert.equal((await result.json()).error, "admission_guard_unavailable");
+  assert.equal(nextCalls, 0);
+});
+
+test("enabled Tongs-only runtime admits the canonical UUID and rejects an unadmitted UUID", async () => {
+  const tongsOnly = readAdmissionGuardRuntime({
+    FORGE_ADMISSION_ENFORCEMENT_ENABLED: "true",
+    TONGS_SUPABASE_URL: "https://tongs-only.supabase.test",
+    TONGS_SERVICE_ROLE_KEY: "tongs-test-service-key",
+  });
+  const admittedCalls: string[] = [];
+  let admittedNextCalls = 0;
+  const admitted = await withAdmissionEnforcement(
+    request({ authorization: "Bearer admitted-token" }),
+    "new_customer_operation",
+    async () => { admittedNextCalls += 1; return new Response("ok"); },
+    { ...tongsOnly, dependencies: dependencies({ calls: admittedCalls }) },
+  );
+  assert.equal(admitted.status, 200);
+  assert.equal(admittedNextCalls, 1);
+  assert.deepEqual(admittedCalls, [
+    "auth:admitted-token",
+    "admission:11111111-1111-4111-8111-111111111111",
+  ]);
+
+  const unadmittedCalls: string[] = [];
+  let unadmittedNextCalls = 0;
+  const unadmitted = await withAdmissionEnforcement(
+    request({ authorization: "Bearer unadmitted-token" }),
+    "new_customer_operation",
+    async () => { unadmittedNextCalls += 1; return new Response("must-not-run"); },
+    {
+      ...tongsOnly,
+      dependencies: dependencies({
+        calls: unadmittedCalls,
+        rpcError: { code: "42501", message: "account admission required" },
+      }),
+    },
+  );
+  assert.equal(unadmitted.status, 403);
+  assert.equal((await unadmitted.json()).error, "account_admission_required");
+  assert.equal(unadmittedNextCalls, 0);
+  assert.deepEqual(unadmittedCalls, [
+    "auth:unadmitted-token",
+    "admission:11111111-1111-4111-8111-111111111111",
+  ]);
+});
+
 test("trusted existing/recovery/public classifications bypass only the prepared server guard", async () => {
   for (const operationClass of [
     "existing_authorized_operation",
