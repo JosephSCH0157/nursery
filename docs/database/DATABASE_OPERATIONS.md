@@ -1045,6 +1045,94 @@ does not authorize Apply, Git push, deployment, admission activation, Auth
 changes, invitation dispatch, intake activation, backfill, or financial
 activation.
 
+### Account-admission activation-preparation successor 431
+
+Migration `20261102032722` is the inactive Slice 2C preparation successor to
+hosted migration 430. It replaces only the prepared admission-contract version
+function and the unregistered PostgREST pre-request function. It does not
+register `pgrst.db_pre_request`, create a Data API, Storage, or Realtime policy,
+persist the financial admission setting, close signup, change Auth providers,
+or activate server/frontend enforcement.
+
+The required release order is **database before coordinated activation**.
+Installing migration 431 is compatible with the currently published
+application because the pre-request function remains unregistered and every
+admission-enforcement flag remains disabled by default. The activation and
+deactivation SQL files are pinned release inputs but are never executed by this
+migration wrapper.
+
+Bellows remains an explicit limited public guest-signaling exception. A holder
+of a valid join capability receives the existing bounded session metadata
+documented in `docs/admission/ADMISSION_ACTIVATION_CONTRACT.md`, and can use the
+public Broadcast/Presence channel only for ephemeral signaling. Revoking a join
+link prevents a new resolution but does not immediately disconnect an already
+connected public Realtime participant. Migration 431 does not change that
+behavior or grant Data API, Storage, credential, workspace, financial, or
+provider authority through Bellows.
+
+Before any hosted operation, run the focused policy tests and create fresh v2
+Management API recovery evidence:
+
+```powershell
+pnpm test:db:account-admission-activation-preparation:hosted-deployment
+pnpm preflight:db:account-admission-activation-preparation:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+The evidence must be stored under `.git/forge-private-evidence`, use schema
+`forge.hosted-recovery-readiness.v2`, and have an `owner_approval_reference`
+beginning `FORGE-ADMISSION-S2C-431:` followed by a non-empty, unique change
+window. The wrapper independently refreshes the exact completed backup through
+the authenticated Supabase Management API. Dashboard-only v1 evidence, evidence
+for an earlier migration, stale observations, and consumed change windows are
+rejected.
+
+Preflight requires project `wtvdjndyxegudufrompx`, lineage `historical-v1`,
+exactly 430 installed migrations headed by `20261101201817`, migration
+`20261102032722` as the sole pending version, SHA-256
+`12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb`,
+Supabase CLI 2.84.2, and the managed read/database credentials. It verifies the
+migration-430 database predecessor contract directly, captures protected Auth,
+workspace, Storage, Realtime, admission, platform-operator, and financial
+authority, lists linked migrations, and performs only the exact dry run.
+
+Apply is a hosted schema write and requires separate owner authorization plus
+the exact migration-specific token:
+
+```powershell
+./scripts/invoke-forge-account-admission-activation-preparation-431-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-FORGE-ADMISSION-ACTIVATION-PREPARATION-431
+```
+
+The wrapper consumes the migration-431 change window before one normal linked
+`db push`. It has no retry, `--include-all`, history repair, historical-root
+reset, activation-SQL execution, or deactivation-SQL execution path. An
+interrupted or failed Apply is ambiguous and requires read-only hosted
+inspection and new owner direction; never retry blindly.
+
+Immediate PostVerify requires exactly 431 migrations headed by
+`20261102032722`; contract version v2; exact function ownership, search paths,
+ACLs, effective-role boundaries, and six exception paths; unchanged financial
+guards; no registered pre-request hook; and no installed Data API, Storage, or
+Realtime admission policy. It also compares pre/post Auth, workspace, legacy,
+admission, invitation, platform-operator, Storage, Realtime, and
+financial/provider-attempt snapshots. A later standalone read-only check is:
+
+```powershell
+./scripts/invoke-forge-account-admission-activation-preparation-431-hosted-deployment.ps1 -Action PostVerify
+```
+
+Standalone PostVerify proves current structure and inactivity but cannot replace
+the immediate Apply-time snapshot comparison. Its receipt does not claim to
+inspect Netlify or hosted Auth configuration. Migration 431 installation does
+not authorize coordinated activation, signup closure, deployment, canary-user
+creation, invitation dispatch, intake activation, backfill, or financial
+activation.
+
 ### Automated Hammer capacity evidence and authority renewal
 
 Migration 427 remains the only authority-renewal mechanism. The operator helper
