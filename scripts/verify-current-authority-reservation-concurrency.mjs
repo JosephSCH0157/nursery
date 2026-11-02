@@ -27,7 +27,7 @@ const reviewedArtifacts = new Map([
 ]);
 
 // Updated only after review of the fixture itself. A mismatch stops before Docker.
-const fixtureSha256 = "262f40ac432757877941aba90467829e86e5f1f1fb0c2d6db313130252ae61c6";
+const fixtureSha256 = "f117a9c55825ac3e500b3c4e9f37248710b9c746df7816553d53803c0b305209";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
