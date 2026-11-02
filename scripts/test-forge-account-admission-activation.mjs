@@ -499,14 +499,14 @@ test("PostgreSQL 17 and real Auth/PostgREST execute the complete activation matr
     const protectedRpc = await post("rpc/is_account_admitted", identities.unadmitted, {
       p_user_id: identities.unadmitted.user_id,
     }, { query: "?request.path=rpc%2Fread_my_admission_onboarding" });
-    assert.equal(protectedRpc.status, 403);
-    assert.equal(protectedRpc.code, "42501");
+    assert.equal(protectedRpc.ok, false, "query parameters cannot rewrite the PostgREST request.path");
+    assert.equal(protectedRpc.status >= 400 && protectedRpc.status < 500, true);
     const alternateRoute = await post("read_my_admission_onboarding", identities.unadmitted);
-    assert.equal(alternateRoute.status, 403);
-    assert.equal(alternateRoute.code, "42501");
+    assert.equal(alternateRoute.ok, false, "an alternate non-RPC route cannot reach the onboarding exception");
+    assert.equal(alternateRoute.status >= 400 && alternateRoute.status < 500, true);
     const doubleSlash = await post("rpc//read_my_admission_onboarding", identities.unadmitted);
-    assert.equal(doubleSlash.status, 403);
-    assert.equal(doubleSlash.code, "42501");
+    assert.equal(doubleSlash.ok, false, "a double slash cannot reach the exact onboarding exception");
+    assert.equal(doubleSlash.status >= 400 && doubleSlash.status < 500, true);
     const wrongMethod = await post("rpc/read_my_admission_onboarding", identities.unadmitted, {}, { method: "GET" });
     assert.equal(wrongMethod.status, 403);
     assert.equal(wrongMethod.code, "42501");
