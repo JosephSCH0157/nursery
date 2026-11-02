@@ -1267,7 +1267,8 @@ The activation procedure is defined by [ADMISSION_ACTIVATION_CONTRACT.md](../adm
   -Action Preflight `
   -Operator <named-operator> `
   -ApplicationCommit <reviewed-commit> `
-  -RecoveryEvidencePath <private-v2-evidence>
+  -RecoveryEvidencePath <private-v2-evidence> `
+  -RuntimeProbeBundlePath <private-four-identity-probe-bundle>
 ```
 
 Only a separately authorized activation may add the exact token:
@@ -1278,10 +1279,21 @@ Only a separately authorized activation may add the exact token:
   -Operator <named-operator> `
   -ApplicationCommit <reviewed-commit> `
   -RecoveryEvidencePath <private-v2-evidence> `
+  -RuntimeProbeBundlePath <private-four-identity-probe-bundle> `
   -Authorization ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1
 ```
 
-The wrapper performs exactly one atomic SQL activation and immediate PostVerify. It rejects a stale/reused recovery window, wrong project/lineage/head/catalog/surface, application/remote/deploy mismatch, open public signup, disabled application guards, enabled intake, policy drift, or legacy/projection/financial-authority fingerprint drift. It never changes Netlify or Auth configuration itself.
+The wrapper performs exactly one atomic SQL activation and immediate PostVerify. It rejects a stale/reused recovery window, wrong project/lineage/head/catalog/surface, application/remote/deploy mismatch, open public signup, disabled application guards, enabled intake, policy drift, legacy/projection/financial-authority fingerprint drift, or missing/incomplete authenticated runtime probes. The runtime-probe bundle must be private under `.git/forge-private-evidence`, fresh for the change window, and contain four distinct project-bound Auth access tokens representing admitted, unadmitted, revoked, and unadmitted-operator states. Preflight independently validates those tokens and states; PostVerify then performs real PostgREST requests through the active hook. Service-role or simulated-role requests cannot substitute. If representative hosted identities or tokens are unavailable, Preflight reports `BLOCKED`. The wrapper never creates identities or changes Netlify, Auth, admission, or customer data itself.
+
+Standalone active-state verification also requires the same fresh bundle:
+
+```powershell
+./scripts/invoke-forge-account-admission-activation.ps1 `
+  -Action PostVerify `
+  -Operator <named-operator> `
+  -ApplicationCommit <reviewed-commit> `
+  -RuntimeProbeBundlePath <private-four-identity-probe-bundle>
+```
 
 Emergency deactivation is also separately authorized. Keep application/server enforcement enabled until the database is certified inactive:
 

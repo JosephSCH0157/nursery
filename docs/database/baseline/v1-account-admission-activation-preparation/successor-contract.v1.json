@@ -16,7 +16,7 @@
   "sharedTailAddition": {
     "version": "20261102032722",
     "path": "supabase/migrations/20261102032722_forge_admission_activation_preparation.sql",
-    "sha256": "9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af"
+    "sha256": "12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb"
   },
   "historicalSuccessor": {
     "finalRows": 431,
@@ -47,9 +47,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json",
-    "fileSha256": "82bee644ec7599e80d4f96f2af92c893fe580e115bce4e226830665ea67fa113",
+    "fileSha256": "4c67a795b90f77f98107a7ea809a3ac69367c8e7fedbdbecc6471e7d3023f803",
     "objectCount": 16612,
-    "normalizedContractSha256": "39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8"
+    "normalizedContractSha256": "a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1"
   },
   "inactivityContract": {
     "admissionEnforcementActivated": false,

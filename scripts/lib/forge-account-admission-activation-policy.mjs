@@ -3,14 +3,15 @@ import {
   validateHostedRecoveryEvidence,
 } from "./hosted-recovery-readiness-policy.mjs";
 import { validateAdmissionActivationExternalState } from "./forge-account-admission-activation-external-state.mjs";
+import { validateRuntimeProbeReceipt } from "./forge-account-admission-runtime-probes.mjs";
 
 export const ACTIVATION_PROJECT_REF = "wtvdjndyxegudufrompx";
 export const ACTIVATION_LINEAGE = "historical-v1";
 export const ACTIVATION_MIGRATION_COUNT = 431;
 export const ACTIVATION_MIGRATION_HEAD = "20261102032722";
-export const ACTIVATION_MIGRATION_SHA256 = "9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af";
+export const ACTIVATION_MIGRATION_SHA256 = "12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb";
 export const ACTIVATION_CATALOG_OBJECT_COUNT = 16612;
-export const ACTIVATION_CATALOG_SHA256 = "39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8";
+export const ACTIVATION_CATALOG_SHA256 = "a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1";
 export const ACTIVATION_RELATION_COUNT = 259;
 export const ACTIVATION_RELATION_SHA256 = "575e52fa85bf79dafa30eee4aba95f7396b5559c0183d8b205eee110837d31f0";
 export const ACTIVATION_FUNCTION_COUNT = 492;
@@ -91,10 +92,6 @@ function validateActive(state) {
   exact(state.dataApiPolicyContractValid, true, "data_api_policy_contract");
   exact(state.storagePolicyContractValid, true, "storage_policy_contract");
   exact(state.financialTransactionGuardValid, true, "financial_transaction_guard");
-  exact(state.admittedProbeAllowed, true, "admitted_probe");
-  exact(state.unadmittedProbeDenied, true, "unadmitted_probe");
-  exact(state.revokedProbeDenied, true, "revoked_probe");
-  exact(state.operatorCustomerProbeDenied, true, "operator_customer_probe");
 }
 
 export function validateActivationRecoveryEvidence(evidence, now, apiObservation) {
@@ -115,7 +112,34 @@ export function validateActivationAction(state, options = {}) {
   const operator = required(options.operator, "operator");
   if (action === "Preflight" || action === "Activate" || action === "PostDeactivate") validateInactive(state);
   if (action === "PostVerify" || action === "Deactivate") validateActive(state);
+  let runtimeProbeReceipt = null;
+  if (action === "Preflight" || action === "Activate") {
+    runtimeProbeReceipt = validateRuntimeProbeReceipt(state.runtimeProbeReadiness, {
+      projectRef: ACTIVATION_PROJECT_REF,
+      environment: "hosted",
+      mode: "preflight",
+      now: options.now ?? new Date(),
+    });
+  }
+  if (action === "PostVerify") {
+    runtimeProbeReceipt = validateRuntimeProbeReceipt(state.runtimeProbeExecution, {
+      projectRef: ACTIVATION_PROJECT_REF,
+      environment: "hosted",
+      mode: "active",
+      now: options.now ?? new Date(),
+    });
+  }
   if (action === "Activate") exact(options.authorization, ACTIVATE_AUTHORIZATION, "activation_authorization");
   if (action === "Deactivate") exact(options.authorization, DEACTIVATE_AUTHORIZATION, "deactivation_authorization");
-  return { action, operator, applicationCommit };
+  return {
+    action,
+    operator,
+    applicationCommit,
+    structuralValidationPassed: true,
+    runtimeProbeStatus: runtimeProbeReceipt ? {
+      mode: runtimeProbeReceipt.mode,
+      complete: runtimeProbeReceipt.complete,
+      evidenceSha256: runtimeProbeReceipt.evidenceSha256,
+    } : null,
+  };
 }

@@ -34,13 +34,13 @@ begin
     raise exception 'pre-request function does not set the transaction-local financial guard';
   end if;
   if pg_get_functiondef('tongs.account_admission_pre_request()'::regprocedure)
-       not like '%/rpc/read_my_admission_onboarding%'
+       not like '%''rpc/read_my_admission_onboarding''%'
      or pg_get_functiondef('tongs.account_admission_pre_request()'::regprocedure)
-       not like '%/rpc/resolve_bellows_join_link%' then
+       not like '%''rpc/resolve_bellows_join_link''%' then
     raise exception 'exact pre-admission RPC exceptions are absent';
   end if;
   if pg_get_functiondef('tongs.account_admission_pre_request()'::regprocedure)
-       not like '%/rpc/list_beta_invitation_applications%'
+       not like '%''rpc/list_beta_invitation_applications''%'
      or pg_get_functiondef('tongs.account_admission_pre_request()'::regprocedure)
        not like '%from tongs.platform_operators%' then
     raise exception 'operator RPC exception is not independently operator-bound';

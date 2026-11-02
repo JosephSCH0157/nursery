@@ -8,14 +8,16 @@ test("migration 431 remains inactive and adds only the exact pre-admission RPC e
   assert.match(migration, /forge\.account-admission-enforcement\.v2/);
   assert.match(migration, /set_config\('forge\.account_admission_enforcement', 'on', true\)/);
   assert.match(migration, /v_method = 'POST'/);
-  assert.match(migration, /\/rpc\/read_my_admission_onboarding/);
-  assert.match(migration, /\/rpc\/resolve_bellows_join_link/);
+  assert.match(migration, /v_raw_path ~ '\^\/\[\^\/\]'/);
+  assert.match(migration, /'rpc\/read_my_admission_onboarding'/);
+  assert.match(migration, /'rpc\/resolve_bellows_join_link'/);
   for (const rpc of [
     "list_beta_access_applications",
     "decide_beta_access_application",
     "set_account_admission_state",
     "list_beta_invitation_applications",
-  ]) assert.match(migration, new RegExp(`/rpc/${rpc}`));
+  ]) assert.match(migration, new RegExp(`'rpc/${rpc}'`));
+  assert.doesNotMatch(migration, /v_path\s+(?:like|~)|rpc\/\*/i);
   assert.match(migration, /from tongs\.platform_operators operator[\s\S]+operator\.user_id = v_user_id/);
   assert.doesNotMatch(migration, /alter\s+(?:role|database)[^;]+pgrst\.db_pre_request\s*=/i);
   assert.doesNotMatch(migration, /create\s+policy/i);

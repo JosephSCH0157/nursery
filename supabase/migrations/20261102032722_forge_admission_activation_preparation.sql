@@ -26,9 +26,19 @@ as $$
 declare
   v_role text := coalesce(auth.jwt() ->> 'role', '');
   v_user_id uuid := auth.uid();
-  v_path text := coalesce(current_setting('request.path', true), '');
+  v_raw_path text := coalesce(current_setting('request.path', true), '');
+  v_path text;
   v_method text := upper(coalesce(current_setting('request.method', true), ''));
 begin
+  -- PostgREST 14.7 exposes request.path with one leading slash, while the
+  -- documented canonical representation is rpc/function. Strip exactly one
+  -- observed transport slash. Double slashes and every other alternate path
+  -- remain distinct and therefore fail closed.
+  v_path := case
+    when v_raw_path ~ '^/[^/]' then substr(v_raw_path, 2)
+    else v_raw_path
+  end;
+
   -- The registered pre-request hook sets the financial guard only for the
   -- current PostgREST transaction. Managed Supabase does not permit postgres
   -- to persist arbitrary custom GUC defaults with ALTER ROLE/DATABASE. This
@@ -69,10 +79,10 @@ begin
   -- This exception never permits an ordinary customer table or RPC path.
   if v_method = 'POST'
      and v_path in (
-       '/rpc/list_beta_access_applications',
-       '/rpc/decide_beta_access_application',
-       '/rpc/set_account_admission_state',
-       '/rpc/list_beta_invitation_applications'
+       'rpc/list_beta_access_applications',
+       'rpc/decide_beta_access_application',
+       'rpc/set_account_admission_state',
+       'rpc/list_beta_invitation_applications'
      )
      and exists (
        select 1 from tongs.platform_operators operator
@@ -86,8 +96,8 @@ begin
   -- resolve_bellows_join_link is the reviewed public guest capability: the
   -- opaque token, expiry, revocation and use limits remain authoritative.
   if v_method = 'POST' and v_path in (
-    '/rpc/read_my_admission_onboarding',
-    '/rpc/resolve_bellows_join_link'
+    'rpc/read_my_admission_onboarding',
+    'rpc/resolve_bellows_join_link'
   ) then
     return;
   end if;

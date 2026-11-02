@@ -31,6 +31,8 @@ Activation registers `tongs.account_admission_pre_request()` as the authenticato
 
 Four exact authenticated operator RPC paths are separately permitted only after the canonical platform-operator table confirms the caller UUID: list/decide the beta applications, change admission state, and list invitation applications. The RPCs retain their own actor/operation checks. This exception gives no customer-table or general RPC admission and platform-operator status still does not imply customer admission.
 
+PostgREST 14.7 was observed locally to expose the raw setting as `/rpc/function`, while the documented canonical representation is `rpc/function`. The pre-request function removes exactly one leading transport slash before comparing the six canonical slash-free names. It does not trim repeated slashes, use prefix matching, or inspect query parameters; double slashes, alternate routes, methods other than `POST`, and every other RPC remain denied.
+
 Every other method/path fails closed. The hook also sets `forge.account_admission_enforcement=on` transaction-locally, activating the already-certified insert-only spending-acceptance and reservation guards for Data API transactions. It does not establish a persistent database or role GUC.
 
 Activation also composes one restrictive `FOR ALL TO authenticated` policy with every existing permissive policy on each authenticated Data API base/partitioned table in `public` and `tongs`. The reviewed activation inventory is 250 tables. Views and RPC calls are covered by the global pre-request hook; underlying table RLS remains authoritative for table access.
@@ -76,9 +78,10 @@ Activation is a separately authorized operational change, not a migration side e
 2. Obtain fresh project-bound v2 recovery evidence and a unique `FORGE-ADMISSION-S2C-ACTIVATION:` change window.
 3. Disable hosted public signup and independently verify the Auth configuration. Keep the Google provider configured but do not add a Google UI.
 4. Publish the exact reviewed application commit with server enforcement, frontend boundary, and invitation dispatch enabled; keep beta intake disabled. Existing production must remain healthy.
-5. Run governed `Preflight`. It independently verifies GitHub/Netlify commit identity, Netlify flags and scopes, Auth signup state, project/lineage/head/catalog, the 136 legacy UUID snapshot, projections, authority fingerprints, surface fingerprints, and the inactive database state.
-6. With explicit owner token `ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1`, run exactly one governed activation transaction.
-7. Immediately run `PostVerify` and customer-state probes. Do not send invitations or enable intake as part of activation.
+5. Prepare a fresh private `forge.account-admission-runtime-probe-bundle.v1` containing project-bound short-lived access tokens for four distinct existing identities: admitted, unadmitted non-operator, revoked, and unadmitted platform operator. The wrapper validates each token through the pinned project's Auth `/user` endpoint, checks UUID/issuer/audience/role/expiry, and confirms canonical admission/operator state. Tokens, refresh tokens, UUIDs, and customer data never enter receipts or logs. Missing or incomplete hosted probe identities make Preflight `BLOCKED`; the wrapper never creates or changes hosted Auth identities or admission state.
+6. Run governed `Preflight`. It independently verifies GitHub/Netlify commit identity, Netlify flags and scopes, Auth signup state, project/lineage/head/catalog, the 136 legacy UUID snapshot, projections, authority fingerprints, surface fingerprints, the inactive database state, and runtime-probe readiness.
+7. With explicit owner token `ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1`, run exactly one governed activation transaction.
+8. Immediately run structural `PostVerify` and the real authenticated PostgREST runtime probes. They must prove admitted success, unadmitted and revoked denial, the narrow operator exception, non-operator denial, and operator denial on protected customer work. Static catalog/source predicates and service-role requests are not runtime-probe evidence. Do not send invitations or enable intake as part of activation.
 
 The application-first gap is intentionally fail-closed for authenticated Forge work: server and frontend guards become restrictive before database activation. Anonymous public/trial paths remain available. The database transaction then adds Data API/Storage/financial enforcement atomically.
 

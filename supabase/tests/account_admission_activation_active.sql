@@ -61,6 +61,8 @@ insert into public.profiles(user_id) values
   ('71000000-0000-4000-8000-000000000004');
 
 do $pre_request_behavior$
+declare
+  v_operator_path text;
 begin
   perform set_config('request.jwt.claims','{"role":"authenticated","sub":"71000000-0000-4000-8000-000000000003"}',true);
   perform set_config('request.method','POST',true);
@@ -81,7 +83,7 @@ begin
   end;
 
   perform set_config('request.method','POST',true);
-  perform set_config('request.path','/rest/v1/profiles',true);
+  perform set_config('request.path','/profiles',true);
   begin
     perform tongs.account_admission_pre_request();
     raise exception 'unadmitted customer bypassed the Data API gate';
@@ -97,9 +99,16 @@ begin
 
   perform set_config('request.jwt.claims','{"role":"authenticated","sub":"71000000-0000-4000-8000-000000000004"}',true);
   perform set_config('request.method','POST',true);
-  perform set_config('request.path','/rpc/list_beta_invitation_applications',true);
-  perform tongs.account_admission_pre_request();
-  perform set_config('request.path','/rest/v1/profiles',true);
+  foreach v_operator_path in array array[
+    '/rpc/list_beta_access_applications',
+    '/rpc/decide_beta_access_application',
+    '/rpc/set_account_admission_state',
+    '/rpc/list_beta_invitation_applications'
+  ] loop
+    perform set_config('request.path',v_operator_path,true);
+    perform tongs.account_admission_pre_request();
+  end loop;
+  perform set_config('request.path','/profiles',true);
   begin
     perform tongs.account_admission_pre_request();
     raise exception 'platform operator role implied customer admission';
@@ -107,12 +116,29 @@ begin
   end;
 
   perform set_config('request.jwt.claims','{"role":"authenticated","sub":"71000000-0000-4000-8000-000000000003"}',true);
-  perform set_config('request.path','/rpc/list_beta_invitation_applications',true);
+  foreach v_operator_path in array array[
+    '/rpc/list_beta_access_applications',
+    '/rpc/decide_beta_access_application',
+    '/rpc/set_account_admission_state',
+    '/rpc/list_beta_invitation_applications'
+  ] loop
+    perform set_config('request.path',v_operator_path,true);
+    begin
+      perform tongs.account_admission_pre_request();
+      raise exception 'non-operator bypassed operator RPC exception %', v_operator_path;
+    exception when insufficient_privilege then null;
+    end;
+  end loop;
+
+  perform set_config('request.path','//rpc/read_my_admission_onboarding',true);
   begin
     perform tongs.account_admission_pre_request();
-    raise exception 'non-operator bypassed the operator RPC exception';
+    raise exception 'double-slash path bypassed the exact onboarding exception';
   exception when insufficient_privilege then null;
   end;
+
+  perform set_config('request.path','rpc/read_my_admission_onboarding',true);
+  perform tongs.account_admission_pre_request();
 
   perform set_config('request.jwt.claims','{"role":"authenticated","sub":"71000000-0000-4000-8000-000000000001"}',true);
   perform tongs.account_admission_pre_request();

@@ -2,6 +2,7 @@
 param(
   [Parameter(Mandatory)][ValidateSet('Preflight','Activate','PostVerify','Deactivate','PostDeactivate')][string]$Action,
   [string]$RecoveryEvidencePath,
+  [string]$RuntimeProbeBundlePath,
   [Parameter(Mandatory)][string]$Operator,
   [string]$Authorization,
   [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$ApplicationCommit,
@@ -13,18 +14,21 @@ $repo=[IO.Path]::GetFullPath($RepositoryRoot)
 $projectRef='wtvdjndyxegudufrompx'
 $siteId='d5c7485d-35eb-4c66-b22d-410b09b38a73'
 $migrationVersion='20261102032722'
-$migrationSha256='9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af'
+$migrationSha256='12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb'
 $activationSha256='3210eca3ac26cb073ef188f5d212fd53bbe641d75f5a78bf088e121c5a96230f'
 $deactivationSha256='9cf926d1f1caccdcc2e00274df6fd1667c4165e64bc10a04a87328ca4574a9ae'
 $surfaceSha256='7818379a0ad7b9ceebf0752247b1aff9be64c7d3e5b4792529a933e17ba78036'
-$policySha256='db2a7757577daa524c4827c2dd9637a351675f9c9ecae6dacba88ab04b8b589a'
+$policySha256='bc4addcb638a6cd10401c73c3d54f5a39698f7a155df384438c7393ec1b357ac'
 $externalStatePolicySha256='11261a53c6db0cdc284bb8f6fcf80416f6539ffaf2ff7479c335ea9c60bf4d0e'
+$runtimeProbePolicySha256='5e2ebc1d1120540b4ae2be9ce2cecac51a037944c3b9790a22dd7c5defd1a276'
+$runtimeProbeRunnerSha256='31b757e76cdeefd0c821d000327dc398ba5b7d84ca9cc418f7ac4e5b7fa18030'
 $activateToken='ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
 $deactivateToken='DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
 $statePath=$null
 $externalStatePath=$null
 $apiObservationPath=$null
 $operationSqlPath=$null
+$runtimeProbeBundleFullPath=$null
 . (Join-Path $PSScriptRoot 'lib/forge-managed-credential.ps1')
 . (Join-Path $PSScriptRoot 'lib/forge-supabase-cli.ps1')
 
@@ -50,6 +54,8 @@ function Assert-StaticPrerequisites {
   Assert-Hash 'docs/admission/ADMISSION_ACTIVATION_DATABASE_SURFACE.v1.json' $surfaceSha256 'Admission activation surface'
   Assert-Hash 'scripts/lib/forge-account-admission-activation-policy.mjs' $policySha256 'Admission activation policy'
   Assert-Hash 'scripts/lib/forge-account-admission-activation-external-state.mjs' $externalStatePolicySha256 'Admission activation external-state policy'
+  Assert-Hash 'scripts/lib/forge-account-admission-runtime-probes.mjs' $runtimeProbePolicySha256 'Admission runtime-probe policy'
+  Assert-Hash 'scripts/verify-forge-account-admission-runtime-probes.mjs' $runtimeProbeRunnerSha256 'Admission runtime-probe runner'
   $localHead=(& git -C $repo rev-parse HEAD).Trim()
   if($LASTEXITCODE -ne 0 -or $localHead -cne $ApplicationCommit){throw 'Local HEAD does not match the authorized application commit.'}
   $remoteLine=(& git -C $repo ls-remote --exit-code origin refs/heads/main|Out-String).Trim()
@@ -168,18 +174,13 @@ select
       or admission.event_revision<>event.revision
       or admission.effective_state<>(case event.event_type when 'revoke' then 'revoked' else 'admitted' end)) as projection_consistent,
   (select count(*) from tongs.beta_access_invitation_events) as invitation_journal_count,
-  encode(extensions.digest(coalesce((select string_agg(value,E'\n' order by value) from authority_rows),''),'sha256'),'hex') as financial_authority_sha256,
-  exists(select 1 from tongs.account_admissions where effective_state='admitted') as admitted_probe_allowed,
-  not exists(select 1 from tongs.account_admissions where user_id='ffffffff-ffff-4fff-8fff-fffffffffff1' and effective_state='admitted') as unadmitted_probe_denied,
-  (pg_get_functiondef('tongs.current_request_is_admitted()'::regprocedure) like '%effective_state = ''admitted''%'
-    and pg_get_functiondef('tongs.current_request_is_admitted()'::regprocedure) not like '%legacy_account_admission_cohort%') as revoked_probe_denied,
-  pg_get_functiondef('tongs.account_admission_pre_request()'::regprocedure) not like '%is_platform_operator%' as operator_customer_probe_denied;
+  encode(extensions.digest(coalesce((select string_agg(value,E'\n' order by value) from authority_rows),''),'sha256'),'hex') as financial_authority_sha256;
 '@
     $columns=@('lineage','migration_count','migration_head','relation_count','relation_sha256','function_count','function_sha256',
       'storage_policy_count','storage_policy_sha256','pre_request_setting','data_api_policy_count','storage_admission_policy_count',
       'realtime_admission_policy_count','data_api_policy_contract_valid','storage_policy_contract_valid','financial_transaction_guard_valid',
       'legacy_cohort_count','legacy_cohort_sha256','admission_projection_sha256','projection_consistent','invitation_journal_count',
-      'financial_authority_sha256','admitted_probe_allowed','unadmitted_probe_denied','revoked_probe_denied','operator_customer_probe_denied')
+      'financial_authority_sha256')
     $rows=@(Read-LinkedCsv $sql $columns 'account-admission activation state')
     if($rows.Count -ne 1){throw 'Account-admission activation state is unavailable.'}
     $row=$rows[0]
@@ -197,13 +198,18 @@ select
       legacyCohortCount=[int]$row.legacy_cohort_count;legacyCohortSha256=[string]$row.legacy_cohort_sha256
       admissionProjectionSha256=[string]$row.admission_projection_sha256;projectionConsistent=([string]$row.projection_consistent -match '^(t|true)$')
       invitationJournalCount=[int]$row.invitation_journal_count;financialAuthoritySha256=[string]$row.financial_authority_sha256
-      admittedProbeAllowed=([string]$row.admitted_probe_allowed -match '^(t|true)$')
-      unadmittedProbeDenied=([string]$row.unadmitted_probe_denied -match '^(t|true)$')
-      revokedProbeDenied=([string]$row.revoked_probe_denied -match '^(t|true)$')
-      operatorCustomerProbeDenied=([string]$row.operator_customer_probe_denied -match '^(t|true)$')
       applicationCommit=$ApplicationCommit;remoteMain=[string]$Static.remoteMain;externalState=$ExternalState
     }
   } finally {if(Test-Path -LiteralPath $catalogPath){Remove-Item -LiteralPath $catalogPath -Force}}
+}
+function Invoke-RuntimeProbe([ValidateSet('preflight','active')][string]$Mode){
+  if(-not $runtimeProbeBundleFullPath){throw 'BLOCKED: a private governed runtime-probe bundle is required.'}
+  $runner=Join-Path $PSScriptRoot 'verify-forge-account-admission-runtime-probes.mjs'
+  $lines=@(& node $runner --mode $Mode --environment hosted --project-ref $projectRef --api-origin "https://$projectRef.supabase.co" --bundle $runtimeProbeBundleFullPath)
+  if($LASTEXITCODE -ne 0){throw "BLOCKED: authenticated PostgREST runtime-probe $Mode failed."}
+  $receipt=($lines -join [Environment]::NewLine)|ConvertFrom-Json
+  if(-not $receipt.complete -or -not $receipt.actualPostgrestRequestsExecuted){throw 'BLOCKED: runtime-probe receipt is incomplete.'}
+  $receipt
 }
 function Register-RecoveryEvidenceUse([string]$UseKey){
   if($UseKey -notmatch '^[0-9a-f]{64}$'){throw 'Activation recovery-evidence use key is invalid.'}
@@ -236,6 +242,16 @@ if($Action -in @('Preflight','Activate')){
     throw 'Recovery evidence must be private under .git/forge-private-evidence.'
   }
 }
+if($Action -in @('Preflight','Activate','PostVerify')){
+  if(-not $RuntimeProbeBundlePath -or -not(Test-Path -LiteralPath $RuntimeProbeBundlePath -PathType Leaf)){
+    throw 'BLOCKED: a fresh runtime-probe bundle is required for activation Preflight/Activate/PostVerify.'
+  }
+  $runtimeProbeBundleFullPath=[IO.Path]::GetFullPath($RuntimeProbeBundlePath)
+  $privateEvidenceRoot=[IO.Path]::GetFullPath((Join-Path $repo '.git/forge-private-evidence'))
+  if(-not $runtimeProbeBundleFullPath.StartsWith($privateEvidenceRoot+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){
+    throw 'Runtime-probe bundle must be private under .git/forge-private-evidence.'
+  }
+}
 
 try{
   $static=Assert-StaticPrerequisites
@@ -244,6 +260,8 @@ try{
   if($Action -in @('Preflight','Activate')){$apiObservationPath=New-TrustedRecoveryApiObservation -EvidencePath $recoveryEvidenceFullPath}
   Invoke-WithForgeManagedDatabaseCredential -Operation {
     $state=Get-DatabaseState -Static $static -ExternalState $externalState
+    if($Action -in @('Preflight','Activate')){$state['runtimeProbeReadiness']=Invoke-RuntimeProbe -Mode preflight}
+    if($Action -eq 'PostVerify'){$state['runtimeProbeExecution']=Invoke-RuntimeProbe -Mode active}
     $script:statePath=Join-Path ([IO.Path]::GetTempPath()) ('forge-account-admission-activation-state-'+[guid]::NewGuid().ToString('N')+'.json')
     [IO.File]::WriteAllText($script:statePath,($state|ConvertTo-Json -Depth 12 -Compress),[Text.UTF8Encoding]::new($false))
     $verifyArgs=@((Join-Path $PSScriptRoot 'verify-forge-account-admission-activation-policy.mjs'),'--action',$Action,'--state',$script:statePath,'--operator',$Operator)
@@ -259,13 +277,14 @@ try{
       foreach($field in @('legacyCohortSha256','admissionProjectionSha256','financialAuthoritySha256')){
         if([string]$state.$field -cne [string]$post.$field){throw "Activation changed protected fingerprint $field."}
       }
+      $post['runtimeProbeExecution']=Invoke-RuntimeProbe -Mode active
       $postPath=Join-Path ([IO.Path]::GetTempPath()) ('forge-account-admission-post-state-'+[guid]::NewGuid().ToString('N')+'.json')
       try{
         [IO.File]::WriteAllText($postPath,($post|ConvertTo-Json -Depth 12 -Compress),[Text.UTF8Encoding]::new($false))
         & node (Join-Path $PSScriptRoot 'verify-forge-account-admission-activation-policy.mjs') --action PostVerify --state $postPath --operator $Operator|Out-Null
         if($LASTEXITCODE -ne 0){throw 'Activation PostVerify failed; retain fail-closed application flags and investigate.'}
       } finally {if(Test-Path -LiteralPath $postPath){Remove-Item -LiteralPath $postPath -Force}}
-      return [pscustomobject]@{ok=$true;schema='forge.account-admission-activation-receipt.v1';action='Activate';applicationCommit=$ApplicationCommit;recoveryEvidenceConsumed=$true;admissionEnforcementActive=$true;customerDataReturned=$false;credentialsReturned=$false}|ConvertTo-Json -Compress
+      return [pscustomobject]@{ok=$true;schema='forge.account-admission-activation-receipt.v1';action='Activate';applicationCommit=$ApplicationCommit;recoveryEvidenceConsumed=$true;admissionEnforcementActive=$true;structuralValidationPassed=$true;runtimeProbesExecuted=$true;runtimeProbeEvidenceSha256=[string]$post.runtimeProbeExecution.evidenceSha256;unverifiedExternalState=@('netlify_configuration','hosted_auth_configuration');customerDataReturned=$false;credentialsReturned=$false}|ConvertTo-Json -Compress
     }
     if($Action -eq 'Deactivate'){
       Invoke-GovernedSql 'supabase/activation/forge-account-admission-deactivation-v1.sql' 'forge.deactivation_operator'

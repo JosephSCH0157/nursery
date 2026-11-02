@@ -52,7 +52,7 @@ $hammerOwnerFundedFirstTranscriptionSha256 = '0c464bfdc7ad2bc819d728fc94f4c14b3e
 $hammerOwnerFundedFirstTranscription = Get-Content -LiteralPath $hammerOwnerFundedFirstTranscriptionPath -Raw | ConvertFrom-Json
 $accountAdmissionActivationRelativePath = 'docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json'
 $accountAdmissionActivationPath = Join-Path $repo $accountAdmissionActivationRelativePath
-$accountAdmissionActivationSha256 = 'e6fdeffcede553ffe71da39dd44dcad44a4465b94be2f97af87b3afc2ad81588'
+$accountAdmissionActivationSha256 = '4fb7c7d4784a8ed56c18814ac7425239fddf0f77c64c50296140ad0fc93aa775'
 $accountAdmissionActivation = Get-Content -LiteralPath $accountAdmissionActivationPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -225,9 +225,9 @@ if ((Get-FileHash -LiteralPath $accountAdmissionActivationPath -Algorithm SHA256
 if ($accountAdmissionActivation.predecessor.contractSha256 -ne 'fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc' -or
     $accountAdmissionActivation.sharedTailAddition.version -ne '20261102032722' -or
     $accountAdmissionActivation.historicalSuccessor.finalRows -ne 431 -or
-    $accountAdmissionActivation.sharedTailAddition.sha256 -ne '9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af' -or
-    $accountAdmissionActivation.catalogSuccessor.fileSha256 -ne '82bee644ec7599e80d4f96f2af92c893fe580e115bce4e226830665ea67fa113' -or
-    $accountAdmissionActivation.catalogSuccessor.normalizedContractSha256 -ne '39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8') {
+    $accountAdmissionActivation.sharedTailAddition.sha256 -ne '12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb' -or
+    $accountAdmissionActivation.catalogSuccessor.fileSha256 -ne '4c67a795b90f77f98107a7ea809a3ac69367c8e7fedbdbecc6471e7d3023f803' -or
+    $accountAdmissionActivation.catalogSuccessor.normalizedContractSha256 -ne 'a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1') {
   $failures.Add('Account-admission activation-preparation successor contract has unexpected predecessor, chronology, migration, or catalog evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
@@ -321,6 +321,8 @@ if (-not (Test-Path -LiteralPath $activationContractPath -PathType Leaf)) {
     'public Broadcast/Presence',
     'does not recall an already issued URL',
     'platform operator without customer admission',
+    'forge.account-admission-runtime-probe-bundle.v1',
+    'Static catalog/source predicates and service-role requests are not runtime-probe evidence',
     'DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
   )) {
     if ($activationContractText -notmatch [regex]::Escape($requiredActivationBoundary)) {

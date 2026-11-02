@@ -12,7 +12,7 @@ test("migration 431 certifier pins the exact successor lineage and inactive cont
     "'$successorHistoryRows=431'",
     "20261101201817",
     "forge_admission_activation_preparation.sql",
-    "9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af",
+    "12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb",
     "account_admission_activation_preparation_inactive.sql",
   ]) assert.ok(certifier.includes(required), `missing successor assertion: ${required}`);
 });

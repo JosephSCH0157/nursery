@@ -20,7 +20,7 @@
     "trigger": 462,
     "type": 555
   },
-  "contractSha256": "39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8",
+  "contractSha256": "a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1",
   "entries": [
     {
       "category": "column",
@@ -61025,7 +61025,7 @@
     {
       "category": "function",
       "identity": "tongs.account_admission_pre_request()",
-      "sha256": "302cfd946711511ea3fafe11ce794205b410953d0acd1ccceb550229b7a3198f"
+      "sha256": "16c5b5c6950254d306476e83765ef078b5b431c0e8e3c4501b2b9a83a506a6b3"
     },
     {
       "category": "function",
