@@ -40,7 +40,7 @@ export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_SHA256 = "88353a9b0
 export const INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-inactive-admission-enforcement/successor-contract.v1.json";
 export const INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_SHA256 = "fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc";
 export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json";
-export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256 = "4fb7c7d4784a8ed56c18814ac7425239fddf0f77c64c50296140ad0fc93aa775";
+export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256 = "7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -807,9 +807,9 @@ function loadAccountAdmissionActivationPreparationSuccessorContract(root, head) 
       addition?.version !== "20261102032722" ||
       addition?.path !== "supabase/migrations/20261102032722_forge_admission_activation_preparation.sql" ||
       addition?.sha256 !== "12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb" ||
-      contract.catalogSuccessor?.fileSha256 !== "4c67a795b90f77f98107a7ea809a3ac69367c8e7fedbdbecc6471e7d3023f803" ||
+      contract.catalogSuccessor?.fileSha256 !== "bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157" ||
       contract.catalogSuccessor?.objectCount !== 16612 ||
-      contract.catalogSuccessor?.normalizedContractSha256 !== "a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1" ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1" ||
       contract.inactivityContract?.admissionEnforcementActivated !== false ||
       contract.rejectAdditionalProtectedPathChanges !== true) {
     throw new Error("Account-admission activation-preparation successor contract has an invalid predecessor or shared-tail addition.");

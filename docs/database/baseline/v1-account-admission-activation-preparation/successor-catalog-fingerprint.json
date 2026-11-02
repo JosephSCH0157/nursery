@@ -20,7 +20,7 @@
     "trigger": 462,
     "type": 555
   },
-  "contractSha256": "a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1",
+  "contractSha256": "6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1",
   "entries": [
     {
       "category": "column",
@@ -60265,7 +60265,7 @@
     {
       "category": "extension",
       "identity": "wrappers",
-      "sha256": "8b9d29b339edc0523f2270cfe7ca48b8cc3c59818221248fda13059927989d99"
+      "sha256": "7a718c878e7eb4ce66548b9bf056bf3e63ab447ba0a77c7b82f1f13427c04dce"
     },
     {
       "category": "function",

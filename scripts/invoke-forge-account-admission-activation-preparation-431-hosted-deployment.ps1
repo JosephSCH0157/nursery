@@ -67,14 +67,14 @@ function Assert-StaticPrerequisites {
   Assert-FileHash 'supabase/activation/forge-account-admission-activation-v1.sql' '3210eca3ac26cb073ef188f5d212fd53bbe641d75f5a78bf088e121c5a96230f' 'Admission activation SQL'|Out-Null
   Assert-FileHash 'supabase/activation/forge-account-admission-deactivation-v1.sql' '9cf926d1f1caccdcc2e00274df6fd1667c4165e64bc10a04a87328ca4574a9ae' 'Admission deactivation SQL'|Out-Null
   Assert-FileHash 'docs/admission/ADMISSION_ACTIVATION_DATABASE_SURFACE.v1.json' '7818379a0ad7b9ceebf0752247b1aff9be64c7d3e5b4792529a933e17ba78036' 'Admission activation surface'|Out-Null
-  $contractPath=Assert-FileHash 'docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json' '4fb7c7d4784a8ed56c18814ac7425239fddf0f77c64c50296140ad0fc93aa775' 'Migration 431 successor contract'
-  Assert-FileHash 'docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json' '4c67a795b90f77f98107a7ea809a3ac69367c8e7fedbdbecc6471e7d3023f803' 'Migration 431 successor catalog'|Out-Null
+  $contractPath=Assert-FileHash 'docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json' '7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24' 'Migration 431 successor contract'
+  Assert-FileHash 'docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json' 'bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157' 'Migration 431 successor catalog'|Out-Null
 
   $contract=Get-Content -LiteralPath $contractPath -Raw|ConvertFrom-Json
   if([string]$contract.sharedTailAddition.version -cne $targetVersion -or
      [string]$contract.sharedTailAddition.sha256 -cne $targetSha256 -or
      [int]$contract.catalogSuccessor.objectCount -ne 16612 -or
-     [string]$contract.catalogSuccessor.normalizedContractSha256 -cne 'a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1' -or
+     [string]$contract.catalogSuccessor.normalizedContractSha256 -cne '6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1' -or
      [bool]$contract.inactivityContract.admissionEnforcementActivated -or
      [bool]$contract.inactivityContract.postgrestPreRequestRegistered -or
      [int]$contract.inactivityContract.storagePoliciesInstalled -ne 0){

@@ -47,9 +47,9 @@
   },
   "catalogSuccessor": {
     "path": "docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json",
-    "fileSha256": "4c67a795b90f77f98107a7ea809a3ac69367c8e7fedbdbecc6471e7d3023f803",
+    "fileSha256": "bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157",
     "objectCount": 16612,
-    "normalizedContractSha256": "a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1"
+    "normalizedContractSha256": "6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1"
   },
   "inactivityContract": {
     "admissionEnforcementActivated": false,

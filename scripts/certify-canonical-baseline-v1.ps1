@@ -139,7 +139,8 @@ $restrictive_defaults$
     if ($MaterializeSuccessorCatalog) {
       if ($DefaultPrivilegeMode -ne 'permissive') { throw 'Successor catalog materialization is permitted only in the permissive lane.' }
       if (Test-Path -LiteralPath $successorFingerprint) { throw 'Successor catalog evidence already exists; refusing to overwrite it.' }
-      $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $successorFingerprint -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+      $null = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $successorFingerprint -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json
+      $catalogResult = & node (Join-Path $repo 'scripts/normalize-canonical-catalog-for-production.mjs') --catalog $successorFingerprint --compatibility (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') --output $successorFingerprint | ConvertFrom-Json
     }
     else {
       $catalogResult = & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $actualFingerprint -ExpectedPath $successorFingerprint -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo | ConvertFrom-Json

@@ -52,7 +52,7 @@ $hammerOwnerFundedFirstTranscriptionSha256 = '0c464bfdc7ad2bc819d728fc94f4c14b3e
 $hammerOwnerFundedFirstTranscription = Get-Content -LiteralPath $hammerOwnerFundedFirstTranscriptionPath -Raw | ConvertFrom-Json
 $accountAdmissionActivationRelativePath = 'docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json'
 $accountAdmissionActivationPath = Join-Path $repo $accountAdmissionActivationRelativePath
-$accountAdmissionActivationSha256 = '4fb7c7d4784a8ed56c18814ac7425239fddf0f77c64c50296140ad0fc93aa775'
+$accountAdmissionActivationSha256 = '7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24'
 $accountAdmissionActivation = Get-Content -LiteralPath $accountAdmissionActivationPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
@@ -226,8 +226,8 @@ if ($accountAdmissionActivation.predecessor.contractSha256 -ne 'fdaae03acbd8f904
     $accountAdmissionActivation.sharedTailAddition.version -ne '20261102032722' -or
     $accountAdmissionActivation.historicalSuccessor.finalRows -ne 431 -or
     $accountAdmissionActivation.sharedTailAddition.sha256 -ne '12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb' -or
-    $accountAdmissionActivation.catalogSuccessor.fileSha256 -ne '4c67a795b90f77f98107a7ea809a3ac69367c8e7fedbdbecc6471e7d3023f803' -or
-    $accountAdmissionActivation.catalogSuccessor.normalizedContractSha256 -ne 'a631d4c3f5ca6439a0e5a0b476662cbfc7a7543987140538f7d8ea6ab3b43fb1') {
+    $accountAdmissionActivation.catalogSuccessor.fileSha256 -ne 'bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157' -or
+    $accountAdmissionActivation.catalogSuccessor.normalizedContractSha256 -ne '6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1') {
   $failures.Add('Account-admission activation-preparation successor contract has unexpected predecessor, chronology, migration, or catalog evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
