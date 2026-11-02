@@ -39,6 +39,8 @@ export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_PATH = "docs/databa
 export const BETA_INVITATION_PROVISIONING_SUCCESSOR_CONTRACT_SHA256 = "88353a9b0afe6a0f3013c8fcc8f3b3691236c5be69d345c94c39800cc072859b";
 export const INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-inactive-admission-enforcement/successor-contract.v1.json";
 export const INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_SHA256 = "fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc";
+export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json";
+export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256 = "e6fdeffcede553ffe71da39dd44dcad44a4465b94be2f97af87b3afc2ad81588";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -790,6 +792,40 @@ function loadInactiveAdmissionEnforcementSuccessorContract(root, head) {
   return contract;
 }
 
+function loadAccountAdmissionActivationPreparationSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH])
+    .get(ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Account-admission activation-preparation successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.account-admission-activation-preparation-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261102032722" ||
+      addition?.path !== "supabase/migrations/20261102032722_forge_admission_activation_preparation.sql" ||
+      addition?.sha256 !== "9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af" ||
+      contract.catalogSuccessor?.fileSha256 !== "82bee644ec7599e80d4f96f2af92c893fe580e115bce4e226830665ea67fa113" ||
+      contract.catalogSuccessor?.objectCount !== 16612 ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8" ||
+      contract.inactivityContract?.admissionEnforcementActivated !== false ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Account-admission activation-preparation successor contract has an invalid predecessor or shared-tail addition.");
+  }
+  const entry = headTree.get(ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Account-admission activation-preparation successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Account-admission activation-preparation successor-contract working bytes differ from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -1140,6 +1176,7 @@ export function verifyFrozenEvidence({
   const accountAdmissionAuthority = loadAccountAdmissionAuthoritySuccessorContract(root, head);
   const betaInvitationProvisioning = loadBetaInvitationProvisioningSuccessorContract(root, head);
   const inactiveAdmissionEnforcement = loadInactiveAdmissionEnforcementSuccessorContract(root, head);
+  const accountAdmissionActivationPreparation = loadAccountAdmissionActivationPreparationSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
@@ -1156,6 +1193,7 @@ export function verifyFrozenEvidence({
     { gate: "account-admission-authority", contract: accountAdmissionAuthority },
     { gate: "beta-invitation-provisioning", contract: betaInvitationProvisioning },
     { gate: "inactive-admission-enforcement", contract: inactiveAdmissionEnforcement },
+    { gate: "account-admission-activation-preparation", contract: accountAdmissionActivationPreparation },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }

@@ -50,6 +50,10 @@ $hammerOwnerFundedFirstTranscriptionRelativePath = 'docs/database/baseline/v1-ha
 $hammerOwnerFundedFirstTranscriptionPath = Join-Path $repo $hammerOwnerFundedFirstTranscriptionRelativePath
 $hammerOwnerFundedFirstTranscriptionSha256 = '0c464bfdc7ad2bc819d728fc94f4c14b3ee0e44c25d2f304faae65b364d85f68'
 $hammerOwnerFundedFirstTranscription = Get-Content -LiteralPath $hammerOwnerFundedFirstTranscriptionPath -Raw | ConvertFrom-Json
+$accountAdmissionActivationRelativePath = 'docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json'
+$accountAdmissionActivationPath = Join-Path $repo $accountAdmissionActivationRelativePath
+$accountAdmissionActivationSha256 = 'e6fdeffcede553ffe71da39dd44dcad44a4465b94be2f97af87b3afc2ad81588'
+$accountAdmissionActivation = Get-Content -LiteralPath $accountAdmissionActivationPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -109,6 +113,7 @@ foreach ($reference in @(
   $hammerScopedLiveFundingRelativePath
   $hammerTriggerAclHardeningRelativePath
   $hammerBradFirstTranscriptionAuthorityRelativePath
+  $accountAdmissionActivationRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -214,6 +219,17 @@ if ($hammerOwnerFundedFirstTranscription.predecessor.contractSha256 -ne $hammerB
     $hammerOwnerFundedFirstTranscription.catalogSuccessor.normalizedContractSha256 -ne 'da0e5c95d541fc0605b05072bff8d0b16fd8da38a14fe2ac1ac9fd5c83b6c22b') {
   $failures.Add('Hammer owner-funded first-transcription successor contract has unexpected predecessor, chronology, or migration evidence.')
 }
+if ((Get-FileHash -LiteralPath $accountAdmissionActivationPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $accountAdmissionActivationSha256) {
+  $failures.Add('Account-admission activation-preparation successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($accountAdmissionActivation.predecessor.contractSha256 -ne 'fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc' -or
+    $accountAdmissionActivation.sharedTailAddition.version -ne '20261102032722' -or
+    $accountAdmissionActivation.historicalSuccessor.finalRows -ne 431 -or
+    $accountAdmissionActivation.sharedTailAddition.sha256 -ne '9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af' -or
+    $accountAdmissionActivation.catalogSuccessor.fileSha256 -ne '82bee644ec7599e80d4f96f2af92c893fe580e115bce4e226830665ea67fa113' -or
+    $accountAdmissionActivation.catalogSuccessor.normalizedContractSha256 -ne '39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8') {
+  $failures.Add('Account-admission activation-preparation successor contract has unexpected predecessor, chronology, migration, or catalog evidence.')
+}
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
 } elseif ((Get-FileHash -LiteralPath $trustAnchorPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $trustAnchorSha256) {
@@ -271,6 +287,11 @@ foreach ($command in @(
   'pnpm preflight:db:account-admission-authority:hosted',
   'pnpm test:db:beta-invitation-provisioning:hosted-deployment',
   'pnpm preflight:db:beta-invitation-provisioning:hosted',
+  'pnpm certify:db:account-admission-activation-preparation:historical',
+  'pnpm test:db:account-admission-activation-preparation:historical-tooling',
+  'invoke-forge-account-admission-activation.ps1',
+  'ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1',
+  'DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1',
   'prepare:db:recovery-evidence',
   'prepare:db:recovery-evidence:api',
   'invoke-hosted-recovery-readiness-evidence.ps1',
@@ -285,6 +306,27 @@ foreach ($command in @(
   'pnpm supabase:types'
 )) {
   if ($operationsText -notmatch [regex]::Escape($command)) { $failures.Add("DATABASE_OPERATIONS.md omits supported command: $command") }
+}
+$activationContractPath = Join-Path $repo 'docs/admission/ADMISSION_ACTIVATION_CONTRACT.md'
+if (-not (Test-Path -LiteralPath $activationContractPath -PathType Leaf)) {
+  $failures.Add('Missing account-admission activation contract.')
+} else {
+  $activationContractText = Get-Content -LiteralPath $activationContractPath -Raw
+  foreach ($requiredActivationBoundary in @(
+    'Supabase Auth remains the identity authority',
+    'Tongs remains the only admission authority',
+    'All 136 migration-time legacy UUIDs',
+    'POST /rpc/read_my_admission_onboarding',
+    'POST /rpc/resolve_bellows_join_link',
+    'public Broadcast/Presence',
+    'does not recall an already issued URL',
+    'platform operator without customer admission',
+    'DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
+  )) {
+    if ($activationContractText -notmatch [regex]::Escape($requiredActivationBoundary)) {
+      $failures.Add("Account-admission activation contract omits boundary: $requiredActivationBoundary")
+    }
+  }
 }
 foreach ($recoveryContract in @(
   'forge.hosted-recovery-readiness.v2',

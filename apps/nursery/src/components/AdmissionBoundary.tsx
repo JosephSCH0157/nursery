@@ -5,6 +5,7 @@ import { supabase, tongsSupabase } from "../lib/supabase";
 import "./AdmissionBoundary.css";
 
 export const ADMISSION_UI_FLAG = "VITE_FORGE_ADMISSION_ENFORCEMENT_ENABLED";
+export const ADMISSION_REFRESH_INTERVAL_MS = 30_000;
 
 type AdmissionBoundaryState =
   | { kind: "checking" }
@@ -101,12 +102,19 @@ export default function AdmissionBoundary({ children }: { children: ReactNode })
         if (alive) void inspect(data.session);
       });
     };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const refreshInterval = window.setInterval(refresh, ADMISSION_REFRESH_INTERVAL_MS);
     window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       alive = false;
       generation.current += 1;
       subscription.subscription.unsubscribe();
+      window.clearInterval(refreshInterval);
       window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [enabled, exempt, inspect]);
 

@@ -1247,3 +1247,50 @@ node --test scripts/tests/hosted-smoke-authorization.test.mjs
 Do not add hosted credentials, service-role keys, management tokens, paid-provider keys, or hosted write tests to `pull_request`, `pull_request_target`, or code checked out from a pull request. Hosted team/Hearth smoke is isolated in `.github/workflows/hosted-nonproduction-smoke.yml`; it is manual, restricted to trusted `main`, and requires the protected `forge-nonproduction-hosted-smoke` environment. A label or typed confirmation is not an authorization boundary.
 
 The hosted workflow is **not operationally authorized** until the owner independently verifies the environment reviewers, main-only deployment policy, nonproduction project ref, environment-scoped secrets, and absence of an automatic production migration path. Exact controls and the external verification checklist are recorded in [Gate 6C PR hosted-write isolation](baseline/v1-gate6c/PR_HOSTED_WRITE_ISOLATION.md).
+
+## 14. Prepare and operate account-admission activation
+
+Migration `20261102032722_forge_admission_activation_preparation.sql` is an inactive shared-tail successor. Certify it in both lineages before any hosted release:
+
+```powershell
+pnpm certify:db:canonical-baseline
+pnpm certify:db:account-admission-activation-preparation:historical
+pnpm test:db:account-admission-activation-preparation:historical-tooling
+```
+
+Applying migration 431 never activates admission enforcement. Hosted migration release requires its own exact version/hash wrapper, fresh v2 recovery evidence, explicit owner Apply authorization, and PostVerify before the activation procedure below can be considered.
+
+The activation procedure is defined by [ADMISSION_ACTIVATION_CONTRACT.md](../admission/ADMISSION_ACTIVATION_CONTRACT.md). It requires fresh authenticated external-state evidence, a unique recovery change window beginning `FORGE-ADMISSION-S2C-ACTIVATION:`, and a separately owner-authorized operational change. Read-only preflight is:
+
+```powershell
+./scripts/invoke-forge-account-admission-activation.ps1 `
+  -Action Preflight `
+  -Operator <named-operator> `
+  -ApplicationCommit <reviewed-commit> `
+  -RecoveryEvidencePath <private-v2-evidence>
+```
+
+Only a separately authorized activation may add the exact token:
+
+```powershell
+./scripts/invoke-forge-account-admission-activation.ps1 `
+  -Action Activate `
+  -Operator <named-operator> `
+  -ApplicationCommit <reviewed-commit> `
+  -RecoveryEvidencePath <private-v2-evidence> `
+  -Authorization ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1
+```
+
+The wrapper performs exactly one atomic SQL activation and immediate PostVerify. It rejects a stale/reused recovery window, wrong project/lineage/head/catalog/surface, application/remote/deploy mismatch, open public signup, disabled application guards, enabled intake, policy drift, or legacy/projection/financial-authority fingerprint drift. It never changes Netlify or Auth configuration itself.
+
+Emergency deactivation is also separately authorized. Keep application/server enforcement enabled until the database is certified inactive:
+
+```powershell
+./scripts/invoke-forge-account-admission-activation.ps1 `
+  -Action Deactivate `
+  -Operator <named-operator> `
+  -ApplicationCommit <reviewed-commit> `
+  -Authorization DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1
+```
+
+Never retry an interrupted or ambiguous activation/deactivation blindly. Inspect hosted state read-only; do not use `--include-all`, migration repair, historical-root reset, direct migration-history writes, or an application rollback that removes guards before database deactivation.

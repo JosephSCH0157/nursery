@@ -1,0 +1,66 @@
+{
+  "schema": "forge.account-admission-activation-preparation-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Inactive admission enforcement",
+    "contractPath": "docs/database/baseline/v1-inactive-admission-enforcement/successor-contract.v1.json",
+    "contractSha256": "fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc",
+    "historicalRows": 430
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "predecessorSuccessorContractSha256": "fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc"
+  },
+  "sharedTailAddition": {
+    "version": "20261102032722",
+    "path": "supabase/migrations/20261102032722_forge_admission_activation_preparation.sql",
+    "sha256": "9f0422321cd023149571ef1cba4b18abb99ab4b03673ab24800bf15d969459af"
+  },
+  "historicalSuccessor": {
+    "finalRows": 431,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719",
+      "20261030224605",
+      "20261031123320",
+      "20261101084703",
+      "20261101201817",
+      "20261102032722"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json",
+    "fileSha256": "82bee644ec7599e80d4f96f2af92c893fe580e115bce4e226830665ea67fa113",
+    "objectCount": 16612,
+    "normalizedContractSha256": "39de5aff7ca542f8673363f3e71bd4c9e5184fcd3feffd24e325f3b7ec65f8c8"
+  },
+  "inactivityContract": {
+    "admissionEnforcementActivated": false,
+    "postgrestPreRequestRegistered": false,
+    "storagePoliciesInstalled": 0,
+    "serverFlagDefaultEnabled": false,
+    "frontendFlagDefaultEnabled": false,
+    "financialGuardDefaultEnabled": false,
+    "existingRlsPoliciesChanged": 0,
+    "hostedAuthConfigurationChanged": false,
+    "legacyAdmissionOriginMustBePreserved": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

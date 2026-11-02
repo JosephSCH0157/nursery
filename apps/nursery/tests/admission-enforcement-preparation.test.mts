@@ -250,6 +250,8 @@ test("frontend boundary is inactive by default and distinguishes pending, revoke
   assert.match(source, /Admission could not be verified/);
   assert.match(source, /onAuthStateChange/);
   assert.match(source, /window\.addEventListener\("focus"/);
+  assert.match(source, /window\.setInterval\(refresh, ADMISSION_REFRESH_INTERVAL_MS\)/);
+  assert.match(source, /document\.addEventListener\("visibilitychange"/);
 });
 
 test("Bellows guest exception is limited to opaque link resolution and ephemeral signaling", async () => {
