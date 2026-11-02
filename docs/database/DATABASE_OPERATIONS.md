@@ -959,6 +959,92 @@ dispatch disabled until a separately authorized activation. Local certification
 does not authorize any hosted Apply, Git push, deployment, Auth change, or
 invitation dispatch.
 
+### Inactive account-admission enforcement successor 430
+
+Migration `20261101201817` is the Slice 2B forward-tail successor to hosted
+migration 429. It installs five prepared admission predicates/guards and two
+INSERT-only financial guard triggers. It does not register the PostgREST
+pre-request function, install a Storage or Realtime policy, or set
+`forge.account_admission_enforcement=on`. Server and browser enforcement also
+remain disabled unless their separate exact-`true` environment flags are later
+activated through a separately authorized rollout.
+
+The required release order is **database before application**. The application
+currently published from commit `ae0f4b7c6ac584a1b0bc615248dfb39f40fbae82`
+has no migration-430 RPC or flag dependency. Applying migration 430 first is
+compatible with that application because all new database objects are additive,
+the financial triggers return the unchanged row while the custom setting is not
+exactly `on`, and no existing RLS, Storage, Realtime, Auth, workspace, or
+financial settlement path is replaced.
+
+Migration 430 uses a version-specific adapter over the established migration-429
+governed deployment infrastructure. The adapter reuses the managed database and
+Management API credentials, Supabase CLI guard, shared v2 recovery-evidence
+policy, and migration-429 predecessor PostVerify. It does not modify or replay
+migration 429.
+
+Before any hosted operation, run the focused policy tests and create fresh v2
+Management API recovery evidence:
+
+```powershell
+pnpm test:db:inactive-admission-enforcement:hosted-deployment
+pnpm preflight:db:inactive-admission-enforcement:hosted -- `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity
+```
+
+The evidence must be stored under `.git/forge-private-evidence`, use schema
+`forge.hosted-recovery-readiness.v2`, and have an `owner_approval_reference`
+beginning `FORGE-ADMISSION-S2B-430:` followed by a non-empty, unique change
+window. The wrapper independently refreshes the exact backup through the
+authenticated Supabase Management API. Dashboard-only v1 evidence, migration-429
+evidence, stale observations, and consumed change windows are rejected.
+
+Preflight requires project `wtvdjndyxegudufrompx`, lineage `historical-v1`,
+exactly 429 installed migrations headed by `20261101084703`, migration
+`20261101201817` as the sole pending version, SHA-256
+`ed35a3138ba4b15f63a50b5b8e8624ad45dcb9fdd2a6a9d990d52db42017c1bb`,
+Supabase CLI 2.84.2, the enrolled read/database credentials, and the exact
+certified inactive application bytes. It runs the migration-429 PostVerify,
+captures protected Auth, workspace, Storage, Realtime, admission, and financial
+authority, lists linked migrations, and performs only the exact dry run.
+
+Apply is a hosted schema write and requires separate owner authorization plus
+the exact migration-specific token:
+
+```powershell
+./scripts/invoke-forge-inactive-admission-enforcement-430-hosted-deployment.ps1 `
+  -Action Apply `
+  -RecoveryEvidencePath $recoveryEvidencePath `
+  -Operator $operatorIdentity `
+  -Authorization APPLY-FORGE-INACTIVE-ADMISSION-ENFORCEMENT-430
+```
+
+The adapter consumes the release-specific change window before one normal
+linked `db push`. There is no retry, `--include-all`, history repair, or reset
+path. An interrupted or failed Apply is ambiguous and requires read-only hosted
+inspection and new owner direction; never retry blindly.
+
+Immediate PostVerify requires exactly 430 migrations headed by
+`20261101201817`; exact ownership, search paths, ACLs, and effective-role
+boundaries for all five new functions; the two reviewed INSERT-only triggers;
+an unregistered pre-request function; absent enforcement settings; no installed
+Storage or Realtime admission policy; a consistent admission projection; an
+empty invitation journal; and unchanged pre/post Auth, workspace, Storage,
+Realtime, admission, and financial/provider-attempt snapshots. A later
+standalone read-only check is:
+
+```powershell
+./scripts/invoke-forge-inactive-admission-enforcement-430-hosted-deployment.ps1 -Action PostVerify
+```
+
+Standalone PostVerify proves current structure and inactivity but cannot replace
+the immediate Apply-time pre/post snapshot. Its receipt explicitly reports that
+Netlify and hosted Auth configuration were not inspected. Local certification
+does not authorize Apply, Git push, deployment, admission activation, Auth
+changes, invitation dispatch, intake activation, backfill, or financial
+activation.
+
 ### Automated Hammer capacity evidence and authority renewal
 
 Migration 427 remains the only authority-renewal mechanism. The operator helper
