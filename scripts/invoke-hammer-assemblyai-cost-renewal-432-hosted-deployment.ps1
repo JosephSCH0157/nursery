@@ -61,6 +61,7 @@ $source=Replace-Exact $source 'installedCount=427' 'installedCount=432' 'result 
 $source=Replace-Exact $source 'hammer-owner-sponsorship-authority-renewal-427-hosted-postverify' 'hammer-assemblyai-cost-renewal-432-hosted-postverify' 'result schema'
 $source=Replace-Exact $source "'verify-hammer-owner-sponsorship-authority-renewal-427-hosted-deployment-policy.mjs'" "'verify-hammer-assemblyai-cost-renewal-432-hosted-deployment-policy.mjs'" 'policy verifier'
 $source=Replace-Exact $source "'forge-hammer-427-state-'" "'forge-hammer-432-state-'" 'state label'
+$source=Replace-Exact $source '[int]$row.revocations -ne 0 -or [int]$row.reservations -ne 0' '[int]$row.revocations -ne 1 -or [int]$row.reservations -ne 1' 'historical inactive evidence'
 $policyOld=@'
 $verify=Join-Path $PSScriptRoot 'verify-hammer-assemblyai-cost-renewal-432-hosted-deployment-policy.mjs'
 $localArgs=@($verify,'--local-only','--action',$Action,'--recovery',([IO.Path]::GetFullPath($RecoveryEvidencePath)),'--operator',$Operator)
