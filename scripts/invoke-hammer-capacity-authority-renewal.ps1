@@ -4,7 +4,7 @@ param(
   [Parameter(Mandatory)][guid]$Operator,
   [string]$Authorization,
   [switch]$ReplaceCurrentUnusableAuthority,
-  [string]$OutputName=('hammer-capacity-'+(Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')+'.json'),
+  [string]$OutputName=('hammer-capacity-'+(Get-Date).ToUniversalTime().ToString("yyyyMMdd't'HHmmss'z'")+'.json'),
   [string]$RepositoryRoot=(Split-Path -Parent $PSScriptRoot)
 )
 
@@ -26,7 +26,10 @@ function Assert-Static {
   $linked=(Get-Content -LiteralPath (Join-Path $repo 'supabase/.temp/project-ref') -Raw).Trim()
   if($linked -cne 'wtvdjndyxegudufrompx'){throw 'Linked project does not match the pinned Forge project.'}
   $history=@(Read-Csv 'select version from supabase_migrations.schema_migrations order by version' @('version') 'hosted history')
-  if($history.Count -ne 427 -or [string]$history[-1].version -cne '20261030224605'){throw 'Hosted migration 427 is required.'}
+  if($history.Count -ne 431 -or [string]$history[-1].version -cne '20261102032722' -or
+     @($history|Where-Object {[string]$_.version -ceq '20261030224605'}).Count -ne 1){
+    throw 'Reviewed hosted migration head 431 with migration 427 is required.'
+  }
 }
 function New-DatabaseObservation {
   $rows=@(Read-Csv @'

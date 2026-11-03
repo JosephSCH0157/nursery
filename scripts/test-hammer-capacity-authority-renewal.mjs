@@ -9,6 +9,7 @@ const generator = readFileSync(new URL("./new-hammer-capacity-evidence.mjs", imp
 const prep = readFileSync(new URL("../apps/nursery/scripts/mw-hammer-prep.ts", import.meta.url), "utf8");
 
 test("capacity credentials remain managed, process-scoped, and absent from receipts", () => {
+  assert.match(renewal, /yyyyMMdd't'HHmmss'z'/);
   assert.match(managed, /WindowsCredentialNative\]::Read\(\$script:ForgeNetlifyCapacityReadCredentialTarget\)/);
   assert.match(managed, /WindowsCredentialNative\]::Read\(\$script:ForgeSupabaseCapacityReadCredentialTarget\)/);
   assert.match(managed, /SetEnvironmentVariable\('FORGE_NETLIFY_CAPACITY_READ_TOKEN', \$null, 'Process'\)/);
@@ -36,8 +37,9 @@ test("authenticated collection pins Netlify billing and the supported Supabase m
   assert.doesNotMatch(generator, /process\.stderr\.write\([^)]*error\?\.message/);
 });
 
-test("renewal is pinned to migration 427 and invokes only the service-role renewal RPC", () => {
-  assert.match(renewal, /history\.Count -ne 427/);
+test("renewal requires migration 427 within the reviewed migration 431 head and invokes only the service-role renewal RPC", () => {
+  assert.match(renewal, /history\.Count -ne 431/);
+  assert.match(renewal, /20261102032722/);
   assert.match(renewal, /20261030224605/);
   assert.match(renewal, /RENEW-HAMMER-BRAD-OWNER-SPONSORSHIP-AUTHORITY/);
   assert.match(renewal, /set_config\('request\.jwt\.claim\.role','service_role',true\)/);
