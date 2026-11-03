@@ -269,6 +269,54 @@
   box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.28);
 }
 
+.forge-login-button--google {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  color: #202124;
+  border-color: #dadce0;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.forge-login-button--google:hover:not(:disabled) {
+  background: #f8faff;
+  border-color: #c4c7c5;
+}
+
+.forge-login-button--google:focus-visible {
+  outline: 2px solid #8ab4f8;
+  outline-offset: 2px;
+}
+
+.forge-login-button--google svg {
+  flex: 0 0 auto;
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.forge-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.9rem 0;
+  color: rgba(227, 235, 255, 0.72);
+  font-size: 0.78rem;
+}
+
+.forge-login-divider::before,
+.forge-login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.forge-login-divider span {
+  white-space: nowrap;
+}
+
 .forge-login-button--ghost {
   color: #f4cfa0;
   border-color: rgba(244, 207, 160, 0.34);

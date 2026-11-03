@@ -24,3 +24,19 @@ test("login password can be revealed for verification and hidden again", async (
   await expect(password).toHaveAttribute("type", "password");
   await expect(password).toHaveValue("temporary-secret");
 });
+
+for (const viewport of [
+  { name: "desktop", width: 1440, height: 900 },
+  { name: "mobile", width: 390, height: 844 },
+]) {
+  test(`Google sign-in and password fallback are visible on ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto("/login?next=%2Fapp%2Fhearth%3Fview%3Drecent");
+
+    await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Forgot password" })).toBeVisible();
+  });
+}

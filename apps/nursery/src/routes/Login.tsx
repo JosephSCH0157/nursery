@@ -1,31 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import {
+  AUTH_NEXT_STORAGE_KEY,
+  AUTH_PROVIDER_STORAGE_KEY,
+  normalizeAuthNextPath,
+} from "../lib/auth-callback-intent";
 import { supabase } from "../lib/supabase";
 import "./Login.css";
-const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
 
-function clearAuthNextPath(): void {
+function clearAuthIntent(): void {
   try {
     window.sessionStorage.removeItem(AUTH_NEXT_STORAGE_KEY);
+    window.sessionStorage.removeItem(AUTH_PROVIDER_STORAGE_KEY);
   } catch {
     // ignore
   }
-}
-
-function normalizeNextPath(raw: string | null): string {
-  if (!raw) return "/app";
-  const trimmed = raw.trim();
-  if (!trimmed) return "/app";
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "/app";
-  return trimmed;
 }
 
 function useNextParam() {
   const loc = useLocation();
   return useMemo(() => {
     const p = new URLSearchParams(loc.search);
-    return normalizeNextPath(p.get("next"));
+    return normalizeAuthNextPath(p.get("next"));
   }, [loc.search]);
 }
 
@@ -39,6 +36,12 @@ function useLoginReason(): string | null {
     }
     if (reason === "callback_failed") {
       return "Sign-in callback failed. Please try again.";
+    }
+    if (reason === "oauth_cancelled") {
+      return "Google sign-in was cancelled. You can try again or use your password.";
+    }
+    if (reason === "oauth_failed") {
+      return "Google sign-in could not be completed. Please try again or use your password.";
     }
     return null;
   }, [loc.search]);
@@ -64,7 +67,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
 
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"password" | "google" | "recovery" | null>(null);
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
 
@@ -79,7 +82,7 @@ export default function Login() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) return;
-      clearAuthNextPath();
+      clearAuthIntent();
       nav(next, { replace: true });
     });
   }, [nav, next]);
@@ -88,7 +91,12 @@ export default function Login() {
     e.preventDefault();
     setErr("");
     setMsg("");
-    setBusy(true);
+    setBusy("password");
+    try {
+      window.sessionStorage.removeItem(AUTH_PROVIDER_STORAGE_KEY);
+    } catch {
+      // ignore session storage failures
+    }
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -107,13 +115,48 @@ export default function Login() {
         return;
       }
 
-      clearAuthNextPath();
+      clearAuthIntent();
       nav(next, { replace: true });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Sign-in request failed.";
       setErr(message);
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  }
+
+  async function onGoogleSignIn() {
+    setErr("");
+    setMsg("");
+    setBusy("google");
+
+    try {
+      try {
+        window.sessionStorage.setItem(AUTH_NEXT_STORAGE_KEY, next);
+        window.sessionStorage.setItem(AUTH_PROVIDER_STORAGE_KEY, "google");
+      } catch {
+        // OAuth still works when browser storage is unavailable; the callback uses /app.
+      }
+
+      const redirectTo = `${window.location.origin}/auth/callback`;
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo },
+      });
+
+      if (error) {
+        window.sessionStorage.removeItem(AUTH_PROVIDER_STORAGE_KEY);
+        setErr("Google sign-in could not be started. Please try again or use your password.");
+        setBusy(null);
+      }
+    } catch {
+      try {
+        window.sessionStorage.removeItem(AUTH_PROVIDER_STORAGE_KEY);
+      } catch {
+        // ignore session storage failures
+      }
+      setErr("Google sign-in could not be started. Please try again or use your password.");
+      setBusy(null);
     }
   }
 
@@ -125,7 +168,7 @@ export default function Login() {
       return;
     }
 
-    setBusy(true);
+    setBusy("recovery");
     const redirectTo = `${window.location.origin}/reset-password?type=recovery`;
 
     try {
@@ -143,7 +186,7 @@ export default function Login() {
       const message = e instanceof Error ? e.message : "Password reset request failed.";
       setErr(message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -189,6 +232,23 @@ export default function Login() {
             </div>
           ) : null}
 
+          <button
+            type="button"
+            onClick={onGoogleSignIn}
+            disabled={busy !== null}
+            className="forge-login-button forge-login-button--google"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path fill="#4285f4" d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.2h5.4a4.6 4.6 0 0 1-2 3v2.7h3.3c1.9-1.8 2.9-4.4 2.9-7.7Z" />
+              <path fill="#34a853" d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.7c-.9.6-2.1 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.8A10 10 0 0 0 12 22Z" />
+              <path fill="#fbbc05" d="M6.5 13.8a6 6 0 0 1 0-3.6V7.4H3.1a10 10 0 0 0 0 9.2l3.4-2.8Z" />
+              <path fill="#ea4335" d="M12 6.1c1.5 0 2.8.5 3.9 1.5l2.9-2.9A9.8 9.8 0 0 0 3.1 7.4l3.4 2.8A5.9 5.9 0 0 1 12 6.1Z" />
+            </svg>
+            {busy === "google" ? "Connecting to Google..." : "Continue with Google"}
+          </button>
+
+          <div className="forge-login-divider"><span>or use your password</span></div>
+
           <form onSubmit={onSignIn} className="forge-login-form">
             <label className="forge-login-field">
               <span>Email</span>
@@ -233,14 +293,14 @@ export default function Login() {
               </div>
             </div>
 
-            <button type="submit" disabled={busy} className="forge-login-button forge-login-button--primary">
-              {busy ? "Signing in..." : "Sign in"}
+            <button type="submit" disabled={busy !== null} className="forge-login-button forge-login-button--primary">
+              {busy === "password" ? "Signing in..." : "Sign in"}
             </button>
 
             <button
               type="button"
               onClick={onForgotPassword}
-              disabled={busy}
+              disabled={busy !== null}
               className="forge-login-button forge-login-button--ghost"
             >
               Forgot password
