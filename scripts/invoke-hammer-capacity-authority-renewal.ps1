@@ -143,7 +143,7 @@ order by valid_until desc limit 1
 , revoked as (
   select tongs.revoke_hammer_first_transcription_activation(
     '$($ids.revocation)'::uuid,'$previousId'::uuid,'$Operator'::uuid,
-    'Replace an unconsumed authority whose capacity timestamp serialization invalidated its evidence fingerprint.'
+    'Replace an unconsumed authority whose bounded financial or capacity evidence no longer admits execution.'
   ) as receipt from service_context
 )
 "@}else{''}
