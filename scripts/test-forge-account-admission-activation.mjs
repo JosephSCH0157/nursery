@@ -366,6 +366,14 @@ test("wrapper is single-attempt, private-evidence-bound, and performs no externa
   assert.doesNotMatch(wrapper, /Start-Sleep|\bwhile\s*\(/i);
 });
 
+test("activation wrapper pins the current activation policy bytes", () => {
+  const wrapper = source("scripts/invoke-forge-account-admission-activation.ps1");
+  const policy = source("scripts/lib/forge-account-admission-activation-policy.mjs");
+  const pinned = wrapper.match(/\$policySha256='([0-9a-f]{64})'/)?.[1];
+  const actual = crypto.createHash("sha256").update(policy).digest("hex");
+  assert.equal(pinned, actual);
+});
+
 test("PostgreSQL 17 and real Auth/PostgREST execute the complete activation matrix", { skip: !container }, async () => {
   assert.match(projectId ?? "", /^[a-z0-9][a-z0-9-]{2,62}$/);
   assert.ok(localApiUrl && localAnonKey && localServiceRoleKey);
