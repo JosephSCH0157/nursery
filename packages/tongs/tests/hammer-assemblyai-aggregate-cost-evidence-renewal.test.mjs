@@ -10,6 +10,10 @@ const renewal = readFileSync(new URL(
   "../../../scripts/invoke-hammer-capacity-authority-renewal.ps1",
   import.meta.url,
 ), "utf8");
+const alignment = readFileSync(new URL(
+  "../../../supabase/migrations/20261103185024_hammer_assemblyai_aggregate_envelope_alignment.sql",
+  import.meta.url,
+), "utf8");
 
 test("successor evidence preserves the exact approved AssemblyAI economics", () => {
   assert.match(sql, /previous_policy\.aggregate_forge_exposure_limit_micros<>44589/);
@@ -34,4 +38,32 @@ test("renewals resolve fresh exact aggregate authority instead of copying stale 
   assert.match(sql, /order by p\.revision desc/);
   assert.match(sql, /previous\.pricing_revision_id,tongs\._current_hammer_first_transcription_aggregate_policy\(\),/);
   assert.match(renewal, /bounded financial or capacity evidence no longer admits execution/);
+});
+
+test("alignment fixes only the aggregate envelope while preserving exact operation economics", () => {
+  assert.match(alignment, /previous_policy\.aggregate_forge_exposure_limit_micros<>44589/);
+  assert.match(alignment, /'production',next_policy_revision,'active',10840000,0,1,86400,86400/);
+  assert.match(alignment, /per_operation_supplier_ceiling_micros<>38589/);
+  assert.match(alignment, /per_operation_supporting_ceiling_micros<>6000/);
+  assert.match(alignment, /maximum_attempts<>1/);
+  assert.match(alignment, /'automatic_retries'\)::integer<>0/);
+  assert.match(alignment, /customer_payment_micros',0/);
+  assert.match(alignment, /customer_credit_units',0/);
+  assert.doesNotMatch(alignment, /customer_spending_quotes\s*\(/i);
+  assert.doesNotMatch(alignment, /funding_reservations\s*\(/i);
+  assert.doesNotMatch(alignment, /hammer_transcription_operations\s*\(/i);
+  assert.doesNotMatch(alignment, /hammer_transcription_provider_attempts\s*\(/i);
+});
+
+test("alignment is service-only and resolver requires exact fresh authority", () => {
+  assert.match(alignment, /_require_pricing_service_role/);
+  assert.match(alignment, /not tongs\.is_platform_operator/);
+  assert.match(alignment, /revoke all[\s\S]*from public,anon,authenticated/);
+  assert.match(alignment, /grant execute[\s\S]*to service_role/);
+  assert.match(alignment, /e\.valid_until>clock_timestamp\(\)/);
+  assert.match(alignment, /e\.observed_at>=clock_timestamp\(\)-make_interval/);
+  assert.match(alignment, /aggregate_forge_exposure_limit_micros=10840000/);
+  assert.match(alignment, /per_operation_supplier_ceiling_micros=38589/);
+  assert.match(alignment, /per_operation_supporting_ceiling_micros=6000/);
+  assert.match(alignment, /exact_model_or_sku='universal-3-5-pro:diarization'/);
 });
