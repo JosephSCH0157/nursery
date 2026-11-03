@@ -1998,6 +1998,26 @@ async function readHammerAssemblyAiStatus(args: {
   if (operationResponse.error) throw new Error(`read Hammer transcription operation: ${operationResponse.error.message}`);
   const operation = operationResponse.data;
   if (!operation) {
+    const reservationResponse = await store
+      .from("funding_reservations")
+      .select("id")
+      .eq("quote_id", args.quoteId)
+      .eq("user_id", args.userId)
+      .maybeSingle();
+    if (reservationResponse.error) throw new Error(`read Hammer funding reservation: ${reservationResponse.error.message}`);
+    if (reservationResponse.data?.id) {
+      const eventResponse = await store
+        .from("funding_reservation_events")
+        .select("event_type")
+        .eq("reservation_id", reservationResponse.data.id)
+        .order("sequence", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (eventResponse.error) throw new Error(`read Hammer funding reservation event: ${eventResponse.error.message}`);
+      if (eventResponse.data?.event_type === "released") {
+        return { state: "pre_admission_failed", operationId: args.operationId };
+      }
+    }
     const quoteResponse = await store
       .from("customer_spending_quotes")
       .select("expires_at")

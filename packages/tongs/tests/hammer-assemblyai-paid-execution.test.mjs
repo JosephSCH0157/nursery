@@ -192,6 +192,46 @@ test("database attempt denial stops before the AssemblyAI transport", async () =
   assert.equal(providerCalls, 0);
 });
 
+test("aggregate reservation denial stops before attempt authorization or AssemblyAI", async () => {
+  let providerCalls = 0;
+  const quoteId = "10000000-0000-4000-8000-000000000001";
+  const operationId = "hammer-assemblyai:20000000-0000-4000-8000-000000000001";
+  const quoteHash = "a".repeat(64);
+  const requestFingerprint = input().requestFingerprint;
+  const calls = [];
+  const gate = {
+    async rpc(name) {
+      calls.push(name);
+      if (name === "create_hammer_first_transcription_quote") return { data: {
+        quote_id: quoteId, operation_id: operationId, quote_hash: quoteHash,
+        request_fingerprint: requestFingerprint, customer_credit_units: 0,
+        maximum_customer_charge_micros: 0, reference_customer_credit_units: 12,
+        funding_source: "owner_budget", funding_eligible: true,
+        funding_label: "Owner-sponsored certification; no customer charge",
+        expires_at: new Date(Date.now() + 60_000).toISOString(), accepted: true,
+      }, error: null };
+      if (name === "accept_quote") return { data: { accepted: true }, error: null };
+      if (name === "reserve_hammer_first_transcription_quote") return { data: {
+        provider_execution_authorized: false, reason: "aggregate_exposure_exhausted",
+      }, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    },
+  };
+  const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(gate, gate, {
+    async submit() { providerCalls += 1; throw new Error("must not submit"); },
+    async read() { providerCalls += 1; throw new Error("must not poll"); },
+  });
+  await assert.rejects(() => coordinator.execute(input({
+    quoteId, quoteHash, operationId, requestFingerprint,
+  })), /not admitted/);
+  assert.deepEqual(calls, [
+    "create_hammer_first_transcription_quote",
+    "accept_quote",
+    "reserve_hammer_first_transcription_quote",
+  ]);
+  assert.equal(providerCalls, 0);
+});
+
 test("owner sponsorship presents the reviewed reference quote with zero customer debit", async () => {
   const gate = {
     async rpc(name) {

@@ -241,6 +241,12 @@ export class HammerAssemblyAiPaidExecutionCoordinator {
       p_request_fingerprint: input.requestFingerprint,
       p_idempotency_key: `hammer:${operationId}:reserve`,
     });
+    if (prepared.provider_execution_authorized === false) {
+      throw new HammerAssemblyAiBoundaryError(
+        requiredText(prepared.reason, "reservation_denial_reason"),
+        "The exact first-transcription reservation was not admitted.",
+      );
+    }
     const attemptId = this.ids();
     const attemptKey = `hammer:${operationId}:attempt:1`;
     const authorizationRow = await this.rpc("authorize_hammer_first_transcription_attempt", {
