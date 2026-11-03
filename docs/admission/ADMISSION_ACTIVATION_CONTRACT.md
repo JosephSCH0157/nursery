@@ -83,6 +83,8 @@ Activation is a separately authorized operational change, not a migration side e
 7. With explicit owner token `ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1`, run exactly one governed activation transaction.
 8. Immediately run structural `PostVerify` and the real authenticated PostgREST runtime probes. They must prove admitted success, unadmitted and revoked denial, the narrow operator exception, non-operator denial, and operator denial on protected customer work. Static catalog/source predicates and service-role requests are not runtime-probe evidence. Do not send invitations or enable intake as part of activation.
 
+Structural certification follows the enforcement lifecycle. Inactive checks use the frozen migration-431 catalog. Active checks first prove the exact hook and complete 250 Data API plus three Storage policy inventory, then compare against the separate active catalog derived by executing this reviewed activation SQL in disposable PostgreSQL 17. The active contract permits only the 250 named policy additions and their aggregate dependency-set change; every other catalog entry, owner, ACL, effective privilege, function, trigger, and relation fingerprint remains exact. An inactive catalog cannot satisfy active PostVerify, and a mixed, missing, additional, or modified active policy fails closed.
+
 The application-first gap is intentionally fail-closed for authenticated Forge work: server and frontend guards become restrictive before database activation. Anonymous public/trial paths remain available. The database transaction then adds Data API/Storage/financial enforcement atomically.
 
 ## Recovery and deactivation

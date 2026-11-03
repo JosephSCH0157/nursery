@@ -1344,6 +1344,7 @@ Migration `20261102032722_forge_admission_activation_preparation.sql` is an inac
 pnpm certify:db:canonical-baseline
 pnpm certify:db:account-admission-activation-preparation:historical
 pnpm test:db:account-admission-activation-preparation:historical-tooling
+pnpm test:db:account-admission-activation
 ```
 
 Applying migration 431 never activates admission enforcement. Hosted migration release requires its own exact version/hash wrapper, fresh v2 recovery evidence, explicit owner Apply authorization, and PostVerify before the activation procedure below can be considered.
@@ -1373,6 +1374,8 @@ Only a separately authorized activation may add the exact token:
 
 The wrapper performs exactly one atomic SQL activation and immediate PostVerify. It rejects a stale/reused recovery window, wrong project/lineage/head/catalog/surface, application/remote/deploy mismatch, open public signup, disabled application guards, enabled intake, policy drift, legacy/projection/financial-authority fingerprint drift, or missing/incomplete authenticated runtime probes. The runtime-probe bundle must be private under `.git/forge-private-evidence`, fresh for the change window, and contain four distinct project-bound Auth access tokens representing admitted, unadmitted, revoked, and unadmitted-operator states. Preflight independently validates those tokens and states; PostVerify then performs real PostgREST requests through the active hook. Service-role or simulated-role requests cannot substitute. If representative hosted identities or tokens are unavailable, Preflight reports `BLOCKED`. The wrapper never creates identities or changes Netlify, Auth, admission, or customer data itself.
 
+Catalog certification is lifecycle-specific. Inactive `Preflight`, `Activate`, and `PostDeactivate` use the frozen 16,612-object migration-431 successor catalog. The wrapper first classifies the database as exactly inactive or exactly active from the hook and complete policy definitions; mixed state fails closed. Active `PostVerify` and `Deactivate` use the separate 16,862-object contract in `docs/database/baseline/v1-account-admission-activation-active`. That contract is bound to the reviewed activation SQL and requires exactly 250 added `public`/`tongs` restrictive policies, the resulting dependency-set change, three exact Storage policies, no Realtime policy, and no missing, additional, or modified admission policy. The canonical comparator is unchanged and still verifies every function, trigger, relation owner, ACL, effective privilege, and other catalog entry.
+
 Standalone active-state verification also requires the same fresh bundle:
 
 ```powershell
@@ -1382,6 +1385,8 @@ Standalone active-state verification also requires the same fresh bundle:
   -ApplicationCommit <reviewed-commit> `
   -RuntimeProbeBundlePath <private-four-identity-probe-bundle>
 ```
+
+`PostVerify` is read-only. Run it only from the reviewed and published tooling commit whose `ApplicationCommit` is also confirmed on GitHub main and the ready Netlify production deployment. It selects the active catalog only after independently verifying the exact active hook and policy state; it never activates, deactivates, migrates, changes Auth/Netlify configuration, or cleans canaries.
 
 Emergency deactivation is also separately authorized. Keep application/server enforcement enabled until the database is certified inactive:
 

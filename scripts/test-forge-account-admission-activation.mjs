@@ -6,6 +6,8 @@ import test from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import {
   ACTIVATE_AUTHORIZATION,
+  ACTIVATION_ACTIVE_CATALOG_OBJECT_COUNT,
+  ACTIVATION_ACTIVE_CATALOG_SHA256,
   ACTIVATION_CATALOG_OBJECT_COUNT,
   ACTIVATION_CATALOG_SHA256,
   ACTIVATION_FUNCTION_COUNT,
@@ -113,8 +115,9 @@ function state(active = false) {
     migrationCount: ACTIVATION_MIGRATION_COUNT,
     migrationHead: ACTIVATION_MIGRATION_HEAD,
     migrationSha256: ACTIVATION_MIGRATION_SHA256,
-    catalogObjectCount: ACTIVATION_CATALOG_OBJECT_COUNT,
-    catalogSha256: ACTIVATION_CATALOG_SHA256,
+    catalogObjectCount: active ? ACTIVATION_ACTIVE_CATALOG_OBJECT_COUNT : ACTIVATION_CATALOG_OBJECT_COUNT,
+    catalogSha256: active ? ACTIVATION_ACTIVE_CATALOG_SHA256 : ACTIVATION_CATALOG_SHA256,
+    enforcementState: active ? "active" : "inactive",
     relationCount: ACTIVATION_RELATION_COUNT,
     relationSha256: ACTIVATION_RELATION_SHA256,
     functionCount: ACTIVATION_FUNCTION_COUNT,
@@ -240,6 +243,19 @@ test("fails closed on project, lineage, catalog, surface, policy, and external-s
   }
 });
 
+test("active verification rejects the inactive catalog and unexpected active catalog drift", () => {
+  const inactiveCatalog = state(true);
+  inactiveCatalog.catalogObjectCount = ACTIVATION_CATALOG_OBJECT_COUNT;
+  inactiveCatalog.catalogSha256 = ACTIVATION_CATALOG_SHA256;
+  assert.throws(() => validateAction(inactiveCatalog, { action: "PostVerify", operator: "owner" }), /active_catalog_object_count/);
+  const unexpectedActive = state(true);
+  unexpectedActive.catalogSha256 = sha("0");
+  assert.throws(() => validateAction(unexpectedActive, { action: "PostVerify", operator: "owner" }), /active_catalog_sha256/);
+  const mixed = state(true);
+  mixed.enforcementState = "mixed";
+  assert.throws(() => validateAction(mixed, { action: "PostVerify", operator: "owner" }), /enforcement_state/);
+});
+
 test("external evidence is authenticated-source-shaped, exact-commit-bound, and hashed", () => {
   const value = externalState();
   assert.equal(validateAdmissionActivationExternalState(value, COMMIT, NOW), value);
@@ -360,18 +376,30 @@ test("wrapper is single-attempt, private-evidence-bound, and performs no externa
   assert.match(wrapper, /verify-forge-account-admission-runtime-probes\.mjs/);
   assert.match(wrapper, /--mode \$Mode --environment hosted/);
   assert.match(wrapper, /runtimeProbesExecuted=\$true/);
+  assert.match(wrapper, /Get-VerifiedEnforcementState/);
+  assert.match(wrapper, /v1-account-admission-activation-active\/active-catalog-fingerprint\.json/);
+  assert.match(wrapper, /persistent_financial_setting_count/);
+  assert.match(wrapper, /mixed or differs from both certified lifecycle states/);
   assert.match(wrapper, /unverifiedExternalState/);
   assert.doesNotMatch(wrapper, /admitted_probe_allowed|unadmitted_probe_denied|revoked_probe_denied|operator_customer_probe_denied/);
   assert.doesNotMatch(wrapper, /(?:netlify|supabase)\s+(?:env:set|deploy|functions deploy|auth update)|--include-all|migration['"]?\s*,?['"]?repair|db['"]?\s*,?['"]?reset/i);
   assert.doesNotMatch(wrapper, /Start-Sleep|\bwhile\s*\(/i);
 });
 
-test("activation wrapper pins the current activation policy bytes", () => {
+test("activation wrapper pins every lifecycle catalog contract input", () => {
   const wrapper = source("scripts/invoke-forge-account-admission-activation.ps1");
-  const policy = source("scripts/lib/forge-account-admission-activation-policy.mjs");
-  const pinned = wrapper.match(/\$policySha256='([0-9a-f]{64})'/)?.[1];
-  const actual = crypto.createHash("sha256").update(policy).digest("hex");
-  assert.equal(pinned, actual);
+  for (const [variable, path] of [
+    ["policySha256", "scripts/lib/forge-account-admission-activation-policy.mjs"],
+    ["inactiveCatalogSha256", "docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json"],
+    ["activeCatalogSha256", "docs/database/baseline/v1-account-admission-activation-active/active-catalog-fingerprint.json"],
+    ["activeCatalogContractSha256", "docs/database/baseline/v1-account-admission-activation-active/active-contract.v1.json"],
+    ["activeCatalogPolicySha256", "scripts/lib/forge-account-admission-active-catalog-contract.mjs"],
+    ["activeCatalogVerifierSha256", "scripts/verify-forge-account-admission-active-catalog-contract.mjs"],
+  ]) {
+    const pinned = wrapper.match(new RegExp(`\\$${variable}='([0-9a-f]{64})'`))?.[1];
+    const actual = crypto.createHash("sha256").update(source(path)).digest("hex");
+    assert.equal(pinned, actual, `${variable} must pin ${path}`);
+  }
 });
 
 test("PostgreSQL 17 and real Auth/PostgREST execute the complete activation matrix", { skip: !container }, async () => {

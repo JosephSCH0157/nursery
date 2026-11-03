@@ -18,10 +18,15 @@ $migrationSha256='12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32c
 $activationSha256='3210eca3ac26cb073ef188f5d212fd53bbe641d75f5a78bf088e121c5a96230f'
 $deactivationSha256='9cf926d1f1caccdcc2e00274df6fd1667c4165e64bc10a04a87328ca4574a9ae'
 $surfaceSha256='7818379a0ad7b9ceebf0752247b1aff9be64c7d3e5b4792529a933e17ba78036'
-$policySha256='d920d24bed570e909e5274ad7953ce3d3499c422a43830b079b7551b48fba73e'
+$policySha256='33ab8ec47a5e51e495dc3534269e9f21fde003120430bb7ae6ad2f07e2331f24'
 $externalStatePolicySha256='11261a53c6db0cdc284bb8f6fcf80416f6539ffaf2ff7479c335ea9c60bf4d0e'
 $runtimeProbePolicySha256='5e2ebc1d1120540b4ae2be9ce2cecac51a037944c3b9790a22dd7c5defd1a276'
 $runtimeProbeRunnerSha256='31b757e76cdeefd0c821d000327dc398ba5b7d84ca9cc418f7ac4e5b7fa18030'
+$inactiveCatalogSha256='bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157'
+$activeCatalogSha256='160a845360a3d784c6856fa3b18cd293d5028ad3dc2c4aa0a6ef266170ec6172'
+$activeCatalogContractSha256='737f7af7d426558e4af93a42b8d7a5079dc57abb2d0db96cbe57eee00f8b9287'
+$activeCatalogPolicySha256='d5da8caf0b0019dba9e750ceece0050aab390f5f603852f3d0eade11b005ad0c'
+$activeCatalogVerifierSha256='34cf34f45509727bae92fce8872a5a592725a3c29843b9e9b74be7fb15f23808'
 $activateToken='ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
 $deactivateToken='DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
 $statePath=$null
@@ -56,6 +61,13 @@ function Assert-StaticPrerequisites {
   Assert-Hash 'scripts/lib/forge-account-admission-activation-external-state.mjs' $externalStatePolicySha256 'Admission activation external-state policy'
   Assert-Hash 'scripts/lib/forge-account-admission-runtime-probes.mjs' $runtimeProbePolicySha256 'Admission runtime-probe policy'
   Assert-Hash 'scripts/verify-forge-account-admission-runtime-probes.mjs' $runtimeProbeRunnerSha256 'Admission runtime-probe runner'
+  Assert-Hash 'docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json' $inactiveCatalogSha256 'Inactive admission catalog'
+  Assert-Hash 'docs/database/baseline/v1-account-admission-activation-active/active-catalog-fingerprint.json' $activeCatalogSha256 'Active admission catalog'
+  Assert-Hash 'docs/database/baseline/v1-account-admission-activation-active/active-contract.v1.json' $activeCatalogContractSha256 'Active admission catalog contract'
+  Assert-Hash 'scripts/lib/forge-account-admission-active-catalog-contract.mjs' $activeCatalogPolicySha256 'Active admission catalog policy'
+  Assert-Hash 'scripts/verify-forge-account-admission-active-catalog-contract.mjs' $activeCatalogVerifierSha256 'Active admission catalog verifier'
+  & node (Join-Path $PSScriptRoot 'verify-forge-account-admission-active-catalog-contract.mjs') --repository-root $repo | Out-Null
+  if($LASTEXITCODE -ne 0){throw 'Active admission catalog contract is invalid.'}
   $localHead=(& git -C $repo rev-parse HEAD).Trim()
   if($LASTEXITCODE -ne 0 -or $localHead -cne $ApplicationCommit){throw 'Local HEAD does not match the authorized application commit.'}
   $remoteLine=(& git -C $repo ls-remote --exit-code origin refs/heads/main|Out-String).Trim()
@@ -92,10 +104,82 @@ function New-ExternalStateObservation {
   [IO.File]::WriteAllText($path,$observation,[Text.UTF8Encoding]::new($false))
   $path
 }
+function Get-VerifiedEnforcementState {
+  $sql=@'
+with target_relations as (
+  select n.nspname as schema_name,c.relname as relation_name,c.oid
+  from pg_class c join pg_namespace n on n.oid=c.relnamespace
+  where n.nspname in ('public','tongs') and c.relkind in ('r','p')
+    and (has_table_privilege('authenticated',c.oid,'SELECT') or has_table_privilege('authenticated',c.oid,'INSERT')
+      or has_table_privilege('authenticated',c.oid,'UPDATE') or has_table_privilege('authenticated',c.oid,'DELETE'))
+), data_policies as (
+  select n.nspname as schema_name,c.relname as relation_name,p.*,
+    pg_get_expr(p.polqual,p.polrelid,true) as using_expression,
+    pg_get_expr(p.polwithcheck,p.polrelid,true) as check_expression
+  from pg_policy p join pg_class c on c.oid=p.polrelid join pg_namespace n on n.oid=c.relnamespace
+  where p.polname='forge_account_admission_required_v1'
+), storage_policies as (
+  select policyname,lower(cmd) as command,permissive,roles,coalesce(qual,'') as using_expression,
+    coalesce(with_check,'') as check_expression
+  from pg_policies where schemaname='storage' and tablename='objects'
+    and policyname like 'forge_account_admission_storage_%_v1'
+)
+select
+  coalesce((select split_part(item.value,'=',2) from pg_db_role_setting setting join pg_roles role on role.oid=setting.setrole
+    cross join lateral unnest(setting.setconfig) item(value) where role.rolname='authenticator'
+      and item.value like 'pgrst.db_pre_request=%' limit 1),'') as pre_request_setting,
+  (select count(*) from data_policies) as data_policy_count,
+  (select count(*) from storage_policies) as storage_policy_count,
+  (select count(*) from pg_policies where schemaname='realtime' and policyname like 'forge_account_admission%') as realtime_policy_count,
+  (select count(*) from pg_db_role_setting setting cross join lateral unnest(setting.setconfig) item(value)
+    where item.value like 'forge.account_admission_enforcement=%') as persistent_financial_setting_count,
+  not exists(select 1 from target_relations target full join data_policies policy
+    on policy.schema_name=target.schema_name and policy.relation_name=target.relation_name
+    where target.oid is null or policy.oid is null)
+    and not exists(select 1 from data_policies where polpermissive or polcmd<>'*'
+      or polroles<>array[(select oid from pg_roles where rolname='authenticated')]::oid[]
+      or using_expression<>'tongs.current_request_is_admitted()' or check_expression<>'tongs.current_request_is_admitted()')
+    as data_policy_exact,
+  (select count(*)=3 and bool_and(permissive='RESTRICTIVE') and bool_and(roles=array['authenticated']::name[])
+    and bool_and(
+      (policyname='forge_account_admission_storage_select_v1' and command='select'
+        and using_expression='tongs.current_request_is_admitted()' and check_expression='')
+      or (policyname='forge_account_admission_storage_insert_v1' and command='insert'
+        and using_expression='' and check_expression='tongs.current_request_is_admitted()')
+      or (policyname='forge_account_admission_storage_update_v1' and command='update'
+        and using_expression='tongs.current_request_is_admitted()' and check_expression='tongs.current_request_is_admitted()'))
+    from storage_policies) as storage_policy_exact,
+  (select count(*) from pg_policies where policyname like 'forge_account_admission%'
+    and not ((schemaname in ('public','tongs') and policyname='forge_account_admission_required_v1')
+      or (schemaname='storage' and tablename='objects' and policyname in (
+        'forge_account_admission_storage_select_v1','forge_account_admission_storage_insert_v1',
+        'forge_account_admission_storage_update_v1')))) as unexpected_policy_count;
+'@
+  $columns=@('pre_request_setting','data_policy_count','storage_policy_count','realtime_policy_count','persistent_financial_setting_count',
+    'data_policy_exact','storage_policy_exact','unexpected_policy_count')
+  $rows=@(Read-LinkedCsv $sql $columns 'account-admission enforcement-state selector')
+  if($rows.Count -ne 1){throw 'Account-admission enforcement state is unavailable.'}
+  $row=$rows[0]
+  $pre=[string]$row.pre_request_setting;$data=[int]$row.data_policy_count;$storage=[int]$row.storage_policy_count
+  $realtime=[int]$row.realtime_policy_count;$persistentFinancial=[int]$row.persistent_financial_setting_count
+  $unexpected=[int]$row.unexpected_policy_count
+  $dataExact=([string]$row.data_policy_exact -match '^(t|true)$')
+  $storageExact=([string]$row.storage_policy_exact -match '^(t|true)$')
+  if($pre -eq '' -and $data -eq 0 -and $storage -eq 0 -and $realtime -eq 0 -and $persistentFinancial -eq 0 -and $unexpected -eq 0){return 'inactive'}
+  if($pre -eq 'tongs.account_admission_pre_request' -and $data -eq 250 -and $storage -eq 3 -and $realtime -eq 0 -and
+    $persistentFinancial -eq 0 -and $unexpected -eq 0 -and $dataExact -and $storageExact){return 'active'}
+  throw 'Account-admission enforcement is mixed or differs from both certified lifecycle states.'
+}
 function Get-DatabaseState([object]$Static,[object]$ExternalState){
   $catalogPath=Join-Path ([IO.Path]::GetTempPath()) ('forge-admission-activation-catalog-'+[guid]::NewGuid().ToString('N')+'.json')
   try{
-    $catalog=& (Join-Path $PSScriptRoot 'capture-canonical-baseline-v1-catalog.ps1') -Target linked -OutputPath $catalogPath -ExpectedPath (Join-Path $repo 'docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json') -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|ConvertFrom-Json
+    $enforcementState=Get-VerifiedEnforcementState
+    $expectedCatalogRelative=if($enforcementState -eq 'active'){
+      'docs/database/baseline/v1-account-admission-activation-active/active-catalog-fingerprint.json'
+    }else{
+      'docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json'
+    }
+    $catalog=& (Join-Path $PSScriptRoot 'capture-canonical-baseline-v1-catalog.ps1') -Target linked -OutputPath $catalogPath -ExpectedPath (Join-Path $repo $expectedCatalogRelative) -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|ConvertFrom-Json
     $sql=@'
 with relation_rows as (
   select n.nspname as schema_name,c.relname as object_name,
@@ -187,6 +271,7 @@ select
     [ordered]@{
       projectRef=$projectRef;lineage=[string]$row.lineage;migrationCount=[int]$row.migration_count;migrationHead=[string]$row.migration_head
       migrationSha256=$migrationSha256;catalogObjectCount=[int]$catalog.objectCount;catalogSha256=[string]$catalog.contractSha256
+      enforcementState=$enforcementState
       relationCount=[int]$row.relation_count;relationSha256=[string]$row.relation_sha256
       functionCount=[int]$row.function_count;functionSha256=[string]$row.function_sha256
       storagePolicyCount=[int]$row.storage_policy_count;storagePolicySha256=[string]$row.storage_policy_sha256

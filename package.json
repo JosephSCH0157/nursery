@@ -98,7 +98,7 @@
     "test:db:inactive-admission-enforcement:historical-tooling": "node --test scripts/test-inactive-admission-enforcement-historical-successor.mjs packages/tongs/tests/inactive-admission-enforcement-migration-contract.test.mjs",
     "certify:db:account-admission-activation-preparation:historical": "pwsh -NoProfile -File scripts/certify-account-admission-activation-preparation-historical-successor.ps1",
     "test:db:account-admission-activation-preparation:historical-tooling": "node --test scripts/test-account-admission-activation-preparation-historical-successor.mjs scripts/test-canonical-catalog-production-normalization.mjs packages/tongs/tests/account-admission-activation-preparation-migration-contract.test.mjs",
-    "test:db:account-admission-activation": "node scripts/verify-forge-account-admission-activation-isolated.mjs",
+    "test:db:account-admission-activation": "node --test scripts/test-forge-account-admission-active-catalog-contract.mjs && node scripts/verify-forge-account-admission-activation-isolated.mjs",
     "certify:db:beta-invitation-auth-local": "pnpm --dir apps/nursery exec tsx ../../scripts/certify-beta-invitation-auth-local.mjs",
     "prepare:db:recovery-evidence": "node scripts/new-hosted-recovery-readiness-evidence.mjs",
     "prepare:db:recovery-evidence:api": "pwsh -NoProfile -File scripts/invoke-hosted-recovery-readiness-evidence.ps1 -Action CreateManagementApi",

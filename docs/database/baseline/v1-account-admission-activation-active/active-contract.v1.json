@@ -1,0 +1,97 @@
+{
+  "schema": "forge.account-admission-active-catalog-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "authoritySource": {
+    "path": "supabase/activation/forge-account-admission-activation-v1.sql",
+    "sha256": "3210eca3ac26cb073ef188f5d212fd53bbe641d75f5a78bf088e121c5a96230f"
+  },
+  "surfaceSource": {
+    "path": "docs/admission/ADMISSION_ACTIVATION_DATABASE_SURFACE.v1.json",
+    "sha256": "7818379a0ad7b9ceebf0752247b1aff9be64c7d3e5b4792529a933e17ba78036"
+  },
+  "inactiveCatalog": {
+    "path": "docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json",
+    "fileSha256": "bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157",
+    "objectCount": 16612,
+    "contractSha256": "6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1",
+    "dependencySetSha256": "ad690eec9d3dd2bae27ccfc79cfde7ed4077452870aa4b18923afd03f8c9b651"
+  },
+  "activeCatalog": {
+    "path": "docs/database/baseline/v1-account-admission-activation-active/active-catalog-fingerprint.json",
+    "fileSha256": "160a845360a3d784c6856fa3b18cd293d5028ad3dc2c4aa0a6ef266170ec6172",
+    "objectCount": 16862,
+    "contractSha256": "8238bcdadc568f60fdf3f7881d1795463f3b288c4577b2537e60bd0491e7d8e8",
+    "dependencySetSha256": "cbbc2df3d88045a143e402f3cbe8ef7bcf1f6ca5b64888f21166571ecc9683f4"
+  },
+  "expectedDelta": {
+    "addedPolicyCount": 250,
+    "removedObjectCount": 0,
+    "changedExistingKeys": [
+      "dependency_set|public+tongs"
+    ],
+    "unchangedCategories": [
+      "column",
+      "constraint",
+      "default_acl",
+      "event_trigger",
+      "extension",
+      "function",
+      "index",
+      "relation",
+      "schema",
+      "sequence",
+      "trigger",
+      "type"
+    ]
+  },
+  "activeEnforcement": {
+    "preRequestSetting": "tongs.account_admission_pre_request",
+    "dataApiPolicyName": "forge_account_admission_required_v1",
+    "dataApiPolicyCount": 250,
+    "dataApiPolicyMode": "RESTRICTIVE",
+    "dataApiPolicyCommand": "ALL",
+    "dataApiPolicyRoles": [
+      "authenticated"
+    ],
+    "dataApiUsing": "tongs.current_request_is_admitted()",
+    "dataApiWithCheck": "tongs.current_request_is_admitted()",
+    "storagePolicies": [
+      {
+        "name": "forge_account_admission_storage_insert_v1",
+        "command": "insert",
+        "permissive": "RESTRICTIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "using": "",
+        "withCheck": "tongs.current_request_is_admitted()"
+      },
+      {
+        "name": "forge_account_admission_storage_select_v1",
+        "command": "select",
+        "permissive": "RESTRICTIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "using": "tongs.current_request_is_admitted()",
+        "withCheck": ""
+      },
+      {
+        "name": "forge_account_admission_storage_update_v1",
+        "command": "update",
+        "permissive": "RESTRICTIVE",
+        "roles": [
+          "authenticated"
+        ],
+        "using": "tongs.current_request_is_admitted()",
+        "withCheck": "tongs.current_request_is_admitted()"
+      }
+    ],
+    "realtimeAdmissionPolicyCount": 0,
+    "persistentFinancialAdmissionSettingCount": 0
+  },
+  "rejectMissingActivePolicies": true,
+  "rejectAdditionalActivePolicies": true,
+  "rejectModifiedActivePolicies": true,
+  "preserveInactiveCatalog": true
+}

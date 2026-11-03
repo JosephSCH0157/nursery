@@ -289,6 +289,7 @@ foreach ($command in @(
   'pnpm preflight:db:beta-invitation-provisioning:hosted',
   'pnpm certify:db:account-admission-activation-preparation:historical',
   'pnpm test:db:account-admission-activation-preparation:historical-tooling',
+  'pnpm test:db:account-admission-activation',
   'invoke-forge-account-admission-activation.ps1',
   'ACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1',
   'DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1',
@@ -323,6 +324,7 @@ if (-not (Test-Path -LiteralPath $activationContractPath -PathType Leaf)) {
     'platform operator without customer admission',
     'forge.account-admission-runtime-probe-bundle.v1',
     'Static catalog/source predicates and service-role requests are not runtime-probe evidence',
+    'An inactive catalog cannot satisfy active PostVerify',
     'DEACTIVATE-FORGE-ACCOUNT-ADMISSION-ENFORCEMENT-V1'
   )) {
     if ($activationContractText -notmatch [regex]::Escape($requiredActivationBoundary)) {

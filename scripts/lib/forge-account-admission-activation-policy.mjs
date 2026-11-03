@@ -10,8 +10,12 @@ export const ACTIVATION_LINEAGE = "historical-v1";
 export const ACTIVATION_MIGRATION_COUNT = 431;
 export const ACTIVATION_MIGRATION_HEAD = "20261102032722";
 export const ACTIVATION_MIGRATION_SHA256 = "12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb";
-export const ACTIVATION_CATALOG_OBJECT_COUNT = 16612;
-export const ACTIVATION_CATALOG_SHA256 = "6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1";
+export const ACTIVATION_INACTIVE_CATALOG_OBJECT_COUNT = 16612;
+export const ACTIVATION_INACTIVE_CATALOG_SHA256 = "6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1";
+export const ACTIVATION_ACTIVE_CATALOG_OBJECT_COUNT = 16862;
+export const ACTIVATION_ACTIVE_CATALOG_SHA256 = "8238bcdadc568f60fdf3f7881d1795463f3b288c4577b2537e60bd0491e7d8e8";
+export const ACTIVATION_CATALOG_OBJECT_COUNT = ACTIVATION_INACTIVE_CATALOG_OBJECT_COUNT;
+export const ACTIVATION_CATALOG_SHA256 = ACTIVATION_INACTIVE_CATALOG_SHA256;
 export const ACTIVATION_RELATION_COUNT = 259;
 export const ACTIVATION_RELATION_SHA256 = "575e52fa85bf79dafa30eee4aba95f7396b5559c0183d8b205eee110837d31f0";
 export const ACTIVATION_FUNCTION_COUNT = 492;
@@ -56,8 +60,6 @@ function validateIdentity(state, now) {
   exact(state.migrationCount, ACTIVATION_MIGRATION_COUNT, "migration_count");
   exact(state.migrationHead, ACTIVATION_MIGRATION_HEAD, "migration_head");
   exact(state.migrationSha256, ACTIVATION_MIGRATION_SHA256, "migration_sha256");
-  exact(state.catalogObjectCount, ACTIVATION_CATALOG_OBJECT_COUNT, "catalog_object_count");
-  exact(state.catalogSha256, ACTIVATION_CATALOG_SHA256, "catalog_sha256");
   exact(state.relationCount, ACTIVATION_RELATION_COUNT, "relation_count");
   exact(state.relationSha256, ACTIVATION_RELATION_SHA256, "relation_sha256");
   exact(state.functionCount, ACTIVATION_FUNCTION_COUNT, "function_count");
@@ -78,6 +80,9 @@ function validateIdentity(state, now) {
 }
 
 function validateInactive(state) {
+  exact(state.enforcementState, "inactive", "enforcement_state");
+  exact(state.catalogObjectCount, ACTIVATION_INACTIVE_CATALOG_OBJECT_COUNT, "inactive_catalog_object_count");
+  exact(state.catalogSha256, ACTIVATION_INACTIVE_CATALOG_SHA256, "inactive_catalog_sha256");
   exact(state.preRequestSetting, "", "pre_request_setting");
   exact(state.dataApiAdmissionPolicyCount, 0, "data_api_admission_policy_count");
   exact(state.storageAdmissionPolicyCount, 0, "storage_admission_policy_count");
@@ -85,6 +90,9 @@ function validateInactive(state) {
 }
 
 function validateActive(state) {
+  exact(state.enforcementState, "active", "enforcement_state");
+  exact(state.catalogObjectCount, ACTIVATION_ACTIVE_CATALOG_OBJECT_COUNT, "active_catalog_object_count");
+  exact(state.catalogSha256, ACTIVATION_ACTIVE_CATALOG_SHA256, "active_catalog_sha256");
   exact(state.preRequestSetting, "tongs.account_admission_pre_request", "pre_request_setting");
   exact(state.dataApiAdmissionPolicyCount, 250, "data_api_admission_policy_count");
   exact(state.storageAdmissionPolicyCount, 3, "storage_admission_policy_count");
