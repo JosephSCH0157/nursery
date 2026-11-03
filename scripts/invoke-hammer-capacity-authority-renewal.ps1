@@ -26,9 +26,9 @@ function Assert-Static {
   $linked=(Get-Content -LiteralPath (Join-Path $repo 'supabase/.temp/project-ref') -Raw).Trim()
   if($linked -cne 'wtvdjndyxegudufrompx'){throw 'Linked project does not match the pinned Forge project.'}
   $history=@(Read-Csv 'select version from supabase_migrations.schema_migrations order by version' @('version') 'hosted history')
-  if($history.Count -ne 432 -or [string]$history[-1].version -cne '20261103173603' -or
-     @($history|Where-Object {[string]$_.version -ceq '20261103173603'}).Count -ne 1){
-    throw 'Reviewed hosted migration head 432 with fresh aggregate-cost renewal authority is required.'
+  if($history.Count -ne 433 -or [string]$history[-1].version -cne '20261103185024' -or
+     @($history|Where-Object {[string]$_.version -ceq '20261103185024'}).Count -ne 1){
+    throw 'Reviewed hosted migration head 433 with aligned Hammer aggregate authority is required.'
   }
 }
 function New-DatabaseObservation {
