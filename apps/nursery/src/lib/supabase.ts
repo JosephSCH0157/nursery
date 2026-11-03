@@ -5,6 +5,10 @@ import {
 } from "@supabase/supabase-js";
 import type { Database as TongsDatabase } from "@forge/tongs";
 import type { Database as NurseryDatabase } from "./supabase/database.types";
+import {
+  FORGE_AUTH_FLOW_TYPE,
+  FORGE_AUTH_STORAGE_KEY,
+} from "./supabase-auth-contract";
 import { createCanonicalSupabaseAccessTokenAuthority } from "./supabase-session-authority";
 
 type AppDatabase = {
@@ -17,8 +21,6 @@ const url =
   (import.meta.env.VITE_SUPABASE_URL as string | undefined)
   ?? (import.meta.env.VITE_SUPABASE_DATABASE_URL as string | undefined);
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-const AUTH_STORAGE_KEY = "forge-auth";
-
 const GLOBAL_KEY = "__forge_supabase_client__";
 const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
 const ACCESS_TOKEN_RESOLVER_KEY = "__forge_resolve_user_access_token__";
@@ -66,7 +68,8 @@ const primaryAuthOptions = {
   persistSession: true,
   autoRefreshToken: true,
   detectSessionInUrl: true, // important for password reset / invite / verify links
-  storageKey: AUTH_STORAGE_KEY,
+  flowType: FORGE_AUTH_FLOW_TYPE,
+  storageKey: FORGE_AUTH_STORAGE_KEY,
   lock: runWithSupabaseAuthLock,
   ...(typeof window !== "undefined" ? { storage: window.localStorage } : {}),
 };

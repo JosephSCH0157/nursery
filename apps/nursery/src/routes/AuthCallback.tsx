@@ -4,11 +4,14 @@ import { supabase } from "../lib/supabase";
 import {
   AUTH_NEXT_STORAGE_KEY,
   AUTH_PROVIDER_STORAGE_KEY,
+  canRestoreLegacyImplicitSession,
   isInvitationAuthCallback,
   isOAuthCancellation,
   isRecoveryAuthCallback,
   normalizeAuthNextPath,
   readAuthCallbackError,
+  readAuthCallbackType,
+  readImplicitAuthSessionTokens,
 } from "../lib/auth-callback-intent";
 import "./AuthCallback.css";
 
@@ -94,14 +97,36 @@ export default function AuthCallback() {
 
         const recoveryCallback = isRecoveryAuthCallback(window.location);
         const invitationCallback = isInvitationAuthCallback(window.location);
+        const callbackType = readAuthCallbackType(window.location);
 
         const code = new URLSearchParams(window.location.search).get("code");
-        if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        const initialSession = await supabase.auth.getSession();
+        if (initialSession.error) throw initialSession.error;
+        let session = initialSession.data.session;
+        if (code && !session) {
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
           if (exchangeError) throw exchangeError;
+          session = data.session;
         }
 
-        const session = await waitForSession();
+        if (
+          !session
+          && !code
+          && canRestoreLegacyImplicitSession(callbackType)
+        ) {
+          const tokens = readImplicitAuthSessionTokens(window.location);
+          if (tokens) {
+            const { data, error: sessionError } = await supabase.auth.setSession(tokens);
+            if (sessionError) throw sessionError;
+            session = data.session;
+            window.history.replaceState(
+              window.history.state,
+              "",
+              `${window.location.pathname}${window.location.search}`,
+            );
+          }
+        }
+        if (!session) session = await waitForSession(code ? 1 : 10);
         if (recoveryCallback || recoveryEventSeen) {
           if (!session) {
             nav("/login?reason=callback_session_missing&next=%2Freset-password", { replace: true });

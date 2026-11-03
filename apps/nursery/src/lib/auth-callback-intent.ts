@@ -8,6 +8,20 @@ export type AuthCallbackError = {
   description: string;
 };
 
+export type ImplicitAuthSessionTokens = {
+  access_token: string;
+  refresh_token: string;
+};
+
+const LEGACY_EMAIL_CALLBACK_TYPES = new Set([
+  "email",
+  "email_change",
+  "invite",
+  "magiclink",
+  "recovery",
+  "signup",
+]);
+
 function readParam(source: string, name: string): string | null {
   try {
     return new URLSearchParams(source.replace(/^[?#]/, "")).get(name);
@@ -64,4 +78,19 @@ export function readAuthCallbackError(
 export function isOAuthCancellation(error: AuthCallbackError): boolean {
   if (error.code?.toLowerCase() === "access_denied") return true;
   return /\b(cancel(?:led|ed)?|denied|declined)\b/i.test(error.description);
+}
+
+export function canRestoreLegacyImplicitSession(
+  callbackType: string | null,
+): boolean {
+  return callbackType !== null && LEGACY_EMAIL_CALLBACK_TYPES.has(callbackType);
+}
+
+export function readImplicitAuthSessionTokens(
+  location: Pick<AuthCallbackLocation, "hash">,
+): ImplicitAuthSessionTokens | null {
+  const accessToken = readParam(location.hash, "access_token");
+  const refreshToken = readParam(location.hash, "refresh_token");
+  if (!accessToken || !refreshToken) return null;
+  return { access_token: accessToken, refresh_token: refreshToken };
 }
