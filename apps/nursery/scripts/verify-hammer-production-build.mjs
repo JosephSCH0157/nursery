@@ -10,7 +10,8 @@ const ENTRY_JS_BUDGET_BYTES = 225_000;
 const TOTAL_JS_BUDGET_BYTES = 275_000;
 // Keep a small cross-platform envelope around the accepted production bundle.
 // Vite's emitted bytes differ slightly between Windows verification and Linux CI.
-const TOTAL_ASSET_GZIP_BUDGET_BYTES = 90_250;
+// The reviewed PKCE addition measures 90,253 bytes on Netlify and 90,323 locally.
+const TOTAL_ASSET_GZIP_BUDGET_BYTES = 90_400;
 if (!existsSync(manifestPath)) throw new Error("Hammer production manifest was not generated.");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const entry = Object.values(manifest).find((item) => item?.isEntry && String(item.src || "").endsWith("hammer-production-gate-entry.tsx"));
