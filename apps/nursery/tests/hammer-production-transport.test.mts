@@ -334,6 +334,32 @@ test("accepted owner-sponsored quote is durable before the background executor s
   }
 });
 
+test("background Hammer execution uses trusted Netlify CONTEXT when deploy metadata is absent", async () => {
+  const originalContext = process.env.CONTEXT;
+  const originalNetlify = process.env.NETLIFY;
+  process.env.CONTEXT = "production";
+  process.env.NETLIFY = "true";
+  try {
+    const response = await createNetlifyHammerFunction({
+      hammerAssemblyAiExecutionMode: "background",
+      runtimeConfig: runtimeConfig(),
+    })(request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: WORKPIECE_ID,
+      media_kind: "recording_video",
+      canonical_workpiece_path: "tongs://fixture/canonical-recording",
+    }, false));
+    assert.equal(response.status, 401);
+    const payload = await response.json() as { error?: { code?: string } };
+    assert.equal(payload.error?.code, "AUTH_REQUIRED");
+  } finally {
+    if (originalContext == null) delete process.env.CONTEXT;
+    else process.env.CONTEXT = originalContext;
+    if (originalNetlify == null) delete process.env.NETLIFY;
+    else process.env.NETLIFY = originalNetlify;
+  }
+});
+
 test("production transcript prep reaches the paid Hammer authority boundary", async () => {
   const response = await createNetlifyHammerFunction({ runtimeConfig: runtimeConfig() })(
     request("/api/hammer/prep/transcript", {

@@ -15,7 +15,7 @@ export function createNetlifyHammerFunction(options: HammerPrepMiddlewareOptions
       ? "existing_authorized_operation"
       : "new_customer_operation";
     return runWithOwnerRuntimeEnvironment(
-      context?.deploy?.context,
+      context?.deploy?.context ?? process.env.CONTEXT,
       () => withAdmissionEnforcement(request, operationClass, () => handler(request)),
     );
   };
