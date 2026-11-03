@@ -6,7 +6,12 @@ import {
 } from "./lib/hammer-assemblyai-cost-renewal-432-hosted-deployment-policy.mjs";
 
 const args = new Map();
-for (let index = 2; index < process.argv.length; index += 2) args.set(process.argv[index], process.argv[index + 1]);
+for (let index = 2; index < process.argv.length;) {
+  const key = process.argv[index];
+  if (key === "--local-only") { args.set(key, true); index += 1; continue; }
+  args.set(key, process.argv[index + 1]);
+  index += 2;
+}
 const action = args.get("--action");
 const recovery = JSON.parse(readFileSync(args.get("--recovery"), "utf8"));
 const options = { action, operator: args.get("--operator"), authorization: args.get("--authorization") };
