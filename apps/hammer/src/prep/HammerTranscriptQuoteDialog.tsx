@@ -19,7 +19,13 @@ export function useHammerTranscriptQuoteDecision(): HammerTranscriptQuoteDecisio
   }, []);
 
   const request = useCallback((nextQuote: CustomerSpendingQuote): Promise<boolean> => {
-    resolverRef.current?.(false);
+    // Transcript discovery can re-enter while the first paid quote challenge
+    // is still awaiting a customer decision. A later challenge must never
+    // cancel or replace the exact quote already visible to the customer: that
+    // previously caused an automatic retry loop in which no dialog survived
+    // long enough to accept. Fail the overlapping caller closed and preserve
+    // the original, single customer decision.
+    if (resolverRef.current) return Promise.resolve(false);
     return new Promise<boolean>((resolver) => {
       resolverRef.current = resolver;
       setQuote(nextQuote);
