@@ -1,0 +1,70 @@
+{
+  "schema": "forge.hammer-assemblyai-aggregate-cost-evidence-renewal-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "gate": "Account-admission activation preparation",
+    "contractPath": "docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json",
+    "contractSha256": "7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24",
+    "historicalRows": 431
+  },
+  "frozenArtifacts": {
+    "historicalMigrationCount": 414,
+    "historicalManifestSha256": "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40",
+    "baselineMigrationSha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "predecessorSuccessorContractSha256": "7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24"
+  },
+  "sharedTailAddition": {
+    "version": "20261103173603",
+    "path": "supabase/migrations/20261103173603_hammer_assemblyai_aggregate_cost_evidence_renewal.sql",
+    "sha256": "9ccf6395fe4fcd4959729a6399c3c28196fc14cf2b0bd2ef724ea7c4ad18a18a"
+  },
+  "historicalSuccessor": {
+    "finalRows": 432,
+    "lineage": "historical-v1"
+  },
+  "baselineSuccessor": {
+    "lineage": "baseline-v1",
+    "versions": [
+      "20261021020814",
+      "20261022000000",
+      "20261024164519",
+      "20261025070300",
+      "20261025080943",
+      "20261027030139",
+      "20261028092438",
+      "20261029004958",
+      "20261029033827",
+      "20261029110858",
+      "20261029154824",
+      "20261029172356",
+      "20261030090719",
+      "20261030224605",
+      "20261031123320",
+      "20261101084703",
+      "20261101201817",
+      "20261102032722",
+      "20261103173603"
+    ]
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-catalog-fingerprint.json",
+    "fileSha256": "760c0fff7b78b843dabb9d95fc2076c9a3639bf756c6d0b9215f5857420bd9b1",
+    "objectCount": 16614,
+    "normalizedContractSha256": "d38edc659f96b009cbe1ba68ed602b0c3b59d79c6b6138638ff2809bec6e47d5"
+  },
+  "inactivityContract": {
+    "migrationCreatesAuthorityRows": 0,
+    "migrationCreatesFundingRows": 0,
+    "migrationCreatesReservations": 0,
+    "migrationCreatesProviderAttempts": 0,
+    "migrationCreatesCustomerCredits": 0,
+    "globalFinancialEnvironmentMustRemainTest": true,
+    "anonymousExecuteDenied": true,
+    "authenticatedExecuteDenied": true,
+    "serviceRoleExecuteRequired": true,
+    "immutableHistoryPreserved": true,
+    "freshEvidenceRequired": true,
+    "runtimeRenewalUsesLatestFreshExactPolicy": true
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

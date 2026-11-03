@@ -133,7 +133,7 @@ $restrictive_defaults$
   if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
 
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
-  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-account-admission-activation-preparation/successor-catalog-fingerprint.json'
+  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-catalog-fingerprint.json'
   Push-Location $workdir
   try {
     if ($MaterializeSuccessorCatalog) {
@@ -150,7 +150,7 @@ $restrictive_defaults$
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.account-admission-activation-preparation-baseline-successor-certification.v1'
+    schema = 'forge.hammer-assemblyai-aggregate-cost-evidence-renewal-baseline-successor-certification.v1'
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

@@ -1,0 +1,56 @@
+[CmdletBinding()]
+param(
+  [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+  [switch]$CliPreflightOnly,
+  [switch]$MaterializeSuccessorCatalog
+)
+
+$ErrorActionPreference='Stop'
+$repo=[IO.Path]::GetFullPath($RepositoryRoot)
+$sourcePath=Join-Path $PSScriptRoot 'certify-hammer-owner-funded-first-transcription-historical-successor.ps1'
+$source=Get-Content -LiteralPath $sourcePath -Raw
+
+function Replace-Exact([string]$Text,[string]$Old,[string]$New,[string]$Label,[int]$ExpectedCount=1){
+  $count=([regex]::Matches($Text,[regex]::Escape($Old))).Count
+  if($count -ne $ExpectedCount){throw "Expected $ExpectedCount $Label predecessor contract marker(s); found $count."}
+  return $Text.Replace($Old,$New)
+}
+
+$source=Replace-Exact $source "`$targetMigration='20261029172356'" "`$targetMigration='20261103173603'" 'target version'
+$source=Replace-Exact $source "`$targetMigrationFile='20261029172356_hammer_owner_funded_first_transcription.sql'" "`$targetMigrationFile='20261103173603_hammer_assemblyai_aggregate_cost_evidence_renewal.sql'" 'target file'
+$source=Replace-Exact $source '$predecessorHistoryRows=424' '$predecessorHistoryRows=431' 'predecessor row count'
+$source=Replace-Exact $source '$successorHistoryRows=425' '$successorHistoryRows=432' 'successor row count'
+$source=Replace-Exact $source "'20261029154824')" "'20261029154824','20261029172356','20261030090719','20261030224605','20261031123320','20261101084703','20261101201817','20261102032722')" 'predecessor pending list'
+$source=Replace-Exact $source 'docs/database/baseline/v1-hammer-owner-funded-first-transcription/successor-catalog-fingerprint.json' 'docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-catalog-fingerprint.json' 'catalog path'
+$historicalMaterialization="`$postCatalog=& (Join-Path `$repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath `$successorCatalogPath -ExtensionCompatibilityPath (Join-Path `$repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot `$repo|ConvertFrom-Json"
+$normalizedMaterialization=@'
+$null=& (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $successorCatalogPath -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|ConvertFrom-Json
+$postCatalog=& node (Join-Path $repo 'scripts/normalize-canonical-catalog-for-production.mjs') --catalog $successorCatalogPath --compatibility (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') --output $successorCatalogPath|ConvertFrom-Json
+'@
+$source=Replace-Exact $source $historicalMaterialization $normalizedMaterialization.Trim() 'production catalog normalization'
+$source=Replace-Exact $source "'9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488'" "'9ccf6395fe4fcd4959729a6399c3c28196fc14cf2b0bd2ef724ea7c4ad18a18a'" 'migration hash' 2
+$source=Replace-Exact $source "'supabase/tests/hammer_owner_funded_first_transcription_contract.sql'))" "'supabase/tests/hammer_owner_funded_first_transcription_contract.sql','supabase/tests/hammer_owner_sponsorship_reservation_compatibility_contract.sql','supabase/tests/hammer_owner_sponsorship_authority_renewal_contract.sql'))" 'database contract test list'
+$source=Replace-Exact $source "(Join-Path `$repo 'packages/tongs/tests/hammer-brad-first-transcription-authority-bundle.test.mjs')" "(Join-Path `$repo 'packages/tongs/tests/hammer-brad-first-transcription-authority-bundle.test.mjs') (Join-Path `$repo 'packages/tongs/tests/hammer-owner-sponsorship-authority-renewal.test.mjs') (Join-Path `$repo 'packages/tongs/tests/hammer-assemblyai-aggregate-cost-evidence-renewal.test.mjs')" 'migration contract test list'
+$parityPredecessor="Invoke-PsqlFile `$container (Join-Path `$repo 'supabase/tests/public_slice_a_catalog_parity.sql')"
+$paritySuccessor=@'
+$successorParityPath=Join-Path $workdir 'hammer-assemblyai-cost-renewal-public-slice-a-catalog-parity.sql'
+& (Join-Path $repo 'scripts/new-beta-invitation-public-slice-a-parity.ps1') -OutputPath $successorParityPath -RepositoryRoot $repo | Out-Null
+Invoke-PsqlFile $container $successorParityPath
+'@
+$source=Replace-Exact $source $parityPredecessor $paritySuccessor.Trim() 'public Slice A successor parity invocation'
+$source=Replace-Exact $source 'Hammer owner-funded first-transcription migration' 'Hammer AssemblyAI aggregate-cost evidence-renewal migration' 'migration label' 3
+$source=Replace-Exact $source 'hammer-owner-funded-first-transcription' 'hammer-assemblyai-aggregate-cost-evidence-renewal' 'result label' 4
+
+$scriptsLiteral=$PSScriptRoot.Replace("'","''")
+$source=$source.Replace('$PSScriptRoot',"'$scriptsLiteral'")
+$temporaryPath=Join-Path ([IO.Path]::GetTempPath()) ('forge-hammer-assemblyai-cost-renewal-432-'+[guid]::NewGuid().ToString('N')+'.ps1')
+try{
+  [IO.File]::WriteAllText($temporaryPath,$source,[Text.UTF8Encoding]::new($false))
+  $arguments=@('-NoProfile','-File',$temporaryPath,'-RepositoryRoot',$repo)
+  if($CliPreflightOnly){$arguments+='-CliPreflightOnly'}
+  if($MaterializeSuccessorCatalog){$arguments+='-MaterializeSuccessorCatalog'}
+  & pwsh @arguments
+  if($LASTEXITCODE -ne 0){throw 'Hammer AssemblyAI aggregate-cost evidence-renewal historical successor certification failed.'}
+} finally {
+  if(Test-Path -LiteralPath $temporaryPath){Remove-Item -LiteralPath $temporaryPath -Force}
+}

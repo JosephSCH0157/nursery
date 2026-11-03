@@ -41,6 +41,8 @@ export const INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_PATH = "docs/data
 export const INACTIVE_ADMISSION_ENFORCEMENT_SUCCESSOR_CONTRACT_SHA256 = "fdaae03acbd8f9048f019d46336602433908e5791963ea46729debdb097e86fc";
 export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-account-admission-activation-preparation/successor-contract.v1.json";
 export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256 = "7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24";
+export const HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-contract.v1.json";
+export const HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "b6d77cd567828533caee2ad4ef8204039d430309600b10ea3d2e63d98a2511da";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -826,6 +828,41 @@ function loadAccountAdmissionActivationPreparationSuccessorContract(root, head) 
   return contract;
 }
 
+function loadHammerAssemblyAiAggregateCostEvidenceRenewalSuccessorContract(root, head) {
+  const headTree = readTree(root, head);
+  const bytes = readBlobs(root, head, [HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH])
+    .get(HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH);
+  if (!bytes || sha256(bytes) !== HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_SHA256) {
+    throw new Error("Hammer AssemblyAI aggregate-cost evidence-renewal successor-contract SHA-256 mismatch.");
+  }
+  const contract = JSON.parse(bytes.toString("utf8"));
+  const addition = contract.sharedTailAddition;
+  if (contract.schema !== "forge.hammer-assemblyai-aggregate-cost-evidence-renewal-successor-contract.v1" ||
+      contract.repository !== "JosephSCH0157/nursery" ||
+      contract.predecessor?.contractSha256 !== ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256 ||
+      addition?.version !== "20261103173603" ||
+      addition?.path !== "supabase/migrations/20261103173603_hammer_assemblyai_aggregate_cost_evidence_renewal.sql" ||
+      addition?.sha256 !== "9ccf6395fe4fcd4959729a6399c3c28196fc14cf2b0bd2ef724ea7c4ad18a18a" ||
+      contract.catalogSuccessor?.fileSha256 !== "760c0fff7b78b843dabb9d95fc2076c9a3639bf756c6d0b9215f5857420bd9b1" ||
+      contract.catalogSuccessor?.objectCount !== 16614 ||
+      contract.catalogSuccessor?.normalizedContractSha256 !== "d38edc659f96b009cbe1ba68ed602b0c3b59d79c6b6138638ff2809bec6e47d5" ||
+      contract.inactivityContract?.migrationCreatesAuthorityRows !== 0 ||
+      contract.inactivityContract?.freshEvidenceRequired !== true ||
+      contract.rejectAdditionalProtectedPathChanges !== true) {
+    throw new Error("Hammer AssemblyAI aggregate-cost evidence-renewal successor contract is invalid.");
+  }
+  const entry = headTree.get(HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH);
+  if (!entry || entry.type !== "blob" || entry.mode !== "100644") {
+    throw new Error("Hammer AssemblyAI aggregate-cost evidence-renewal successor contract is missing or has an unsupported mode.");
+  }
+  checkAttributes(root, [HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH]);
+  const target = path.join(root, ...HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH.split("/"));
+  if (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink() || !fs.readFileSync(target).equals(bytes)) {
+    throw new Error("Hammer AssemblyAI aggregate-cost evidence-renewal successor-contract working bytes differ from HEAD.");
+  }
+  return contract;
+}
+
 function addFile(files, relativePath, expectedSha256, contract) {
   const normalized = normalizePath(relativePath);
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
@@ -1177,6 +1214,7 @@ export function verifyFrozenEvidence({
   const betaInvitationProvisioning = loadBetaInvitationProvisioningSuccessorContract(root, head);
   const inactiveAdmissionEnforcement = loadInactiveAdmissionEnforcementSuccessorContract(root, head);
   const accountAdmissionActivationPreparation = loadAccountAdmissionActivationPreparationSuccessorContract(root, head);
+  const hammerAssemblyAiAggregateCostEvidenceRenewal = loadHammerAssemblyAiAggregateCostEvidenceRenewalSuccessorContract(root, head);
   const successors = [
     { gate: "gate6h", contract: gate6h },
     { gate: "gate6o", contract: gate6o },
@@ -1194,6 +1232,7 @@ export function verifyFrozenEvidence({
     { gate: "beta-invitation-provisioning", contract: betaInvitationProvisioning },
     { gate: "inactive-admission-enforcement", contract: inactiveAdmissionEnforcement },
     { gate: "account-admission-activation-preparation", contract: accountAdmissionActivationPreparation },
+    { gate: "hammer-assemblyai-aggregate-cost-evidence-renewal", contract: hammerAssemblyAiAggregateCostEvidenceRenewal },
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }

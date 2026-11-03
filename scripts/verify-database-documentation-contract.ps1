@@ -54,6 +54,10 @@ $accountAdmissionActivationRelativePath = 'docs/database/baseline/v1-account-adm
 $accountAdmissionActivationPath = Join-Path $repo $accountAdmissionActivationRelativePath
 $accountAdmissionActivationSha256 = '7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24'
 $accountAdmissionActivation = Get-Content -LiteralPath $accountAdmissionActivationPath -Raw | ConvertFrom-Json
+$hammerAssemblyAiCostRenewalRelativePath = 'docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-contract.v1.json'
+$hammerAssemblyAiCostRenewalPath = Join-Path $repo $hammerAssemblyAiCostRenewalRelativePath
+$hammerAssemblyAiCostRenewalSha256 = 'b6d77cd567828533caee2ad4ef8204039d430309600b10ea3d2e63d98a2511da'
+$hammerAssemblyAiCostRenewal = Get-Content -LiteralPath $hammerAssemblyAiCostRenewalPath -Raw | ConvertFrom-Json
 $failures = [System.Collections.Generic.List[string]]::new()
 
 $documents = [ordered]@{
@@ -114,6 +118,7 @@ foreach ($reference in @(
   $hammerTriggerAclHardeningRelativePath
   $hammerBradFirstTranscriptionAuthorityRelativePath
   $accountAdmissionActivationRelativePath
+  $hammerAssemblyAiCostRenewalRelativePath
 )) {
   $documentReference = $reference -replace '^docs/database/',''
   if ($architectureText -notmatch [regex]::Escape($documentReference)) { $failures.Add("docs/database/DATABASE_ARCHITECTURE.md omits authority link: $documentReference") }
@@ -229,6 +234,17 @@ if ($accountAdmissionActivation.predecessor.contractSha256 -ne 'fdaae03acbd8f904
     $accountAdmissionActivation.catalogSuccessor.fileSha256 -ne 'bf7ff82d76f30d1eee461b04f41c4ad9c41ab22a9e56636eda37e4d0a9ef3157' -or
     $accountAdmissionActivation.catalogSuccessor.normalizedContractSha256 -ne '6cffa82600d1898621de9abb70000f82b723128de853bbddb6e08b58056ed3a1') {
   $failures.Add('Account-admission activation-preparation successor contract has unexpected predecessor, chronology, migration, or catalog evidence.')
+}
+if ((Get-FileHash -LiteralPath $hammerAssemblyAiCostRenewalPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hammerAssemblyAiCostRenewalSha256) {
+  $failures.Add('Hammer AssemblyAI cost-renewal successor-contract SHA-256 differs from the approved commitment.')
+}
+if ($hammerAssemblyAiCostRenewal.predecessor.contractSha256 -ne $accountAdmissionActivationSha256 -or
+    $hammerAssemblyAiCostRenewal.sharedTailAddition.version -ne '20261103173603' -or
+    $hammerAssemblyAiCostRenewal.historicalSuccessor.finalRows -ne 432 -or
+    $hammerAssemblyAiCostRenewal.sharedTailAddition.sha256 -ne '9ccf6395fe4fcd4959729a6399c3c28196fc14cf2b0bd2ef724ea7c4ad18a18a' -or
+    $hammerAssemblyAiCostRenewal.catalogSuccessor.fileSha256 -ne '760c0fff7b78b843dabb9d95fc2076c9a3639bf756c6d0b9215f5857420bd9b1' -or
+    $hammerAssemblyAiCostRenewal.catalogSuccessor.normalizedContractSha256 -ne 'd38edc659f96b009cbe1ba68ed602b0c3b59d79c6b6138638ff2809bec6e47d5') {
+  $failures.Add('Hammer AssemblyAI cost-renewal successor contract has unexpected predecessor, chronology, migration, or catalog evidence.')
 }
 if (-not (Test-Path -LiteralPath $trustAnchorPath -PathType Leaf)) {
   $failures.Add("Missing frozen evidence trust anchor: $trustAnchorRelativePath")
