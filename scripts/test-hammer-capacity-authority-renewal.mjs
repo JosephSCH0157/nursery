@@ -38,8 +38,12 @@ test("authenticated collection pins Netlify billing and the supported Supabase m
 });
 
 test("renewal requires the aligned aggregate-authority head and invokes only the service-role renewal RPC", () => {
-  assert.match(renewal, /history\.Count -ne 433/);
-  assert.match(renewal, /20261103185024/);
+  assert.match(renewal, /currentHead='20261104143249'/);
+  assert.match(renewal, /renewalCompatibleHead='20261104212918'/);
+  assert.match(renewal, /if\(\$head -ceq \$currentHead\)\{438\}elseif\(\$head -ceq \$renewalCompatibleHead\)\{439\}else\{-1\}/);
+  assert.match(renewal, /if\(\$Action -eq 'Renew' -and \$head -cne \$renewalCompatibleHead\)/);
+  assert.match(renewal, /renewal-compatibility migration is required/);
+  assert.doesNotMatch(renewal, /20261103185024/);
   assert.match(renewal, /renew_hammer_owner_funded_first_transcription_authority/);
   assert.match(renewal, /RENEW-HAMMER-BRAD-OWNER-SPONSORSHIP-AUTHORITY/);
   assert.match(renewal, /set_config\('request\.jwt\.claim\.role','service_role',true\)/);

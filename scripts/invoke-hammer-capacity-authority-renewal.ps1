@@ -26,9 +26,19 @@ function Assert-Static {
   $linked=(Get-Content -LiteralPath (Join-Path $repo 'supabase/.temp/project-ref') -Raw).Trim()
   if($linked -cne 'wtvdjndyxegudufrompx'){throw 'Linked project does not match the pinned Forge project.'}
   $history=@(Read-Csv 'select version from supabase_migrations.schema_migrations order by version' @('version') 'hosted history')
-  if($history.Count -ne 433 -or [string]$history[-1].version -cne '20261103185024' -or
-     @($history|Where-Object {[string]$_.version -ceq '20261103185024'}).Count -ne 1){
-    throw 'Reviewed hosted migration head 433 with aligned Hammer aggregate authority is required.'
+  $currentHead='20261104143249'
+  $renewalCompatibleHead='20261104212918'
+  $head=[string]$history[-1].version
+  $expectedCount=if($head -ceq $currentHead){438}elseif($head -ceq $renewalCompatibleHead){439}else{-1}
+  if($history.Count -ne $expectedCount -or
+     @($history|Where-Object {[string]$_.version -ceq $head}).Count -ne 1 -or
+     @($history|Where-Object {[string]$_.version -ceq $currentHead}).Count -ne 1 -or
+     ($head -ceq $renewalCompatibleHead -and
+       @($history|Where-Object {[string]$_.version -ceq $renewalCompatibleHead}).Count -ne 1)){
+    throw 'Reviewed hosted migration head 437 or its exact renewal-compatibility successor is required.'
+  }
+  if($Action -eq 'Renew' -and $head -cne $renewalCompatibleHead){
+    throw 'The certified Hammer renewal-compatibility migration is required before authority renewal.'
   }
 }
 function New-DatabaseObservation {

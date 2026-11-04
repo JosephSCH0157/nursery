@@ -3,7 +3,7 @@ param(
   [ValidateSet('permissive','restrictive')]
   [string]$DefaultPrivilegeMode = 'permissive',
   [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
-  [ValidateSet('aggregate-envelope','recovery','financial-environment','aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment')]
+  [ValidateSet('aggregate-envelope','recovery','financial-environment','aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')]
   [string]$CatalogStage = 'owner-hearth-aggregate-enforcement',
   [switch]$SkipHammerRealDatabaseIntegration,
   [switch]$MaterializeSuccessorCatalog
@@ -37,7 +37,7 @@ function Copy-BaselineMigrations {
   foreach ($migration in (Get-ChildItem -LiteralPath (Join-Path $repo 'supabase/migrations') -Filter '*.sql' -File | Sort-Object Name)) {
     if ($migration.BaseName -match '^(?<version>\d{8,14})_' -and
         $Matches.version -ge '20261022000000' -and
-        ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment') -or
+        ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility') -or
           ($CatalogStage -eq 'financial-environment' -and $Matches.version -le '20261103234636') -or
           ($CatalogStage -eq 'recovery' -and $Matches.version -le '20261103193845') -or
           ($CatalogStage -eq 'aggregate-envelope' -and $Matches.version -le '20261103185024'))) {
@@ -54,7 +54,12 @@ function Assert-CatalogStageMigrationPrefix {
   $baselineSource = Join-Path $sourceWorkdir 'supabase/migrations'
   $target = Join-Path $workdir 'supabase/migrations'
   $baselineNames = @(Get-ChildItem -LiteralPath $baselineSource -Filter '*.sql' -File | Sort-Object Name | ForEach-Object Name)
-  $stageMaximum = if ($CatalogStage -eq 'provider-alignment') {
+  $stageMaximum = if ($CatalogStage -eq 'hammer-renewal-compatibility') {
+    # Provider alignment and renewal compatibility are installed only after
+    # their guarded disposable prerequisites.  The initial prefix ends at the
+    # reviewed owner-Hearth enforcement migration.
+    '20261104071802'
+  } elseif ($CatalogStage -eq 'provider-alignment') {
     # The provider-alignment migration is deliberately installed only after
     # its guarded disposable authority fixture.  Before that fixture, the
     # exact expected prefix ends at the reviewed owner-Hearth repair.
@@ -131,10 +136,13 @@ try {
 
   if ($DefaultPrivilegeMode -eq 'permissive') {
     Copy-BaselineMigrations
-    if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment')) {
+    if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')) {
       & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
-      if ($CatalogStage -eq 'provider-alignment') {
+      if ($CatalogStage -in @('provider-alignment','hammer-renewal-compatibility')) {
         Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql')
+      }
+      if ($CatalogStage -eq 'hammer-renewal-compatibility') {
+        Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql')
       }
     } else {
       Assert-CatalogStageMigrationPrefix
@@ -162,10 +170,13 @@ $restrictive_defaults$
 '@
     Invoke-Supabase @('db','query','--local','--workdir',$workdir,'--agent=no',$restrictiveSql)
     Copy-BaselineMigrations
-    if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment')) {
+    if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')) {
       & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
-      if ($CatalogStage -eq 'provider-alignment') {
+      if ($CatalogStage -in @('provider-alignment','hammer-renewal-compatibility')) {
         Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql')
+      }
+      if ($CatalogStage -eq 'hammer-renewal-compatibility') {
+        Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql')
       }
     } else {
       Assert-CatalogStageMigrationPrefix
@@ -189,7 +200,7 @@ $restrictive_defaults$
   }
 
   $container = "supabase_db_$projectId"
-  if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment')) {
+  if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')) {
     if ($container -ne "supabase_db_$projectId" -or
         $projectId -notmatch '^forge-baseline-v1-[0-9a-f]{12}$' -or
         -not $workdir.StartsWith($temporaryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -203,7 +214,7 @@ $restrictive_defaults$
       -c "select set_config('forge.owner_hearth_policy_fixture','disposable-baseline-v1',false);" -f $fixtureTarget
     if ($LASTEXITCODE -ne 0) { throw 'Owner-Hearth aggregate-policy fixture failed.' }
   }
-  if ($CatalogStage -eq 'provider-alignment') {
+  if ($CatalogStage -in @('provider-alignment','hammer-renewal-compatibility')) {
     $fixture = Join-Path $repo 'supabase/tests/fixtures/canonical_luna_provider_alignment_authority.sql'
     $fixtureTarget = '/tmp/canonical_luna_provider_alignment_authority.sql'
     & docker cp $fixture "${container}:$fixtureTarget"
@@ -212,6 +223,14 @@ $restrictive_defaults$
       -c "select set_config('forge.provider_alignment_fixture','disposable-baseline-v1',false);" -f $fixtureTarget
     if ($LASTEXITCODE -ne 0) { throw 'Luna provider-alignment authority fixture failed.' }
     Copy-Item -LiteralPath (Join-Path $repo 'supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql') `
+      -Destination (Join-Path $workdir 'supabase/migrations')
+    Invoke-Supabase @('migration','up','--local','--workdir',$workdir,'--yes')
+    if ($CatalogStage -eq 'provider-alignment') {
+      & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
+    }
+  }
+  if ($CatalogStage -eq 'hammer-renewal-compatibility') {
+    Copy-Item -LiteralPath (Join-Path $repo 'supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql') `
       -Destination (Join-Path $workdir 'supabase/migrations')
     Invoke-Supabase @('migration','up','--local','--workdir',$workdir,'--yes')
     & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
@@ -246,7 +265,7 @@ $restrictive_defaults$
     if ($test -in @('supabase/tests/hammer_aggregate_attempt_smallint_signature.sql','supabase/tests/hammer_transcription_real_database_integration.sql') -and $CatalogStage -ne 'aggregate-attempt') { continue }
     if ($test -in @('supabase/tests/aggregate_paid_execution_connection.sql','supabase/tests/owner_funded_hearth_activation.sql','supabase/tests/runway_success_financial_finalization.sql') -and $CatalogStage -ne 'aggregate-attempt') { continue }
     if ($test -eq 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql' -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
-    if ($test -eq 'supabase/tests/provider_request_financial_alignment.sql' -and $CatalogStage -ne 'provider-alignment') { continue }
+    if ($test -eq 'supabase/tests/provider_request_financial_alignment.sql' -and $CatalogStage -notin @('provider-alignment','hammer-renewal-compatibility')) { continue }
     if ($test -in @('supabase/tests/runway_paid_execution_boundary.sql','supabase/tests/customer_hearth_luna_canary.sql') -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
     if ($test -eq 'supabase/tests/hammer_transcription_real_database_integration.sql' -and $SkipHammerRealDatabaseIntegration) { continue }
     $source = if ([IO.Path]::IsPathFullyQualified($test)) { $test } else { Join-Path $repo $test }
@@ -275,7 +294,9 @@ $restrictive_defaults$
   if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
 
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
-  $successorFingerprint = if ($CatalogStage -eq 'aggregate-envelope') {
+  $successorFingerprint = if ($CatalogStage -eq 'hammer-renewal-compatibility') {
+    Join-Path $repo 'docs/database/baseline/v1-hammer-canary-renewal-tooling-compatibility/successor-catalog-fingerprint.json'
+  } elseif ($CatalogStage -eq 'aggregate-envelope') {
     Join-Path $repo 'docs/database/baseline/v1-hammer-assemblyai-aggregate-envelope-alignment/successor-catalog-fingerprint.json'
   } elseif ($CatalogStage -eq 'recovery') {
     Join-Path $repo 'docs/database/baseline/v1-hammer-transcription-integrated-recovery/successor-catalog-fingerprint.json'

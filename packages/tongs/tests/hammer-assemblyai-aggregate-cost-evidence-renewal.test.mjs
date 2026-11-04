@@ -14,6 +14,10 @@ const alignment = readFileSync(new URL(
   "../../../supabase/migrations/20261103185024_hammer_assemblyai_aggregate_envelope_alignment.sql",
   import.meta.url,
 ), "utf8");
+const compatibility = readFileSync(new URL(
+  "../../../supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql",
+  import.meta.url,
+), "utf8");
 
 test("successor evidence preserves the exact approved AssemblyAI economics", () => {
   assert.match(sql, /previous_policy\.aggregate_forge_exposure_limit_micros<>44589/);
@@ -66,4 +70,28 @@ test("alignment is service-only and resolver requires exact fresh authority", ()
   assert.match(alignment, /per_operation_supplier_ceiling_micros=38589/);
   assert.match(alignment, /per_operation_supporting_ceiling_micros=6000/);
   assert.match(alignment, /exact_model_or_sku='universal-3-5-pro:diarization'/);
+});
+
+test("renewal compatibility separates the global envelope from the operation ceiling", () => {
+  assert.match(compatibility, /aggregate_forge_exposure_limit_micros<>10840000/);
+  assert.match(compatibility, /per_operation_supplier_ceiling_micros<>38589/);
+  assert.match(compatibility, /per_operation_supporting_ceiling_micros<>6000/);
+  assert.match(compatibility, /per_operation_tail_ceiling_micros<>0/);
+  assert.match(compatibility, /maximum_attempts<>1/);
+  assert.match(compatibility, /'automatic_retries'\)::integer<>0/);
+  assert.match(compatibility, /aggregate_forge_exposure_limit_micros',10840000/);
+  assert.match(compatibility, /per_operation_wholesale_ceiling_micros',44589/);
+  assert.doesNotMatch(compatibility, /customer_spending_quotes\s*\(/i);
+  assert.doesNotMatch(compatibility, /funding_reservations\s*\(/i);
+  assert.doesNotMatch(compatibility, /hammer_transcription_provider_attempts\s*\(/i);
+});
+
+test("renewal compatibility binds the latest exact policy and rejects duplicate evidence", () => {
+  assert.match(compatibility, /latest_policy_id<>p_previous_policy_id/);
+  assert.match(compatibility, /duplicate AssemblyAI aggregate renewal evidence/);
+  assert.match(compatibility, /aggregate renewal identities already exist/);
+  assert.match(compatibility, /e\.valid_until>clock_timestamp\(\)/);
+  assert.match(compatibility, /order by p\.revision desc/);
+  assert.match(compatibility, /from public,anon,authenticated/);
+  assert.match(compatibility, /to service_role/);
 });

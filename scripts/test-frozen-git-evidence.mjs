@@ -134,6 +134,7 @@ try {
     "supabase/migrations/20261104003358_repair_hammer_aggregate_attempt_smallint_signature.sql",
     "supabase/migrations/20261104071802_repair_owner_hearth_aggregate_admission_enforcement.sql",
     "supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql",
+    "supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql",
   ];
   assert.equal(published.successorFileCount, expectedSuccessorPaths.length);
   assert.deepEqual(
