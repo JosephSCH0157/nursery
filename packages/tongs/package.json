@@ -165,7 +165,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@forge/shared": "workspace:*",
-    "@runwayml/sdk": "4.13.1",
+    "@runwayml/sdk": "4.24.0",
     "@supabase/supabase-js": "^2.98.0",
     "fflate": "^0.8.2",
     "js-tiktoken": "1.0.21",

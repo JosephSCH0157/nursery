@@ -64,6 +64,7 @@ export async function buildBoundedOpenAiProviderRequest(args: {
   maximumOutputTokens: number;
   maximumAttempts: number;
   serviceTier?: string;
+  bindServiceTierInBody?: boolean;
   protocolOverheadTokens?: number;
   preserveBodyPropertyOrder?: boolean;
 }): Promise<BoundedProviderRequest> {
@@ -82,10 +83,15 @@ export async function buildBoundedOpenAiProviderRequest(args: {
   }
   const model = args.model.trim();
   if (!model) throw new Error("provider_request_model_required");
-  const body = normalizeJson(args.body) as Record<string, JsonValue>;
+  const requestedServiceTier = args.serviceTier?.trim() || "standard";
+  const providerServiceTier = requestedServiceTier === "standard" ? "default" : requestedServiceTier;
+  const requestBody = args.bindServiceTierInBody
+    ? { ...args.body, service_tier: providerServiceTier }
+    : args.body;
+  const body = normalizeJson(requestBody) as Record<string, JsonValue>;
   if (body.model !== model) throw new Error("provider_request_model_mismatch");
   const serializedBody = args.preserveBodyPropertyOrder
-    ? JSON.stringify(args.body)
+    ? JSON.stringify(requestBody)
     : JSON.stringify(body);
   const bytes = new TextEncoder().encode(serializedBody);
   const tokenizer = getEncoding("o200k_base");
@@ -110,7 +116,7 @@ export async function buildBoundedOpenAiProviderRequest(args: {
     maximumAttempts,
     estimatorRevision: OPENAI_PROVIDER_REQUEST_ESTIMATOR_REVISION,
     model,
-    serviceTier: args.serviceTier?.trim() || "standard",
+    serviceTier: requestedServiceTier,
   };
 }
 

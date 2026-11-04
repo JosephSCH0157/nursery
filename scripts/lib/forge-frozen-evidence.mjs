@@ -53,6 +53,8 @@ export const HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_PATH = "supabase/migrat
 export const HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_SHA256 = "c91c26b46f507cd920e1be9e7f9e639b6eba2e157a64d525c64eab71f466478a";
 export const OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_PATH = "supabase/migrations/20261104071802_repair_owner_hearth_aggregate_admission_enforcement.sql";
 export const OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_SHA256 = "8203199edd0a9b87efd390e3eec64f569f19626715d9c0fe3b8fd7e18f2af9e3";
+export const PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_PATH = "supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql";
+export const PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_SHA256 = "11fe8d8dbc08189c06887f1d14ff423f08b71704cdb85460158adde5752e76d4";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -1258,6 +1260,7 @@ export function verifyFrozenEvidence({
       ["shared-spending-quote-financial-environment", "20261103234636", SHARED_SPENDING_QUOTE_FINANCIAL_ENVIRONMENT_PATH, SHARED_SPENDING_QUOTE_FINANCIAL_ENVIRONMENT_SHA256],
       ["hammer-aggregate-attempt-smallint-signature", "20261104003358", HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_PATH, HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_SHA256],
       ["owner-hearth-aggregate-admission-enforcement", "20261104071802", OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_PATH, OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_SHA256],
+      ["provider-request-financial-alignment", "20261104143249", PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_PATH, PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_SHA256],
     ].map(([gate, version, path, sha256]) => ({ gate, contract: { sharedTailAddition: { version, path, sha256 } } })),
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });

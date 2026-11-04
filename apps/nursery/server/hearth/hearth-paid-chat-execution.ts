@@ -64,6 +64,7 @@ type PaidContext = {
   supportingCostCeilingMicros: number;
   inputMicrosPerMillionTokens: number;
   cachedInputMicrosPerMillionTokens: number;
+  cacheWriteMicrosPerMillionTokens: number;
   outputMicrosPerMillionTokens: number;
   reservationState: string;
 };
@@ -156,6 +157,7 @@ function parseContext(value: unknown): PaidContext {
     cachedInputMicrosPerMillionTokens: row.cached_input_micros_per_million_tokens == null
       ? 0
       : boundedInteger(row, "cached_input_micros_per_million_tokens"),
+    cacheWriteMicrosPerMillionTokens: boundedInteger(row, "cache_write_micros_per_million_tokens"),
     outputMicrosPerMillionTokens: boundedInteger(row, "output_micros_per_million_tokens"),
     reservationState: requiredString(row, "reservation_state"),
   };
@@ -212,16 +214,30 @@ export function fingerprintPaidHearthChatRequest(value: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function readUsage(payload: unknown): { input: number; cachedInput: number; output: number } {
+export function readHearthOpenAiUsage(payload: unknown): { input: number; cachedInput: number; cacheWriteInput: number; output: number; serviceTier: string } {
   const usage = asRecord(asRecord(payload).usage);
   const input = usage.prompt_tokens ?? usage.input_tokens ?? 0;
   const output = usage.completion_tokens ?? usage.output_tokens ?? 0;
   const details = asRecord(usage.prompt_tokens_details ?? usage.input_tokens_details);
   const cachedInput = details.cached_tokens ?? 0;
+  const cacheWriteInput = details.cache_write_tokens ?? 0;
+  const parsedInput = Number(input);
+  const parsedCached = Number(cachedInput);
+  const parsedCacheWrite = Number(cacheWriteInput);
+  const serviceTier = typeof asRecord(payload).service_tier === "string" ? String(asRecord(payload).service_tier) : "";
+  if (!Number.isSafeInteger(parsedInput) || parsedInput < 0
+    || !Number.isSafeInteger(parsedCached) || parsedCached < 0
+    || !Number.isSafeInteger(parsedCacheWrite) || parsedCacheWrite < 0
+    || parsedCached + parsedCacheWrite > parsedInput
+    || serviceTier !== "default") {
+    throw new OpenAiTextProviderError("OpenAI returned unrecognized or financially inconsistent usage", false, null, { reason: "provider_usage_contract_mismatch", service_tier: serviceTier });
+  }
   return {
-    input: Number.isSafeInteger(Number(input)) && Number(input) >= 0 ? Number(input) : 0,
-    cachedInput: Number.isSafeInteger(Number(cachedInput)) && Number(cachedInput) >= 0 && Number(cachedInput) <= Number(input) ? Number(cachedInput) : 0,
+    input: parsedInput,
+    cachedInput: parsedCached,
+    cacheWriteInput: parsedCacheWrite,
     output: Number.isSafeInteger(Number(output)) && Number(output) >= 0 ? Number(output) : 0,
+    serviceTier,
   };
 }
 
@@ -243,18 +259,21 @@ export async function buildBoundedHearthChatProviderRequest(args: {
       model: args.model,
       messages: args.messages,
       max_completion_tokens: args.maximumOutputTokens,
+      prompt_cache_options: { ttl: "30m" },
     },
     model: args.model,
     maximumOutputTokens: args.maximumOutputTokens,
     maximumAttempts: args.maximumAttempts,
     serviceTier: "standard",
+    bindServiceTierInBody: true,
   });
 }
 
-function estimateDirectCostMicros(context: PaidContext, input: number, output: number, cachedInput = 0): number {
+export function estimateHearthOpenAiDirectCostMicros(context: PaidContext, input: number, output: number, cachedInput = 0, cacheWriteInput = 0): number {
   const amount = Math.ceil(
-    ((input - cachedInput) * context.inputMicrosPerMillionTokens
+    ((input - cachedInput - cacheWriteInput) * context.inputMicrosPerMillionTokens
       + cachedInput * context.cachedInputMicrosPerMillionTokens
+      + cacheWriteInput * context.cacheWriteMicrosPerMillionTokens
       + output * context.outputMicrosPerMillionTokens) / 1_000_000,
   );
   if (!Number.isSafeInteger(amount) || amount < 0 || amount > context.directProviderCeilingMicros) {
@@ -301,7 +320,7 @@ export async function executePaidHearthChatCompletion(
     const replayInputUnits = boundedInteger(stored, "input_units");
     const replayOutputUnits = boundedInteger(stored, "output_units");
     const replayDirectCostMicros = context.credentialFunding === "forge"
-      ? estimateDirectCostMicros(context, replayInputUnits, replayOutputUnits)
+      ? estimateHearthOpenAiDirectCostMicros(context, replayInputUnits, replayOutputUnits)
       : 0;
     await rpc(args.gate, "record_paid_operation_aggregate_outcome", {
       p_reservation_id: context.reservationId,
@@ -436,9 +455,9 @@ export async function executePaidHearthChatCompletion(
         });
       }
       const payload = await response.json() as unknown;
-      const usage = readUsage(payload);
+      const usage = readHearthOpenAiUsage(payload);
       const directCostMicros = context.credentialFunding === "forge"
-        ? estimateDirectCostMicros(context, usage.input, usage.output, usage.cachedInput)
+        ? estimateHearthOpenAiDirectCostMicros(context, usage.input, usage.output, usage.cachedInput, usage.cacheWriteInput)
         : 0;
       const rawReply = extractReply(payload);
       providerEvidence.latest = { requestId: providerRequestId, input: usage.input, output: usage.output };
@@ -468,6 +487,8 @@ export async function executePaidHearthChatCompletion(
           supporting_cost_estimate_micros: 0,
           supporting_cost_ceiling_micros: context.supportingCostCeilingMicros,
           cached_input_units: usage.cachedInput,
+          cache_write_input_units: usage.cacheWriteInput,
+          service_tier: usage.serviceTier,
           reasoning_output_included: true,
           ...boundedProviderRequestEvidence(boundedRequest),
         },

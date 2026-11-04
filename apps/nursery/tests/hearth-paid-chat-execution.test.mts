@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   executePaidHearthChatCompletion,
+  estimateHearthOpenAiDirectCostMicros,
+  readHearthOpenAiUsage,
   type PaidHearthChatResult,
 } from "../server/hearth/hearth-paid-chat-execution";
 import { validateHearthCompositionArtifact } from "../../hearth/src/lib/hearth-composition-output";
@@ -28,6 +30,8 @@ function resolvedContext(state = "reserved") {
     direct_provider_ceiling_micros: 10668,
     supporting_cost_ceiling_micros: 10000,
     input_micros_per_million_tokens: 1750000,
+    cached_input_micros_per_million_tokens: 1750000,
+    cache_write_micros_per_million_tokens: 1750000,
     output_micros_per_million_tokens: 14000000,
     reservation_state: state,
   };
@@ -82,6 +86,23 @@ const ORIGINAL_REQUEST = "Write one neutral sentence encouraging a podcaster to 
 // the same ordinary-sentence shape without pretending to reproduce provider text.
 const SYNTHETIC_RESPONSE_FIXTURE = "Before recording, take a moment to review your outline so your ideas flow clearly.";
 
+test("Luna default-tier cache writes are fully priced and unknown tiers fail closed", () => {
+  const context = { ...resolvedContext(), model: "gpt-5.6-luna", directProviderCeilingMicros: 1115,
+    inputMicrosPerMillionTokens: 200000, cachedInputMicrosPerMillionTokens: 20000,
+    cacheWriteMicrosPerMillionTokens: 250000, outputMicrosPerMillionTokens: 1200000 };
+  const usage = readHearthOpenAiUsage({ service_tier: "default", usage: {
+    prompt_tokens: 2000, completion_tokens: 512,
+    prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 2000 },
+  } });
+  assert.equal(estimateHearthOpenAiDirectCostMicros(context, usage.input, usage.output, usage.cachedInput, usage.cacheWriteInput), 1115);
+  assert.throws(() => readHearthOpenAiUsage({ service_tier: "priority", usage: {
+    prompt_tokens: 1, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+  } }), /financially inconsistent usage/);
+  assert.throws(() => readHearthOpenAiUsage({ service_tier: "default", usage: {
+    prompt_tokens: 5, completion_tokens: 1, prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: 3 },
+  } }), /financially inconsistent usage/);
+});
+
 test("hearth.chat_completion crosses funding, fake provider, canonical persistence, and owner settlement once", async () => {
   const gate = buildGate();
   let providerCalls = 0;
@@ -100,7 +121,8 @@ test("hearth.chat_completion crosses funding, fake provider, canonical persisten
       return new Response(JSON.stringify({
         id: "chatcmpl_fake",
         choices: [{ message: { content: "A neutral bounded reply." } }],
-        usage: { prompt_tokens: 25, completion_tokens: 7 },
+        service_tier: "default",
+        usage: { prompt_tokens: 25, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
       }), { status: 200, headers: { "x-request-id": "req_fake_1" } });
     },
     validateAndNormalize: validResult,
@@ -140,7 +162,7 @@ test("mentioning an outline does not impose outline-artifact validation on the r
     providerFetch: async () => new Response(JSON.stringify({
       id: "chatcmpl_synthetic_regression_fixture",
       choices: [{ message: { content: SYNTHETIC_RESPONSE_FIXTURE } }],
-      usage: { prompt_tokens: 30, completion_tokens: 15 },
+      service_tier: "default", usage: { prompt_tokens: 30, completion_tokens: 15, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
     }), { status: 200, headers: { "x-request-id": "req_synthetic_fixture" } }),
     validateAndNormalize: (rawReply) => {
       const validation = validateHearthCompositionArtifact({ requestText: ORIGINAL_REQUEST, assistantText: rawReply, ops: [] });
@@ -171,7 +193,7 @@ test("an actual outline-generation request still requires and accepts a substant
     providerFetch: async () => new Response(JSON.stringify({
       id: "chatcmpl_outline_fixture",
       choices: [{ message: { content: outline } }],
-      usage: { prompt_tokens: 25, completion_tokens: 20 },
+      service_tier: "default", usage: { prompt_tokens: 25, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
     }), { status: 200, headers: { "x-request-id": "req_outline_fixture" } }),
     validateAndNormalize: (rawReply) => {
       const validation = validateHearthCompositionArtifact({ requestText: request, assistantText: rawReply, ops: [] });
@@ -198,7 +220,7 @@ test("provider usage and expense are retained when later Forge validation fails"
     providerFetch: async () => new Response(JSON.stringify({
       id: "chatcmpl_invalid_outline",
       choices: [{ message: { content: "I made the outline for you." } }],
-      usage: { prompt_tokens: 31, completion_tokens: 9 },
+      service_tier: "default", usage: { prompt_tokens: 31, completion_tokens: 9, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
     }), { status: 200, headers: { "x-request-id": "req_invalid_outline" } }),
     validateAndNormalize: () => { throw new Error("outline artifact missing"); },
   });

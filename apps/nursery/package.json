@@ -82,7 +82,7 @@
     "@forge/tongs": "workspace:*",
     "@forge/ui-mobile": "workspace:*",
     "@huggingface/inference": "^4.13.15",
-    "@runwayml/sdk": "4.13.1",
+    "@runwayml/sdk": "4.24.0",
     "@supabase/supabase-js": "^2.98.0",
     "fflate": "^0.8.2",
     "js-tiktoken": "1.0.21",

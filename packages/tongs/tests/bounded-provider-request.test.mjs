@@ -77,3 +77,12 @@ test("customer-safe evidence contains bounds but not request content", async () 
   assert.equal(evidence.serialized_body_sha256, request.serializedBodySha256);
   assert.equal(JSON.stringify(evidence).includes("Earlier context"), false);
 });
+
+test("binds the approved Standard tier into the actual provider body", async () => {
+  const request = await buildBoundedOpenAiProviderRequest({
+    body: body(), model: "gpt-5.6-luna", maximumOutputTokens: 512, maximumAttempts: 1,
+    serviceTier: "standard", bindServiceTierInBody: true,
+  });
+  assert.equal(JSON.parse(request.serializedBody).service_tier, "default");
+  assert.equal(request.serviceTier, "standard");
+});

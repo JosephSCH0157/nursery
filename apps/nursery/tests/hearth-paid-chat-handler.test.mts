@@ -142,6 +142,8 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
             direct_provider_ceiling_micros: 10668,
             supporting_cost_ceiling_micros: 10000,
             input_micros_per_million_tokens: 1750000,
+            cached_input_micros_per_million_tokens: 1750000,
+            cache_write_micros_per_million_tokens: 1750000,
             output_micros_per_million_tokens: 14000000,
             reservation_state: "reserved",
           },
@@ -185,7 +187,7 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
       return new Response(JSON.stringify({
         id: "chatcmpl_handler_fake",
         choices: [{ message: { content: "This is a neutral bounded answer." } }],
-        usage: { prompt_tokens: 90, completion_tokens: 8 },
+        service_tier: "default", usage: { prompt_tokens: 90, completion_tokens: 8, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
       }), { status: 200, headers: { "x-request-id": "req_handler_fake_1" } });
     },
   };
@@ -545,6 +547,7 @@ test("insufficient inspected customer research evidence releases the reservation
           supporting_cost_ceiling_micros: 0,
           input_micros_per_million_tokens: 200000,
           cached_input_micros_per_million_tokens: 20000,
+          cache_write_micros_per_million_tokens: 250000,
           output_micros_per_million_tokens: 1200000,
           reservation_state: "reserved",
         }, error: null };
@@ -761,6 +764,7 @@ test("settled customer research replay returns its canonical result without new 
           supporting_cost_ceiling_micros: 20000,
           input_micros_per_million_tokens: 200000,
           cached_input_micros_per_million_tokens: 20000,
+          cache_write_micros_per_million_tokens: 250000,
           output_micros_per_million_tokens: 1200000,
           reservation_state: "settled",
         }, error: null };
@@ -1006,6 +1010,8 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           direct_provider_ceiling_micros: 1015,
           supporting_cost_ceiling_micros: 10000,
           input_micros_per_million_tokens: 200000,
+          cached_input_micros_per_million_tokens: 20000,
+          cache_write_micros_per_million_tokens: 250000,
           output_micros_per_million_tokens: 1200000,
           reservation_state: reservationState,
         }, error: null };
@@ -1066,7 +1072,7 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
       return new Response(JSON.stringify({
         id: "chatcmpl_customer_fake",
         choices: [{ message: { content: "Review your outline before recording so the episode stays focused." } }],
-        usage: { prompt_tokens: 30, completion_tokens: 9 },
+        service_tier: "default", usage: { prompt_tokens: 30, completion_tokens: 9, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
       }), { status: 200, headers: { "x-request-id": "req_customer_fake_1" } });
     },
   } satisfies HearthRuntimeConfig;
@@ -1479,7 +1485,7 @@ test("explicit owner Hearth authority uses only the isolated credential and bypa
       return new Response(JSON.stringify({
         id: "chatcmpl_owner_fake",
         choices: [{ message: { content: "The quiet room makes it easier to hear the story take shape." } }],
-        usage: { prompt_tokens: 35, completion_tokens: 12 },
+        service_tier: "default", usage: { prompt_tokens: 35, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } },
       }), { status: 200, headers: { "x-request-id": "req_owner_fake_1" } });
     },
   });

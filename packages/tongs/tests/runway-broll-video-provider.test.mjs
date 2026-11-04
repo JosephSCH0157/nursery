@@ -13,30 +13,25 @@ test("Runway adapter exposes creation response before polling and retrieves only
   const provider = new RunwayBrollVideoProvider("", client);
   const submitted = await provider.submit({ prompt: "A slow documentary tracking shot", model: "gen4.5", durationSeconds: 5, ratio: "1280:720", attemptId: "attempt-1" });
   assert.equal(submitted.taskId, "task-12345678"); assert.equal(creates, 1); assert.equal(retrieves, 0);
-  assert.deepEqual(createBody, { model: "gen4.5", promptText: "A slow documentary tracking shot", ratio: "1280:720", duration: 5 });
+  assert.deepEqual(createBody, { model: "gen4.5", promptText: "A slow documentary tracking shot", ratio: "1280:720", duration: 5, outputFormat: "mp4" });
   const completed = await provider.poll(submitted.taskId);
   assert.equal(completed.state, "completed"); assert.equal(retrieves, 1); assert.equal(creates, 1);
 });
 
-test("Runway adapter sends multiple ordered historical references through a reference-capable video model", async () => {
-  let body = null;
+test("Runway adapter rejects references and model substitution before transmission", async () => {
+  let creates = 0;
   const client = {
-    textToVideo: { create: async (value) => { body = value; return { id: "task-references" }; } },
-    imageToVideo: { create: async () => { throw new Error("multiple references must not use first-frame generation"); } },
+    textToVideo: { create: async () => { creates += 1; return { id: "never" }; } },
+    imageToVideo: { create: async () => { creates += 1; return { id: "never" }; } },
     tasks: { retrieve: async () => ({}) },
   };
   const provider = new RunwayBrollVideoProvider("", client);
-  await provider.submit({ prompt: "Move from museum display through repair to operation", model: "seedance2", durationSeconds: 5, ratio: "1280:720", attemptId: "attempt-references", referenceImages: [
+  await assert.rejects(() => provider.submit({ prompt: "Move from museum display through repair to operation", model: "seedance2", durationSeconds: 5, ratio: "1280:720", attemptId: "attempt-references", referenceImages: [
     { mimeType: "image/jpeg", bytesBase64: "b25l" },
     { mimeType: "image/png", bytesBase64: "dHdv" },
     { mimeType: "image/webp", bytesBase64: "dGhyZWU=" },
-  ] });
-  assert.equal(body.model, "seedance2");
-  assert.deepEqual(body.references, [
-    { uri: "data:image/jpeg;base64,b25l" },
-    { uri: "data:image/png;base64,dHdv" },
-    { uri: "data:image/webp;base64,dGhyZWU=" },
-  ]);
+  ] }), (error) => error instanceof RunwayTransportError && error.ambiguous === false && error.evidence.transmitted === false);
+  assert.equal(creates, 0);
 });
 
 test("Runway adapter classifies lost creation responses as ambiguous and never retries inside the SDK", async () => {

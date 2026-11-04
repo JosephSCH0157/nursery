@@ -31797,6 +31797,8 @@ export class TongsCommitService {
         );
     }
     const suppliedReferences = input.reference_images ?? [];
+    if (input.source_kind === "generated" && suppliedReferences.length !== 0)
+      throw new HttpError(409, "runway_reference_sku_not_supported", "The current Runway price supports only reference-free Gen-4.5 generation. Remove reference images before requesting a quote.", { transmitted: false });
     if (suppliedReferences.length > 3)
       throw new HttpError(400, "broll_reference_limit_exceeded", "Choose no more than three ordered reference images for one B-roll generation.");
     const generationReferences = await Promise.all(suppliedReferences.map(async (reference, ordinal) => {
@@ -31882,6 +31884,8 @@ export class TongsCommitService {
       const model = input.runway_model ?? "gen4.5";
       const durationSeconds = input.duration_seconds ?? 5;
       const ratio = input.ratio ?? "1280:720";
+      if (model !== "gen4.5" || durationSeconds !== 5 || ratio !== "1280:720")
+        throw new HttpError(409, "runway_sku_not_supported", "The current Runway price supports only reference-free Gen-4.5, five-second, 1280x720 standard MP4 output.", { transmitted: false });
       try {
         ownerRunwayPreparation = await this.ownerRunwayExecutionBoundary.prepare({
           authenticatedUserId: auth.userId,
