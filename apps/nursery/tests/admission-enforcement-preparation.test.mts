@@ -243,22 +243,26 @@ test("server entrypoints classify new work and preserve cleanup/background work"
 
 test("frontend boundary is inactive by default and distinguishes pending, revoked, and errors", async () => {
   const source = await read("apps/nursery/src/components/AdmissionBoundary.tsx");
+  const lifecycle = await read("apps/nursery/src/components/AdmissionBoundaryView.tsx");
+  const runtime = await read("apps/nursery/src/components/AdmissionBoundaryRuntime.ts");
   assert.match(source, /VITE_FORGE_ADMISSION_ENFORCEMENT_ENABLED/);
-  assert.match(source, /if \(!enabled \|\| exempt \|\| state\.kind === "allowed"\)/);
-  assert.match(source, /effective_state === "revoked"/);
-  assert.match(source, /Invitation setup is still pending/);
-  assert.match(source, /Admission could not be verified/);
+  assert.match(lifecycle, /state\.kind === "allowed"/);
+  assert.match(runtime, /effective_state === "revoked"/);
+  assert.match(lifecycle, /Invitation setup is still pending/);
+  assert.match(lifecycle, /Admission could not be verified/);
   assert.match(source, /onAuthStateChange/);
-  assert.match(source, /window\.addEventListener\("focus"/);
-  assert.match(source, /window\.setInterval\(refresh, ADMISSION_REFRESH_INTERVAL_MS\)/);
-  assert.match(source, /document\.addEventListener\("visibilitychange"/);
+  assert.match(lifecycle, /window\.addEventListener\("focus"/);
+  assert.match(lifecycle, /window\.setInterval\(refresh, ADMISSION_REFRESH_INTERVAL_MS\)/);
+  assert.match(lifecycle, /document\.addEventListener\("visibilitychange"/);
+  assert.match(lifecycle, /previous\.kind !== "allowed"/);
 });
 
 test("Bellows guest exception is limited to opaque link resolution and ephemeral signaling", async () => {
   const boundary = await read("apps/nursery/src/components/AdmissionBoundary.tsx");
+  const runtime = await read("apps/nursery/src/components/AdmissionBoundaryRuntime.ts");
   const join = await read("apps/nursery/src/routes/BellowsJoin.tsx");
   const repository = await read("apps/nursery/src/lib/bellows/bellowsTongsRepository.ts");
-  assert.match(boundary, /\/apps\/bellows\/join\//);
+  assert.match(`${boundary}\n${runtime}`, /\/apps\/bellows\/join\//);
   assert.match(join, /repository\.resolveJoinLink/);
   assert.match(repository, /\.rpc\("resolve_bellows_join_link"/);
   assert.match(join, /\.on\("presence"/);
