@@ -1964,6 +1964,41 @@ type HammerAssemblyAiStatusResult =
   | { state: "provider_failed"; operationId: string }
   | { state: "persisted"; operationId: string; transcript: Record<string, unknown> };
 
+type HammerAssemblyAiRecovery = Readonly<{
+  quoteId: string;
+  operationId: string;
+  quoteHash: string;
+  requestFingerprint: string;
+  state: "pending" | "pre_admission_failed";
+}>;
+
+async function readHammerAssemblyAiRecovery(args: {
+  supabaseService: SupabaseClient<Database>;
+  userId: string;
+  requestFingerprint: string;
+}): Promise<HammerAssemblyAiRecovery | null> {
+  const client = args.supabaseService.schema("tongs") as unknown as {
+    rpc: (name: string, values: Record<string, unknown>) => Promise<{
+      data: unknown;
+      error: { message: string } | null;
+    }>;
+  };
+  const response = await client.rpc("read_hammer_transcription_recovery", {
+    p_user_id: args.userId,
+    p_request_fingerprint: args.requestFingerprint,
+  });
+  if (response.error) throw new Error(`read Hammer transcription recovery: ${response.error.message}`);
+  const value = readJsonObject(response.data);
+  const quoteId = readTrimmed(value?.quote_id);
+  const operationId = readTrimmed(value?.operation_id);
+  const quoteHash = readTrimmed(value?.quote_hash);
+  const requestFingerprint = readTrimmed(value?.request_fingerprint);
+  const state = readTrimmed(value?.state);
+  if (!quoteId || !operationId || !quoteHash || !requestFingerprint
+    || (state !== "pending" && state !== "pre_admission_failed")) return null;
+  return { quoteId, operationId, quoteHash, requestFingerprint, state };
+}
+
 async function readHammerAssemblyAiStatus(args: {
   supabaseService: SupabaseClient<Database>;
   userId: string;
@@ -1998,6 +2033,14 @@ async function readHammerAssemblyAiStatus(args: {
   if (operationResponse.error) throw new Error(`read Hammer transcription operation: ${operationResponse.error.message}`);
   const operation = operationResponse.data;
   if (!operation) {
+    const recovery = await readHammerAssemblyAiRecovery({
+      supabaseService: args.supabaseService,
+      userId: args.userId,
+      requestFingerprint: args.requestFingerprint,
+    });
+    if (recovery?.state === "pre_admission_failed") {
+      return { state: "pre_admission_failed", operationId: args.operationId };
+    }
     const reservationResponse = await store
       .from("funding_reservations")
       .select("id")
@@ -3570,6 +3613,31 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         }
 
         if (!acceptance) {
+          const recovery = await readHammerAssemblyAiRecovery({
+            supabaseService,
+            userId,
+            requestFingerprint,
+          });
+          if (recovery?.state === "pre_admission_failed") {
+            sendJson(res, 409, { ok: false, error: {
+              code: "transcription_start_failed",
+              message: "The accepted transcription did not start. No charge was made and it was not retried.",
+            } });
+            return;
+          }
+          if (recovery?.state === "pending") {
+            sendJson(res, 202, { ok: true, data: {
+              state: "pending",
+              operation_id: recovery.operationId,
+              recovery_acceptance: {
+                quote_id: recovery.quoteId,
+                operation_id: recovery.operationId,
+                quote_hash: recovery.quoteHash,
+                request_fingerprint: recovery.requestFingerprint,
+              },
+            } });
+            return;
+          }
           const coordinator = new HammerAssemblyAiPaidExecutionCoordinator(
             openAiTextGate,
             userGate,

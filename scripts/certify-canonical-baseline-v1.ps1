@@ -3,6 +3,9 @@ param(
   [ValidateSet('permissive','restrictive')]
   [string]$DefaultPrivilegeMode = 'permissive',
   [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+  [ValidateSet('aggregate-envelope','recovery','financial-environment','aggregate-attempt','owner-hearth-aggregate-enforcement')]
+  [string]$CatalogStage = 'owner-hearth-aggregate-enforcement',
+  [switch]$SkipHammerRealDatabaseIntegration,
   [switch]$MaterializeSuccessorCatalog
 )
 
@@ -32,9 +35,70 @@ function Copy-BaselineMigrations {
     Copy-Item -LiteralPath $migration.FullName -Destination (Join-Path $workdir 'supabase/migrations')
   }
   foreach ($migration in (Get-ChildItem -LiteralPath (Join-Path $repo 'supabase/migrations') -Filter '*.sql' -File | Sort-Object Name)) {
-    if ($migration.BaseName -match '^(?<version>\d{8,14})_' -and $Matches.version -ge '20261022000000') {
+    if ($migration.BaseName -match '^(?<version>\d{8,14})_' -and
+        $Matches.version -ge '20261022000000' -and
+        ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement') -or
+          ($CatalogStage -eq 'financial-environment' -and $Matches.version -le '20261103234636') -or
+          ($CatalogStage -eq 'recovery' -and $Matches.version -le '20261103193845') -or
+          ($CatalogStage -eq 'aggregate-envelope' -and $Matches.version -le '20261103185024'))) {
       Copy-Item -LiteralPath $migration.FullName -Destination (Join-Path $workdir 'supabase/migrations')
     }
+  }
+}
+
+function Get-FileSha256([string]$Path) {
+  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Assert-CatalogStageMigrationPrefix {
+  $baselineSource = Join-Path $sourceWorkdir 'supabase/migrations'
+  $target = Join-Path $workdir 'supabase/migrations'
+  $baselineNames = @(Get-ChildItem -LiteralPath $baselineSource -Filter '*.sql' -File | Sort-Object Name | ForEach-Object Name)
+  $stageMaximum = if ($CatalogStage -eq 'financial-environment') {
+    '20261103234636'
+  } elseif ($CatalogStage -eq 'recovery') {
+    '20261103193845'
+  } elseif ($CatalogStage -eq 'aggregate-envelope') {
+    '20261103185024'
+  } elseif ($CatalogStage -eq 'aggregate-attempt') {
+    '20261104003358'
+  } else {
+    '99999999999999'
+  }
+  $tailFiles = @(Get-ChildItem -LiteralPath (Join-Path $repo 'supabase/migrations') -Filter '*.sql' -File | Sort-Object Name | Where-Object {
+    $_.BaseName -match '^(?<version>\d{8,14})_' -and $Matches.version -ge '20261022000000' -and $Matches.version -le $stageMaximum
+  })
+  $expectedNames = @($baselineNames + @($tailFiles | ForEach-Object Name))
+  $actualNames = @(Get-ChildItem -LiteralPath $target -Filter '*.sql' -File | Sort-Object Name | ForEach-Object Name)
+  if (($expectedNames -join "`n") -ne ($actualNames -join "`n")) {
+    throw "Catalog-stage migration prefix differs for $CatalogStage."
+  }
+  foreach ($name in $baselineNames) {
+    if ((Get-FileSha256 (Join-Path $baselineSource $name)) -ne (Get-FileSha256 (Join-Path $target $name))) {
+      throw "Catalog-stage baseline bytes differ: $name"
+    }
+  }
+  foreach ($migration in $tailFiles) {
+    if ((Get-FileSha256 $migration.FullName) -ne (Get-FileSha256 (Join-Path $target $migration.Name))) {
+      throw "Catalog-stage shared-tail bytes differ: $($migration.Name)"
+    }
+  }
+}
+
+function Assert-CatalogStageDatabaseHistory([string]$Container) {
+  $expected = @(Get-ChildItem -LiteralPath (Join-Path $workdir 'supabase/migrations') -Filter '*.sql' -File | Sort-Object Name | ForEach-Object {
+    if ($_.BaseName -match '^(?<version>\d{8,14})_') { $Matches.version }
+  })
+  $actual = @(& docker exec $Container psql -X -A -t -U postgres -d postgres -c 'select version from supabase_migrations.schema_migrations order by version')
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to read disposable catalog-stage migration history.' }
+  $actual = @($actual | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if (($expected -join "`n") -ne ($actual -join "`n")) {
+    throw "Disposable catalog-stage migration history differs for $CatalogStage."
+  }
+  $lineage = @(& docker exec $Container psql -X -A -t -U postgres -d postgres -c "select lineage from forge_meta.database_lineage where singleton is true")
+  $lineage = @($lineage | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if ($LASTEXITCODE -ne 0 -or $lineage.Count -ne 1 -or $lineage[0] -ne 'baseline-v1') {
+    throw 'Disposable catalog-stage database lineage is not baseline-v1.'
   }
 }
 
@@ -60,7 +124,11 @@ try {
 
   if ($DefaultPrivilegeMode -eq 'permissive') {
     Copy-BaselineMigrations
-    & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
+    if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement')) {
+      & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
+    } else {
+      Assert-CatalogStageMigrationPrefix
+    }
     Invoke-Supabase @('start','--workdir',$workdir,'--ignore-health-check','--agent=no')
     $started = $true
   }
@@ -84,11 +152,20 @@ $restrictive_defaults$
 '@
     Invoke-Supabase @('db','query','--local','--workdir',$workdir,'--agent=no',$restrictiveSql)
     Copy-BaselineMigrations
-    & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
+    if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement')) {
+      & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
+    } else {
+      Assert-CatalogStageMigrationPrefix
+    }
     Invoke-Supabase @('migration','up','--local','--workdir',$workdir,'--yes')
   }
 
-  & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
+  if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement')) {
+    & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
+  } else {
+    Assert-CatalogStageMigrationPrefix
+    Assert-CatalogStageDatabaseHistory -Container "supabase_db_$projectId"
+  }
   Invoke-Supabase @('db','query','--local','--workdir',$workdir,'--agent=no',"notify pgrst, 'reload schema';")
   if ($DefaultPrivilegeMode -eq 'restrictive') {
     # This lane intentionally starts PostgREST before the tongs schema exists.
@@ -99,6 +176,20 @@ $restrictive_defaults$
   }
 
   $container = "supabase_db_$projectId"
+  if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement')) {
+    if ($container -ne "supabase_db_$projectId" -or
+        $projectId -notmatch '^forge-baseline-v1-[0-9a-f]{12}$' -or
+        -not $workdir.StartsWith($temporaryRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'Owner-Hearth policy fixture host identity is not the exact disposable certification environment.'
+    }
+    $fixture = Join-Path $repo 'supabase/tests/fixtures/canonical_owner_hearth_aggregate_policy_prerequisites.sql'
+    $fixtureTarget = '/tmp/canonical_owner_hearth_aggregate_policy_prerequisites.sql'
+    & docker cp $fixture "${container}:$fixtureTarget"
+    if ($LASTEXITCODE -ne 0) { throw 'Unable to copy the owner-Hearth aggregate-policy fixture.' }
+    & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+      -c "select set_config('forge.owner_hearth_policy_fixture','disposable-baseline-v1',false);" -f $fixtureTarget
+    if ($LASTEXITCODE -ne 0) { throw 'Owner-Hearth aggregate-policy fixture failed.' }
+  }
   $successorParityPath = Join-Path $workdir 'account-admission-activation-preparation-public-slice-a-catalog-parity.sql'
   & (Join-Path $repo 'scripts/new-beta-invitation-public-slice-a-parity.ps1') -OutputPath $successorParityPath -RepositoryRoot $repo | Out-Null
   foreach ($test in @(
@@ -108,16 +199,39 @@ $restrictive_defaults$
     'supabase/tests/gate6p_storage_bucket_contract.sql'
     'supabase/tests/hammer_first_transcription_activation_contract.sql'
     'supabase/tests/hammer_brad_first_transcription_authority_bundle_contract.sql'
+    'supabase/tests/hammer_transcription_integrated_recovery_contract.sql'
+    'supabase/tests/shared_spending_quote_financial_environment.sql'
+    'supabase/tests/hammer_aggregate_attempt_smallint_signature.sql'
+    'supabase/tests/hammer_transcription_real_database_integration.sql'
+    'supabase/tests/aggregate_paid_execution_connection.sql'
+    'supabase/tests/owner_funded_hearth_activation.sql'
+    'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql'
+    'supabase/tests/runway_success_financial_finalization.sql'
+    'supabase/tests/runway_paid_execution_boundary.sql'
+    'supabase/tests/customer_hearth_luna_canary.sql'
     'supabase/tests/account_admission_authority.sql'
     'supabase/tests/beta_invitation_provisioning.sql'
     'supabase/tests/account_admission_enforcement_inactive.sql'
     'supabase/tests/account_admission_activation_preparation_inactive.sql'
   )) {
+    if ($test -eq 'supabase/tests/hammer_transcription_integrated_recovery_contract.sql' -and $CatalogStage -eq 'aggregate-envelope') { continue }
+    if ($test -eq 'supabase/tests/shared_spending_quote_financial_environment.sql' -and $CatalogStage -notin @('financial-environment','aggregate-attempt','owner-hearth-aggregate-enforcement')) { continue }
+    if ($test -in @('supabase/tests/hammer_aggregate_attempt_smallint_signature.sql','supabase/tests/hammer_transcription_real_database_integration.sql') -and $CatalogStage -ne 'aggregate-attempt') { continue }
+    if ($test -in @('supabase/tests/aggregate_paid_execution_connection.sql','supabase/tests/owner_funded_hearth_activation.sql','supabase/tests/runway_success_financial_finalization.sql') -and $CatalogStage -ne 'aggregate-attempt') { continue }
+    if ($test -eq 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql' -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
+    if ($test -in @('supabase/tests/runway_paid_execution_boundary.sql','supabase/tests/customer_hearth_luna_canary.sql') -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
+    if ($test -eq 'supabase/tests/hammer_transcription_real_database_integration.sql' -and $SkipHammerRealDatabaseIntegration) { continue }
     $source = if ([IO.Path]::IsPathFullyQualified($test)) { $test } else { Join-Path $repo $test }
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
     & docker cp $source "${container}:$target"
     if ($LASTEXITCODE -ne 0) { throw "Unable to copy $test into the disposable database." }
-    & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target
+    if ($test -eq 'supabase/tests/hammer_transcription_real_database_integration.sql') {
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.hammer_real_db_certification','disposable-baseline-v1',false), set_config('request.jwt.claim.role','service_role',false);" -f $target
+    }
+    else {
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target
+    }
     if ($LASTEXITCODE -ne 0) { throw "Database test failed: $test" }
   }
 
@@ -133,7 +247,17 @@ $restrictive_defaults$
   if ($LASTEXITCODE -ne 0) { throw 'Disposable Data API behavior test failed.' }
 
   $actualFingerprint = Join-Path $workdir 'canonical-application-catalog-fingerprint.json'
-  $successorFingerprint = Join-Path $repo 'docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-catalog-fingerprint.json'
+  $successorFingerprint = if ($CatalogStage -eq 'aggregate-envelope') {
+    Join-Path $repo 'docs/database/baseline/v1-hammer-assemblyai-aggregate-envelope-alignment/successor-catalog-fingerprint.json'
+  } elseif ($CatalogStage -eq 'recovery') {
+    Join-Path $repo 'docs/database/baseline/v1-hammer-transcription-integrated-recovery/successor-catalog-fingerprint.json'
+  } elseif ($CatalogStage -eq 'financial-environment') {
+    Join-Path $repo 'docs/database/baseline/v1-shared-spending-quote-financial-environment/successor-catalog-fingerprint.json'
+  } elseif ($CatalogStage -eq 'aggregate-attempt') {
+    Join-Path $repo 'docs/database/baseline/v1-hammer-aggregate-attempt-smallint-signature/successor-catalog-fingerprint.json'
+  } else {
+    Join-Path $repo 'docs/database/baseline/v1-owner-hearth-aggregate-admission-enforcement/successor-catalog-fingerprint.json'
+  }
   Push-Location $workdir
   try {
     if ($MaterializeSuccessorCatalog) {
@@ -150,7 +274,7 @@ $restrictive_defaults$
 
   [pscustomobject]@{
     ok = $true
-    schema = 'forge.hammer-assemblyai-aggregate-cost-evidence-renewal-baseline-successor-certification.v1'
+    schema = "forge.$CatalogStage-baseline-successor-certification.v1"
     cliVersion = $actualCliVersion
     defaultPrivilegeMode = $DefaultPrivilegeMode
     catalogObjectCount = $catalogResult.objectCount

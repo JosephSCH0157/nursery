@@ -43,6 +43,16 @@ export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_PATH = 
 export const ACCOUNT_ADMISSION_ACTIVATION_PREPARATION_SUCCESSOR_CONTRACT_SHA256 = "7b24841db08a09a8156056314c5939884cba82a5c8b256096dd26bfb6223bd24";
 export const HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_PATH = "docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-contract.v1.json";
 export const HAMMER_ASSEMBLYAI_AGGREGATE_COST_EVIDENCE_RENEWAL_SUCCESSOR_CONTRACT_SHA256 = "b6d77cd567828533caee2ad4ef8204039d430309600b10ea3d2e63d98a2511da";
+export const HAMMER_ASSEMBLYAI_AGGREGATE_ENVELOPE_ALIGNMENT_PATH = "supabase/migrations/20261103185024_hammer_assemblyai_aggregate_envelope_alignment.sql";
+export const HAMMER_ASSEMBLYAI_AGGREGATE_ENVELOPE_ALIGNMENT_SHA256 = "a155d915aed1c0407754c6e1f14159c3cf6cd953706b5a0bbebf3e2375384aa7";
+export const HAMMER_TRANSCRIPTION_INTEGRATED_RECOVERY_PATH = "supabase/migrations/20261103193845_repair_hammer_transcription_integrated_recovery.sql";
+export const HAMMER_TRANSCRIPTION_INTEGRATED_RECOVERY_SHA256 = "a7500091e0f2d77c641725c27b2505c688b902e71eaf27dbc742b28cbe3b19b0";
+export const SHARED_SPENDING_QUOTE_FINANCIAL_ENVIRONMENT_PATH = "supabase/migrations/20261103234636_repair_shared_spending_quote_financial_environment.sql";
+export const SHARED_SPENDING_QUOTE_FINANCIAL_ENVIRONMENT_SHA256 = "9e37ee8a3db64c10613f445cb15be3a22089b7518221e69ff6179d7acd12dd54";
+export const HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_PATH = "supabase/migrations/20261104003358_repair_hammer_aggregate_attempt_smallint_signature.sql";
+export const HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_SHA256 = "c91c26b46f507cd920e1be9e7f9e639b6eba2e157a64d525c64eab71f466478a";
+export const OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_PATH = "supabase/migrations/20261104071802_repair_owner_hearth_aggregate_admission_enforcement.sql";
+export const OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_SHA256 = "8203199edd0a9b87efd390e3eec64f569f19626715d9c0fe3b8fd7e18f2af9e3";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -1233,6 +1243,22 @@ export function verifyFrozenEvidence({
     { gate: "inactive-admission-enforcement", contract: inactiveAdmissionEnforcement },
     { gate: "account-admission-activation-preparation", contract: accountAdmissionActivationPreparation },
     { gate: "hammer-assemblyai-aggregate-cost-evidence-renewal", contract: hammerAssemblyAiAggregateCostEvidenceRenewal },
+    {
+      gate: "hammer-assemblyai-aggregate-envelope-alignment",
+      contract: {
+        sharedTailAddition: {
+          version: "20261103185024",
+          path: HAMMER_ASSEMBLYAI_AGGREGATE_ENVELOPE_ALIGNMENT_PATH,
+          sha256: HAMMER_ASSEMBLYAI_AGGREGATE_ENVELOPE_ALIGNMENT_SHA256,
+        },
+      },
+    },
+    ...[
+      ["hammer-transcription-integrated-recovery", "20261103193845", HAMMER_TRANSCRIPTION_INTEGRATED_RECOVERY_PATH, HAMMER_TRANSCRIPTION_INTEGRATED_RECOVERY_SHA256],
+      ["shared-spending-quote-financial-environment", "20261103234636", SHARED_SPENDING_QUOTE_FINANCIAL_ENVIRONMENT_PATH, SHARED_SPENDING_QUOTE_FINANCIAL_ENVIRONMENT_SHA256],
+      ["hammer-aggregate-attempt-smallint-signature", "20261104003358", HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_PATH, HAMMER_AGGREGATE_ATTEMPT_SMALLINT_SIGNATURE_SHA256],
+      ["owner-hearth-aggregate-admission-enforcement", "20261104071802", OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_PATH, OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_SHA256],
+    ].map(([gate, version, path, sha256]) => ({ gate, contract: { sharedTailAddition: { version, path, sha256 } } })),
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
 }

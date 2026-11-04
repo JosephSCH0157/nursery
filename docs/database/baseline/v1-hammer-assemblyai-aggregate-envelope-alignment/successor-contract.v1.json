@@ -1,0 +1,30 @@
+{
+  "schema": "forge.hammer-assemblyai-aggregate-envelope-alignment-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "contractPath": "docs/database/baseline/v1-hammer-assemblyai-aggregate-cost-evidence-renewal/successor-contract.v1.json",
+    "contractSha256": "b6d77cd567828533caee2ad4ef8204039d430309600b10ea3d2e63d98a2511da"
+  },
+  "sharedTailAddition": {
+    "version": "20261103185024",
+    "path": "supabase/migrations/20261103185024_hammer_assemblyai_aggregate_envelope_alignment.sql",
+    "sha256": "a155d915aed1c0407754c6e1f14159c3cf6cd953706b5a0bbebf3e2375384aa7"
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-assemblyai-aggregate-envelope-alignment/successor-catalog-fingerprint.json",
+    "fileSha256": "f020151af877fdfa06d1516c045cfb6664cc0ed1fa9d171c0afab12f3e1efee3",
+    "objectCount": 16615,
+    "normalizedContractSha256": "7e242a3ee19c0df4ad541004fddcb432b1b7967ff4511befd5cd95673d04aa77"
+  },
+  "reviewedCatalogDelta": {
+    "addedFunctions": [
+      "tongs.align_hammer_first_transcription_aggregate_envelope(p_previous_policy_id uuid, p_policy_id uuid, p_capability_id uuid, p_actor_id uuid, p_reason text)"
+    ],
+    "replacedFunctions": [
+      "tongs._current_hammer_first_transcription_aggregate_policy()"
+    ],
+    "dependencySetChanged": true,
+    "additionalDifferencesPermitted": false
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

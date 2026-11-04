@@ -153,6 +153,9 @@ function installSupabaseFixtureFetch(): { restore(): void; providerCalls(): numb
     if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
       return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
     }
+    if (url.endsWith("/rest/v1/rpc/read_hammer_transcription_recovery")) {
+      return Response.json(null);
+    }
     if (url.startsWith("https://api.openai.com/")) {
       providerCallCount += 1;
       throw new Error("provider execution must remain halted");
@@ -393,6 +396,9 @@ test("AssemblyAI quote preparation never reads the 120 MB canonical object or ca
     if (url.includes("/rest/v1/workspaces?id=eq.")) return Response.json([{ org_id: ORG_ID }]);
     if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
       return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.endsWith("/rest/v1/rpc/read_hammer_transcription_recovery")) {
+      return Response.json(null);
     }
     if (url.includes("api.assemblyai.com")) {
       providerCalls += 1;

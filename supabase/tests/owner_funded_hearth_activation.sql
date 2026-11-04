@@ -6,10 +6,20 @@ insert into auth.users(id,email) values
 insert into tongs.platform_operators(user_id,reason) values
  ('91000000-0000-4000-8000-000000000001','isolated owner operator'),
  ('91000000-0000-4000-8000-000000000002','operator without owner authority');
-insert into tongs.workspaces(id,name) values
- ('91000000-0000-4000-8000-000000000010','Owner activation workspace');
-insert into tongs.workspace_members(workspace_id,user_id,role) values
- ('91000000-0000-4000-8000-000000000010','91000000-0000-4000-8000-000000000001','owner');
+select tongs.ensure_personal_org('91000000-0000-4000-8000-000000000001');
+insert into tongs.workspaces(id,name,created_by,org_id)
+select '91000000-0000-4000-8000-000000000010'::uuid,'Owner activation workspace',
+       '91000000-0000-4000-8000-000000000001'::uuid,o.id
+from tongs.orgs o
+where o.personal_owner_user_id='91000000-0000-4000-8000-000000000001';
+
+insert into tongs.account_authority_classifications(
+ user_id,account_class,revision,reason,configured_by
+) values (
+ '91000000-0000-4000-8000-000000000001','owner',1,
+ 'Disposable owner-Hearth certification identity.',
+ '91000000-0000-4000-8000-000000000001'
+);
 
 set local request.jwt.claim.role='service_role';
 set local request.jwt.claim.sub='91000000-0000-4000-8000-000000000001';

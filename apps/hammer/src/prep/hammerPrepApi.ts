@@ -373,6 +373,23 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
   };
 }
 
+function readRecoveryAcceptance(payload: unknown): HammerTranscriptPrepRequest["spending_acceptance"] | null {
+  const root = readObject(payload);
+  const data = readObject(root?.data);
+  const recovery = readObject(data?.recovery_acceptance);
+  const quoteId = readString(recovery?.quote_id);
+  const operationId = readString(recovery?.operation_id);
+  const quoteHash = readString(recovery?.quote_hash);
+  const requestFingerprint = readString(recovery?.request_fingerprint);
+  if (!quoteId || !operationId || !quoteHash || !requestFingerprint) return null;
+  return {
+    quote_id: quoteId,
+    operation_id: operationId,
+    quote_hash: quoteHash,
+    request_fingerprint: requestFingerprint,
+  };
+}
+
 function normalizeErrorEnvelope(payload: unknown): { error: HammerTranscriptPrepError; meta?: HammerTranscriptPrepMeta } | null {
   const root = readObject(payload);
   if (!root || root.ok !== false) return null;
@@ -479,6 +496,10 @@ export async function requestHammerTranscriptPrep(
     };
     response = await submit(effectiveRequest);
     let acceptedRequest: HammerTranscriptPrepRequest | null = null;
+    if (response.status === 202) {
+      const recovery = readRecoveryAcceptance(await response.clone().json().catch(() => null));
+      if (recovery) acceptedRequest = { ...effectiveRequest, spending_acceptance: recovery };
+    }
     if (response.status === 409 || response.status === 402) {
       const quoted = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quoted);

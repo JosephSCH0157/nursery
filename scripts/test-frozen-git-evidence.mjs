@@ -110,7 +110,36 @@ try {
   git(publishedRoot, ["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
   const published = verifyFrozenEvidence({ repositoryRoot: publishedRoot, scope: "all", requireExactWorktreeBytes: true });
   assert.equal(published.fileCount, 451);
-  assert.equal(published.successorFileCount, 16);
+  const expectedSuccessorPaths = [
+    "supabase/migrations/20261024164519_barstock_project_archive_atomic_graduation.sql",
+    "supabase/migrations/20261025070300_tongs_episode_storage_tier_parity.sql",
+    "supabase/migrations/20261025080943_provision_required_storage_buckets.sql",
+    "supabase/migrations/20261027030139_anvil_recording_authority_repair.sql",
+    "supabase/migrations/20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql",
+    "supabase/migrations/20261029004958_hammer_first_transcription_activation.sql",
+    "supabase/migrations/20261029033827_hammer_scoped_live_funding.sql",
+    "supabase/migrations/20261029110858_hammer_trigger_acl_hardening.sql",
+    "supabase/migrations/20261029154824_hammer_brad_first_transcription_authority_bundle.sql",
+    "supabase/migrations/20261029172356_hammer_owner_funded_first_transcription.sql",
+    "supabase/migrations/20261030090719_hammer_owner_sponsorship_reservation_compatibility.sql",
+    "supabase/migrations/20261030224605_hammer_owner_sponsorship_authority_renewal.sql",
+    "supabase/migrations/20261031123320_forge_beta_admission_foundation.sql",
+    "supabase/migrations/20261101084703_forge_beta_invitation_provisioning.sql",
+    "supabase/migrations/20261101201817_forge_inactive_admission_enforcement.sql",
+    "supabase/migrations/20261102032722_forge_admission_activation_preparation.sql",
+    "supabase/migrations/20261103173603_hammer_assemblyai_aggregate_cost_evidence_renewal.sql",
+    "supabase/migrations/20261103185024_hammer_assemblyai_aggregate_envelope_alignment.sql",
+    "supabase/migrations/20261103193845_repair_hammer_transcription_integrated_recovery.sql",
+    "supabase/migrations/20261103234636_repair_shared_spending_quote_financial_environment.sql",
+    "supabase/migrations/20261104003358_repair_hammer_aggregate_attempt_smallint_signature.sql",
+    "supabase/migrations/20261104071802_repair_owner_hearth_aggregate_admission_enforcement.sql",
+  ];
+  assert.equal(published.successorFileCount, expectedSuccessorPaths.length);
+  assert.deepEqual(
+    published.successorRecords.map((item) => item.path).sort(),
+    expectedSuccessorPaths,
+    "published successor membership must remain exact",
+  );
   assert.equal(published.trustAnchorSha256, FROZEN_EVIDENCE_TRUST_ANCHOR_SHA256);
   assert.equal(published.trustSuccessorSha256, GATE6T_FROZEN_SUCCESSOR_SHA256);
   assert.equal(published.trustSuccessorProtectedChangeCount, 8);

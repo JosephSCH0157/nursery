@@ -3,9 +3,18 @@ begin;
 insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at) values
 ('57000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','aggregate-one@example.test','',now(),now(),now()),
 ('57000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','aggregate-two@example.test','',now(),now(),now());
-insert into tongs.workspaces(id,name) values
-('57000000-0000-4000-8000-000000000020','Aggregate workspace one'),
-('57000000-0000-4000-8000-000000000021','Aggregate workspace two');
+select tongs.ensure_personal_org('57000000-0000-4000-8000-000000000001');
+select tongs.ensure_personal_org('57000000-0000-4000-8000-000000000002');
+insert into tongs.workspaces(id,name,created_by,org_id)
+select '57000000-0000-4000-8000-000000000020'::uuid,'Aggregate workspace one',
+       '57000000-0000-4000-8000-000000000001'::uuid,o.id
+from tongs.orgs o
+where o.personal_owner_user_id='57000000-0000-4000-8000-000000000001'
+union all
+select '57000000-0000-4000-8000-000000000021'::uuid,'Aggregate workspace two',
+       '57000000-0000-4000-8000-000000000002'::uuid,o.id
+from tongs.orgs o
+where o.personal_owner_user_id='57000000-0000-4000-8000-000000000002';
 
 set local request.jwt.claim.role='service_role';
 set local request.jwt.claim.sub='';

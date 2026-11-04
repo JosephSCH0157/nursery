@@ -1,0 +1,27 @@
+{
+  "schema": "forge.hammer-aggregate-attempt-smallint-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "contractPath": "docs/database/baseline/v1-shared-spending-quote-financial-environment/successor-contract.v1.json",
+    "contractSha256": "ef9d097d9399a121a9e079e6fc522a464675dd9a7368685c13a597aa0b9b795f"
+  },
+  "sharedTailAddition": {
+    "version": "20261104003358",
+    "path": "supabase/migrations/20261104003358_repair_hammer_aggregate_attempt_smallint_signature.sql",
+    "sha256": "c91c26b46f507cd920e1be9e7f9e639b6eba2e157a64d525c64eab71f466478a"
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-aggregate-attempt-smallint-signature/successor-catalog-fingerprint.json",
+    "fileSha256": "260cd9a5fce161c00f2e1244d8eed857c4fd46cefede063b9f83f4512618d336",
+    "objectCount": 16645,
+    "normalizedContractSha256": "0a39d8b5c4ebbf8365c1bb2d9701c0940032b4e60c3913e7a425e7b5ae8e1e9d"
+  },
+  "reviewedCatalogDelta": {
+    "replacedFunctions": [
+      "tongs.authorize_hammer_first_transcription_attempt(p_operation_id uuid, p_attempt_id uuid, p_attempt_key text, p_request_sha256 text, p_capacity_evidence jsonb)",
+      "tongs.authorize_owner_hearth_research_openai_attempt(p_reservation_id uuid, p_attempt_key text, p_attempt_number smallint, p_caller_class text, p_failure_exposure_micros bigint, p_lease_seconds integer, p_evidence_json jsonb)"
+    ],
+    "additionalDifferencesPermitted": false
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

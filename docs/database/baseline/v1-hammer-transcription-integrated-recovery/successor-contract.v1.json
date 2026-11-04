@@ -1,0 +1,32 @@
+{
+  "schema": "forge.hammer-transcription-integrated-recovery-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "contractPath": "docs/database/baseline/v1-hammer-assemblyai-aggregate-envelope-alignment/successor-contract.v1.json",
+    "contractSha256": "ac862a413b38ef787b663ef186a426274194d302d125b72bb1288bbdb23a6786"
+  },
+  "sharedTailAddition": {
+    "version": "20261103193845",
+    "path": "supabase/migrations/20261103193845_repair_hammer_transcription_integrated_recovery.sql",
+    "sha256": "a7500091e0f2d77c641725c27b2505c688b902e71eaf27dbc742b28cbe3b19b0"
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-hammer-transcription-integrated-recovery/successor-catalog-fingerprint.json",
+    "fileSha256": "f782bf9c844e06a2af63ac5b162ba1f3901c6086b0e887a4f19699639f24cd19",
+    "objectCount": 16645,
+    "normalizedContractSha256": "981d58f0bb6b614744b1d89569547d64f8997596694d30bb2e363eb94d6902af"
+  },
+  "reviewedCatalogDelta": {
+    "removedConstraints": [
+      "tongs.hammer_transcription_operations.hammer_transcription_operati_accepted_customer_charge_mic_check"
+    ],
+    "addedRelations": ["tongs.hammer_transcription_preoperation_receipts"],
+    "addedFunctions": [
+      "tongs.read_hammer_transcription_recovery(p_user_id uuid, p_request_fingerprint text)",
+      "tongs.record_hammer_transcription_preoperation_receipt(p_quote_id uuid, p_operation_uuid uuid, p_request_fingerprint text, p_stage text, p_failure_code text, p_evidence_json jsonb)"
+    ],
+    "dependencySetChanged": true,
+    "additionalDifferencesPermitted": false
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "forge.shared-spending-quote-financial-environment-successor-contract.v1",
+  "repository": "JosephSCH0157/nursery",
+  "predecessor": {
+    "contractPath": "docs/database/baseline/v1-hammer-transcription-integrated-recovery/successor-contract.v1.json",
+    "contractSha256": "f8534a7360b700b9c56de0a1f4de4a7303ffa6d88f613d6f3c143ae5a0a1a4f1"
+  },
+  "sharedTailAddition": {
+    "version": "20261103234636",
+    "path": "supabase/migrations/20261103234636_repair_shared_spending_quote_financial_environment.sql",
+    "sha256": "9e37ee8a3db64c10613f445cb15be3a22089b7518221e69ff6179d7acd12dd54"
+  },
+  "catalogSuccessor": {
+    "path": "docs/database/baseline/v1-shared-spending-quote-financial-environment/successor-catalog-fingerprint.json",
+    "fileSha256": "f782bf9c844e06a2af63ac5b162ba1f3901c6086b0e887a4f19699639f24cd19",
+    "objectCount": 16645,
+    "normalizedContractSha256": "981d58f0bb6b614744b1d89569547d64f8997596694d30bb2e363eb94d6902af"
+  },
+  "reviewedCatalogDelta": {
+    "schemaChanges": [],
+    "seededOnlyWhenCanonicalRuntimeAuthorityIsAbsent": {
+      "table": "tongs.financial_runtime_environment_revisions",
+      "revision": 1,
+      "financialEnvironment": "test",
+      "reason": "Development and beta use Stripe Test through the canonical financial path.",
+      "actorId": null
+    },
+    "dependencySetChanged": false,
+    "additionalDifferencesPermitted": false
+  },
+  "rejectAdditionalProtectedPathChanges": true
+}
