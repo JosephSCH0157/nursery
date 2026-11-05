@@ -3618,13 +3618,12 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             userId,
             requestFingerprint,
           });
-          if (recovery?.state === "pre_admission_failed") {
-            sendJson(res, 409, { ok: false, error: {
-              code: "transcription_start_failed",
-              message: "The accepted transcription did not start. No charge was made and it was not retried.",
-            } });
-            return;
-          }
+          // A terminal pre-admission receipt belongs to the previously accepted
+          // request. It remains authoritative when that exact acceptance is
+          // polled above, but it must not permanently suppress a later explicit
+          // user request for a fresh quote. No operation, reservation, provider
+          // attempt, or submission exists in this state, so continuing to quote
+          // preparation is the fail-closed recovery boundary.
           if (recovery?.state === "pending") {
             sendJson(res, 202, { ok: true, data: {
               state: "pending",
