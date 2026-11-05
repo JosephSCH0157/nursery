@@ -57,6 +57,8 @@ export const PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_PATH = "supabase/migrations/20
 export const PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_SHA256 = "11fe8d8dbc08189c06887f1d14ff423f08b71704cdb85460158adde5752e76d4";
 export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_PATH = "supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql";
 export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_SHA256 = "1addbe643cd6a7543615c9e6a3f0b4952edc5ffc7a3a5ea72de3abfcbdb07631";
+export const SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH = "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql";
+export const SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256 = "838f14fdd5801bcb842fa628a8ca80700bd20bda201569faa56e9b3fa2d2d24a";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 
@@ -1264,6 +1266,7 @@ export function verifyFrozenEvidence({
       ["owner-hearth-aggregate-admission-enforcement", "20261104071802", OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_PATH, OWNER_HEARTH_AGGREGATE_ADMISSION_ENFORCEMENT_SHA256],
       ["provider-request-financial-alignment", "20261104143249", PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_PATH, PROVIDER_REQUEST_FINANCIAL_ALIGNMENT_SHA256],
       ["hammer-canary-renewal-tooling-compatibility", "20261104212918", HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_PATH, HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_SHA256],
+      ["scalable-forge-financial-admission", "20261105025313", SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH, SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256],
     ].map(([gate, version, path, sha256]) => ({ gate, contract: { sharedTailAddition: { version, path, sha256 } } })),
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });
