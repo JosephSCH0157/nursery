@@ -2,11 +2,11 @@
   "schema": "forge.supabase.capacity-control-attestation.v1",
   "organizationSlug": "nclurylekhseghlhrvxg",
   "projectRef": "wtvdjndyxegudufrompx",
-  "observedDate": "2026-10-29",
-  "validThroughExclusiveDate": "2026-11-05",
+  "observedDate": "2026-11-05",
+  "validThroughExclusiveDate": "2026-11-12",
   "plan": "pro",
   "spendCapEnabled": true,
   "uncachedEgressAllowanceBytes": 250000000000,
-  "observedUncachedEgressUsedBytes": 676500000,
-  "authority": "owner-attested authenticated Supabase Billing Cost Control dashboard"
+  "observedUncachedEgressUsedBytes": 57000000,
+  "authority": "owner-attested authenticated Supabase Usage dashboard; Pro plan, Spend Cap behavior, and 0.057 GB project egress observed for the 2026-11-04 through 2026-12-04 billing cycle"
 }
