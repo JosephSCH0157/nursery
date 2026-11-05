@@ -40,9 +40,12 @@ test("authenticated collection pins Netlify billing and the supported Supabase m
 test("renewal requires the aligned aggregate-authority head and invokes only the service-role renewal RPC", () => {
   assert.match(renewal, /currentHead='20261104143249'/);
   assert.match(renewal, /renewalCompatibleHead='20261104212918'/);
-  assert.match(renewal, /if\(\$head -ceq \$currentHead\)\{438\}elseif\(\$head -ceq \$renewalCompatibleHead\)\{439\}else\{-1\}/);
-  assert.match(renewal, /if\(\$Action -eq 'Renew' -and \$head -cne \$renewalCompatibleHead\)/);
+  assert.match(renewal, /scalableAdmissionHead='20261105025313'/);
+  assert.match(renewal, /if\(\$head -ceq \$currentHead\)\{438\}elseif\(\$head -ceq \$renewalCompatibleHead\)\{439\}elseif\(\$head -ceq \$scalableAdmissionHead\)\{440\}else\{-1\}/);
+  assert.match(renewal, /if\(\$Action -eq 'Renew' -and \$head -notin @\(\$renewalCompatibleHead,\$scalableAdmissionHead\)\)/);
   assert.match(renewal, /renewal-compatibility migration is required/);
+  assert.match(renewal, /certified inactive scalable-admission successor/);
+  assert.match(renewal, /\$head -ceq \$scalableAdmissionHead/);
   assert.doesNotMatch(renewal, /20261103185024/);
   assert.match(renewal, /renew_hammer_owner_funded_first_transcription_authority/);
   assert.match(renewal, /RENEW-HAMMER-BRAD-OWNER-SPONSORSHIP-AUTHORITY/);

@@ -28,16 +28,19 @@ function Assert-Static {
   $history=@(Read-Csv 'select version from supabase_migrations.schema_migrations order by version' @('version') 'hosted history')
   $currentHead='20261104143249'
   $renewalCompatibleHead='20261104212918'
+  $scalableAdmissionHead='20261105025313'
   $head=[string]$history[-1].version
-  $expectedCount=if($head -ceq $currentHead){438}elseif($head -ceq $renewalCompatibleHead){439}else{-1}
+  $expectedCount=if($head -ceq $currentHead){438}elseif($head -ceq $renewalCompatibleHead){439}elseif($head -ceq $scalableAdmissionHead){440}else{-1}
   if($history.Count -ne $expectedCount -or
      @($history|Where-Object {[string]$_.version -ceq $head}).Count -ne 1 -or
      @($history|Where-Object {[string]$_.version -ceq $currentHead}).Count -ne 1 -or
-     ($head -ceq $renewalCompatibleHead -and
-       @($history|Where-Object {[string]$_.version -ceq $renewalCompatibleHead}).Count -ne 1)){
-    throw 'Reviewed hosted migration head 437 or its exact renewal-compatibility successor is required.'
+     ($head -in @($renewalCompatibleHead,$scalableAdmissionHead) -and
+       @($history|Where-Object {[string]$_.version -ceq $renewalCompatibleHead}).Count -ne 1) -or
+     ($head -ceq $scalableAdmissionHead -and
+       @($history|Where-Object {[string]$_.version -ceq $scalableAdmissionHead}).Count -ne 1)){
+    throw 'Reviewed hosted migration head 437, its exact renewal-compatibility successor, or the certified inactive scalable-admission successor is required.'
   }
-  if($Action -eq 'Renew' -and $head -cne $renewalCompatibleHead){
+  if($Action -eq 'Renew' -and $head -notin @($renewalCompatibleHead,$scalableAdmissionHead)){
     throw 'The certified Hammer renewal-compatibility migration is required before authority renewal.'
   }
 }
