@@ -457,6 +457,109 @@ test("AssemblyAI quote preparation never reads the 120 MB canonical object or ca
   }
 });
 
+test("a terminal pre-admission receipt permits a later explicit request to receive a fresh quote", async () => {
+  const policy = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY;
+  const originalFetch = globalThis.fetch;
+  const originalProvider = process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+  const originalCredential = process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+  const originalCapacity = process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON;
+  let providerCalls = 0;
+  let quoteCalls = 0;
+  process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = "assemblyai";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = "fixture-assemblyai-key";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON = "{}";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith("/auth/v1/user")) return Response.json({ id: USER_ID });
+    if (url.includes("/rest/v1/workspaces?id=eq.")) return Response.json([{ org_id: ORG_ID }]);
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
+      return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.endsWith("/rest/v1/rpc/read_hammer_transcription_recovery")) {
+      return Response.json({
+        quote_id: "11111111-1111-4111-8111-111111111111",
+        operation_id: "hammer-assemblyai:22222222-2222-4222-8222-222222222222",
+        quote_hash: "a".repeat(64),
+        request_fingerprint: fingerprintHammerAssemblyAiRequest({
+          workspaceId: WORKSPACE_ID,
+          workpieceId: policy.exactWorkpieceId,
+          canonicalRecordingId: policy.exactCanonicalRecordingId,
+          recordingRevisionId: policy.exactRecordingRevisionId,
+          source: {
+            schema: "forge.hammer.transcription-source-authority.v1",
+            completionId: policy.exactCompletionId,
+            mediaRevision: policy.exactMediaRevision,
+            mediaPath: policy.exactMediaPath,
+            mediaSha256: policy.exactMediaSha256,
+            mediaBytes: policy.exactSourceBytes,
+            mediaContentType: "video/webm",
+            durationMs: policy.exactSourceDurationMs,
+            hasAudioStream: true,
+            verificationSource: "trusted_tongs_storage_readback",
+            probeImplementation: "tongs:certified-canonical-readback",
+          },
+        }),
+        state: "pre_admission_failed",
+      });
+    }
+    if (url.includes("api.assemblyai.com")) {
+      providerCalls += 1;
+      throw new Error("provider must not run during quote preparation");
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const response = await createNetlifyHammerFunction({
+      runtimeConfig: runtimeConfig({
+        supabaseUrl: "https://fixture.supabase.co",
+        supabaseServiceRoleKey: "fixture-service-key",
+        supabaseRpcKey: "fixture-anon-key",
+      }),
+      openAiTextGate: {
+        rpc: async (name: string) => {
+          assert.equal(name, "create_hammer_first_transcription_quote");
+          quoteCalls += 1;
+          return { data: {
+            quote_id: "33333333-3333-4333-8333-333333333333",
+            operation_id: "hammer-assemblyai:44444444-4444-4444-8444-444444444444",
+            quote_hash: "c".repeat(64),
+            request_fingerprint: "d".repeat(64),
+            customer_credit_units: 0,
+            maximum_customer_charge_micros: 0,
+            reference_customer_credit_units: 12,
+            funding_source: "owner_budget",
+            funding_eligible: true,
+            funding_label: "Owner-sponsored certification; customer charge is 0 Credits.",
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            accepted: false,
+          }, error: null };
+        },
+      },
+      diagnosticCapacityEvidenceResolver: async () => currentCapacityEvidence(),
+    })(request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: policy.exactWorkpieceId,
+      media_kind: "recording_video",
+      canonical_workpiece_path: policy.exactMediaPath,
+      mime_type: "video/webm",
+    }), { deploy: { context: "production" } });
+    assert.equal(response.status, 409);
+    const payload = await response.json() as { error?: { code?: string }; billing_quote?: { quote_id?: string } };
+    assert.equal(payload.error?.code, "transcription_spending_confirmation_required");
+    assert.equal(payload.billing_quote?.quote_id, "33333333-3333-4333-8333-333333333333");
+    assert.equal(quoteCalls, 1);
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalProvider == null) delete process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+    else process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = originalProvider;
+    if (originalCredential == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = originalCredential;
+    if (originalCapacity == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_CAPACITY_EVIDENCE_JSON = originalCapacity;
+  }
+});
+
 test("production transcript prep reads canonical media through the deployed same-origin Tongs route", async () => {
   const originalFetch = globalThis.fetch;
   const fetchedUrls: string[] = [];
