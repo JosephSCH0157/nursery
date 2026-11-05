@@ -1996,6 +1996,19 @@ async function readHammerAssemblyAiRecovery(args: {
   const state = readTrimmed(value?.state);
   if (!quoteId || !operationId || !quoteHash || !requestFingerprint
     || (state !== "pending" && state !== "pre_admission_failed")) return null;
+  if (state === "pending") {
+    const quoteResponse = await args.supabaseService.schema("tongs")
+      .from("customer_spending_quotes")
+      .select("expires_at")
+      .eq("id", quoteId)
+      .eq("user_id", args.userId)
+      .maybeSingle();
+    if (quoteResponse.error) throw new Error(`read Hammer recovery quote: ${quoteResponse.error.message}`);
+    const expiresAt = quoteResponse.data?.expires_at;
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+      return { quoteId, operationId, quoteHash, requestFingerprint, state: "pre_admission_failed" };
+    }
+  }
   return { quoteId, operationId, quoteHash, requestFingerprint, state };
 }
 

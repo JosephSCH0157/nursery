@@ -499,8 +499,11 @@ test("a terminal pre-admission receipt permits a later explicit request to recei
             probeImplementation: "tongs:certified-canonical-readback",
           },
         }),
-        state: "pre_admission_failed",
+        state: "pending",
       });
+    }
+    if (url.includes("/rest/v1/customer_spending_quotes?") && url.includes("select=expires_at")) {
+      return Response.json([{ expires_at: "2026-11-03T19:39:22.83544Z" }]);
     }
     if (url.includes("api.assemblyai.com")) {
       providerCalls += 1;
