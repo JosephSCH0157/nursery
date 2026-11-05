@@ -48,6 +48,8 @@ async function recordPreoperationReceipt(
       apikey: serviceRoleKey,
       authorization: `Bearer ${serviceRoleKey}`,
       "content-type": "application/json",
+      "content-profile": "tongs",
+      "accept-profile": "tongs",
     },
     body: JSON.stringify({
       p_quote_id: accepted.quoteId,
