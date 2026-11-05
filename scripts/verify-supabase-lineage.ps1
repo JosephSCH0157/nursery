@@ -9,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib/forge-supabase-cli.ps1')
 $usingCanonicalConfiguration = -not $ConfigurationPath
 if (-not $ConfigurationPath) { $ConfigurationPath = Join-Path $RepositoryRoot 'docs/database/baseline/v1-gate2/lineage-contract.json' }
 $configuration = Get-Content -LiteralPath ([IO.Path]::GetFullPath($ConfigurationPath)) -Raw | ConvertFrom-Json
@@ -18,7 +19,8 @@ if ($usingCanonicalConfiguration) {
   & (Join-Path $PSScriptRoot 'verify-canonical-database-artifacts.ps1') -RepositoryRoot $RepositoryRoot | Out-Null
 }
 
-$actualCli = (& supabase --version 2>$null | Select-Object -First 1).Trim()
+$supabaseExecutable = Resolve-ForgeSupabaseExecutable -RepositoryRoot (Split-Path -Parent $PSScriptRoot)
+$actualCli = (Invoke-ForgeSupabaseCli -Executable $supabaseExecutable -Arguments @('--version')).StandardOutput.Trim()
 if ($actualCli -ne $configuration.requiredSupabaseCliVersion) { throw "Supabase CLI $($configuration.requiredSupabaseCliVersion) is required; found $actualCli." }
 
 $repo = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd([IO.Path]::DirectorySeparatorChar)
@@ -128,6 +130,7 @@ else {
 }
 
 $databaseState = 'not-queried'
+$databaseMarkerLineage = $null
 if ($DatabaseTarget -ne 'none') {
   if ($DatabaseTarget -eq 'linked' -and
       [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('SUPABASE_DB_PASSWORD', 'Process'))) {
@@ -135,8 +138,7 @@ if ($DatabaseTarget -ne 'none') {
   }
   $targetFlag = "--$DatabaseTarget"
   $historySql = 'select version from supabase_migrations.schema_migrations order by version'
-  $historyRows = @((& supabase db query $targetFlag --agent=no --output csv --workdir $resolvedWorkdir $historySql 2>$null) | ConvertFrom-Csv)
-  if ($LASTEXITCODE -ne 0) { throw 'Unable to read migration history.' }
+  $historyRows = @((Invoke-ForgeSupabaseCli -Executable $supabaseExecutable -Arguments @('db','query',$targetFlag,'--agent=no','--output','csv','--workdir',$resolvedWorkdir,$historySql)).StandardOutput | ConvertFrom-Csv)
   $databaseVersions = @($historyRows | ForEach-Object { [string]$_.version })
   foreach ($version in $databaseVersions) {
     if (-not $workdirMigrations.Contains($version)) { throw "Database contains an unknown migration version: $version" }
@@ -151,15 +153,13 @@ if ($DatabaseTarget -ne 'none') {
   if ($markerSchema -notmatch '^[a-z_][a-z0-9_]*$' -or $markerTable -notmatch '^[a-z_][a-z0-9_]*$') { throw 'Unsafe database-marker identifier in lineage configuration.' }
   $markerIdentity = "$markerSchema.$markerTable"
   $markerExistenceSql = "select to_regclass('$markerIdentity')::text as relation"
-  $markerExistence = @((& supabase db query $targetFlag --agent=no --output csv --workdir $resolvedWorkdir $markerExistenceSql 2>$null) | ConvertFrom-Csv)
-  if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect database lineage marker.' }
+  $markerExistence = @((Invoke-ForgeSupabaseCli -Executable $supabaseExecutable -Arguments @('db','query',$targetFlag,'--agent=no','--output','csv','--workdir',$resolvedWorkdir,$markerExistenceSql)).StandardOutput | ConvertFrom-Csv)
   $markerValue = if ($markerExistence.Count -eq 1) { [string]$markerExistence[0].relation } else { '' }
   $markerExists = $markerValue -ne '' -and $markerValue -ne 'NULL'
-  $databaseMarkerLineage = $null
   if ($markerExists) {
     $markerSql = "select lineage from $markerIdentity where singleton=true"
-    $markerRows = @((& supabase db query $targetFlag --agent=no --output csv --workdir $resolvedWorkdir $markerSql 2>$null) | ConvertFrom-Csv)
-    if ($LASTEXITCODE -ne 0 -or $markerRows.Count -ne 1) { throw 'Database lineage marker must contain exactly one singleton row.' }
+    $markerRows = @((Invoke-ForgeSupabaseCli -Executable $supabaseExecutable -Arguments @('db','query',$targetFlag,'--agent=no','--output','csv','--workdir',$resolvedWorkdir,$markerSql)).StandardOutput | ConvertFrom-Csv)
+    if ($markerRows.Count -ne 1) { throw 'Database lineage marker must contain exactly one singleton row.' }
     $databaseMarkerLineage = [string]$markerRows[0].lineage
     $expectedMarkerLineage = if ($Lineage -eq 'historical') { [string]$configuration.historical.lineage } else { [string]$configuration.baseline.lineage }
     if ($databaseMarkerLineage -ne $expectedMarkerLineage) { throw "Wrong database lineage marker: $databaseMarkerLineage" }

@@ -8,6 +8,8 @@ param(
 
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath($RepositoryRoot)
+. (Join-Path $PSScriptRoot 'lib/forge-node-runtime.ps1')
+. (Join-Path $PSScriptRoot 'lib/forge-git-runtime.ps1')
 $verifier=Join-Path $repo 'scripts/verify-frozen-git-evidence.mjs'
 $arguments=@($verifier,'--repository-root',$repo,'--scope',$Scope)
 if($RequireExactWorktreeBytes){$arguments+='--require-exact-worktree-bytes'}
@@ -18,10 +20,15 @@ $windowsManagedWslWorktree=(-not $IsWindows -and (Test-Path -LiteralPath $gitPoi
   ((Get-Content -LiteralPath $gitPointer -Raw) -match '^gitdir:\s*[A-Za-z]:[\\/]'))
 
 if(-not $windowsManagedWslWorktree){
-  $output=(& node @arguments 2>&1|Out-String).Trim()
-  if($LASTEXITCODE -ne 0){throw $output}
-  $output
-  return
+  $gitExecutable=Resolve-ForgeGitExecutable
+  $savedPath=$env:PATH
+  try{
+    $env:PATH=(Split-Path -Parent $gitExecutable)+[IO.Path]::PathSeparator+$savedPath
+    $nodeResult=Invoke-ForgeNode -RepositoryRoot $repo -Arguments $arguments
+    $output=$nodeResult.StandardOutput.Trim()
+    $output
+    return
+  }finally{$env:PATH=$savedPath}
 }
 
 $windowsRepo=(& wslpath -w -- $repo|Out-String).Trim()
