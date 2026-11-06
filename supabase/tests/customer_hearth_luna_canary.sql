@@ -19,8 +19,12 @@ begin
     values('ce000000-0000-4000-8000-000000000010','Customer canary proof',
       'ce000000-0000-4000-8000-000000000002',
       tongs.ensure_personal_org('ce000000-0000-4000-8000-000000000002'));
-    insert into tongs.workspace_members(workspace_id,user_id,role,created_by)
-values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000002','owner','ce000000-0000-4000-8000-000000000002');
+    -- Canonical workspace_add_creator_member creates this owner row.
+    if not exists(select 1 from tongs.workspace_members
+      where workspace_id='ce000000-0000-4000-8000-000000000010'
+        and user_id='ce000000-0000-4000-8000-000000000002' and role='owner') then
+      raise exception 'Canonical Luna customer owner membership was not provisioned';
+    end if;
   else
     -- Preserve the existing reduced billing harness, which has no org model.
     -- A canonical or partially configured org schema must never use this path.
