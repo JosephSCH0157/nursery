@@ -8,6 +8,18 @@ If a behavior is confusing, start here before editing code.
 
 ---
 
+## Funding and cost policy
+
+Anvil assistance, including provider-backed ASR, is Forge-funded and
+cost-tracked, with service cost limited to 10% of the user's balance.
+[Forge Financial Architecture §3.1](../../docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance)
+owns this financial policy and its cap-definition requirements.
+
+Provider execution must enforce the limit through Tongs. A cost record alone
+does not prove admission under the limit. This policy does not establish
+verified implementation or hosted activation. Recording remains independent
+of ASR availability.
+
 ## 0) Golden Rules
 
 1. **SSOT beats convenience.** "UI mode" and "engine mode" are not the same thing.

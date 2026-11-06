@@ -2,12 +2,22 @@
 
 Status: deployed code is intentionally inactive until an owner approves complete supporting-cost ceilings, prices, failure-loss capacity, and rollout revisions. `FORGE_OPENAI_TRANSCRIPTION_EXECUTION_MODE` defaults to `inactive`; it is independent of the OpenAI text switch.
 
+## Anvil funding policy update — 2026-11-06
+
+Anvil assistance is Forge-funded, cost-tracked, and limited to 10% of the
+user's balance under
+[the canonical financial policy §3.1](FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance).
+That policy supersedes this document's earlier customer-funded/BYOK treatment
+of Anvil. The remaining inventory, pricing, and activation descriptions retain
+their historical preparation context; they are not fresh hosted evidence.
+This documentation update does not implement or certify the 10% enforcement.
+
 ## Actual route inventory
 
 | Route policy | Ordinary caller | Provider boundary | Canonical usable result | Enforced-path behavior |
 |---|---|---|---|---|
 | `hearth.speech_transcription` | Hearth stored-speech action → `/api/hearth/stt` | OpenAI `/v1/audio/transcriptions`, `gpt-4o-mini-transcribe` | Private `openai_transcription_canonical_results` row, returned as the Hearth transcript | Exact uploaded bytes/revision, one attempt, quote acceptance, reservation, aggregate admission, capture, validation, persistence, settlement/receipt |
-| `anvil.realtime_transcription` | Anvil Whisper bridge → `/api/anvil/asr/whisper` | OpenAI `/v1/audio/transcriptions`, configured mini/full model | Private canonical chunk result plus the existing Anvil session assembly | One source chunk, maximum two seconds, one attempt; HF and paid transcode fallback fail closed because they have no complete policy |
+| `anvil.realtime_transcription` | Anvil Whisper bridge → `/api/anvil/asr/whisper` | OpenAI `/v1/audio/transcriptions`, configured mini/full model | Private canonical chunk result plus the existing Anvil session assembly | Forge-funded and cost-tracked under the 10%-of-user-balance limit in §3.1; exact cap enforcement and hosted certification require separate evidence |
 | `hammer.transcript_prep` | Hammer interactive prep → `/api/hammer/prep/transcript`; Hammer background job creation/runner | OpenAI `/v1/audio/transcriptions`, `gpt-4o-transcribe-diarize` | Diarized transcript, speaker map, recording-revision/workpiece state, and billing replay result | One direct provider attempt; unpriced preprocessing is blocked before funding; background jobs carry immutable authority and the runner gates immediately before submission |
 | `hammer.transcript_regeneration` | Hammer regeneration job → Tongs job creation/runner | OpenAI `/v1/audio/transcriptions`, `gpt-4o-transcribe-diarize` | New canonical diarized revision/workpiece state | Same exact-source and provider-boundary controls as prep; recovery cannot create a second provider attempt |
 

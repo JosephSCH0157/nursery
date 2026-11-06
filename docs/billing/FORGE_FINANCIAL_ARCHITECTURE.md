@@ -125,6 +125,38 @@ Provider execution during development, testing, and beta may incur real Forge wh
 - It **does not justify** bypassing customer billing, creating dummy deposit shortcuts, or fabricating a second financial pipeline.
 - A user testing a flow in Stripe Test must proceed through the real quote, reservation, admission, and settlement lifecycle. This ensures that the production financial machine is exercised and verified before launch.
 
+### 3.1 Anvil and Henry: Forge-funded, cost-tracked assistance
+
+Policy updated: **2026-11-06**, by explicit owner direction.
+
+Anvil and Henry are **Forge-funded** services. Forge pays their provider costs,
+and those costs must be tracked and attributed to the user through the existing
+Tongs financial authority. Their permitted service cost is limited to **10% of
+the user's balance**.
+
+The user's balance determines the service-cost limit; it does not change the
+payer to the customer or make provider usage tokens into Forge Credits. This
+policy does not introduce a customer debit, a new BYOK offer, a credit grant, or
+a separate ledger. Balance evidence must come from canonical Tongs records,
+with customer credit value kept distinct from Forge provider expense.
+
+The 10% limit must be enforced before billable execution, including concurrent
+requests and retries. Cost tracking must preserve incurred costs and unresolved
+provider obligations on failure; retrying or splitting work must not bypass the
+limit. A missing or unverifiable balance or cost limit cannot authorize spending.
+
+The accounting period, balance measurement point, and whether Anvil and Henry
+share one allowance or have separate allowances are not specified by this
+policy update. These details must be recorded in the authoritative execution
+contract before enforcement can be certified; do not assume a fresh 10%
+allowance for every request.
+
+This section supersedes descriptions of Anvil assistance as requiring a
+customer-funded or BYOK execution path. Other tools retain their existing
+funding policies. It states the required product policy, not verified runtime
+enforcement or production activation. Implementation and hosted certification
+must be evidenced separately.
+
 ---
 
 ## 4. Forge Credit Economy
