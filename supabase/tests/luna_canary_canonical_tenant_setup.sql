@@ -5,7 +5,12 @@ begin
      or current_setting('forge.luna_canary_certification',true) is distinct from 'disposable-baseline-v1'
      or (select count(*) from forge_meta.database_lineage)<>1
      or not exists(select 1 from forge_meta.database_lineage where singleton and lineage='baseline-v1')
-     or (select max(version) from supabase_migrations.schema_migrations) is distinct from '20261104071802'
+     or not (
+       (current_setting('forge.luna_current_denial_certification',true) is distinct from 'disposable-baseline-v1'
+        and (select max(version) from supabase_migrations.schema_migrations) is not distinct from '20261104071802')
+       or (current_setting('forge.luna_current_denial_certification',true)='disposable-baseline-v1'
+        and coalesce((select max(version) from supabase_migrations.schema_migrations),'') in ('20261104143249','20261104212918'))
+     )
      or exists(select 1 from auth.users where id in (
        'ce000000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000002'))
      or not (select relrowsecurity from pg_class where oid='tongs.workspaces'::regclass)

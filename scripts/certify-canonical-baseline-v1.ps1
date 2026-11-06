@@ -256,7 +256,8 @@ $restrictive_defaults$
     'supabase/tests/provider_request_financial_alignment.sql'
     'supabase/tests/runway_success_financial_finalization.sql'
     'supabase/tests/runway_paid_execution_boundary.sql'
-    'supabase/tests/customer_hearth_luna_canary.sql'
+    'supabase/tests/luna_canary_canonical_tenant_setup.sql'
+    'supabase/tests/customer_hearth_luna_current_denial.sql'
     'supabase/tests/account_admission_authority.sql'
     'supabase/tests/beta_invitation_provisioning.sql'
     'supabase/tests/account_admission_enforcement_inactive.sql'
@@ -268,7 +269,8 @@ $restrictive_defaults$
     if ($test -in @('supabase/tests/aggregate_paid_execution_connection.sql','supabase/tests/owner_funded_hearth_activation.sql','supabase/tests/runway_success_financial_finalization.sql') -and $CatalogStage -ne 'aggregate-attempt') { continue }
     if ($test -eq 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql' -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
     if ($test -eq 'supabase/tests/provider_request_financial_alignment.sql' -and $CatalogStage -notin @('provider-alignment','hammer-renewal-compatibility')) { continue }
-    if ($test -in @('supabase/tests/runway_paid_execution_boundary.sql','supabase/tests/customer_hearth_luna_canary.sql') -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
+    if ($test -in @('supabase/tests/runway_paid_execution_boundary.sql','supabase/tests/luna_canary_canonical_tenant_setup.sql') -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
+    if ($test -eq 'supabase/tests/customer_hearth_luna_current_denial.sql' -and $CatalogStage -notin @('provider-alignment','hammer-renewal-compatibility')) { continue }
     if ($test -eq 'supabase/tests/hammer_transcription_real_database_integration.sql' -and $SkipHammerRealDatabaseIntegration) { continue }
     $source = if ([IO.Path]::IsPathFullyQualified($test)) { $test } else { Join-Path $repo $test }
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -282,14 +284,19 @@ $restrictive_defaults$
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
         -c "select set_config('forge.runway_boundary_certification','disposable-baseline-v1',false);" -f $target
     }
-    elseif ($test -eq 'supabase/tests/customer_hearth_luna_canary.sql') {
+    elseif ($test -eq 'supabase/tests/luna_canary_canonical_tenant_setup.sql') {
+      # The historical successful-execution canary remains in its isolated harness.
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.luna_canary_certification','disposable-baseline-v1',false);" -f $target
+    }
+    elseif ($test -eq 'supabase/tests/customer_hearth_luna_current_denial.sql') {
       $tenantSource = Join-Path $repo 'supabase/tests/luna_canary_canonical_tenant_setup.sql'
       $tenantTarget = '/tmp/luna_canary_canonical_tenant_setup.sql'
       & docker cp $tenantSource "$($container):$tenantTarget"
       if ($LASTEXITCODE -ne 0) { throw 'Unable to copy Luna canonical tenant proof.' }
       # One connection preserves the original-state snapshot across both rollbacks.
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
-        -c "select set_config('forge.luna_canary_certification','disposable-baseline-v1',false);" `
+        -c "select set_config('forge.luna_canary_certification','disposable-baseline-v1',false), set_config('forge.luna_current_denial_certification','disposable-baseline-v1',false);" `
         -f $tenantTarget -f $target `
         -c "select pg_temp.assert_luna_original_state(); drop table pg_temp.luna_original_state;"
     }
