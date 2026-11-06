@@ -126,7 +126,7 @@ try {
   # Both reviewed fixtures retain their original SQL guards and bytes.
   Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/canonical_owner_hearth_aggregate_policy_prerequisites.sql') 'forge.owner_hearth_policy_fixture'
   # This predecessor contract assumes no Luna markup publication yet; it rolls back.
-  Invoke-SqlFile (Join-Path $repo 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql') ''
+  Invoke-SqlFile (Join-Path $repo 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql') 'forge.owner_request_certification'
   Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/canonical_luna_provider_alignment_authority.sql') 'forge.provider_alignment_fixture'
   & (Join-Path $repo 'scripts/test-forge-disposable-ci-guards.ps1') -Container $container -Workdir $selected -Stage alignment -RepositoryRoot $repo
 

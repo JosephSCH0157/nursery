@@ -58,6 +58,7 @@ test('the full suffix is withheld and restored before normal local migration exe
     assert.ok(index >= offset, 'missing or misordered stage: ' + token);
     offset = index + token.length;
   }
+  assert.match(setup, /owner_hearth_aggregate_admission_enforcement\.sql'\) 'forge\.owner_request_certification'/);
   assert.match(setup, /finally \{[\s\S]*Restore-PendingMigrations[\s\S]*Get-FileHash/);
   assert.doesNotMatch(setup, /--linked|--include-all|migration\s+repair|db','push/);
 });
