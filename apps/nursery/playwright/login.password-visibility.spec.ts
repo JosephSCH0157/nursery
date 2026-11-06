@@ -58,3 +58,12 @@ for (const viewport of [
     await expect(page.getByRole("button", { name: "Forgot password" })).toBeVisible();
   });
 }
+
+test("Bellows dependency imports through the browser's Vite module path", async ({ page }) => {
+  await page.goto("/login");
+  const repositoryType = await page.evaluate(async (modulePath) => {
+    const repository = await import(modulePath);
+    return typeof repository.createBellowsTongsRepository;
+  }, "/src/lib/bellows/bellowsTongsRepository.ts");
+  expect(repositoryType).toBe("function");
+});
