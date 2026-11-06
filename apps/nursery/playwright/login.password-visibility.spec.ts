@@ -39,8 +39,8 @@ test("login password can be revealed for verification and hidden again", async (
   await expect(password).toHaveAttribute("type", "password");
   await expect(password).toHaveValue("temporary-secret");
 
-  await page.locator('iframe[title="Anvil intro and demo"]').scrollIntoViewIfNeeded();
-  await expect(page.frameLocator('iframe[title="Anvil intro and demo"]').getByTestId("offline-demo")).toBeVisible();
+  await page.locator('iframe[title="Anvil intro and demo"]').evaluate((iframe) => iframe.setAttribute("loading", "eager"));
+  await expect(page.frameLocator('iframe[title="Anvil intro and demo"]').getByTestId("offline-demo")).toHaveText("Offline login demo fixture");
 });
 
 for (const viewport of [

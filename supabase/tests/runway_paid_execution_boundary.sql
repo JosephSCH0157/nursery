@@ -68,7 +68,10 @@ begin
        or (v_result->>'legacy_execution_allowed')::boolean is distinct from false then
       raise exception 'missing rollout allowed aggregate Runway execution: %',v_result;
     end if;
-  exception when not_null_violation then
+  exception when insufficient_privilege then
+    -- The aggregate wrapper denies earlier when no exact funding binding exists.
+    if sqlerrm is distinct from 'exact Runway funding binding required' then raise; end if;
+  when not_null_violation then
     get stacked diagnostics v_table=table_name,v_column=column_name;
     if v_table<>'runway_submission_boundary_events' or v_column<>'rollout_revision' then raise; end if;
   end;
