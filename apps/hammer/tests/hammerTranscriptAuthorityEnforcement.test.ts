@@ -42,6 +42,24 @@ async function testTranscriptPrepRepairsStaleSessionIdentityBeforeJobCreation() 
   );
 }
 
+async function testPersistedTranscriptHydratesEditorWithoutReloadLoop() {
+  const editorPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceEditor.tsx");
+  const source = await fs.readFile(editorPath, "utf-8");
+  const successStart = source.indexOf("usedAiPrep = true;");
+  const successEnd = source.indexOf('logTranscriptStage("transcript:prep:ok"', successStart);
+  const successPath = source.slice(successStart, successEnd);
+
+  assert.ok(successStart >= 0 && successEnd > successStart, "Transcript success handling must remain discoverable.");
+  assert.match(successPath, /buildPreparedTranscript\(currentLaunchContext, transcriptPrep\.data\)/);
+  assert.match(successPath, /setLoadedPersistenceSnapshot\(hydratedSnapshot\)/);
+  assert.match(successPath, /setEffectiveLaunchContext\(preparedLaunchContext\)/);
+  assert.equal(
+    successPath.includes("setReloadRequestNonce"),
+    false,
+    "A completed transcript must not be discarded by forcing file-only canonical reload hydration.",
+  );
+}
+
 function testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline() {
   const transcript: HammerTranscriptSegment[] = [
     { segment_id: "seg_001", speaker: "S1", text: "Intro.", start_sec: 0, end_sec: 1 },
@@ -112,6 +130,7 @@ function testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline
 async function run() {
   await testAnvilLiveAsrCannotBecomeCanonicalTranscript();
   await testTranscriptPrepRepairsStaleSessionIdentityBeforeJobCreation();
+  await testPersistedTranscriptHydratesEditorWithoutReloadLoop();
   testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline();
   console.log("Hammer transcript authority enforcement tests passed.");
 }

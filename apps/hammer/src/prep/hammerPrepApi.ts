@@ -51,6 +51,8 @@ export interface HammerTranscriptPrepResponse {
   provider: "openai" | "assemblyai";
   model: string;
   provider_request_id: string | null;
+  canonical_transcript_id?: string | null;
+  prepared_at?: string | null;
   text: string | null;
   segments: HammerTranscriptPrepSegment[];
 }
@@ -368,6 +370,8 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
     provider,
     model,
     provider_request_id: readString(data?.provider_request_id),
+    canonical_transcript_id: readString(data?.canonical_transcript_id),
+    prepared_at: readString(data?.prepared_at),
     text: readString(data?.text),
     segments,
   };

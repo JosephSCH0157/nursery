@@ -99,7 +99,7 @@ export interface HammerPersistedStructuredTranscript {
     labels: string[];
     raw_labels: string[];
     version: string | null;
-    provider: "openai";
+    provider: "openai" | "assemblyai";
     provider_request_id: string | null;
     model: string | null;
   };

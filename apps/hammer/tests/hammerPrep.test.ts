@@ -361,6 +361,29 @@ function testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns() {
   );
 }
 
+function testPreparedTranscriptPreservesCanonicalAssemblyAiIdentity() {
+  const preparedTranscript = buildPreparedTranscript(buildLaunchContext(), {
+    provider: "assemblyai",
+    model: "universal-3-5-pro",
+    provider_request_id: "provider-request-1",
+    canonical_transcript_id: "60d9c5ea-8cd5-4d4b-b103-06e734d4204a",
+    prepared_at: "2026-11-05T23:45:00.000Z",
+    text: "Persisted words survive reload.",
+    segments: [{
+      id: "segment-1",
+      start: 5.32,
+      end: 8.1,
+      text: "Persisted words survive reload.",
+      speaker: "A",
+    }],
+  });
+
+  assert.equal(preparedTranscript.transcriptId, "60d9c5ea-8cd5-4d4b-b103-06e734d4204a");
+  assert.equal(preparedTranscript.preparedAt, "2026-11-05T23:45:00.000Z");
+  assert.equal(preparedTranscript.structuredTranscript.diarization.provider, "assemblyai");
+  assert.equal(preparedTranscript.structuredTranscript.diarization.provider_request_id, "provider-request-1");
+}
+
 function testPreparedTranscriptSplitsOversizedSpeakerTurnsDeterministically() {
   const longSentence = [
     "Here is the weird part.",
@@ -516,6 +539,7 @@ try {
   testOpenDecisionReusesPreparedTranscript();
   testOpenDecisionReusesPreparedTranscriptAfterPrepFailure();
   testPreparedTranscriptUsesNeutralForgeTagsAndSpeakerTurns();
+  testPreparedTranscriptPreservesCanonicalAssemblyAiIdentity();
   testPreparedTranscriptSplitsOversizedSpeakerTurnsDeterministically();
   testOverlayViewModelTracksPrepStages();
   testPrepPersistenceSeedWritesPreparedTranscript();
