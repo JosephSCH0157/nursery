@@ -364,24 +364,58 @@ test("background Hammer execution uses trusted Netlify CONTEXT when deploy metad
   }
 });
 
+
+test("missing Hammer provider configuration remains a server failure before invalid payload validation", async () => {
+  const originalProvider = process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+  process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = "openai";
+  try {
+    const unconfigured = createNetlifyHammerFunction({
+      runtimeConfig: runtimeConfig({ textApiKey: null, apiKey: null }),
+    });
+    const configured = createNetlifyHammerFunction({ runtimeConfig: runtimeConfig() });
+    const invalidPayload = { spending_acceptance: { quote_id: "invalid-for-prep" } };
+    const missing = await unconfigured(request("/api/hammer/prep/transcript", invalidPayload));
+    assert.equal(missing.status, 500);
+    assert.equal((await missing.json() as { error?: { code?: string } }).error?.code, "SERVER_NOT_CONFIGURED");
+    const invalid = await configured(request("/api/hammer/prep/transcript", invalidPayload));
+    assert.equal(invalid.status, 400);
+    assert.equal((await invalid.json() as { error?: { code?: string } }).error?.code, "INVALID_REQUEST");
+  } finally {
+    if (originalProvider == null) delete process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+    else process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = originalProvider;
+  }
+});
+
 test("background Hammer receipt RPC selects the tongs schema", async () => {
   const originalFetch = globalThis.fetch;
   const originalUrl = process.env.TONGS_SUPABASE_URL;
   const originalKey = process.env.TONGS_SERVICE_ROLE_KEY;
   const receiptHeaders: Headers[] = [];
+  const receiptStages: Array<{ p_stage: string; p_failure_code: string | null }> = [];
+  const envNames = ["OPENAI_TEXT_API_KEY", "FORGE_HAMMER_TRANSCRIPTION_PROVIDER"] as const;
+  const savedEnv = new Map(envNames.map((name) => [name, process.env[name]]));
+  // The background module captures its execution config at module evaluation.
+  process.env.OPENAI_TEXT_API_KEY = "fixture-provider-key";
+  process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = "openai";
   process.env.TONGS_SUPABASE_URL = "https://fixture.supabase.co";
   process.env.TONGS_SERVICE_ROLE_KEY = "fixture-service-role-key";
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url.endsWith("/rest/v1/rpc/record_hammer_transcription_preoperation_receipt")) {
       receiptHeaders.push(new Headers(init?.headers));
+      receiptStages.push(JSON.parse(String(init?.body)));
       return Response.json({ stage: "background_started", replay: false });
     }
     throw new Error("fixture stops after receipt boundary");
   }) as typeof fetch;
 
   try {
-    await assert.rejects(() => hammerTranscriptionBackground(new Request(
+    // A distinct module instance reads the supported fixture configuration;
+    // the earlier static import deliberately retains its own runtime state.
+    const configuredModule = new URL("../netlify/functions/hammer-transcription-background.ts", import.meta.url);
+    configuredModule.searchParams.set("fixture", "configured-receipt");
+    const { default: configuredBackground } = await import(configuredModule.href);
+    await assert.rejects(() => configuredBackground(new Request(
       "https://fixture.invalid/.netlify/functions/hammer-transcription-background",
       {
         method: "POST",
@@ -395,13 +429,22 @@ test("background Hammer receipt RPC selects the tongs schema", async () => {
         }),
       },
     ), {} as never), /Hammer transcription background execution failed \(400\)\./);
-    assert.ok(receiptHeaders.length >= 1);
+    assert.deepEqual(receiptStages.map((receipt) => [receipt.p_stage, receipt.p_failure_code]), [
+      ["background_started", null],
+      ["pre_admission_failed", "INVALID_REQUEST"],
+    ]);
+    assert.equal(receiptHeaders.length, 2);
     for (const headers of receiptHeaders) {
       assert.equal(headers.get("content-profile"), "tongs");
       assert.equal(headers.get("accept-profile"), "tongs");
     }
   } finally {
     globalThis.fetch = originalFetch;
+    for (const name of envNames) {
+      const value = savedEnv.get(name);
+      if (value == null) delete process.env[name];
+      else process.env[name] = value;
+    }
     if (originalUrl == null) delete process.env.TONGS_SUPABASE_URL;
     else process.env.TONGS_SUPABASE_URL = originalUrl;
     if (originalKey == null) delete process.env.TONGS_SERVICE_ROLE_KEY;

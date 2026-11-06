@@ -33,6 +33,7 @@ class AttributionBackend {
   public providerCalls = 0;
   public gateCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
   public requirementUnavailable = false;
+  public omitCacheWriteMetadata = false;
   public policy: PolicyRow = {
     decision_type: "ALLOW",
     reason_code: null,
@@ -159,6 +160,9 @@ class AttributionBackend {
         supporting_cost_ceiling_micros: 10_000,
         input_micros_per_million_tokens: 1_750_000,
         cached_input_micros_per_million_tokens: 175_000,
+        // Mirrors resolve_openai_text_paid_execution_context's explicit zero when
+        // this fixture model has no approved cache-write rate condition.
+        ...(this.omitCacheWriteMetadata ? {} : { cache_write_micros_per_million_tokens: 0 }),
         output_micros_per_million_tokens: 14_000_000,
         reservation_state: "reserved",
       };
@@ -388,6 +392,27 @@ test("incomplete Forge funding metadata fails closed before provider attribution
     assert.equal(response.status, 503, await response.clone().text());
     assert.equal(backend.providerCalls, 0);
     assert.equal(backend.usageEvents.some((row) => row.status === "success"), false);
+  } finally {
+    backend.restore();
+  }
+});
+
+test("missing cache-write cost metadata denies Forge execution before provider admission", async () => {
+  const backend = new AttributionBackend();
+  backend.omitCacheWriteMetadata = true;
+  backend.install();
+  try {
+    const response = await invokeChat(createHearthAiHandler(buildConfig(backend)), "forge", true);
+    assert.equal(response.status, 403, await response.clone().text());
+    const payload = await response.json() as { code?: string };
+    assert.equal(payload.code, "paid_execution_denied");
+    assert.equal(backend.providerCalls, 0);
+    assert.equal(backend.usageEvents.some((row) => row.status === "success"), false);
+    assert.equal(backend.gateCalls.some((call) =>
+      call.name.includes("authorize_openai_text_provider_attempt")
+      || call.name === "acquire_openai_text_aggregate_admission"
+      || call.name === "persist_hearth_chat_paid_result"
+      || call.name.startsWith("settle_")), false);
   } finally {
     backend.restore();
   }

@@ -17,11 +17,14 @@ import {
   FORGE_AUTH_STORAGE_KEY,
 } from "../src/lib/supabase-auth-contract";
 
+import { classifyAdmissionOnboarding } from "../src/components/AdmissionBoundaryRuntime";
+
 const read = (relativePath: string) => readFileSync(new URL(relativePath, import.meta.url), "utf8");
 const login = read("../src/routes/Login.tsx");
 const callback = read("../src/routes/AuthCallback.tsx");
 const signup = read("../src/routes/Signup.tsx");
 const boundary = read("../src/components/AdmissionBoundary.tsx");
+const boundaryView = read("../src/components/AdmissionBoundaryView.tsx");
 const serverAdmission = read("../server/auth/admission-enforcement.ts");
 const styles = read("../src/routes/Login.css");
 const supabaseClient = read("../src/lib/supabase.ts");
@@ -234,8 +237,16 @@ test("Google callback establishes only an Auth session and retains admission aut
   assert.doesNotMatch(signup, /auth\.signUp|signInWithOAuth|type="password"/);
 
   assert.match(boundary, /read_my_admission_onboarding/);
-  assert.match(boundary, /value\?\.admitted === true && value\.effective_state === "admitted"/);
-  assert.match(boundary, /value\?\.effective_state === "revoked"/);
+  assert.match(boundary, /<AdmissionBoundaryView runtime=\{runtime \?\? defaultRuntime\}/);
+  assert.match(boundaryView, /runtime\.readAdmission\(\)/);
+  assert.match(boundaryView, /classifyAdmissionOnboarding\(data as AdmissionOnboardingState\)/);
+  assert.equal(classifyAdmissionOnboarding({ admitted: true, effective_state: "admitted" }), "allowed");
+  for (const value of [null, {}, { admitted: true }, { effective_state: "admitted" },
+    { admitted: false, effective_state: "admitted" }, { admitted: true, effective_state: "pending" }]) {
+    assert.equal(classifyAdmissionOnboarding(value), "pending");
+  }
+  assert.equal(classifyAdmissionOnboarding({ admitted: true, effective_state: "revoked" }), "revoked");
+  assert.equal(classifyAdmissionOnboarding({ admitted: false, effective_state: "revoked" }), "revoked");
   assert.match(serverAdmission, /require_account_admission/);
   assert.match(serverAdmission, /account_admission_required/);
 });

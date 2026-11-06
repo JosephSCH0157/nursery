@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { buildBoundedHearthChatProviderRequest } from "../server/hearth/hearth-paid-chat-execution";
 import {
   ownerHearthExecutionGate,
@@ -89,28 +90,41 @@ test("owner gate replaces authority and settlement gates but preserves evidence 
   assert.deepEqual(calls[0]?.args, { p_operation_id: "op" });
 });
 
-test("approved compatibility requests retain the exact complete-request byte ceilings", async () => {
+test("approved compatibility requests bind the complete cache and service-tier payload", async () => {
   const system = [
     "You are Hearth, a concise podcast writing collaborator.",
     "Answer only the creator's bounded request.",
     "Do not browse, call tools, purchase assets, or claim work you did not perform.",
     "Return plain text or the existing Hearth JSON reply shape.",
   ].join(" ");
-  const expected = new Map([
-    ["gpt-6-astra", 386],
-    ["gpt-5.6-sol", 386],
-    ["gpt-5.6-terra", 388],
-    ["gpt-5.4-mini-2026-03-17", 398],
-    ["gpt-5.6-luna", 387],
-  ]);
-  for (const [model, boundedInputTokens] of expected) {
+  const models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.4-mini-2026-03-17", "gpt-5.6-luna"];
+  for (const model of models) {
     const request = await buildBoundedHearthChatProviderRequest({
       messages: [{ role: "system", content: system }, { role: "user", content: "Reply with exactly: Ready." }],
       model,
       maximumOutputTokens: 512,
       maximumAttempts: 1,
     });
-    assert.equal(request.boundedInputTokens, boundedInputTokens, model);
-    assert.equal(request.boundedInputTokens, request.serializedBytes, model);
+    const expectedBody = {
+      model,
+      messages: [{ role: "system", content: system }, { role: "user", content: "Reply with exactly: Ready." }],
+      max_completion_tokens: 512,
+      prompt_cache_options: { ttl: "30m" },
+      service_tier: "default",
+    };
+    assert.deepEqual(request.body, expectedBody);
+    assert.deepEqual(JSON.parse(request.serializedBody), expectedBody);
+    assert.equal(request.serviceTier, "standard");
+    assert.equal(request.maximumOutputTokens, 512);
+    assert.equal(request.maximumAttempts, 1);
+    const actualBytes = Buffer.byteLength(request.serializedBody, "utf8");
+    assert.equal(request.serializedBytes, actualBytes);
+    assert.equal(request.utf8ByteTokenUpperBound, actualBytes);
+    assert.equal(request.serializedBodySha256, createHash("sha256").update(request.serializedBody).digest("hex"));
+    assert.equal(request.boundedInputTokens, Math.max(
+      request.tokenizerInputTokens + request.protocolOverheadTokens, actualBytes,
+    ));
+    // The complete payload (including cache and service-tier fields) remains
+    // the evidence supplied to owner admission, not a pre-change byte constant.
   }
 });
