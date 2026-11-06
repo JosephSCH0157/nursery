@@ -1972,6 +1972,68 @@ type HammerAssemblyAiRecovery = Readonly<{
   state: "pending" | "pre_admission_failed";
 }>;
 
+async function readPersistedHammerAssemblyAiTranscript(args: {
+  supabaseService: SupabaseClient<Database>;
+  userId: string;
+  requestFingerprint: string;
+}): Promise<Record<string, unknown> | null> {
+  const store = args.supabaseService.schema("tongs");
+  const operationResponse = await store
+    .from("hammer_transcription_operations")
+    .select("id,canonical_transcript_id")
+    .eq("user_id", args.userId)
+    .eq("request_fingerprint", args.requestFingerprint)
+    .maybeSingle();
+  if (operationResponse.error) {
+    throw new Error(`read persisted Hammer operation: ${operationResponse.error.message}`);
+  }
+  if (!operationResponse.data?.id || !operationResponse.data.canonical_transcript_id) return null;
+
+  const transcriptResponse = await store
+    .from("hammer_canonical_transcripts_v2")
+    .select("transcript_json")
+    .eq("operation_id", operationResponse.data.id)
+    .eq("user_id", args.userId)
+    .maybeSingle();
+  if (transcriptResponse.error) {
+    throw new Error(`read persisted Hammer transcript: ${transcriptResponse.error.message}`);
+  }
+  return readJsonObject(transcriptResponse.data?.transcript_json) ?? null;
+}
+
+function hammerTranscriptPrepResponse(transcript: Record<string, unknown>): {
+  provider: "assemblyai";
+  model: "universal-3-5-pro";
+  provider_request_id: string | null;
+  text: string | null;
+  segments: HammerTranscriptPrepSegment[];
+} {
+  const provider = readJsonObject(transcript.provider);
+  const segments = Array.isArray(transcript.segments)
+    ? transcript.segments.flatMap((value) => {
+      const segment = readJsonObject(value);
+      const startMs = Number(segment?.start_ms);
+      const endMs = Number(segment?.end_ms);
+      const text = readTrimmed(segment?.text);
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !text) return [];
+      return [{
+        id: readTrimmed(segment?.id),
+        start: startMs / 1_000,
+        end: endMs / 1_000,
+        text,
+        speaker: readTrimmed(segment?.speaker),
+      } satisfies HammerTranscriptPrepSegment];
+    })
+    : [];
+  return {
+    provider: "assemblyai",
+    model: "universal-3-5-pro",
+    provider_request_id: readTrimmed(provider?.provider_request_id),
+    text: readTrimmed(transcript.text),
+    segments,
+  };
+}
+
 async function readHammerAssemblyAiRecovery(args: {
   supabaseService: SupabaseClient<Database>;
   userId: string;
@@ -3626,6 +3688,19 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
         }
 
         if (!acceptance) {
+          const persistedTranscript = await readPersistedHammerAssemblyAiTranscript({
+            supabaseService,
+            userId,
+            requestFingerprint,
+          });
+          if (persistedTranscript) {
+            sendJson(res, 200, {
+              ok: true,
+              data: hammerTranscriptPrepResponse(persistedTranscript),
+              billing_receipt: { settlement_state: "completed" },
+            });
+            return;
+          }
           const recovery = await readHammerAssemblyAiRecovery({
             supabaseService,
             userId,
@@ -3978,29 +4053,8 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
             return;
           }
           const transcript = coordinated.result ?? {};
-          const provider = readJsonObject(transcript.provider);
-          const segments = Array.isArray(transcript.segments)
-            ? transcript.segments.flatMap((value) => {
-              const segment = readJsonObject(value);
-              const startMs = Number(segment?.start_ms);
-              const endMs = Number(segment?.end_ms);
-              const text = readTrimmed(segment?.text);
-              if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || !text) return [];
-              return [{
-                id: readTrimmed(segment?.id),
-                start: startMs / 1_000,
-                end: endMs / 1_000,
-                text,
-                speaker: readTrimmed(segment?.speaker),
-              } satisfies HammerTranscriptPrepSegment];
-            })
-            : [];
           sendJson(res, 200, { ok: true, data: {
-            provider: "assemblyai",
-            model: "universal-3-5-pro",
-            provider_request_id: readTrimmed(provider?.provider_request_id),
-            text: readTrimmed(transcript.text),
-            segments,
+            ...hammerTranscriptPrepResponse(transcript),
           }, billing_receipt: {
             operation_id: coordinated.operationId,
             reservation_id: coordinated.reservationId,
