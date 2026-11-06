@@ -104,3 +104,23 @@ test('negative financial tests execute original guard predicates on isolated sna
   assert.match(tests, /Get-Content.*20261104143249/);
   assert.doesNotMatch(tests, /(?:update|delete from|insert into) (?:forge_meta|supabase_migrations)\./i);
 });
+
+test('bounded certification holds the entire suffix and retains full lineage preflight', () => {
+  const certify = read('scripts/certify-canonical-baseline-v1.ps1');
+  assert.match(certify, /function Hold-CatalogStageSuffix[\s\S]*-gt \$head/);
+  assert.match(certify, /Hold-CatalogStageSuffix\n/);
+  assert.match(certify, /Assert-CatalogStageDatabaseHistory -Container \$container[\s\S]*Copy-BaselineMigrations[\s\S]*-Mode preflight/);
+  assert.match(workflow, /name: database:financial-alignment/);
+  assert.match(workflow, /privileges: \[permissive, restrictive\]/);
+  assert.match(workflow, /-CatalogStage provider-alignment/);
+});
+
+test('Auth compatibility is restricted to the non-login synthetic principal after a verified scan failure', () => {
+  assert.match(setup, /authLogs -notmatch 'converting NULL to string'/);
+  assert.match(setup, /uri\.Host -cne '127\.0\.0\.1'/);
+  const sql = read('supabase/tests/fixtures/disposable_ci_luna_auth_compatibility.sql');
+  assert.match(sql, /current_setting\('forge\.ci_luna_auth_fixture',true\)/);
+  assert.match(sql, /encrypted_password=''/);
+  assert.match(sql, /where id='fe000000-0000-4000-8000-000000000001';/);
+  assert.doesNotMatch(sql, /insert into|delete from|set encrypted_password|update tongs\./i);
+});

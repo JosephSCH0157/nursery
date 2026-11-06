@@ -80,6 +80,10 @@ if ($Stage -eq 'fixture') {
   Add-Rejection 'fixture at populated predecessor' $fixtureGuard '' 'P0001' 'Luna provider-alignment fixture requires its synthetic operator identity to be absent'
 } else {
   Add-Rejection 'fixture after tail resumed' $fixtureGuard '' 'P0001' 'Luna provider-alignment fixture requires migration head 20261104071802'
+  $compatibility = Get-Content -LiteralPath (Join-Path $repo 'supabase/tests/fixtures/disposable_ci_luna_auth_compatibility.sql') -Raw
+  $compatibilityGuard = [regex]::Match($compatibility,'(?s)do \$guard\$.*?end \$guard\$;')
+  if (-not $compatibilityGuard.Success) { throw 'Unable to extract Auth compatibility guard.' }
+  Add-Rejection 'Auth compatibility without opt-in' $compatibilityGuard.Value '' '42501' 'Auth compatibility requires the exact disposable Luna fixture'
 }
 $sql = ($setup -join [Environment]::NewLine) + [Environment]::NewLine + ($tests -join [Environment]::NewLine) + [Environment]::NewLine + 'rollback;'
 $file = Join-Path $selected "ci-negative-guards-$Stage.sql"

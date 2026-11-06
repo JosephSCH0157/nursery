@@ -81,6 +81,34 @@ function Assert-ExactHistory([string[]]$Names) {
   $actual = @($actual | ForEach-Object { $_.Trim() } | Where-Object { $_ })
   if (($actual -join ',') -cne ($expected -join ',')) { throw 'Disposable database history is not the exact staged migration prefix.' }
 }
+
+function Assert-DisposableAuthUsers {
+  # Keep status/keys and Auth logs private. Requests must target loopback only.
+  $statusText = (& supabase status --workdir $selected --output json 2>$null | Out-String)
+  if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect disposable Auth status.' }
+  $status = $statusText | ConvertFrom-Json
+  $uri = [uri]$status.API_URL
+  if ($uri.Scheme -cne 'http' -or $uri.Host -cne '127.0.0.1') { throw 'Auth regression rejects a non-loopback endpoint.' }
+  $headers = @{apikey=$status.SERVICE_ROLE_KEY;Authorization="Bearer $($status.SERVICE_ROLE_KEY)"}
+  $endpoint = $status.API_URL.TrimEnd('/') + '/auth/v1/admin/users?page=1&per_page=1000'
+  try {
+    $users = Invoke-RestMethod -Uri $endpoint -Headers $headers -Method Get
+  } catch {
+    # Repair only the observed nullable-string scan incompatibility, never a
+    # network/auth/configuration failure. Do not echo the underlying log/body.
+    $authLogs = (& docker logs "supabase_auth_$expectedProject" --tail 100 2>&1 | Out-String)
+    if ($LASTEXITCODE -ne 0 -or $authLogs -notmatch 'converting NULL to string') {
+      throw 'Disposable Auth list failed without the reviewed null-string scan signature.'
+    }
+    Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/disposable_ci_luna_auth_compatibility.sql') 'forge.ci_luna_auth_fixture'
+    $users = Invoke-RestMethod -Uri $endpoint -Headers $headers -Method Get
+    Write-Output '{"ok":true,"disposableAuthNullStringRepair":"verified"}'
+  }
+  if (@($users.users | Where-Object { $_.id -ceq 'fe000000-0000-4000-8000-000000000001' }).Count -ne 1) {
+    throw 'Disposable Auth list did not return the exact synthetic Luna principal.'
+  }
+}
+
 function Restore-PendingMigrations {
   foreach ($file in @(Get-ChildItem -LiteralPath $staging -Filter '*.sql' -File)) {
     if (Test-Path -LiteralPath (Join-Path $target $file.Name)) { throw "Refusing to overwrite restored migration $($file.Name)." }
@@ -111,6 +139,7 @@ try {
     Invoke-SqlFile (Join-Path $repo "supabase/tests/$test") ''
   }
   & (Join-Path $repo 'scripts/test-forge-disposable-ci-guards.ps1') -Container $container -Workdir $selected -Stage successor -RepositoryRoot $repo
+  Assert-DisposableAuthUsers
   [pscustomobject]@{ok=$true;scope='disposable-ci-only';lineage='baseline-v1';head=$files[-1].BaseName.Substring(0,14);financialAlignment='passed';negativeGuards='passed'} | ConvertTo-Json -Compress
 }
 finally {

@@ -131,6 +131,26 @@ jobs:
           packages/tongs/tests/customer-funding-payment-contract.test.mjs
           packages/tongs/tests/standard-customer-financial-certification-migrations.test.mjs
 
+  disposable-financial-alignment-certification:
+    name: database:financial-alignment
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        privileges: [permissive, restrictive]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.84.2
+      - name: Certify reviewed financial-alignment catalog and behavior
+        shell: pwsh
+        run: ./scripts/certify-canonical-baseline-v1.ps1 -CatalogStage provider-alignment -DefaultPrivilegeMode ${{ matrix.privileges }}
+
   nursery-media-gate:
     name: nursery:media
     runs-on: ubuntu-latest
