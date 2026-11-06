@@ -10,15 +10,26 @@ Henry is the Forge orientation layer. It explains context, keeps workflow option
 
 ## Funding and cost policy
 
-Henry is Forge-funded and cost-tracked, with service cost limited to 10% of
-the user's balance. The canonical policy, accounting boundaries, and remaining
-cap-definition details are in
-[Forge Financial Architecture §3.1](docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance).
+Henry AI operations are Forge-funded platform services. Forge pays and tracks
+their provider expenses separately from customer prepaid credits and BYOK
+execution. Included operations do not deduct prepaid credits, use customer
+balances as a limit basis, or require BYOK credentials.
 
-Provider-backed Henry assistance must respect that limit through Tongs.
-Deterministic orientation remains available without a provider call. This
-policy statement does not establish that runtime enforcement is implemented
-or certified.
+[Forge Financial Architecture §3.1](docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance)
+owns the operating policy, evidence requirements, and unresolved allowance
+decisions. Monthly allowances based on subscription tier and actual wholesale
+costs are preferred for evaluation; no tier, amount, eligibility, or reset period
+is approved here. Henry and Anvil costs must be separately measurable; whether
+they share an allowance remains undecided.
+
+Per-account limits and aggregate platform exposure controls are required.
+Intended enforcement must stop additional billable AI work when the applicable
+allowance is exhausted while preserving deterministic orientation and other
+non-AI functionality. Forge funding is bounded and accountable.
+
+This states approved funding policy and intended future controls, not verified
+implementation or deployed allowance enforcement. The investigation's financial
+defects and certification gaps remain unresolved until separately evidenced.
 
 ## Non-goals
 - No autonomous task execution

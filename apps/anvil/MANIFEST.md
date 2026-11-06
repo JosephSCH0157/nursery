@@ -10,15 +10,27 @@ If a behavior is confusing, start here before editing code.
 
 ## Funding and cost policy
 
-Anvil assistance, including provider-backed ASR, is Forge-funded and
-cost-tracked, with service cost limited to 10% of the user's balance.
-[Forge Financial Architecture §3.1](../../docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance)
-owns this financial policy and its cap-definition requirements.
+Anvil transcription is a Forge-funded platform service. Forge pays and tracks
+its provider expenses separately from customer prepaid credits and BYOK
+execution. Included transcription does not deduct prepaid credits, use customer
+balances as a funding or limit basis, or require BYOK credentials.
 
-Provider execution must enforce the limit through Tongs. A cost record alone
-does not prove admission under the limit. This policy does not establish
-verified implementation or hosted activation. Recording remains independent
-of ASR availability.
+[Forge Financial Architecture §3.1](../../docs/billing/FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance)
+owns the operating policy and its economic evidence requirements. Monthly
+allowances based on subscription tier and actual wholesale costs are preferred
+for evaluation. Amounts, eligibility, reset timing, and shared-versus-separate
+Anvil/Henry allowances remain unapproved; costs must be separately measurable.
+
+Per-account limits and aggregate platform exposure controls are required.
+Intended enforcement must admit billable work through existing Tongs authority
+and stop further billable transcription when the applicable allowance is
+exhausted. Recording and other non-AI functionality remain available independently
+of ASR availability. Forge-funded does not mean unlimited spending.
+
+Cost records alone do not prove financial admission or allowance enforcement.
+This policy update makes no implementation or hosted-enforcement claim and
+does not resolve the investigation's confirmed Anvil admission defects or other
+financial certification gaps.
 
 ## 0) Golden Rules
 
