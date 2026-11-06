@@ -3297,9 +3297,9 @@ export default function HammerWorkspaceEditor(
             outcome = "job_submitted";
             return;
           }
-          if (claim.selection?.jobRequestState === "created" && claim.selection.jobId) {
+          if (claim.selection?.jobRequestState === "created") {
             submittedTranscriptJob = true;
-            setPrepTranscriptJobId(claim.selection.jobId);
+            if (claim.selection.jobId) setPrepTranscriptJobId(claim.selection.jobId);
             outcome = "job_submitted";
             return;
           }
@@ -3365,7 +3365,6 @@ export default function HammerWorkspaceEditor(
         if (prepAiFallbackSelectionRef.current) {
           prepAiFallbackSelectionRef.current = finishHammerAiFallbackJobRequest({
             selection: prepAiFallbackSelectionRef.current,
-            jobId: `paid-transcript-prep:${transcriptClientRequestId}`,
           });
         }
         usedAiPrep = true;

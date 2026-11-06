@@ -165,5 +165,9 @@ test("initial AI fallback uses the paid transcript endpoint and cannot enter the
   assert.match(quoteDialog, /Customer charge: \{quote\.credit_charge\} Forge Credits/);
   assert.match(quoteDialog, /Accept quote and start transcription/);
   assert.doesNotMatch(initialFallback, /createWorkpieceJob\(/);
-  assert.match(initialFallback, /paid-transcript-prep:/);
+  assert.doesNotMatch(initialFallback, /paid-transcript-prep:/);
+  assert.match(
+    editor,
+    /jobRequestState === "created"[\s\S]*if \(claim\.selection\.jobId\) setPrepTranscriptJobId/,
+  );
 });
