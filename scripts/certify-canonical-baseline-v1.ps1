@@ -278,6 +278,10 @@ $restrictive_defaults$
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
         -c "select set_config('forge.hammer_real_db_certification','disposable-baseline-v1',false), set_config('request.jwt.claim.role','service_role',false);" -f $target
     }
+    elseif ($test -eq 'supabase/tests/runway_paid_execution_boundary.sql') {
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.runway_boundary_certification','disposable-baseline-v1',false);" -f $target
+    }
     else {
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target
     }
