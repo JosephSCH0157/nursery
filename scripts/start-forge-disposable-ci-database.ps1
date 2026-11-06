@@ -97,6 +97,8 @@ try {
   & (Join-Path $repo 'scripts/test-forge-disposable-ci-guards.ps1') -Container $container -Workdir $selected -Stage fixture -RepositoryRoot $repo
   # Both reviewed fixtures retain their original SQL guards and bytes.
   Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/canonical_owner_hearth_aggregate_policy_prerequisites.sql') 'forge.owner_hearth_policy_fixture'
+  # This predecessor contract assumes no Luna markup publication yet; it rolls back.
+  Invoke-SqlFile (Join-Path $repo 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql') ''
   Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/canonical_luna_provider_alignment_authority.sql') 'forge.provider_alignment_fixture'
   & (Join-Path $repo 'scripts/test-forge-disposable-ci-guards.ps1') -Container $container -Workdir $selected -Stage alignment -RepositoryRoot $repo
 
@@ -105,7 +107,7 @@ try {
   Invoke-LocalSupabase @('migration','up','--local','--workdir',$selected,'--yes','--agent=no')
   Assert-ExactHistory @($files | ForEach-Object Name)
   & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
-  foreach ($test in @('provider_request_financial_alignment.sql','owner_hearth_aggregate_admission_enforcement.sql')) {
+  foreach ($test in @('provider_request_financial_alignment.sql')) {
     Invoke-SqlFile (Join-Path $repo "supabase/tests/$test") ''
   }
   & (Join-Path $repo 'scripts/test-forge-disposable-ci-guards.ps1') -Container $container -Workdir $selected -Stage successor -RepositoryRoot $repo
@@ -119,5 +121,5 @@ finally {
       throw "Disposable migration bytes changed: $($file.Name)"
     }
   }
-  Remove-Item -LiteralPath $staging
+  Remove-Item -LiteralPath $staging -Force
 }

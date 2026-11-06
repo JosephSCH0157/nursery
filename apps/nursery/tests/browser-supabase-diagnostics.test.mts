@@ -13,12 +13,11 @@ function approvedDisposableStartupShell(workflow: string): string {
   const runBlocks = [...workflow.matchAll(/(?:^|\r?\n)      - (?:name: [^\r\n]+\r?\n        )?run: \|\r?\n((?:          [^\r\n]*(?:\r?\n|$))+)/g)]
     .map((match) => match[1]);
   const candidates = runBlocks.filter((block) =>
-    block.includes("scripts/invoke-forge-database.ps1")
-      && block.includes("-Lineage baseline")
-      && block.includes("-Action Start")
+    block.includes("scripts/start-forge-disposable-ci-database.ps1")
+      && block.includes("-DisposableCI")
       && block.includes('"$FORGE_BROWSER_SUPABASE_WORKDIR"'),
   );
-  assert.equal(candidates.length, 1, "workflow must contain exactly one lineage-aware disposable startup block");
+  assert.equal(candidates.length, 1, "workflow must contain exactly one guarded disposable CI startup block");
   const block = candidates[0];
   assert.match(block, /\$RUNNER_TEMP\/browser-supabase-start\.log[^\r\n]*2>&1/);
   assert.match(block, /browser-supabase-diagnostics\.mjs[^\r\n]*browser-supabase-start\.log[^\r\n]*supabase\/migrations/);
@@ -96,7 +95,7 @@ test("actual workflow shell preserves startup/migration exit codes without expos
     mkdirSync(migrations, { recursive: true });
     writeFileSync(join(migrations, migration), "-- fixture only\n");
     for (const [stage, expectedStatus] of [["startup", 7], ["success", 0]] as const) {
-      // Function replaces only PowerShell at the lineage-aware wrapper boundary:
+      // Function replaces only PowerShell at the lineage-validating CI wrapper boundary:
       // the checked-in workflow body and its private diagnostic handling run unchanged.
       const stub = `pwsh() {\n  echo 'private-cli-secret'\n  if [ "$FAIL_STAGE" = "startup" ]; then\n    echo 'Applying migration ${migration}...'\n    echo 'ERROR: syntax error at or near "private-sql" (SQLSTATE 42601)' >&2\n    return "$FAIL_STATUS"\n  fi\n}\n`;
       const result = spawnSync(bash, ["-e", "-o", "pipefail", "-c", stub + shell + "\necho REACHED_NEXT_STEP\n"], {
@@ -121,8 +120,8 @@ test("workflow startup contract rejects a hosted or linked database target", () 
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const workflow = readFileSync(join(root, ".github/workflows/pr-smoke.yml"), "utf8");
   const unsafe = workflow.replace(
-    /-Action Start(?= -Workdir "\$FORGE_BROWSER_SUPABASE_WORKDIR")/,
-    "-Action Start --linked",
+    /-DisposableCI(?= > "\$RUNNER_TEMP\/browser-supabase-start\.log")/,
+    "-DisposableCI --linked",
   );
   assert.notEqual(unsafe, workflow, "negative fixture must alter the startup command");
   assert.throws(() => approvedDisposableStartupShell(unsafe));
