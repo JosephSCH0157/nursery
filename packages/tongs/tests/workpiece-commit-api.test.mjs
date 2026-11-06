@@ -10,6 +10,72 @@ import { deflateSync } from "node:zlib";
 
 const registryJsonSha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 
+function hammerOpenRetryFixture(errors) {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const calls = [];
+  const receipt = {
+    outcome: "opened",
+    canonical_recording: { id: "33333333-3333-4333-8333-333333333333" },
+    revision: { id: "44444444-4444-4444-8444-444444444444" },
+    preparation_attempt: { id: "55555555-5555-4555-8555-555555555555" },
+  };
+  const authority = {
+    async rpc(name, args) {
+      calls.push({ name, args: structuredClone(args) });
+      const error = errors.shift() ?? null;
+      return error ? { data: null, error } : { data: receipt, error: null };
+    },
+  };
+  const service = new TongsCommitService({}, "forge-workpieces", null, () => ({ schema: () => authority }));
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => undefined;
+  service.assertWorkspaceRoleFromAccessToken = async () => undefined;
+  return { service, calls, workspaceId, workpieceId };
+}
+
+test("Hammer open retries one PostgreSQL deadlock with the identical idempotency authority", async () => {
+  const fixture = hammerOpenRetryFixture([{ code: "40P01", message: "deadlock detected" }]);
+  const result = await fixture.service.openHammerAuthority(
+    fixture.workspaceId,
+    fixture.workpieceId,
+    { operation_key: "hammer-open:stable-retry", transcript_policy: "reuse_only" },
+    { userAccessToken: "authorized" },
+  );
+  assert.equal(result.outcome, "opened");
+  assert.equal(fixture.calls.length, 2);
+  assert.deepEqual(fixture.calls[1], fixture.calls[0]);
+});
+
+test("Hammer open does not retry non-deadlock failures or loop on repeated deadlocks", async () => {
+  const ordinary = hammerOpenRetryFixture([{ code: "42501", message: "permission denied" }]);
+  await assert.rejects(
+    ordinary.service.openHammerAuthority(
+      ordinary.workspaceId,
+      ordinary.workpieceId,
+      { operation_key: "hammer-open:ordinary-failure", transcript_policy: "reuse_only" },
+      { userAccessToken: "authorized" },
+    ),
+    (error) => error?.code === "hammer_open_authority_failed" && error?.message === "permission denied",
+  );
+  assert.equal(ordinary.calls.length, 1);
+
+  const repeated = hammerOpenRetryFixture([
+    { code: "40P01", message: "deadlock detected" },
+    { code: "40P01", message: "deadlock detected" },
+  ]);
+  await assert.rejects(
+    repeated.service.openHammerAuthority(
+      repeated.workspaceId,
+      repeated.workpieceId,
+      { operation_key: "hammer-open:repeated-deadlock", transcript_policy: "reuse_only" },
+      { userAccessToken: "authorized" },
+    ),
+    (error) => error?.code === "hammer_open_authority_failed" && error?.message === "deadlock detected",
+  );
+  assert.equal(repeated.calls.length, 2);
+});
+
 test("workpiece job insert classifies only the exact financial halt as non-retryable", () => {
   const classified = classifyWorkpieceJobInsertError({
     code: "42501",
