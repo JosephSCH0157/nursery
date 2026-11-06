@@ -13026,13 +13026,21 @@ export class TongsCommitService {
     const authority = this.userClientFactory(options.userAccessToken).schema(
       "tongs",
     ) as unknown as UntypedTongsSchemaClient;
-    const result = await authority.rpc("open_hammer_authority", {
+    const rpcArgs = {
       p_workspace_id: workspaceId,
       p_workpiece_id: workpieceId,
       p_operation_key: input.operation_key,
       p_transcript_policy: input.transcript_policy ?? "reuse_only",
       p_revision_label: input.revision_label ?? null,
-    });
+    };
+    let result = await authority.rpc("open_hammer_authority", rpcArgs);
+    // PostgreSQL may choose this idempotent open RPC as the deadlock victim
+    // when cleanup-review evidence is locking the same revision. The stable
+    // operation key makes one immediate retry safe; all other failures and a
+    // repeated deadlock remain fail-closed.
+    if (result.error?.code === "40P01") {
+      result = await authority.rpc("open_hammer_authority", rpcArgs);
+    }
     if (result.error || !isRecord(result.data))
       throw new HttpError(
         502,
