@@ -3402,8 +3402,7 @@ export default function HammerWorkspaceEditor(
         setLoadedPersistenceSnapshot(hydratedSnapshot);
         effectiveLaunchContextRef.current = preparedLaunchContext;
         setEffectiveLaunchContext(preparedLaunchContext);
-        setHasCanonicalBasis(true);
-        setTranscriptDiscoveryStatus("complete");
+        setHasCanonicalBasis(true); setTranscriptDiscoveryStatus("complete");
         setPrepFailureKind(null);
         setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
         setShowPreparedHandoff(true);
