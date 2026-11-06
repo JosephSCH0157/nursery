@@ -1976,7 +1976,7 @@ async function readPersistedHammerAssemblyAiTranscript(args: {
   supabaseService: SupabaseClient<Database>;
   userId: string;
   requestFingerprint: string;
-}): Promise<Record<string, unknown> | null> {
+}): Promise<{ id: string; persistedAt: string | null; transcript: Record<string, unknown> } | null> {
   const store = args.supabaseService.schema("tongs");
   const operationResponse = await store
     .from("hammer_transcription_operations")
@@ -1991,20 +1991,32 @@ async function readPersistedHammerAssemblyAiTranscript(args: {
 
   const transcriptResponse = await store
     .from("hammer_canonical_transcripts_v2")
-    .select("transcript_json")
+    .select("id,persisted_at,transcript_json")
     .eq("operation_id", operationResponse.data.id)
     .eq("user_id", args.userId)
     .maybeSingle();
   if (transcriptResponse.error) {
     throw new Error(`read persisted Hammer transcript: ${transcriptResponse.error.message}`);
   }
-  return readJsonObject(transcriptResponse.data?.transcript_json) ?? null;
+  const transcript = readJsonObject(transcriptResponse.data?.transcript_json);
+  const id = readTrimmed(transcriptResponse.data?.id);
+  if (!transcript || !id) return null;
+  return {
+    id,
+    persistedAt: readTrimmed(transcriptResponse.data?.persisted_at),
+    transcript,
+  };
 }
 
-function hammerTranscriptPrepResponse(transcript: Record<string, unknown>): {
+function hammerTranscriptPrepResponse(
+  transcript: Record<string, unknown>,
+  identity?: { id: string; persistedAt: string | null },
+): {
   provider: "assemblyai";
   model: "universal-3-5-pro";
   provider_request_id: string | null;
+  canonical_transcript_id: string | null;
+  prepared_at: string | null;
   text: string | null;
   segments: HammerTranscriptPrepSegment[];
 } {
@@ -2029,6 +2041,8 @@ function hammerTranscriptPrepResponse(transcript: Record<string, unknown>): {
     provider: "assemblyai",
     model: "universal-3-5-pro",
     provider_request_id: readTrimmed(provider?.provider_request_id),
+    canonical_transcript_id: identity?.id ?? null,
+    prepared_at: identity?.persistedAt ?? null,
     text: readTrimmed(transcript.text),
     segments,
   };
@@ -3696,7 +3710,10 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           if (persistedTranscript) {
             sendJson(res, 200, {
               ok: true,
-              data: hammerTranscriptPrepResponse(persistedTranscript),
+              data: hammerTranscriptPrepResponse(persistedTranscript.transcript, {
+                id: persistedTranscript.id,
+                persistedAt: persistedTranscript.persistedAt,
+              }),
               billing_receipt: { settlement_state: "completed" },
             });
             return;

@@ -73,6 +73,7 @@ import {
 } from "../persistence/hammerRecordingRevisionPersistence";
 import {
   applyPreparedTranscriptToLaunchContext,
+  buildPreparedTranscript,
   buildHammerPrepOverlayViewModel,
   buildHammerPrepPersistenceSaveRequest,
   createHammerPrepState,
@@ -3369,6 +3370,25 @@ export default function HammerWorkspaceEditor(
         }
         usedAiPrep = true;
         submittedTranscriptJob = true;
+        const preparedTranscript = buildPreparedTranscript(currentLaunchContext, transcriptPrep.data);
+        const preparedLaunchContext = applyPreparedTranscriptToLaunchContext(
+          currentLaunchContext,
+          preparedTranscript,
+        );
+        const hydratedSnapshot = buildHydratedSnapshot({
+          target: persistenceTarget,
+          canonicalRecording: currentCanonicalRecording,
+          revision: currentRevision,
+          persistenceSnapshot: loadedPersistenceSnapshot,
+          canonicalTranscript: preparedTranscript.structuredTranscript,
+          canonicalSpeakerMap: preparedTranscript.speakerMap,
+          revisionEditorSession: loadedPersistenceSnapshot?.editor_session.data ?? null,
+          revisionTranscript: preparedTranscript.structuredTranscript,
+          revisionAudioPolish: loadedPersistenceSnapshot?.audio_polish.data ?? null,
+          revisionVisualTimeline: loadedPersistenceSnapshot?.visual_timeline.data ?? null,
+          revisionVisualPlacements: loadedPersistenceSnapshot?.visual_placements.data ?? null,
+          revisionEditorialAuthority: loadedPersistenceSnapshot?.editorial_authority.data ?? null,
+        });
         const transcriptArtifactPath = `hammer/recordings/${currentCanonicalRecording.id}/baseline/transcript.v2.json`;
         const ready = await confirmHammerPreparationReady({
           target: persistenceTarget,
@@ -3378,10 +3398,14 @@ export default function HammerWorkspaceEditor(
         });
         if (!ready.ok) throw new Error(`Transcript persisted, but Hammer could not confirm preparation authority: ${ready.error}`);
         activePreparationAttemptRef.current = ready.data;
+        loadedPersistenceSnapshotRef.current = hydratedSnapshot;
+        setLoadedPersistenceSnapshot(hydratedSnapshot);
+        effectiveLaunchContextRef.current = preparedLaunchContext;
+        setEffectiveLaunchContext(preparedLaunchContext);
+        setHasCanonicalBasis(true); setTranscriptDiscoveryStatus("complete");
         setPrepFailureKind(null);
         setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
         setShowPreparedHandoff(true);
-        setReloadRequestNonce((current) => current + 1);
         try {
           console.info("[hammer:transcript:ai_fallback_completed]", {
             workspace_id: currentLaunchContext.workspace_id,

@@ -653,9 +653,10 @@ export function buildPreparedTranscript(
   launchContext: HammerLaunchContext,
   transcriptPrep: HammerTranscriptPrepResponse,
 ): HammerPreparedTranscript {
-  const preparedAt = new Date().toISOString();
+  const preparedAt = transcriptPrep.prepared_at ?? new Date().toISOString();
   const prepSource = resolveHammerPrepSource(launchContext);
-  const transcriptId = buildTranscriptId(launchContext.workpiece_id, preparedAt);
+  const transcriptId = transcriptPrep.canonical_transcript_id
+    ?? buildTranscriptId(launchContext.workpiece_id, preparedAt);
   const { turns, rawLabels, lowConfidenceTurnIds } = buildSpeakerTurnsFromPrepSegments(transcriptPrep.segments);
   if (turns.length === 0) {
     throw new Error("Hammer transcript prep produced no speaker turns.");
@@ -674,7 +675,7 @@ export function buildPreparedTranscript(
       labels: uniqueSpeakerLabels(turns),
       raw_labels: rawLabels,
       version: transcriptPrep.model,
-      provider: "openai",
+      provider: transcriptPrep.provider,
       provider_request_id: transcriptPrep.provider_request_id,
       model: transcriptPrep.model,
     },
@@ -869,7 +870,7 @@ export function preserveTranscriptMetadata(
       labels: uniqueSpeakerLabels(segments),
       raw_labels: isSameTranscript ? preservedTranscript?.diarization.raw_labels ?? [] : [],
       version: isSameTranscript ? preservedTranscript?.diarization.version ?? null : null,
-      provider: "openai",
+      provider: isSameTranscript ? preservedTranscript?.diarization.provider ?? "openai" : "openai",
       provider_request_id: isSameTranscript ? preservedTranscript?.diarization.provider_request_id ?? null : null,
       model: isSameTranscript ? preservedTranscript?.diarization.model ?? null : null,
     },

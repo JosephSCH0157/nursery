@@ -527,7 +527,10 @@ test("a reload hydrates the persisted AssemblyAI transcript before quote prepara
       }]);
     }
     if (url.includes("/rest/v1/hammer_canonical_transcripts_v2?")) {
-      return Response.json([{ transcript_json: {
+      return Response.json([{
+        id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        persisted_at: "2026-11-05T23:45:00.000Z",
+        transcript_json: {
         schema: "forge.hammer.canonical-transcript.v2",
         schema_version: "2",
         provider: {
@@ -538,7 +541,8 @@ test("a reload hydrates the persisted AssemblyAI transcript before quote prepara
         },
         text: "Persisted words survive reload.",
         segments: [{ id: "segment-1", start_ms: 5320, end_ms: 8100, speaker: "A", text: "Persisted words survive reload." }],
-      } }]);
+        },
+      }]);
     }
     if (url.includes("api.assemblyai.com")) {
       providerCalls += 1;
@@ -569,10 +573,18 @@ test("a reload hydrates the persisted AssemblyAI transcript before quote prepara
     }), { deploy: { context: "production" } });
     assert.equal(response.status, 200);
     const payload = await response.json() as {
-      data?: { provider_request_id?: string; text?: string; segments?: Array<{ start?: number; speaker?: string }> };
+      data?: {
+        provider_request_id?: string;
+        canonical_transcript_id?: string;
+        prepared_at?: string;
+        text?: string;
+        segments?: Array<{ start?: number; speaker?: string }>;
+      };
       billing_receipt?: { settlement_state?: string };
     };
     assert.equal(payload.data?.provider_request_id, "provider-request-1");
+    assert.equal(payload.data?.canonical_transcript_id, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    assert.equal(payload.data?.prepared_at, "2026-11-05T23:45:00.000Z");
     assert.equal(payload.data?.text, "Persisted words survive reload.");
     assert.equal(payload.data?.segments?.[0]?.start, 5.32);
     assert.equal(payload.data?.segments?.[0]?.speaker, "A");
