@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { createNetlifyHammerFunction } from "../netlify/_hammer-handler";
 import hammerPaid, { config as hammerPaidConfig } from "../netlify/functions/hammer-paid";
-import { config as hammerTranscriptionBackgroundConfig } from "../netlify/functions/hammer-transcription-background";
+import hammerTranscriptionBackground, { config as hammerTranscriptionBackgroundConfig } from "../netlify/functions/hammer-transcription-background";
 import unavailable, { config as unavailableConfig } from "../netlify/functions/openai-unavailable";
 import {
   createHammerPrepMiddleware,
@@ -360,6 +360,51 @@ test("background Hammer execution uses trusted Netlify CONTEXT when deploy metad
     else process.env.CONTEXT = originalContext;
     if (originalNetlify == null) delete process.env.NETLIFY;
     else process.env.NETLIFY = originalNetlify;
+  }
+});
+
+test("background Hammer receipt RPC selects the tongs schema", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalUrl = process.env.TONGS_SUPABASE_URL;
+  const originalKey = process.env.TONGS_SERVICE_ROLE_KEY;
+  const receiptHeaders: Headers[] = [];
+  process.env.TONGS_SUPABASE_URL = "https://fixture.supabase.co";
+  process.env.TONGS_SERVICE_ROLE_KEY = "fixture-service-role-key";
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith("/rest/v1/rpc/record_hammer_transcription_preoperation_receipt")) {
+      receiptHeaders.push(new Headers(init?.headers));
+      return Response.json({ stage: "background_started", replay: false });
+    }
+    throw new Error("fixture stops after receipt boundary");
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(() => hammerTranscriptionBackground(new Request(
+      "https://fixture.invalid/.netlify/functions/hammer-transcription-background",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          spending_acceptance: {
+            quote_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            operation_id: "hammer-assemblyai:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            request_fingerprint: "c".repeat(64),
+          },
+        }),
+      },
+    ), {} as never), /Hammer transcription background execution failed \(400\)\./);
+    assert.ok(receiptHeaders.length >= 1);
+    for (const headers of receiptHeaders) {
+      assert.equal(headers.get("content-profile"), "tongs");
+      assert.equal(headers.get("accept-profile"), "tongs");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalUrl == null) delete process.env.TONGS_SUPABASE_URL;
+    else process.env.TONGS_SUPABASE_URL = originalUrl;
+    if (originalKey == null) delete process.env.TONGS_SERVICE_ROLE_KEY;
+    else process.env.TONGS_SERVICE_ROLE_KEY = originalKey;
   }
 });
 
