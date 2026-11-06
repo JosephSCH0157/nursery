@@ -119,7 +119,17 @@ jobs:
         run: node --test scripts/tests/hosted-smoke-authorization.test.mjs
       - name: Certify fresh baseline and shared tail
         shell: pwsh
-        run: ./scripts/invoke-forge-database.ps1 -Lineage baseline -Action CertifyFresh
+        run: |
+          $failedModes = @()
+          foreach ($mode in @('permissive','restrictive')) {
+            try {
+              ./scripts/certify-canonical-baseline-v1.ps1 -DefaultPrivilegeMode $mode
+            } catch {
+              Write-Host $_
+              $failedModes += $mode
+            }
+          }
+          if ($failedModes.Count) { throw "Default certification failed: $($failedModes -join ', ')" }
       - name: Verify financial contracts remain fail closed
         run: >-
           node --test
