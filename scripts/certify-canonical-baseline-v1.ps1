@@ -282,6 +282,17 @@ $restrictive_defaults$
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
         -c "select set_config('forge.runway_boundary_certification','disposable-baseline-v1',false);" -f $target
     }
+    elseif ($test -eq 'supabase/tests/customer_hearth_luna_canary.sql') {
+      $tenantSource = Join-Path $repo 'supabase/tests/luna_canary_canonical_tenant_setup.sql'
+      $tenantTarget = '/tmp/luna_canary_canonical_tenant_setup.sql'
+      & docker cp $tenantSource "$($container):$tenantTarget"
+      if ($LASTEXITCODE -ne 0) { throw 'Unable to copy Luna canonical tenant proof.' }
+      # One connection preserves the original-state snapshot across both rollbacks.
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.luna_canary_certification','disposable-baseline-v1',false);" `
+        -f $tenantTarget -f $target `
+        -c "select pg_temp.assert_luna_original_state(); drop table pg_temp.luna_original_state;"
+    }
     else {
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target
     }
