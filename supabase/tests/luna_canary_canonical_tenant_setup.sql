@@ -48,7 +48,7 @@ insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_co
 insert into tongs.workspaces(id,name,created_by,org_id)
 values('ce000000-0000-4000-8000-000000000010','Customer canary proof',
  'ce000000-0000-4000-8000-000000000002',tongs.ensure_personal_org('ce000000-0000-4000-8000-000000000002'));
-insert into tongs.workspace_members(workspace_id,user_id,role,invited_by)
+insert into tongs.workspace_members(workspace_id,user_id,role,created_by)
 values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000002','owner','ce000000-0000-4000-8000-000000000002');
 insert into tongs.platform_operators(user_id,reason,granted_by)
 values('ce000000-0000-4000-8000-000000000001','isolated customer canary proof','ce000000-0000-4000-8000-000000000001');

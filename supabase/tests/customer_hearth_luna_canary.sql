@@ -19,6 +19,8 @@ begin
     values('ce000000-0000-4000-8000-000000000010','Customer canary proof',
       'ce000000-0000-4000-8000-000000000002',
       tongs.ensure_personal_org('ce000000-0000-4000-8000-000000000002'));
+    insert into tongs.workspace_members(workspace_id,user_id,role,created_by)
+values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000002','owner','ce000000-0000-4000-8000-000000000002');
   else
     -- Preserve the existing reduced billing harness, which has no org model.
     -- A canonical or partially configured org schema must never use this path.
@@ -29,10 +31,10 @@ begin
     end if;
     insert into tongs.workspaces(id,name,created_by)
     values('ce000000-0000-4000-8000-000000000010','Customer canary proof','ce000000-0000-4000-8000-000000000002');
+    insert into tongs.workspace_members(workspace_id,user_id,role,invited_by)
+values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000002','owner','ce000000-0000-4000-8000-000000000002');
   end if;
 end $workspace$;
-insert into tongs.workspace_members(workspace_id,user_id,role,invited_by)
-values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000002','owner','ce000000-0000-4000-8000-000000000002');
 insert into tongs.platform_operators(user_id,reason,granted_by)
 values('ce000000-0000-4000-8000-000000000001','isolated customer canary proof','ce000000-0000-4000-8000-000000000001');
 
