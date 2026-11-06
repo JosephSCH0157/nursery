@@ -153,6 +153,7 @@ function installSupabaseFixtureFetch(): { restore(): void; providerCalls(): numb
     if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
       return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
     }
+    if (url.includes("/rest/v1/hammer_transcription_operations?")) return Response.json([]);
     if (url.endsWith("/rest/v1/rpc/read_hammer_transcription_recovery")) {
       return Response.json(null);
     }
@@ -442,6 +443,7 @@ test("AssemblyAI quote preparation never reads the 120 MB canonical object or ca
     if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
       return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
     }
+    if (url.includes("/rest/v1/hammer_transcription_operations?")) return Response.json([]);
     if (url.endsWith("/rest/v1/rpc/read_hammer_transcription_recovery")) {
       return Response.json(null);
     }
@@ -502,6 +504,90 @@ test("AssemblyAI quote preparation never reads the 120 MB canonical object or ca
   }
 });
 
+test("a reload hydrates the persisted AssemblyAI transcript before quote preparation", async () => {
+  const policy = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY;
+  const originalFetch = globalThis.fetch;
+  const originalProvider = process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+  const originalCredential = process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+  let quoteCalls = 0;
+  let providerCalls = 0;
+  process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = "assemblyai";
+  process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = "fixture-assemblyai-key";
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.endsWith("/auth/v1/user")) return Response.json({ id: USER_ID });
+    if (url.includes("/rest/v1/workspaces?id=eq.")) return Response.json([{ org_id: ORG_ID }]);
+    if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
+      return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
+    }
+    if (url.includes("/rest/v1/hammer_transcription_operations?")) {
+      return Response.json([{
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        canonical_transcript_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      }]);
+    }
+    if (url.includes("/rest/v1/hammer_canonical_transcripts_v2?")) {
+      return Response.json([{ transcript_json: {
+        schema: "forge.hammer.canonical-transcript.v2",
+        schema_version: "2",
+        provider: {
+          provider: "assemblyai",
+          model: "universal-3-5-pro",
+          provider_request_id: "provider-request-1",
+          speaker_labels: true,
+        },
+        text: "Persisted words survive reload.",
+        segments: [{ id: "segment-1", start_ms: 5320, end_ms: 8100, speaker: "A", text: "Persisted words survive reload." }],
+      } }]);
+    }
+    if (url.includes("api.assemblyai.com")) {
+      providerCalls += 1;
+      throw new Error("provider must not run during persisted hydration");
+    }
+    return originalFetch(input);
+  }) as typeof fetch;
+  try {
+    const response = await createNetlifyHammerFunction({
+      runtimeConfig: runtimeConfig({
+        supabaseUrl: "https://fixture.supabase.co",
+        supabaseServiceRoleKey: "fixture-service-key",
+        supabaseRpcKey: "fixture-anon-key",
+      }),
+      openAiTextGate: {
+        rpc: async () => {
+          quoteCalls += 1;
+          throw new Error("quote preparation must not run after canonical persistence");
+        },
+      },
+      diagnosticCapacityEvidenceResolver: async () => currentCapacityEvidence(),
+    })(request("/api/hammer/prep/transcript", {
+      workspace_id: WORKSPACE_ID,
+      workpiece_id: policy.exactWorkpieceId,
+      media_kind: "recording_video",
+      canonical_workpiece_path: policy.exactMediaPath,
+      mime_type: "video/webm",
+    }), { deploy: { context: "production" } });
+    assert.equal(response.status, 200);
+    const payload = await response.json() as {
+      data?: { provider_request_id?: string; text?: string; segments?: Array<{ start?: number; speaker?: string }> };
+      billing_receipt?: { settlement_state?: string };
+    };
+    assert.equal(payload.data?.provider_request_id, "provider-request-1");
+    assert.equal(payload.data?.text, "Persisted words survive reload.");
+    assert.equal(payload.data?.segments?.[0]?.start, 5.32);
+    assert.equal(payload.data?.segments?.[0]?.speaker, "A");
+    assert.equal(payload.billing_receipt?.settlement_state, "completed");
+    assert.equal(quoteCalls, 0);
+    assert.equal(providerCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalProvider == null) delete process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER;
+    else process.env.FORGE_HAMMER_TRANSCRIPTION_PROVIDER = originalProvider;
+    if (originalCredential == null) delete process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY;
+    else process.env.FORGE_HAMMER_ASSEMBLYAI_API_KEY = originalCredential;
+  }
+});
+
 test("a terminal pre-admission receipt permits a later explicit request to receive a fresh quote", async () => {
   const policy = HAMMER_ASSEMBLYAI_FIRST_OPERATION_POLICY;
   const originalFetch = globalThis.fetch;
@@ -520,6 +606,7 @@ test("a terminal pre-admission receipt permits a later explicit request to recei
     if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
       return Response.json([{ decision_type: "ALLOW", reason_code: null }]);
     }
+    if (url.includes("/rest/v1/hammer_transcription_operations?")) return Response.json([]);
     if (url.endsWith("/rest/v1/rpc/read_hammer_transcription_recovery")) {
       return Response.json({
         quote_id: "11111111-1111-4111-8111-111111111111",
