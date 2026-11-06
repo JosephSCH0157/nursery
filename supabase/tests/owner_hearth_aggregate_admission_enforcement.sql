@@ -72,7 +72,11 @@ create temp table owner_request_evidence(
 insert into owner_request_evidence values
  ('historical',$historical_request${"max_completion_tokens":512,"messages":[{"content":"You are Hearth, a concise podcast writing collaborator. Answer only the creator's bounded request. Do not browse, call tools, purchase assets, or claim work you did not perform. Return plain text or the existing Hearth JSON reply shape.","role":"system"},{"content":"Reply with exactly: Ready.","role":"user"}],"model":"gpt-6-astra"}$historical_request$,'a47a64df70bcccf38b7174d5829798f7a69e47c11f218857091f99b3b0f9cd43',386,85,16,386),
  ('current',$current_request${"max_completion_tokens":512,"messages":[{"content":"You are Hearth, a concise podcast writing collaborator. Answer only the creator's bounded request. Do not browse, call tools, purchase assets, or claim work you did not perform. Return plain text or the existing Hearth JSON reply shape.","role":"system"},{"content":"Reply with exactly: Ready.","role":"user"}],"model":"gpt-6-astra","prompt_cache_options":{"ttl":"30m"},"service_tier":"default"}$current_request$,'5782309a417f5970d78dfc57b6c42c717d771ce9bc1c6b88747c8c2ee2da2735',448,101,16,448);
-grant usage on schema pg_temp to service_role;
+do $temporary_schema_access$
+begin
+ execute format('grant usage on schema %I to service_role',
+  (select nspname from pg_namespace where oid=pg_my_temp_schema()));
+end $temporary_schema_access$;
 grant select on pg_temp.owner_request_evidence to service_role;
 
 -- These are retained reviewed terms, not a new allowance or a price recalculation.
