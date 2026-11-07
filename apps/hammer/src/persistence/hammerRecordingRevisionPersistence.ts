@@ -18,10 +18,62 @@ import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
 import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
 import { parseTongsReadFileResponse } from "../lib/tongsReadFileResponse";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
-import type { HammerCanonicalTranscriptV2 } from "../../../../packages/contracts/hammer/canonical-transcript-v2.contract";
-import { projectCanonicalTranscriptV2ToHammerV1Editor, validateHammerCanonicalTranscriptV2 } from "../transcript/hammerSingleProviderTranscript";
 
 type JsonObject = Record<string, unknown>;
+
+type PersistedAssemblyAiTranscript = {
+  recording: { canonical_recording_id: string; recording_revision_id: string; media_sha256: string; duration_ms: number };
+  provider: { provider: "assemblyai"; model: "universal-3-5-pro"; provider_request_id: string; speaker_labels: true };
+  segments: Array<{ id: string; speaker: string; start_ms: number; end_ms: number; text: string }>;
+};
+
+function validatePersistedAssemblyAiTranscript(value: unknown): PersistedAssemblyAiTranscript {
+  const transcript = readJsonObject(value);
+  const recording = readJsonObject(transcript?.recording);
+  const provider = readJsonObject(transcript?.provider);
+  const segments = Array.isArray(transcript?.segments) ? transcript.segments : [];
+  const schemaVersion = transcript?.schema_version === 2 || transcript?.schema_version === "2";
+  if (!schemaVersion || transcript?.schema !== "forge.hammer.canonical-transcript.v2" || !recording || !provider
+    || provider.provider !== "assemblyai" || provider.model !== "universal-3-5-pro" || provider.speaker_labels !== true
+    || !readString(provider.provider_request_id) || !readString(recording.canonical_recording_id)
+    || !readString(recording.recording_revision_id) || !/^[0-9a-f]{64}$/.test(readString(recording.media_sha256) ?? "")
+    || !Number.isSafeInteger(recording.duration_ms) || Number(recording.duration_ms) <= 0 || segments.length === 0) {
+    throw new Error("The saved transcript does not satisfy the AssemblyAI canonical writer contract.");
+  }
+  const ids = new Set<string>();
+  let priorStart = -1;
+  const normalized = segments.map((value, index) => {
+    const segment = readJsonObject(value);
+    const id = readString(segment?.id);
+    const speaker = readString(segment?.speaker);
+    const text = readString(segment?.text);
+    const startMs = segment?.start_ms;
+    const endMs = segment?.end_ms;
+    if (!id || !speaker || !text || ids.has(id) || !Number.isSafeInteger(startMs) || !Number.isSafeInteger(endMs)
+      || Number(startMs) < priorStart || Number(startMs) < 0 || Number(endMs) <= Number(startMs)
+      || Number(endMs) > Number(recording.duration_ms) + 1000) {
+      throw new Error(`Saved transcript segment ${index + 1} is invalid.`);
+    }
+    ids.add(id);
+    priorStart = Number(startMs);
+    return { id, speaker, text, start_ms: Number(startMs), end_ms: Number(endMs) };
+  });
+  return {
+    recording: {
+      canonical_recording_id: readString(recording.canonical_recording_id)!,
+      recording_revision_id: readString(recording.recording_revision_id)!,
+      media_sha256: readString(recording.media_sha256)!,
+      duration_ms: Number(recording.duration_ms),
+    },
+    provider: {
+      provider: "assemblyai",
+      model: "universal-3-5-pro",
+      provider_request_id: readString(provider.provider_request_id)!,
+      speaker_labels: true,
+    },
+    segments: normalized,
+  };
+}
 
 function isHammerCompositionHistoryV2(value: unknown): value is HammerCompositionHistoryV2 {
   if (!value || typeof value !== "object") return false;
@@ -272,17 +324,28 @@ export async function readHammerCanonicalTranscriptV2(
     return { ok: false, status: 502, error: "Tongs returned an invalid saved transcript outcome.", error_code: "hammer_canonical_transcript_response_invalid" };
   }
   try {
-    const canonicalTranscript = validateHammerCanonicalTranscriptV2(row.transcript_json as HammerCanonicalTranscriptV2);
-    if (canonicalTranscript.provider.provider !== "assemblyai") {
-      throw new Error("Hammer ordinary-open recovery requires the certified AssemblyAI transcript contract.");
-    }
-    if (canonicalTranscript.transcript_id !== readString(row.id)
+    const canonicalTranscript = validatePersistedAssemblyAiTranscript(row.transcript_json);
+    const transcriptId = readString(row.id);
+    const persistedAt = readString(row.persisted_at);
+    if (!transcriptId || !persistedAt
       || canonicalTranscript.recording.canonical_recording_id !== canonical.id
       || canonicalTranscript.recording.recording_revision_id !== revision.id
       || canonicalTranscript.recording.media_sha256 !== sourceSha256) {
       throw new Error("The saved transcript identity does not match the active recording.");
     }
-    const projected = projectCanonicalTranscriptV2ToHammerV1Editor(canonicalTranscript);
+    const speakers = [...new Set(canonicalTranscript.segments.map((segment) => segment.speaker))];
+    const projectedSegments = canonicalTranscript.segments.map((segment) => ({
+      segment_id: segment.id,
+      start_sec: segment.start_ms / 1000,
+      end_sec: segment.end_ms / 1000,
+      speaker: segment.speaker,
+      text: segment.text,
+    }));
+    const speakerMap: HammerPersistedSpeakerMap = {
+      schema_version: 1,
+      default_labels: speakers,
+      mappings: speakers.map((speaker) => ({ speaker_label: speaker, display_name: null, source: "default" })),
+    };
     return {
       ok: true,
       status: response.status,
@@ -290,25 +353,25 @@ export async function readHammerCanonicalTranscriptV2(
         outcome: "found",
         transcript: {
           schema_version: 1,
-          transcript_id: canonicalTranscript.transcript_id,
+          transcript_id: transcriptId,
           media_id: canonical.media_id ?? null,
           media_signature: canonical.media_signature ?? null,
-          prepared_at: canonicalTranscript.prepared_at,
+          prepared_at: persistedAt,
           structure: "speaker_turns",
           source_media_ref: null,
           diarization: {
             label_scheme: "forge-neutral-speakers.v1",
-            labels: projected.speakerMap.default_labels,
-            raw_labels: canonicalTranscript.speakers.map((speaker) => speaker.provider_label),
-            version: canonicalTranscript.provider.diarization_model_version,
+            labels: speakerMap.default_labels,
+            raw_labels: speakers,
+            version: "speaker_labels",
             provider: "assemblyai",
             provider_request_id: canonicalTranscript.provider.provider_request_id,
             model: canonicalTranscript.provider.model,
           },
           confidence_flags: [],
-          segments: projected.segments,
+          segments: projectedSegments,
         },
-        speaker_map: projected.speakerMap,
+        speaker_map: speakerMap,
         operation_id: readString(row.operation_id) ?? "",
         artifact_path: readString(row.artifact_path) ?? "",
       },

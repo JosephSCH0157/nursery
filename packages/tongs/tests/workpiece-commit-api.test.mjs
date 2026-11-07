@@ -116,9 +116,11 @@ test("canonical transcript ordinary-open read is viewer-authorized, identity-bou
   const transcriptId = "55555555-5555-4555-8555-555555555555";
   const operationId = "66666666-6666-4666-8666-666666666666";
   const transcript = {
-    schema_version: 2, transcript_id: transcriptId, structure: "speaker_turns_with_words",
-    recording: { workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, media_sha256: base.sha },
-    segments: [{ segment_id: "segment_1" }],
+    schema: "forge.hammer.canonical-transcript.v2", schema_version: "2",
+    recording: { canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, completion_id: "77777777-7777-4777-8777-777777777777", media_sha256: base.sha, duration_ms: 603848 },
+    provider: { provider: "assemblyai", model: "universal-3-5-pro", provider_request_id: "provider-1", speaker_labels: true },
+    text: "Why is gasoline so expensive?",
+    segments: [{ id: "segment-1", speaker: "A", start_ms: 5320, end_ms: 7900, text: "Why is gasoline so expensive?" }],
   };
   const fixture = canonicalTranscriptReadFixture({
     rows: [{ id: transcriptId, operation_id: operationId, workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, source_sha256: base.sha, persisted_at: "2026-11-06T00:00:00Z", artifact_path: `hammer/recordings/${base.recordingId}/baseline/transcript.v2.json`, transcript_json: transcript }],
@@ -127,6 +129,26 @@ test("canonical transcript ordinary-open read is viewer-authorized, identity-bou
   const result = await fixture.service.readHammerCanonicalTranscript(fixture.workspaceId, fixture.workpieceId, { canonical_recording_id: fixture.recordingId, recording_revision_id: fixture.revisionId, source_sha256: fixture.sha }, { userAccessToken: "viewer-token" });
   assert.equal(result.outcome, "found");
   assert.equal(result.canonical_transcript.id, transcriptId);
+  assert.equal(result.canonical_transcript.transcript_json.structure, undefined);
+});
+
+test("canonical transcript read rejects a genuine embedded identity mismatch", async () => {
+  const base = canonicalTranscriptReadFixture();
+  const transcriptId = "55555555-5555-4555-8555-555555555555";
+  const operationId = "66666666-6666-4666-8666-666666666666";
+  const fixture = canonicalTranscriptReadFixture({
+    rows: [{ id: transcriptId, operation_id: operationId, workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, source_sha256: base.sha, persisted_at: "2026-11-06T00:00:00Z", artifact_path: "transcript.v2.json", transcript_json: {
+      schema: "forge.hammer.canonical-transcript.v2", schema_version: "2",
+      recording: { canonical_recording_id: base.recordingId, recording_revision_id: "00000000-0000-4000-8000-000000000000", media_sha256: base.sha, duration_ms: 603848 },
+      provider: { provider: "assemblyai", model: "universal-3-5-pro", provider_request_id: "provider-1", speaker_labels: true },
+      segments: [{ id: "segment-1", speaker: "A", start_ms: 5320, end_ms: 7900, text: "Why is gasoline so expensive?" }],
+    } }],
+    operation: { id: operationId, canonical_transcript_id: transcriptId, workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, media_sha256: base.sha },
+  });
+  await assert.rejects(
+    fixture.service.readHammerCanonicalTranscript(fixture.workspaceId, fixture.workpieceId, { canonical_recording_id: fixture.recordingId, recording_revision_id: fixture.revisionId, source_sha256: fixture.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_canonical_transcript_identity_invalid",
+  );
 });
 
 test("canonical transcript read distinguishes absence, identity mismatch, ambiguity, and unrelated users", async () => {
