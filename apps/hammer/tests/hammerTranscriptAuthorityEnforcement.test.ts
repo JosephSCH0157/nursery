@@ -7,7 +7,8 @@ import type { HammerTranscriptSegment } from "../../../packages/contracts/hammer
 
 async function testAnvilLiveAsrCannotBecomeCanonicalTranscript() {
   const editorPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceEditor.tsx");
-  const source = await fs.readFile(editorPath, "utf-8");
+  const helperPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/hammerSavedTranscriptDiscovery.ts");
+  const source = `${await fs.readFile(editorPath, "utf-8")}\n${await fs.readFile(helperPath, "utf-8")}`;
   assert.equal(
     source.includes("promoteAnvilLocalTranscriptToTongs("),
     false,

@@ -2,7 +2,10 @@ export type HammerHydratedTranscriptSource =
   | "registered_transcript"
   | "revision_transcript"
   | "canonical_baseline"
+  | "canonical_transcript_v2"
   | "none";
+
+export type HammerTranscriptDiscoveryStatus = "usable" | "absent" | "unverifiable";
 
 export type HammerTranscriptHydrationInputs = {
   registered: {
@@ -16,6 +19,10 @@ export type HammerTranscriptHydrationInputs = {
   };
   baseline: {
     load_ok: boolean;
+    segment_count: number | null;
+  };
+  canonicalV2?: {
+    status: HammerTranscriptDiscoveryStatus;
     segment_count: number | null;
   };
 };
@@ -50,6 +57,10 @@ export function decideHammerTranscriptHydrationSource(
   const baselineOk = inputs.baseline.load_ok && baselineCount > 0;
 
   if (!registeredOk && !revisionOk && !baselineOk) {
+    const canonicalV2Count = readCount(inputs.canonicalV2?.segment_count);
+    if (inputs.canonicalV2?.status === "usable" && canonicalV2Count > 0) {
+      return { selected_source: "canonical_transcript_v2", downgrade_guard_applied: false };
+    }
     return { selected_source: "none", downgrade_guard_applied: false };
   }
 
