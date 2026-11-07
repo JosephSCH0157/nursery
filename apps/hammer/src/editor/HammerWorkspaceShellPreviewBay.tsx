@@ -42,6 +42,8 @@ export type HammerWorkspaceShellPreviewBayVM = {
   playheadSec: number;
   playbackModeLabel: string;
   playbackSourceLabel: string | null;
+  playbackDurationSec: number;
+  playbackReadinessStatus: "idle" | "loading_metadata" | "metadata_ready" | "playable" | "failed";
   mediaLabelMismatchWarning: string | null;
   actualRecordingMismatchWarning: string | null;
   playbackBackendLabel: string;
@@ -438,7 +440,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         <span>{vm.previewModeLabel}</span>
       </header>
       <div className="hammer-bay-body hammer-preview-bay__body">
-        <div className="hammer-preview-surface" ref={vm.previewSurfaceRef}>
+        <div className="hammer-preview-surface" ref={vm.previewSurfaceRef} data-playback-readiness={vm.playbackReadinessStatus}>
           <video
             ref={vm.previewVideoRef}
             src={visualPreviewMediaSrc ?? undefined}

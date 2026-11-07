@@ -1247,6 +1247,21 @@ export type ReadHammerCanonicalTranscriptResult =
       };
     };
 
+export type ReadHammerPlayableMediaRequest = ReadHammerCanonicalTranscriptRequest;
+
+export type ReadHammerPlayableMediaResult = {
+  canonical_recording_id: string;
+  recording_revision_id: string;
+  source_sha256: string;
+  media_id: string;
+  media_path: string;
+  content_type: string;
+  byte_size: number | null;
+  duration_ms: number | null;
+  url: string;
+  expires_at: string;
+};
+
 export type AdvanceHammerPreparationRequest = {
   expected_state_version: number;
   action:
@@ -3629,6 +3644,12 @@ export type TongsCommitApiService = {
     input: ReadHammerCanonicalTranscriptRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ReadHammerCanonicalTranscriptResult>;
+  readHammerPlayableMedia(
+    workspaceId: string,
+    workpieceId: string,
+    input: ReadHammerPlayableMediaRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReadHammerPlayableMediaResult>;
   advanceHammerPreparation(
     workspaceId: string,
     workpieceId: string,
@@ -7232,6 +7253,12 @@ function normalizeReadHammerCanonicalTranscriptRequest(
     recording_revision_id: normalizeUuid(body.recording_revision_id, "recording_revision_id"),
     source_sha256: sourceSha256,
   };
+}
+
+function normalizeReadHammerPlayableMediaRequest(
+  body: Record<string, unknown>,
+): ReadHammerPlayableMediaRequest {
+  return normalizeReadHammerCanonicalTranscriptRequest(body);
 }
 
 function normalizeAdvanceHammerPreparationRequest(
@@ -13241,6 +13268,79 @@ export class TongsCommitService {
       throw new HttpError(409, "hammer_canonical_transcript_malformed", "The saved transcript receipt is incomplete.");
     }
     return { outcome: "found", authority, canonical_transcript: { id: transcriptId, operation_id: operationId, persisted_at: persistedAt, artifact_path: artifactPath, source_sha256: signature, transcript_json: transcript } };
+  }
+
+  async readHammerPlayableMedia(
+    workspaceId: string,
+    workpieceId: string,
+    input: ReadHammerPlayableMediaRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReadHammerPlayableMediaResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const episodeResult = await tongs.from("episodes")
+      .select("canonical_recording_id,active_revision_id")
+      .eq("workspace_id", workspaceId).eq("id", workpieceId).maybeSingle();
+    if (episodeResult.error || !isRecord(episodeResult.data)) {
+      throw new HttpError(502, "hammer_playable_media_authority_unverifiable", episodeResult.error?.message ?? "The active recording authority could not be verified.");
+    }
+    const canonicalRecordingId = readStringField(episodeResult.data, "canonical_recording_id");
+    const recordingRevisionId = readStringField(episodeResult.data, "active_revision_id");
+    if (!canonicalRecordingId || !recordingRevisionId) {
+      throw new HttpError(409, "hammer_playable_media_authority_missing", "The episode has no active canonical recording revision.");
+    }
+    const [recordingResult, revisionResult] = await Promise.all([
+      tongs.from("canonical_recordings")
+        .select("id,workspace_id,workpiece_id,media_id,media_path,media_content_type,media_bytes,media_duration_ms,media_signature")
+        .eq("id", canonicalRecordingId).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle(),
+      tongs.from("recording_revisions")
+        .select("id,workspace_id,workpiece_id,canonical_recording_id,status")
+        .eq("id", recordingRevisionId).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle(),
+    ]);
+    if (recordingResult.error || revisionResult.error || !isRecord(recordingResult.data) || !isRecord(revisionResult.data)) {
+      throw new HttpError(502, "hammer_playable_media_authority_unverifiable", recordingResult.error?.message ?? revisionResult.error?.message ?? "The canonical media identity could not be verified.");
+    }
+    const signature = (readStringField(recordingResult.data, "media_signature") ?? "").toLowerCase().replace(/^sha256:/, "");
+    if (!/^[0-9a-f]{64}$/.test(signature)
+      || readStringField(revisionResult.data, "canonical_recording_id") !== canonicalRecordingId
+      || readStringField(revisionResult.data, "status") !== "active") {
+      throw new HttpError(409, "hammer_playable_media_authority_invalid", "The active canonical media identity is incomplete or inconsistent.");
+    }
+    if (input.canonical_recording_id !== canonicalRecordingId
+      || input.recording_revision_id !== recordingRevisionId
+      || input.source_sha256 !== signature) {
+      throw new HttpError(409, "hammer_playable_media_identity_changed", "The browser media identity no longer matches Tongs authority.", {
+        expected: { canonical_recording_id: canonicalRecordingId, recording_revision_id: recordingRevisionId, source_sha256: signature },
+      });
+    }
+    const mediaPath = normalizeRelativePath(readStringField(recordingResult.data, "media_path"));
+    const mediaId = readStringField(recordingResult.data, "media_id");
+    if (!mediaPath || !mediaId) {
+      throw new HttpError(409, "hammer_playable_media_missing", "The canonical recording has no playable media object.");
+    }
+    const expiresInSeconds = 3600;
+    const signed = await this.supabase.storage.from(this.bucket)
+      .createSignedUrl(buildStorageKey(workpieceId, mediaPath), expiresInSeconds);
+    if (signed.error || !signed.data?.signedUrl) {
+      throw new HttpError(502, "hammer_playable_media_url_failed", "The canonical media URL could not be created.", { reason: signed.error?.message });
+    }
+    const byteSize = recordingResult.data.media_bytes;
+    const durationMs = recordingResult.data.media_duration_ms;
+    return {
+      canonical_recording_id: canonicalRecordingId,
+      recording_revision_id: recordingRevisionId,
+      source_sha256: signature,
+      media_id: mediaId,
+      media_path: mediaPath,
+      content_type: readStringField(recordingResult.data, "media_content_type") ?? normalizeContentType(undefined, mediaPath),
+      byte_size: typeof byteSize === "number" && Number.isSafeInteger(byteSize) && byteSize >= 0 ? byteSize : null,
+      duration_ms: typeof durationMs === "number" && Number.isSafeInteger(durationMs) && durationMs > 0 ? durationMs : null,
+      url: signed.data.signedUrl,
+      expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
+    };
   }
 
   async advanceHammerPreparation(
@@ -42831,6 +42931,24 @@ export function createTongsCommitApiHandlerWithService(
           workspaceId,
           workpieceId,
           normalizeReadHammerCanonicalTranscriptRequest(await parseJsonBody(request)),
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 7 &&
+        parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces" &&
+        parts[5] === "hammer" && parts[6] === "playable-media"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.readHammerPlayableMedia(
+          workspaceId,
+          workpieceId,
+          normalizeReadHammerPlayableMediaRequest(await parseJsonBody(request)),
           { userAccessToken },
         );
         return jsonResponse(200, { ok: true, data: result });

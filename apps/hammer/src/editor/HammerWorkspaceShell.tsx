@@ -90,7 +90,7 @@ import {
   type HammerScrubRate,
   type HammerTimelineMarker,
 } from "./hammerWorkspaceShellPlaybackUtils";
-import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
+import { useHammerPlaybackReadiness, useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import { useHammerImagePlacementListScroll } from "./hammerImagePlacementListScroll";
@@ -883,13 +883,13 @@ function HammerWorkspaceShellWithContext(
       focusSegmentId: activeCandidatePrimarySegmentId,
     });
   }, [activeCandidatePrimarySegmentId, editableTranscriptSegments]);
-  const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments);
+  const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments); const compositionDurationSec = (mediaRef?.duration_ms ?? 0) > 0 ? (mediaRef?.duration_ms ?? 0) / 1000 : transcriptDurationSec;
   const packagingTransport = useMemo(() => resolvePackagingTransport({
     introDurationSec: resolvePackagingClipDurationSec(introPackagingClip),
     outroDurationSec: resolvePackagingClipDurationSec(outroPackagingClip),
-    compositionDurationSec: transcriptDurationSec,
+    compositionDurationSec,
     playheadSec,
-  }), [introPackagingClip, outroPackagingClip, playheadSec, transcriptDurationSec]);
+  }), [compositionDurationSec, introPackagingClip, outroPackagingClip, playheadSec]);
   const compositionPlayheadSec = packagingTransport.compositionPlayheadSec;
   const compositionOffsetSec = packagingTransport.compositionOffsetSec;
   const transportTranscriptTargetRange = useMemo(() => {
@@ -929,7 +929,7 @@ function HammerWorkspaceShellWithContext(
     ? (sourceDeskPreviewUrls[activePackagingMediaPath] ?? null)
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
-  const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
+  const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc; const playbackReadiness = useHammerPlaybackReadiness({ mediaRef: previewAudioRef, source: effectivePlaybackMediaSrc, expectedDurationSec: activePackagingMediaPath ? (packagingTransport.phase === "intro" ? packagingTransport.introDurationSec : packagingTransport.outroDurationSec) : compositionDurationSec });
   const { resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime, resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime } = useHammerShortMediaTimeMapping(packagingTransport, props.canonicalTimingMap);
   const effectivePlaybackCutRegions = useMemo(
     () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec).map((region) => ({
@@ -1045,6 +1045,7 @@ function HammerWorkspaceShellWithContext(
     resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime,
     resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
+    playbackReady: playbackReadiness.status === "playable",
     previewVideoSrc: effectivePreviewVideoSrc,
     segmentationVideoSrc: effectivePreviewVideoSrc,
     visualPolishPreviewActive,
@@ -2092,6 +2093,8 @@ function HammerWorkspaceShellWithContext(
     editableTranscriptSegments,
     launchContext,
     historyHeadEntryId,
+    canonicalRecordingId: props.canonicalRecordingId ?? null,
+    recordingRevisionId: props.recordingRevisionId ?? null,
     mediaBackboneRuntime,
     mediaRef,
     playbackLocalRootAbs,
@@ -3376,8 +3379,7 @@ function HammerWorkspaceShellWithContext(
     automaticPlacementPreviewApplied: selectedAutoPreviewActive,
     automaticPlacementPreviewStatus: previewAutoPositionStatus,
     playbackModeLabel,
-    playbackTransportDurationSec,
-    playbackSourceLabel,
+    playbackTransportDurationSec, playbackSourceLabel, playbackDurationSec: playbackTransportDurationSec, playbackReadinessStatus: playbackReadiness.status,
     mediaLabelMismatchWarning,
     actualRecordingMismatchWarning,
     studioRackPlaybackConfig,

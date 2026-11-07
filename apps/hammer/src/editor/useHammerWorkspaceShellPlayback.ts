@@ -29,6 +29,8 @@ import {
   VIDEO_PLAYBACK_RATE_MAX,
   VIDEO_PLAYBACK_RATE_MIN,
 } from "./hammerWorkspaceShellPlaybackUtils";
+import { clampHammerMediaSeekTime } from "./hammerPlaybackReadiness";
+export { useHammerPlaybackReadiness } from "./hammerPlaybackReadiness";
 
 type PlaybackSelectionOrigin = "system" | "transcript" | "timeline" | "playhead";
 
@@ -43,6 +45,7 @@ export type UseHammerWorkspaceShellPlaybackArgs = {
   resolveMediaTimeForTransportTime: (transportTimeSec: number) => number;
   resolveTransportTimeForMediaTime: (mediaTimeSec: number) => number;
   playbackMediaSrc: string | null;
+  playbackReady: boolean;
   previewVideoSrc: string | null;
   segmentationVideoSrc?: string | null;
   visualPolishPreviewActive: boolean;
@@ -224,7 +227,7 @@ export function useHammerWorkspaceShellPlayback(
     }
 
     if (!seekArgs.applySeamFade || seekArgs.audio.muted || seekArgs.audio.volume <= 0) {
-      seekArgs.audio.currentTime = targetTime;
+      seekArgs.audio.currentTime = clampHammerMediaSeekTime(targetTime, seekArgs.audio.duration);
       return;
     }
 
@@ -239,7 +242,7 @@ export function useHammerWorkspaceShellPlayback(
 
     const nearSilent = 0.0001;
     seekArgs.audio.volume = nearSilent;
-    seekArgs.audio.currentTime = targetTime;
+    seekArgs.audio.currentTime = clampHammerMediaSeekTime(targetTime, seekArgs.audio.duration);
 
     ref.timerId = window.setTimeout(() => {
       if (args.cutSeekFadeRef.current.token !== token) return;
@@ -292,7 +295,7 @@ export function useHammerWorkspaceShellPlayback(
           args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec),
         ) > SCRUB_SEEK_THRESHOLD_SEC
       ) {
-        args.previewAudioRef.current.currentTime = args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec);
+        args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec), args.previewAudioRef.current.duration);
       }
       if (args.isPlaybackActive) {
         args.setIsPlaybackActive(false);
@@ -313,7 +316,7 @@ export function useHammerWorkspaceShellPlayback(
       args.previewAudioRef.current
       && Math.abs(args.previewAudioRef.current.currentTime - audibleTarget) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
-      args.previewAudioRef.current.currentTime = audibleTarget;
+      args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(audibleTarget, args.previewAudioRef.current.duration);
     }
   }, [
     args.isPlaybackActive,
@@ -441,7 +444,7 @@ export function useHammerWorkspaceShellPlayback(
       } else {
         previewVideo.playbackRate = previewAudio.playbackRate;
         if (shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-          previewVideo.currentTime = targetMediaTime;
+          previewVideo.currentTime = clampHammerMediaSeekTime(targetMediaTime, previewVideo.duration);
         }
       }
     }
@@ -450,7 +453,7 @@ export function useHammerWorkspaceShellPlayback(
       segmentationVideo.volume = 0;
       segmentationVideo.playbackRate = previewAudio.playbackRate;
       if (shouldSynchronizeCurrentTime && Math.abs(segmentationVideo.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-        segmentationVideo.currentTime = targetMediaTime;
+        segmentationVideo.currentTime = clampHammerMediaSeekTime(targetMediaTime, segmentationVideo.duration);
       }
     }
 
@@ -618,7 +621,7 @@ export function useHammerWorkspaceShellPlayback(
         args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec),
       ) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
-      args.previewAudioRef.current.currentTime = args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec);
+      args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec), args.previewAudioRef.current.duration);
     }
 
     if (transportProgress.shouldLoop) {
@@ -669,7 +672,7 @@ export function useHammerWorkspaceShellPlayback(
 
   const togglePlayback = useCallback((): void => {
     if (args.editableTranscriptSegments.length === 0) return;
-    if (!args.playbackMediaSrc) {
+    if (!args.playbackMediaSrc || !args.playbackReady) {
       args.setTranscriptTimingHint("Mapped media unavailable. Check workspace media mapping or source media link.");
       return;
     }
@@ -679,7 +682,7 @@ export function useHammerWorkspaceShellPlayback(
       }
       return !current;
     });
-  }, [args.editableTranscriptSegments.length, args.playbackMediaSrc, args.playbackWindow?.mode, args.setIsPlaybackActive, args.setPlaybackWindow, args.setTranscriptTimingHint]);
+  }, [args.editableTranscriptSegments.length, args.playbackMediaSrc, args.playbackReady, args.playbackWindow?.mode, args.setIsPlaybackActive, args.setPlaybackWindow, args.setTranscriptTimingHint]);
 
   const seekPlayheadToTime = useCallback((
     nextTimeSec: number,

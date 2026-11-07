@@ -164,6 +164,74 @@ test("canonical transcript read distinguishes absence, identity mismatch, ambigu
   await assert.rejects(denied.service.readHammerCanonicalTranscript(denied.workspaceId, denied.workpieceId, { canonical_recording_id: denied.recordingId, recording_revision_id: denied.revisionId, source_sha256: denied.sha }, { userAccessToken: "unrelated" }), (error) => error?.code === "workspace_access_denied");
 });
 
+function canonicalPlayableMediaFixture({ roleError = null } = {}) {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const recordingId = "33333333-3333-4333-8333-333333333333";
+  const revisionId = "44444444-4444-4444-8444-444444444444";
+  const sha = "a".repeat(64);
+  const results = {
+    episodes: { data: { canonical_recording_id: recordingId, active_revision_id: revisionId }, error: null },
+    canonical_recordings: { data: {
+      id: recordingId, workspace_id: workspaceId, workpiece_id: workpieceId,
+      media_id: "recording-session:brad", media_path: "recordings/brad.webm",
+      media_content_type: "video/webm;codecs=vp9,opus", media_bytes: 120617428,
+      media_duration_ms: 603848, media_signature: sha,
+    }, error: null },
+    recording_revisions: { data: { id: revisionId, workspace_id: workspaceId, workpiece_id: workpieceId, canonical_recording_id: recordingId, status: "active" }, error: null },
+  };
+  const schema = { from(table) {
+    const builder = { select() { return builder; }, eq() { return builder; }, maybeSingle() { return Promise.resolve(results[table]); } };
+    return builder;
+  } };
+  const signedPaths = [];
+  const supabase = {
+    schema: () => schema,
+    storage: { from: () => ({ async createSignedUrl(path, expiresIn) {
+      signedPaths.push({ path, expiresIn });
+      return { data: { signedUrl: "https://storage.example/brad.webm?token=private" }, error: null };
+    } }) },
+  };
+  const service = new TongsCommitService(supabase, "forge-workpieces");
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => undefined;
+  service.assertWorkspaceRoleFromAccessToken = async (_id, role) => {
+    assert.equal(role, "viewer");
+    if (roleError) throw roleError;
+    return { userId: "viewer", role: "viewer" };
+  };
+  return { service, workspaceId, workpieceId, recordingId, revisionId, sha, signedPaths };
+}
+
+test("canonical playable media is viewer-authorized and signs only the server-resolved active source", async () => {
+  const fixture = canonicalPlayableMediaFixture();
+  const result = await fixture.service.readHammerPlayableMedia(
+    fixture.workspaceId,
+    fixture.workpieceId,
+    { canonical_recording_id: fixture.recordingId, recording_revision_id: fixture.revisionId, source_sha256: fixture.sha },
+    { userAccessToken: "viewer" },
+  );
+  assert.equal(result.duration_ms, 603848);
+  assert.equal(result.byte_size, 120617428);
+  assert.equal(result.media_path, "recordings/brad.webm");
+  assert.deepEqual(fixture.signedPaths, [{ path: `workpieces/${fixture.workpieceId}/recordings/brad.webm`, expiresIn: 3600 }]);
+});
+
+test("canonical playable media rejects stale browser identity and unrelated users before signing", async () => {
+  const stale = canonicalPlayableMediaFixture();
+  await assert.rejects(
+    stale.service.readHammerPlayableMedia(stale.workspaceId, stale.workpieceId, { canonical_recording_id: stale.recordingId, recording_revision_id: stale.revisionId, source_sha256: "b".repeat(64) }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_identity_changed",
+  );
+  assert.equal(stale.signedPaths.length, 0);
+  const denied = canonicalPlayableMediaFixture({ roleError: Object.assign(new Error("denied"), { code: "workspace_access_denied" }) });
+  await assert.rejects(
+    denied.service.readHammerPlayableMedia(denied.workspaceId, denied.workpieceId, { canonical_recording_id: denied.recordingId, recording_revision_id: denied.revisionId, source_sha256: denied.sha }, { userAccessToken: "unrelated" }),
+    (error) => error?.code === "workspace_access_denied",
+  );
+  assert.equal(denied.signedPaths.length, 0);
+});
+
 test("workpiece job insert classifies only the exact financial halt as non-retryable", () => {
   const classified = classifyWorkpieceJobInsertError({
     code: "42501",

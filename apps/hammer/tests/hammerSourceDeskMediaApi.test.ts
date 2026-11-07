@@ -10,6 +10,7 @@ import {
   loadIntroOutroSelection,
   loadWorkspaceIntroOutroDefaults,
   loadWorkpieceMediaPreviewUrl,
+  loadHammerCanonicalPlayableMedia,
   readHammerMediaPreviewErrorDiagnostics,
   saveWorkspaceIntroOutroDefaults,
   uploadWorkpieceMediaFile,
@@ -487,6 +488,39 @@ async function testHammerIntakeStandaloneCreatesCradleThenCommits() {
   }
 }
 
+async function testCanonicalPlaybackUsesIdentityCheckedSignedUrl() {
+  const calls: FetchCall[] = [];
+  const signedUrl = "https://storage.example/object?token=secret";
+  const result = await loadHammerCanonicalPlayableMedia({
+    workspaceId: "cc5478ff-37be-403e-824c-467fa7da061e",
+    workpieceId: "21d16d6a-905b-491e-8761-028789612ae5",
+    canonicalRecordingId: "4cc846e3-187c-46d9-8733-e7402488236c",
+    recordingRevisionId: "9c991aa7-f551-4f03-a4d6-41eb40ef81ec",
+    sourceSha256: "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24",
+    fetcher: (async (url: string, options: Record<string, unknown>) => {
+      calls.push({ url, options });
+      return createOkJsonResponse({ ok: true, data: {
+        canonical_recording_id: "4cc846e3-187c-46d9-8733-e7402488236c",
+        recording_revision_id: "9c991aa7-f551-4f03-a4d6-41eb40ef81ec",
+        source_sha256: "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24",
+        media_id: "recording-session:brad",
+        media_path: "recordings/brad.webm",
+        content_type: "video/webm;codecs=vp9,opus",
+        byte_size: 120617428,
+        duration_ms: 603848,
+        url: signedUrl,
+        expires_at: "2026-11-07T01:00:00.000Z",
+      } });
+    }) as never,
+  });
+  assert.equal(result.url, signedUrl);
+  assert.equal(result.durationMs, 603848);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0]!.url, /\/hammer\/playable-media$/);
+  assert.equal((calls[0]!.options as { method?: string }).method, "POST");
+  assert.equal("arrayBuffer" in result, false);
+}
+
 async function run() {
   await testUploadPathRouting();
   await testMediaTypeAcceptance();
@@ -506,6 +540,7 @@ async function run() {
   await testHammerIntakeDetectMediaType();
   await testHammerIntakeEpisodeAttachedSkipsCradleCreation();
   await testHammerIntakeStandaloneCreatesCradleThenCommits();
+  await testCanonicalPlaybackUsesIdentityCheckedSignedUrl();
   // eslint-disable-next-line no-console
   console.log("Hammer Source Desk media API tests passed.");
 }

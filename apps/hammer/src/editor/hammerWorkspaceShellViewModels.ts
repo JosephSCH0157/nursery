@@ -1156,6 +1156,8 @@ export function buildPreviewBayVM(args: any) {
     playheadSec: args.playheadSec,
     playbackModeLabel: args.playbackModeLabel,
     playbackSourceLabel: args.playbackSourceLabel,
+    playbackDurationSec: args.playbackDurationSec,
+    playbackReadinessStatus: args.playbackReadinessStatus,
     mediaLabelMismatchWarning: args.mediaLabelMismatchWarning,
     actualRecordingMismatchWarning: args.actualRecordingMismatchWarning,
     playbackBackendLabel: args.studioRackPlaybackConfig.backend,

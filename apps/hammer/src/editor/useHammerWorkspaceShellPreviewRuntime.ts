@@ -26,6 +26,8 @@ export type UseHammerWorkspaceShellPreviewRuntimeArgs = {
     workpiece_id: string;
   };
   historyHeadEntryId: string | null;
+  canonicalRecordingId: string | null;
+  recordingRevisionId: string | null;
   mediaBackboneRuntime: HammerMediaBackboneRuntimeSummary;
   mediaRef: MediaRef | null;
   playbackLocalRootAbs: string | null;
@@ -89,6 +91,8 @@ export function useHammerWorkspaceShellPreviewRuntime(
     workspaceId: args.launchContext.workspace_id,
     workpieceId: args.launchContext.workpiece_id,
     historyHeadEntryId: args.historyHeadEntryId,
+    canonicalRecordingId: args.canonicalRecordingId,
+    recordingRevisionId: args.recordingRevisionId,
     runtime: args.mediaBackboneRuntime,
     mediaRef: args.mediaRef,
     localRootAbs: args.playbackLocalRootAbs,
