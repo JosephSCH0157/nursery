@@ -76,6 +76,72 @@ test("Hammer open does not retry non-deadlock failures or loop on repeated deadl
   assert.equal(repeated.calls.length, 2);
 });
 
+function canonicalTranscriptReadFixture({ rows = [], operation = null, roleError = null } = {}) {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const recordingId = "33333333-3333-4333-8333-333333333333";
+  const revisionId = "44444444-4444-4444-8444-444444444444";
+  const sha = "a".repeat(64);
+  const results = {
+    episodes: { data: { canonical_recording_id: recordingId, active_revision_id: revisionId }, error: null },
+    canonical_recordings: { data: { id: recordingId, workspace_id: workspaceId, workpiece_id: workpieceId, media_signature: sha }, error: null },
+    recording_revisions: { data: { id: revisionId, workspace_id: workspaceId, workpiece_id: workpieceId, canonical_recording_id: recordingId, status: "active" }, error: null },
+    hammer_canonical_transcripts_v2: { data: rows, error: null },
+    hammer_transcription_operations: { data: operation, error: null },
+  };
+  const schema = {
+    from(table) {
+      const result = results[table];
+      const builder = {
+        select() { return builder; }, eq() { return builder; },
+        maybeSingle() { return Promise.resolve(result); },
+        limit() { return Promise.resolve(result); },
+      };
+      return builder;
+    },
+  };
+  const service = new TongsCommitService({ schema: () => schema }, "forge-workpieces");
+  service.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  service.assertWorkpieceInWorkspace = async () => undefined;
+  service.assertWorkspaceRoleFromAccessToken = async (_id, role) => {
+    assert.equal(role, "viewer");
+    if (roleError) throw roleError;
+    return { userId: "viewer", role: "viewer" };
+  };
+  return { service, workspaceId, workpieceId, recordingId, revisionId, sha };
+}
+
+test("canonical transcript ordinary-open read is viewer-authorized, identity-bound, and mutation-free", async () => {
+  const base = canonicalTranscriptReadFixture();
+  const transcriptId = "55555555-5555-4555-8555-555555555555";
+  const operationId = "66666666-6666-4666-8666-666666666666";
+  const transcript = {
+    schema_version: 2, transcript_id: transcriptId, structure: "speaker_turns_with_words",
+    recording: { workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, media_sha256: base.sha },
+    segments: [{ segment_id: "segment_1" }],
+  };
+  const fixture = canonicalTranscriptReadFixture({
+    rows: [{ id: transcriptId, operation_id: operationId, workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, source_sha256: base.sha, persisted_at: "2026-11-06T00:00:00Z", artifact_path: `hammer/recordings/${base.recordingId}/baseline/transcript.v2.json`, transcript_json: transcript }],
+    operation: { id: operationId, canonical_transcript_id: transcriptId, workspace_id: base.workspaceId, workpiece_id: base.workpieceId, canonical_recording_id: base.recordingId, recording_revision_id: base.revisionId, media_sha256: base.sha },
+  });
+  const result = await fixture.service.readHammerCanonicalTranscript(fixture.workspaceId, fixture.workpieceId, { canonical_recording_id: fixture.recordingId, recording_revision_id: fixture.revisionId, source_sha256: fixture.sha }, { userAccessToken: "viewer-token" });
+  assert.equal(result.outcome, "found");
+  assert.equal(result.canonical_transcript.id, transcriptId);
+});
+
+test("canonical transcript read distinguishes absence, identity mismatch, ambiguity, and unrelated users", async () => {
+  const absent = canonicalTranscriptReadFixture();
+  assert.equal((await absent.service.readHammerCanonicalTranscript(absent.workspaceId, absent.workpieceId, { canonical_recording_id: absent.recordingId, recording_revision_id: absent.revisionId, source_sha256: absent.sha }, { userAccessToken: "viewer" })).outcome, "absent");
+  await assert.rejects(
+    absent.service.readHammerCanonicalTranscript(absent.workspaceId, absent.workpieceId, { canonical_recording_id: absent.recordingId, recording_revision_id: absent.revisionId, source_sha256: "b".repeat(64) }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_canonical_transcript_identity_changed",
+  );
+  const duplicate = canonicalTranscriptReadFixture({ rows: [{}, {}] });
+  await assert.rejects(duplicate.service.readHammerCanonicalTranscript(duplicate.workspaceId, duplicate.workpieceId, { canonical_recording_id: duplicate.recordingId, recording_revision_id: duplicate.revisionId, source_sha256: duplicate.sha }, { userAccessToken: "viewer" }), (error) => error?.code === "hammer_canonical_transcript_ambiguous");
+  const denied = canonicalTranscriptReadFixture({ roleError: Object.assign(new Error("denied"), { code: "workspace_access_denied" }) });
+  await assert.rejects(denied.service.readHammerCanonicalTranscript(denied.workspaceId, denied.workpieceId, { canonical_recording_id: denied.recordingId, recording_revision_id: denied.revisionId, source_sha256: denied.sha }, { userAccessToken: "unrelated" }), (error) => error?.code === "workspace_access_denied");
+});
+
 test("workpiece job insert classifies only the exact financial halt as non-retryable", () => {
   const classified = classifyWorkpieceJobInsertError({
     code: "42501",

@@ -1223,6 +1223,30 @@ export type OpenHammerAuthorityResult = OpenHammerRecordingSessionResult & {
   preparation_attempt: HammerPreparationAttemptRecord;
 };
 
+export type ReadHammerCanonicalTranscriptRequest = {
+  canonical_recording_id: string;
+  recording_revision_id: string;
+  source_sha256: string;
+};
+
+export type ReadHammerCanonicalTranscriptResult =
+  | {
+      outcome: "absent";
+      authority: ReadHammerCanonicalTranscriptRequest;
+    }
+  | {
+      outcome: "found";
+      authority: ReadHammerCanonicalTranscriptRequest;
+      canonical_transcript: {
+        id: string;
+        operation_id: string;
+        persisted_at: string;
+        artifact_path: string;
+        source_sha256: string;
+        transcript_json: Record<string, unknown>;
+      };
+    };
+
 export type AdvanceHammerPreparationRequest = {
   expected_state_version: number;
   action:
@@ -3599,6 +3623,12 @@ export type TongsCommitApiService = {
     input: OpenHammerAuthorityRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<OpenHammerAuthorityResult>;
+  readHammerCanonicalTranscript(
+    workspaceId: string,
+    workpieceId: string,
+    input: ReadHammerCanonicalTranscriptRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReadHammerCanonicalTranscriptResult>;
   advanceHammerPreparation(
     workspaceId: string,
     workpieceId: string,
@@ -7187,6 +7217,20 @@ function normalizeOpenHammerAuthorityRequest(
     ...(typeof revisionLabel === "undefined"
       ? {}
       : { revision_label: revisionLabel }),
+  };
+}
+
+function normalizeReadHammerCanonicalTranscriptRequest(
+  body: Record<string, unknown>,
+): ReadHammerCanonicalTranscriptRequest {
+  const sourceSha256 = normalizeNonEmptyString(body.source_sha256, "source_sha256").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(sourceSha256)) {
+    throw new HttpError(400, "invalid_payload", "source_sha256 must be a lowercase SHA-256 digest");
+  }
+  return {
+    canonical_recording_id: normalizeUuid(body.canonical_recording_id, "canonical_recording_id"),
+    recording_revision_id: normalizeUuid(body.recording_revision_id, "recording_revision_id"),
+    source_sha256: sourceSha256,
   };
 }
 
@@ -13088,6 +13132,93 @@ export class TongsCommitService {
       preparation_attempt: result.data
         .preparation_attempt as unknown as HammerPreparationAttemptRecord,
     };
+  }
+
+  async readHammerCanonicalTranscript(
+    workspaceId: string,
+    workpieceId: string,
+    input: ReadHammerCanonicalTranscriptRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReadHammerCanonicalTranscriptResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const episodeResult = await tongs.from("episodes")
+      .select("canonical_recording_id,active_revision_id")
+      .eq("workspace_id", workspaceId).eq("id", workpieceId).maybeSingle();
+    if (episodeResult.error || !isRecord(episodeResult.data)) {
+      throw new HttpError(502, "hammer_canonical_transcript_authority_unverifiable", episodeResult.error?.message ?? "The active recording authority could not be verified.");
+    }
+    const canonicalRecordingId = readStringField(episodeResult.data, "canonical_recording_id");
+    const recordingRevisionId = readStringField(episodeResult.data, "active_revision_id");
+    if (!canonicalRecordingId || !recordingRevisionId) {
+      throw new HttpError(409, "hammer_canonical_transcript_authority_missing", "The episode has no active canonical recording revision.");
+    }
+    const [recordingResult, revisionResult] = await Promise.all([
+      tongs.from("canonical_recordings").select("id,workspace_id,workpiece_id,media_signature")
+        .eq("id", canonicalRecordingId).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle(),
+      tongs.from("recording_revisions").select("id,workspace_id,workpiece_id,canonical_recording_id,status")
+        .eq("id", recordingRevisionId).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle(),
+    ]);
+    if (recordingResult.error || revisionResult.error || !isRecord(recordingResult.data) || !isRecord(revisionResult.data)) {
+      throw new HttpError(502, "hammer_canonical_transcript_authority_unverifiable", recordingResult.error?.message ?? revisionResult.error?.message ?? "The canonical recording identity could not be verified.");
+    }
+    const signature = (readStringField(recordingResult.data, "media_signature") ?? "").toLowerCase().replace(/^sha256:/, "");
+    if (!/^[0-9a-f]{64}$/.test(signature) || readStringField(revisionResult.data, "canonical_recording_id") !== canonicalRecordingId || readStringField(revisionResult.data, "status") !== "active") {
+      throw new HttpError(409, "hammer_canonical_transcript_authority_invalid", "The active canonical recording identity is incomplete or inconsistent.");
+    }
+    const authority = { canonical_recording_id: canonicalRecordingId, recording_revision_id: recordingRevisionId, source_sha256: signature };
+    if (input.canonical_recording_id !== canonicalRecordingId || input.recording_revision_id !== recordingRevisionId || input.source_sha256 !== signature) {
+      throw new HttpError(409, "hammer_canonical_transcript_identity_changed", "The browser recording identity no longer matches Tongs authority.", { expected: authority });
+    }
+    const transcriptResult = await tongs.from("hammer_canonical_transcripts_v2")
+      .select("id,operation_id,workspace_id,workpiece_id,canonical_recording_id,recording_revision_id,source_sha256,persisted_at,artifact_path,transcript_json")
+      .eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId)
+      .eq("canonical_recording_id", canonicalRecordingId).eq("recording_revision_id", recordingRevisionId)
+      .eq("source_sha256", signature).limit(2);
+    if (transcriptResult.error || !Array.isArray(transcriptResult.data)) {
+      throw new HttpError(502, "hammer_canonical_transcript_read_failed", transcriptResult.error?.message ?? "The saved transcript could not be read.");
+    }
+    if (transcriptResult.data.length === 0) return { outcome: "absent", authority };
+    if (transcriptResult.data.length !== 1) {
+      throw new HttpError(409, "hammer_canonical_transcript_ambiguous", "More than one saved transcript matched the active recording identity.");
+    }
+    const row = transcriptResult.data[0];
+    if (!isRecord(row) || !isRecord(row.transcript_json)) {
+      throw new HttpError(409, "hammer_canonical_transcript_malformed", "The saved transcript is malformed.");
+    }
+    const transcript = row.transcript_json;
+    const recording = isRecord(transcript.recording) ? transcript.recording : null;
+    if (transcript.schema_version !== 2 || transcript.structure !== "speaker_turns_with_words" || !recording
+      || readStringField(recording, "workspace_id") !== workspaceId
+      || readStringField(recording, "workpiece_id") !== workpieceId
+      || readStringField(recording, "canonical_recording_id") !== canonicalRecordingId
+      || readStringField(recording, "recording_revision_id") !== recordingRevisionId
+      || readStringField(recording, "media_sha256") !== signature
+      || !Array.isArray(transcript.segments) || transcript.segments.length === 0) {
+      throw new HttpError(409, "hammer_canonical_transcript_identity_invalid", "The saved transcript does not match the active recording authority.");
+    }
+    const operationId = readStringField(row, "operation_id");
+    const transcriptId = readStringField(row, "id");
+    const operationResult = await tongs.from("hammer_transcription_operations")
+      .select("id,canonical_transcript_id,workspace_id,workpiece_id,canonical_recording_id,recording_revision_id,media_sha256")
+      .eq("id", operationId ?? "").maybeSingle();
+    if (operationResult.error || !isRecord(operationResult.data)
+      || readStringField(operationResult.data, "canonical_transcript_id") !== transcriptId
+      || readStringField(operationResult.data, "workspace_id") !== workspaceId
+      || readStringField(operationResult.data, "workpiece_id") !== workpieceId
+      || readStringField(operationResult.data, "canonical_recording_id") !== canonicalRecordingId
+      || readStringField(operationResult.data, "recording_revision_id") !== recordingRevisionId
+      || readStringField(operationResult.data, "media_sha256") !== signature) {
+      throw new HttpError(409, "hammer_canonical_transcript_operation_invalid", "The saved transcript operation binding could not be verified.");
+    }
+    const persistedAt = readStringField(row, "persisted_at");
+    const artifactPath = readStringField(row, "artifact_path");
+    if (!transcriptId || !operationId || !persistedAt || !artifactPath || readStringField(row, "source_sha256") !== signature) {
+      throw new HttpError(409, "hammer_canonical_transcript_malformed", "The saved transcript receipt is incomplete.");
+    }
+    return { outcome: "found", authority, canonical_transcript: { id: transcriptId, operation_id: operationId, persisted_at: persistedAt, artifact_path: artifactPath, source_sha256: signature, transcript_json: transcript } };
   }
 
   async advanceHammerPreparation(
@@ -42663,6 +42794,24 @@ export function createTongsCommitApiHandlerWithService(
           { userAccessToken },
         );
         return jsonResponse(200, { ok: true, data: authority });
+      }
+
+      if (
+        parts.length === 7 &&
+        parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces" &&
+        parts[5] === "hammer" && parts[6] === "canonical-transcript"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.readHammerCanonicalTranscript(
+          workspaceId,
+          workpieceId,
+          normalizeReadHammerCanonicalTranscriptRequest(await parseJsonBody(request)),
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (
