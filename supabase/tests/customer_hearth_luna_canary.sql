@@ -12,10 +12,33 @@ create table if not exists tongs.workspace_members (
 insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,created_at,updated_at) values
   ('ce000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','canary-operator@example.test','',now(),now(),now()),
   ('ce000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','canary-customer@example.test','',now(),now(),now());
-insert into tongs.workspaces(id,name,created_by)
-values('ce000000-0000-4000-8000-000000000010','Customer canary proof','ce000000-0000-4000-8000-000000000002');
-insert into tongs.workspace_members(workspace_id,user_id,role,invited_by)
+do $workspace$
+begin
+  if current_setting('forge.luna_canary_certification',true)='disposable-baseline-v1' then
+    insert into tongs.workspaces(id,name,created_by,org_id)
+    values('ce000000-0000-4000-8000-000000000010','Customer canary proof',
+      'ce000000-0000-4000-8000-000000000002',
+      tongs.ensure_personal_org('ce000000-0000-4000-8000-000000000002'));
+    -- Canonical workspace_add_creator_member creates this owner row.
+    if not exists(select 1 from tongs.workspace_members
+      where workspace_id='ce000000-0000-4000-8000-000000000010'
+        and user_id='ce000000-0000-4000-8000-000000000002' and role='owner') then
+      raise exception 'Canonical Luna customer owner membership was not provisioned';
+    end if;
+  else
+    -- Preserve the existing reduced billing harness, which has no org model.
+    -- A canonical or partially configured org schema must never use this path.
+    if to_regclass('tongs.orgs') is not null or exists(
+      select 1 from pg_attribute where attrelid='tongs.workspaces'::regclass
+        and attname='org_id' and not attisdropped) then
+      raise exception 'Canonical Luna canary requires guarded organization setup' using errcode='42501';
+    end if;
+    insert into tongs.workspaces(id,name,created_by)
+    values('ce000000-0000-4000-8000-000000000010','Customer canary proof','ce000000-0000-4000-8000-000000000002');
+    insert into tongs.workspace_members(workspace_id,user_id,role,invited_by)
 values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000002','owner','ce000000-0000-4000-8000-000000000002');
+  end if;
+end $workspace$;
 insert into tongs.platform_operators(user_id,reason,granted_by)
 values('ce000000-0000-4000-8000-000000000001','isolated customer canary proof','ce000000-0000-4000-8000-000000000001');
 

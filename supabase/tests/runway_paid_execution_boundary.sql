@@ -1,4 +1,100 @@
+-- Disposable certification only. Never seed an ordinary baseline or hosted DB.
+do $guard$
+begin
+  if current_database()<>'postgres'
+     or current_setting('forge.runway_boundary_certification',true) is distinct from 'disposable-baseline-v1'
+     or (select count(*) from forge_meta.database_lineage)<>1
+     or not exists(select 1 from forge_meta.database_lineage where singleton and lineage='baseline-v1')
+     or (select max(version) from supabase_migrations.schema_migrations) is distinct from '20261104071802'
+     or exists(select 1 from tongs.runway_execution_rollout_revisions)
+     or exists(select 1 from auth.users where id='9e000000-0000-4000-8000-000000000001') then
+    raise exception 'Runway boundary certification requires the guarded empty-rollout disposable predecessor' using errcode='42501';
+  end if;
+end $guard$;
+
+-- Snapshot all disposable Tongs table data, including financial authorities,
+-- attempts, liabilities and audit events. No hosted data or table is involved.
+create temp table runway_cert_original_state(relation_name text primary key, fingerprint text);
+do $snapshot$
+declare r record; v_hash text;
+begin
+  for r in
+    select c.oid::regclass::text relation_name
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where (n.nspname='tongs' and c.relkind in ('r','p'))
+       or (n.nspname='auth' and c.relname='users')
+  loop
+    execute format('select md5(coalesce(string_agg(to_jsonb(x)::text,E''\n'' order by to_jsonb(x)::text),'''')) from %s x',r.relation_name) into v_hash;
+    insert into runway_cert_original_state values(r.relation_name,v_hash);
+  end loop;
+end $snapshot$;
+
 begin;
+set local request.jwt.claim.role='service_role';
+set local role service_role;
+do $empty_authority$
+declare v_result jsonb; v_table text; v_column text;
+begin
+  v_result:=tongs.resolve_runway_execution_funding(
+    'forge:broll:empty-rollout-operation',repeat('e',64),
+    '9e000000-0000-4000-8000-000000000001','9e000000-0000-4000-8000-000000000002',
+    'gen4.5',5,'1280:720');
+  if v_result->>'mode' is not null or v_result->>'rollout_revision' is not null
+     or (v_result->>'shared_funding_ready')::boolean is distinct from false then
+    raise exception 'empty baseline manufactured Runway rollout or funding authority: %',v_result;
+  end if;
+  begin
+    v_result:=tongs.authorize_runway_submission(
+      'forge:broll:empty-rollout-operation',repeat('e',64),'empty-rollout-attempt-0001',
+      '9e000000-0000-4000-8000-000000000001','9e000000-0000-4000-8000-000000000002',
+      'gen4.5',5,'1280:720','{"fake_provider":true}');
+    if (v_result->>'provider_execution_authorized')::boolean is distinct from false
+       or (v_result->>'legacy_execution_allowed')::boolean is distinct from false then
+      raise exception 'missing Runway rollout authority allowed execution: %',v_result;
+    end if;
+  exception when not_null_violation then
+    -- Existing RPC behavior: this exact constraint denies and rolls back.
+    -- A production robustness change is deliberately outside this repair.
+    get stacked diagnostics v_table=table_name,v_column=column_name;
+    if v_table<>'runway_submission_boundary_events' or v_column<>'rollout_revision' then raise; end if;
+  end;
+
+  begin
+    v_result:=tongs.authorize_runway_submission_with_aggregate(
+      'forge:broll:empty-rollout-operation',repeat('e',64),'empty-rollout-aggregate-attempt',
+      '9e000000-0000-4000-8000-000000000001','9e000000-0000-4000-8000-000000000002',
+      'gen4.5',5,'1280:720','interactive','{"fake_provider":true}');
+    if (v_result->>'provider_execution_authorized')::boolean is distinct from false
+       or (v_result->>'legacy_execution_allowed')::boolean is distinct from false then
+      raise exception 'missing rollout allowed aggregate Runway execution: %',v_result;
+    end if;
+  exception when insufficient_privilege then
+    -- The aggregate wrapper denies earlier when no exact funding binding exists.
+    if sqlerrm is distinct from 'exact Runway funding binding required' then raise; end if;
+  when not_null_violation then
+    get stacked diagnostics v_table=table_name,v_column=column_name;
+    if v_table<>'runway_submission_boundary_events' or v_column<>'rollout_revision' then raise; end if;
+  end;
+end $empty_authority$;
+reset role;
+
+do $unchanged$
+declare r record; v_hash text;
+begin
+  for r in select * from runway_cert_original_state loop
+    execute format('select md5(coalesce(string_agg(to_jsonb(x)::text,E''\n'' order by to_jsonb(x)::text),'''')) from %s x',r.relation_name) into v_hash;
+    if v_hash is distinct from r.fingerprint then
+      raise exception 'Runway certification changed original data in %',r.relation_name;
+    end if;
+  end loop;
+  if exists(select 1 from tongs.runway_execution_rollout_revisions) then
+    raise exception 'Runway certification left rollout authority behind';
+  end if;
+end $unchanged$;
+
+-- Reconstruct only the reviewed historical prerequisite, within this rollback.
+insert into tongs.runway_execution_rollout_revisions(revision,mode,reason)
+values(1,'observe','Runway boundary installed in observe mode; no paid-execution activation or owner budget was created.');
 
 do $$
 declare
@@ -38,7 +134,9 @@ declare
   );
 begin
   v_result := tongs.read_runway_execution_control();
-  if v_result->>'mode'<>'observe' or (v_result->>'new_paid_submissions_allowed')::boolean then
+  if v_result->>'mode' is distinct from 'observe'
+     or (v_result->>'revision')::integer is distinct from 1
+     or (v_result->>'new_paid_submissions_allowed')::boolean is distinct from false then
     raise exception 'migration did not begin in disabled observe mode: %',v_result;
   end if;
   perform tongs.commit_private_pricing_revision(
@@ -70,16 +168,18 @@ begin
     'forge:broll:observe-only-operation',repeat('0',64),
     '9e000000-0000-4000-8000-000000000001','9e000000-0000-4000-8000-000000000002',
     'gen4.5',5,'1280:720');
-  if not (v_result->>'use_legacy_accounting')::boolean
-     or (v_result->>'shared_funding_ready')::boolean then
+  if v_result->>'mode' is distinct from 'observe'
+     or (v_result->>'rollout_revision')::integer is distinct from 1
+     or (v_result->>'use_legacy_accounting')::boolean is distinct from true
+     or (v_result->>'shared_funding_ready')::boolean is distinct from false then
     raise exception 'observe mode did not resolve to the legacy compatibility path: %',v_result;
   end if;
   v_result := tongs.authorize_runway_submission(
     'forge:broll:observe-only-operation',repeat('0',64),'observe-attempt-0001',
     '9e000000-0000-4000-8000-000000000001','9e000000-0000-4000-8000-000000000002',
     'gen4.5',5,'1280:720','{"fake_provider":true}');
-  if not (v_result->>'legacy_execution_allowed')::boolean
-     or (v_result->>'provider_execution_authorized')::boolean then
+  if (v_result->>'legacy_execution_allowed')::boolean is distinct from true
+     or (v_result->>'provider_execution_authorized')::boolean is distinct from false then
     raise exception 'observe mode did not remain non-funded and non-activating: %',v_result;
   end if;
   perform tongs.create_owner_runway_spending_quote(
@@ -240,3 +340,19 @@ begin
 end $$;
 
 rollback;
+
+do $unchanged$
+declare r record; v_hash text;
+begin
+  for r in select * from runway_cert_original_state loop
+    execute format('select md5(coalesce(string_agg(to_jsonb(x)::text,E''\n'' order by to_jsonb(x)::text),'''')) from %s x',r.relation_name) into v_hash;
+    if v_hash is distinct from r.fingerprint then
+      raise exception 'Runway certification changed original data in %',r.relation_name;
+    end if;
+  end loop;
+  if exists(select 1 from tongs.runway_execution_rollout_revisions) then
+    raise exception 'Runway certification left rollout authority behind';
+  end if;
+end $unchanged$;
+
+drop table runway_cert_original_state;
