@@ -37,8 +37,6 @@ export type HammerWorkspaceShellTimelineDockVM = {
   deleteSelectedSegmentAndRipple: () => void;
   toggleSelectedSegmentDisabled: () => void;
 
-  transcriptDurationSec: number;
-
   audioCutSelectionStatus: string;
   persistedAudioCutCount: number;
   canMarkAudioCutSelection: boolean;
@@ -122,7 +120,6 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
     splitSelectedSegmentAtPlayhead,
     deleteSelectedSegmentAndRipple,
     toggleSelectedSegmentDisabled,
-    transcriptDurationSec,
     audioCutSelectionStatus,
     persistedAudioCutCount,
     canMarkAudioCutSelection,
@@ -317,7 +314,7 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
         <input
           type="range"
           min={0}
-          max={transcriptDurationSec}
+          max={timelineDurationSec}
           step={0.1}
           value={playheadSec}
           onChange={(event) => {

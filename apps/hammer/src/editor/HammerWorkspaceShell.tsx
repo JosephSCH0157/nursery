@@ -359,14 +359,14 @@ type HammerTimelineLaneBlock = {
   selected: boolean;
   inRange?: boolean;
   disabled?: boolean;
-  tone: "dialogue" | "image" | "broll";
+  tone: "source" | "dialogue" | "image" | "broll";
   onSelect: () => void;
 };
 
 type HammerTimelineLaneView = {
   id: string;
   label: string;
-  tone: "dialogue" | "music" | "broll" | "stills";
+  tone: "source" | "dialogue" | "music" | "broll" | "stills";
   blocks: HammerTimelineLaneBlock[];
 };
 
@@ -1437,9 +1437,9 @@ function HammerWorkspaceShellWithContext(
       const visualLabel = playheadPrimaryVisualClip.label?.trim() || playheadPrimaryVisualClip.clip_id;
       return `Active visual: ${visualLabel} (${playheadPrimaryVisualClip.start_sec.toFixed(1)}s-${playheadPrimaryVisualClip.end_sec.toFixed(1)}s)`;
     }
-    const fallback = resolvePreviewLabel(playheadSegment, compositionPlayheadSec);
+    const fallback = resolvePreviewLabel(playheadSegment, compositionPlayheadSec, playbackReadiness.status === "playable" && Boolean(effectivePlaybackMediaSrc));
     return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
-  }, [compositionPlayheadSec, isVisualPreviewAuthority, packagingTransport.introDurationSec, packagingTransport.outroDurationSec, packagingTransport.phase, playheadPrimaryVisualClip, playheadSegment]);
+  }, [compositionPlayheadSec, effectivePlaybackMediaSrc, isVisualPreviewAuthority, packagingTransport.introDurationSec, packagingTransport.outroDurationSec, packagingTransport.phase, playbackReadiness.status, playheadPrimaryVisualClip, playheadSegment]);
 
   useEffect(() => {
     if (!previewSurfaceRef.current) return;
@@ -1840,12 +1840,14 @@ function HammerWorkspaceShellWithContext(
       }))
       .sort((left, right) => left.startSec - right.startSec)
   ), [compositionOffsetSec, linkedPrimaryVisualId, sourceBrollPlacementItems, sourceImageItems]);
+  const sourceLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (mediaRef && compositionDurationSec > 0 ? [{ id: `source:${mediaRef.media_id}`, label: "Canonical source", startSec: compositionOffsetSec, endSec: compositionOffsetSec + compositionDurationSec, selected: false, tone: "source", onSelect: () => setFocusOverride("source-focus") }] : []), [compositionDurationSec, compositionOffsetSec, mediaRef, setFocusOverride]);
   const timelineLanes = useMemo<HammerTimelineLaneView[]>(() => ([
+    { id: "source", label: "Source", tone: "source", blocks: sourceLaneBlocks },
     { id: "dialogue", label: "Dialogue", tone: "dialogue", blocks: dialogueLaneBlocks },
     { id: "music", label: "Music", tone: "music", blocks: [] },
     { id: "broll", label: "B-roll", tone: "broll", blocks: brollLaneBlocks },
     { id: "stills", label: "Stills", tone: "stills", blocks: imageLaneBlocks },
-  ]), [brollLaneBlocks, dialogueLaneBlocks, imageLaneBlocks]);
+  ]), [brollLaneBlocks, dialogueLaneBlocks, imageLaneBlocks, sourceLaneBlocks]);
   const laneGapsById = useMemo(() => {
     const byLane = new Map<string, Array<{ id: string; startSec: number; endSec: number }>>();
     for (const lane of timelineLanes) {
@@ -3004,7 +3006,6 @@ function HammerWorkspaceShellWithContext(
     splitSelectedSegmentAtPlayhead,
     deleteSelectedSegmentAndRipple,
     toggleSelectedSegmentDisabled,
-    transcriptDurationSec,
     audioCutSelectionStatus,
     persistedAudioCutCount,
     canMarkAudioCutSelection,
@@ -3104,7 +3105,6 @@ function HammerWorkspaceShellWithContext(
     togglePlayback,
     toggleSelectedSegmentDisabled,
     toggleSelectionLoopPlayback,
-    transcriptDurationSec,
     trimSegmentEnd,
     trimSegmentStart,
     visibleSilenceCutSuggestions,

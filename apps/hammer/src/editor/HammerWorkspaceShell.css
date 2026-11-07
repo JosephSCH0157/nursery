@@ -191,7 +191,7 @@ Guardrails:
 }
 
 .hammer-workspace-shell.is-transcript-pass {
-  --hammer-shell-timeline-height: clamp(150px, 21vh, 220px);
+  --hammer-shell-timeline-height: clamp(220px, 31vh, 330px);
 }
 
 .hammer-workspace-shell.is-transcript-pass .hammer-workspace-shell__top {
@@ -2180,7 +2180,7 @@ Guardrails:
   overflow: auto;
   overscroll-behavior: contain;
   display: grid;
-  grid-template-rows: auto auto auto auto 24px auto minmax(var(--hammer-shell-timeline-track-min-height), 1fr);
+  grid-template-rows: 24px minmax(var(--hammer-shell-timeline-track-min-height), 1fr) auto auto auto auto auto;
   gap: 6px;
 }
 
@@ -2188,12 +2188,25 @@ Guardrails:
 .hammer-timeline-control-group { display: grid; gap: 4px; }
 .hammer-timeline-more summary { cursor: pointer; color: #bfdbfe; font-size: 10px; }
 .hammer-timeline-more[open] { flex-basis: 100%; }
-.hammer-timeline-dock__body.is-collapsed { grid-template-rows: auto auto auto; overflow: hidden; }
-.hammer-timeline-dock__body.is-collapsed > input[type="range"],
+.hammer-timeline-dock__body > input[type="range"] { order: 1; }
+.hammer-timeline-dock__body > .hammer-timeline-track-scroll { order: 2; }
+.hammer-timeline-dock__body > .hammer-waveform-lane { order: 3; }
+.hammer-timeline-dock__body > .hammer-timeline-control-groups { order: 4; }
+.hammer-timeline-dock__body > .hammer-timeline-cut-actions { order: 5; }
+.hammer-timeline-dock__body > .hammer-timeline-markers,
+.hammer-timeline-dock__body > .hammer-timeline-editor { order: 6; }
+.hammer-timeline-dock__body > .hammer-visual-timeline-dock { order: 7; }
+
+.hammer-timeline-dock__body.is-collapsed {
+  grid-template-rows: 24px minmax(var(--hammer-shell-timeline-track-min-height), 1fr);
+  overflow: hidden;
+}
+.hammer-timeline-dock__body.is-collapsed > .hammer-waveform-lane,
+.hammer-timeline-dock__body.is-collapsed > .hammer-timeline-control-groups,
+.hammer-timeline-dock__body.is-collapsed > .hammer-timeline-cut-actions,
 .hammer-timeline-dock__body.is-collapsed > .hammer-timeline-markers,
 .hammer-timeline-dock__body.is-collapsed > .hammer-timeline-editor,
-.hammer-timeline-dock__body.is-collapsed > .hammer-visual-timeline-dock,
-.hammer-timeline-dock__body.is-collapsed > .hammer-timeline-track-scroll { display: none; }
+.hammer-timeline-dock__body.is-collapsed > .hammer-visual-timeline-dock { display: none; }
 
 .hammer-timeline-dock__body.is-scrubbing .hammer-timeline-ruler,
 .hammer-timeline-dock__body.is-scrubbing .hammer-timeline-lane__track {
@@ -2404,6 +2417,10 @@ Guardrails:
   background:
     linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px) 0 0 / 10% 100%,
     linear-gradient(180deg, rgba(14, 165, 233, 0.08), rgba(15, 23, 42, 0.38));
+}
+
+.hammer-timeline-lane__track--source {
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.14), rgba(15, 23, 42, 0.5));
 }
 
 .hammer-timeline-lane__track--music {
