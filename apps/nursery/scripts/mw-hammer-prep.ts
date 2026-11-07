@@ -2011,7 +2011,9 @@ async function readPersistedHammerAssemblyAiTranscript(args: {
 function hammerTranscriptPrepResponse(
   transcript: Record<string, unknown>,
   identity?: { id: string; persistedAt: string | null },
+  resolution: "persisted_reuse" | "provider_completion" = "provider_completion",
 ): {
+  resolution: "persisted_reuse" | "provider_completion";
   provider: "assemblyai";
   model: "universal-3-5-pro";
   provider_request_id: string | null;
@@ -2038,6 +2040,7 @@ function hammerTranscriptPrepResponse(
     })
     : [];
   return {
+    resolution,
     provider: "assemblyai",
     model: "universal-3-5-pro",
     provider_request_id: readTrimmed(provider?.provider_request_id),
@@ -3713,7 +3716,7 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
               data: hammerTranscriptPrepResponse(persistedTranscript.transcript, {
                 id: persistedTranscript.id,
                 persistedAt: persistedTranscript.persistedAt,
-              }),
+              }, "persisted_reuse"),
               billing_receipt: { settlement_state: "completed" },
             });
             return;

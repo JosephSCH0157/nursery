@@ -9,7 +9,7 @@ export type HammerIngestFinalStatus =
   | "blocked"
   | "degraded";
 
-export type HammerIngestTranscriptSource = "registered" | "revision" | "baseline" | "live_noncanonical";
+export type HammerIngestTranscriptSource = "registered" | "revision" | "baseline" | "canonical_v2" | "live_noncanonical";
 
 export type HammerIngestDiagnosticV1 = {
   schema_version: 1;
@@ -32,6 +32,7 @@ export type HammerIngestDiagnosticV1 = {
     path: string | null;
     segment_count: number | null;
     load_ok: boolean;
+    status?: "usable" | "absent" | "unverifiable";
     rejection_reason: string | null;
   }>;
   pointers: {
