@@ -129,6 +129,7 @@ async function testFocusAndPreviewResolution() {
   const segment = buildSegment({ speaker: "Guest", text: "Testing one two." });
   assert.equal(resolvePreviewLabel(segment, 10.4), "Guest: Testing one two.");
   assert.equal(resolvePreviewLabel(null, 9.9), "Timeline gap at 9.9s");
+  assert.equal(resolvePreviewLabel(null, 5.32, true), "Source media at 5.3s");
 }
 
 async function testSegmentListUpdate() {

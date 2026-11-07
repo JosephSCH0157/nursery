@@ -68,8 +68,13 @@ export function updateSegmentInTimeline(
 export function resolvePreviewLabel(
   playheadSegment: HammerTranscriptSegment | null,
   playheadSec: number,
+  baseMediaReady = false,
 ): string {
-  if (!playheadSegment) return `Timeline gap at ${playheadSec.toFixed(1)}s`;
+  if (!playheadSegment) {
+    return baseMediaReady
+      ? `Source media at ${playheadSec.toFixed(1)}s`
+      : `Timeline gap at ${playheadSec.toFixed(1)}s`;
+  }
   if (playheadSegment.is_disabled) {
     return `[Disabled] ${playheadSegment.speaker}: ${playheadSegment.text}`;
   }
