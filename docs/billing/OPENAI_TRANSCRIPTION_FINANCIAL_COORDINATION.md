@@ -1,13 +1,54 @@
 # OpenAI transcription financial coordination
 
-Status: deployed code is intentionally inactive until an owner approves complete supporting-cost ceilings, prices, failure-loss capacity, and rollout revisions. `FORGE_OPENAI_TRANSCRIPTION_EXECUTION_MODE` defaults to `inactive`; it is independent of the OpenAI text switch.
+Status: historical transcription-coordination preparation, with the approved
+Anvil funding policy revised below on 2026-11-06. Historical implementation and
+configuration descriptions in this document do not establish current hosted
+state. The transcription execution-mode setting is independent of the OpenAI
+text switch; its source default is not deployment evidence.
 
-## Actual route inventory
+## Anvil funding policy update — 2026-11-06
+
+Anvil transcription and Henry AI operations are Forge-funded platform services.
+Forge pays their provider costs and tracks them separately from customer
+prepaid credits and BYOK execution. Included operations do not deduct prepaid
+credits or require BYOK credentials; customer balances are neither their funding
+source nor their limit measurement basis. Customer prepaid funds retain their
+existing financial obligations.
+
+[The canonical financial policy §3.1](FORGE_FINANCIAL_ARCHITECTURE.md#31-anvil-and-henry-forge-funded-cost-tracked-assistance)
+requires defined per-account operating limits and aggregate platform exposure
+controls. Monthly allowances based on subscription tier and actual wholesale
+provider costs are preferred for evaluation. Anvil and Henry costs must be
+separately measurable; shared versus separate allowances remains undecided.
+Amounts, reset timing, and eligibility require explicit approval before
+enforcement and before unrestricted activation.
+
+Final limits require historical Anvil costs, historical Henry consumption,
+current provider pricing, expected usage, subscription revenue and gross-margin
+requirements, normal-variation headroom, and aggregate exposure under customer
+growth. Measured costs must remain distinct from estimates. Evidence sufficiency
+is unresolved; this update supplies no new measurements or forecasts.
+
+Intended enforcement must stop additional billable work within an exhausted
+allowance while preserving recording and other non-AI functionality. Provider
+expenses and unresolved obligations remain attributable to Forge. Forge-funded
+does not mean unlimited spending.
+
+This policy supersedes the earlier customer-funded/BYOK treatment of included
+Anvil transcription. Customer pricing, credit reservations, and BYOK descriptions
+below apply to their respective other routes, not to included Anvil services.
+The inventory and historical preparation controls do not prove current
+per-account, monthly, subscription-tier, or aggregate allowance enforcement.
+The original investigation's confirmed Anvil financial-admission defects and
+other financial defects and certification gaps remain unresolved. No execution
+is activated or certified by this documentation revision.
+
+## Route inventory and historical preparation controls
 
 | Route policy | Ordinary caller | Provider boundary | Canonical usable result | Enforced-path behavior |
 |---|---|---|---|---|
 | `hearth.speech_transcription` | Hearth stored-speech action → `/api/hearth/stt` | OpenAI `/v1/audio/transcriptions`, `gpt-4o-mini-transcribe` | Private `openai_transcription_canonical_results` row, returned as the Hearth transcript | Exact uploaded bytes/revision, one attempt, quote acceptance, reservation, aggregate admission, capture, validation, persistence, settlement/receipt |
-| `anvil.realtime_transcription` | Anvil Whisper bridge → `/api/anvil/asr/whisper` | OpenAI `/v1/audio/transcriptions`, configured mini/full model | Private canonical chunk result plus the existing Anvil session assembly | One source chunk, maximum two seconds, one attempt; HF and paid transcode fallback fail closed because they have no complete policy |
+| `anvil.realtime_transcription` | Anvil Whisper bridge → `/api/anvil/asr/whisper` | OpenAI `/v1/audio/transcriptions`, configured mini/full model | Private canonical chunk result plus the existing Anvil session assembly | Forge-funded and cost-tracked under §3.1; per-account allowances and aggregate exposure controls require approved terms, implementation, and hosted certification; no customer-credit deduction |
 | `hammer.transcript_prep` | Hammer interactive prep → `/api/hammer/prep/transcript`; Hammer background job creation/runner | OpenAI `/v1/audio/transcriptions`, `gpt-4o-transcribe-diarize` | Diarized transcript, speaker map, recording-revision/workpiece state, and billing replay result | One direct provider attempt; unpriced preprocessing is blocked before funding; background jobs carry immutable authority and the runner gates immediately before submission |
 | `hammer.transcript_regeneration` | Hammer regeneration job → Tongs job creation/runner | OpenAI `/v1/audio/transcriptions`, `gpt-4o-transcribe-diarize` | New canonical diarized revision/workpiece state | Same exact-source and provider-boundary controls as prep; recovery cannot create a second provider attempt |
 
@@ -37,7 +78,9 @@ OpenAI accepts files up to 25 MB for transcription. The enforced Hearth source b
 
 ## Supporting-cost disposition
 
-No support allocation is assumed. Each route remains `draft` with `supporting_unpriced` coverage and therefore cannot be quoted or activated:
+This preparation recorded unapproved supporting-cost coverage. These historical
+states are not fresh hosted observations. Complete supporting-cost evidence
+remains required for the applicable funding policy:
 
 - Netlify/server execution, validation, persistence, Supabase storage/database, and egress need an approved allocation and ceiling.
 - Hearth’s ephemeral upload is removed after successful persistence; failed/unresolved cleanup remains an explicit tail obligation.
@@ -45,9 +88,15 @@ No support allocation is assumed. Each route remains `draft` with `supporting_un
 - Hammer work needing preprocessing/transcode is rejected before reservation; a future Fly/local-compute policy must be priced separately.
 - A transcription quote never authorizes search, extraction, enrichment, media generation, or another paid service.
 
-The private 33% cost-plus markup remains stored and adjustable. It applies only after the full cost basis is approved. No transcription customer price is published by this release.
+For customer-priced transcription routes, the historical pricing preparation
+requires the full cost basis before applying the canonical customer-price
+contract. Included Forge-funded Anvil transcription follows §3.1 and incurs no
+customer-credit charge or separate customer price under this policy update.
 
-## Failure and replay behavior
+## Required failure and replay behavior
+
+These are required coordinated-path controls, not evidence that every current
+adapter enforces them. The investigation's confirmed defects remain open.
 
 - Provider response and usage evidence are recorded before Forge validation or canonical persistence.
 - Provider, Forge-validation, and persistence failures charge the customer $0 while supplier cost remains estimated/unresolved until reconciled.
@@ -64,6 +113,14 @@ Automatic audio allocation is permitted only when project, API key, model, inter
 The completed 2026-09-01 through 2026-09-10 UTC evidence remains `$0.039058` of authoritative OpenAI transcription cost and is recorded once as unmatched. This release creates no supplier expense or customer allocation from that aggregate. The historical `$0.490925` item remains an unrelated, unresolved OpenAI text estimate.
 
 ## Activation decisions still required
+
+For included Anvil transcription, apply §3.1: approve evidence-based operating
+allowances, reset timing, eligibility, and aggregate safeguards, then verify
+implementation and hosted enforcement. A customer price or BYOK credential is
+not an activation prerequisite for this included Forge-funded service.
+
+The historical customer-funded route preparation below applies to the other
+applicable transcription routes; it does not establish Anvil operating terms.
 
 1. Approve numeric support/tail ceilings for the selected routes and source formats.
 2. Verify the intended model is visible to the production OpenAI project without generating content.

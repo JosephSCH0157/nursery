@@ -125,6 +125,98 @@ Provider execution during development, testing, and beta may incur real Forge wh
 - It **does not justify** bypassing customer billing, creating dummy deposit shortcuts, or fabricating a second financial pipeline.
 - A user testing a flow in Stripe Test must proceed through the real quote, reservation, admission, and settlement lifecycle. This ensures that the production financial machine is exercised and verified before launch.
 
+### 3.1 Anvil and Henry: Forge-funded, cost-tracked assistance
+
+Policy revised: **2026-11-06**, by explicit owner direction.
+
+#### Approved business policy
+
+Anvil transcription and Henry AI operations are Forge-funded platform services.
+
+Their provider costs are paid by Forge, tracked separately from customer prepaid
+credits and BYOK execution, and subject to defined per-account and platform-wide
+operating limits.
+
+Exact allowances and reset periods will be established using measured provider
+costs, expected usage, and subscription economics before unrestricted activation.
+
+Included Forge-funded Anvil and Henry operations do not deduct customer prepaid
+credits and do not require BYOK credentials. Customer credit balances are neither
+the funding source nor the measurement basis for these services. Customer prepaid
+funds retain their existing financial obligations under this manifest. Provider
+expenses remain attributable to Forge and auditable through the existing Tongs
+financial authority. Forge-funded does not mean unlimited or unaccounted spending,
+and does not reclassify other Forge-funded activity as unrestricted owner spending.
+
+The previously proposed customer-balance percentage cap is withdrawn and has no
+default or fallback authority. This policy introduces no new credit grant,
+customer price, ledger, or final subscription entitlement.
+
+#### Allowance model to evaluate and intended enforcement
+
+Monthly operating allowances are the preferred model for evaluation, based on
+subscription tier and actual wholesale provider costs. Anvil transcription and
+Henry AI costs must be separately measurable even if a shared allowance is
+ultimately selected. Shared versus separate allowances remains undecided.
+
+Per-account operating limits and aggregate platform exposure controls are
+required. Intended enforcement must admit billable work against the applicable
+approved allowance and platform capacity before provider execution, including
+concurrent requests and retries. Exhaustion must prevent additional billable
+execution within the applicable allowance while preserving non-AI recording,
+orientation, and other deterministic functionality. Failures and ambiguous
+submissions must retain incurred expenses and unresolved obligations; retries or
+split requests cannot bypass operating limits.
+
+Allowance amounts, reset timing, eligibility, subscription-tier mapping, and the
+shared-versus-separate structure require explicit approval before enforcement.
+No particular tier, price, allowance, reset date, or numeric spending ceiling is
+established here. Missing approved authority does not authorize unrestricted
+execution.
+
+#### Economic inputs and unresolved evidence
+
+Final operating allowances require evidence for:
+
+1. Historical Anvil transcription costs.
+2. Historical Henry AI consumption.
+3. Current provider pricing for the selected services and models.
+4. Expected customer usage.
+5. Subscription revenue and gross-margin requirements.
+6. Appropriate headroom for normal usage variation.
+7. Aggregate platform exposure under expected customer growth.
+
+Measured costs must be distinguished from estimates: usage-derived valuations,
+unmatched aggregate provider bills, forecasts, and provisional rates must retain
+their evidence status and limitations. Anvil and Henry must remain separately
+attributable in that evidence. This documentation revision supplies no new
+measurements, usage statistics, forecasts, or economic certification. Evidence
+sufficiency for these inputs remains unresolved; gaps must be recorded rather
+than filled with assumed consumption or margins.
+
+#### Implementation, deployment, and certification boundary
+
+The approved policy and intended enforcement above are distinct from existing
+implemented controls and verified deployed behavior. Existing Tongs cost records,
+attempt identities, reservations, and recovery mechanisms must be evaluated at
+their actual execution boundaries; cost tracking alone does not establish
+allowance enforcement. This revision neither changes nor certifies those controls.
+
+The 2026-11-05 investigation's confirmed financial defects and certification gaps
+remain open evidence, including Anvil's missing financial-admission checks, absent
+budget binding on shared owner-cost routes, credential-selection defects,
+customer revalidation gaps, and customer-reporting disclosure. Intentional
+Forge-funded classification corrects the required payer; it does not resolve
+missing limits, authorization, accounting, isolation, or recovery guarantees.
+Monthly allowances, subscription-tier limits, and platform-wide ceilings are not
+claimed as deployed or enforced by this policy.
+
+Verified operational state requires separately dated implementation and hosted
+evidence under `DOC_AUTHORITY.md` and `BILLING_CURRENT.md`. Other tools retain
+their existing funding policies. Earlier descriptions requiring customer-funded
+or BYOK execution for these included Anvil and Henry services are superseded only
+within this scope.
+
 ---
 
 ## 4. Forge Credit Economy
@@ -156,7 +248,9 @@ currency, pre-tax amount, credit grant, and Forge offer identity must agree.
 
 ### 4.2 Forge-provided AI price calculation
 
-Forge-provided AI uses a fixed **33% cost-plus** base markup. Every calculation
+Customer-credit-priced Forge-provided AI uses a fixed **33% cost-plus** base markup.
+Included Forge-funded Anvil transcription and Henry AI operations follow §3.1
+and do not incur this customer-credit charge. Every calculation
 uses deterministic integer arithmetic:
 
 ```
@@ -199,6 +293,10 @@ request/execution identities.
 ---
 
 ## 5. Subscription Allowances
+
+The customer-credit allowances in this section are distinct from the proposed
+Forge-funded operating allowances in §3.1; they do not establish Anvil or Henry
+operating entitlements.
 
 Subscription allowances are versioned product terms backed by canonical Stripe
 cycle receipts. They use the same grant, reservation, consumption, settlement,
