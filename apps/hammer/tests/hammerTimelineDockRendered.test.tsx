@@ -42,6 +42,10 @@ test("collapsed transcript dock keeps Brad-sized source ruler and playhead usabl
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const seeks: number[] = [];
+  const focuses: string[] = [];
+  const editJumps: string[] = [];
+  const scrubRates: number[] = [];
+  const nudges: number[] = [];
   const durationSec = 603.848;
   const sourceBlock = {
     id: "source:brad-media",
@@ -63,7 +67,7 @@ test("collapsed transcript dock keeps Brad-sized source ruler and playhead usabl
   };
   const vm: any = {
     isScrubbing: false,
-    setFocusOverride: noop,
+    setFocusOverride: (value: string) => focuses.push(value),
     waveformProxy: null,
     playbackTransportDurationSec: durationSec,
     effectivePlaybackCutRegions: [],
@@ -77,18 +81,18 @@ test("collapsed transcript dock keeps Brad-sized source ruler and playhead usabl
     selectedSegment: null,
     selectAdjacentSegment: noop,
     jumpToSelectionBoundary: noop,
-    jumpToEditPoint: noop,
+    jumpToEditPoint: (value: string) => editJumps.push(value),
     sortedTimelineMarkers: [],
     jumpToMarker: noop,
     addMarkerAtPlayhead: noop,
     scrubRate: 1,
     scrubRateOptions: [0.5, 1, 2],
-    setScrubRate: noop,
+    setScrubRate: (value: number) => scrubRates.push(value),
     zoomTimelineOut: noop,
     zoomTimelineIn: noop,
     resetTimelineZoom: noop,
     timelineZoomPercent: 100,
-    nudgePlayhead: noop,
+    nudgePlayhead: (value: number) => nudges.push(value),
     smallPlayheadNudgeSec: 0.1,
     splitSelectedSegmentAtPlayhead: noop,
     deleteSelectedSegmentAndRipple: noop,
@@ -157,6 +161,23 @@ test("collapsed transcript dock keeps Brad-sized source ruler and playhead usabl
     assert.equal(body.classList.contains("is-collapsed"), false);
     assert.notEqual(dom.window.getComputedStyle(controls).display, "none");
     assert.notEqual(dom.window.getComputedStyle(track).display, "none");
+
+    const button = (label: string) => [...dom.window.document.querySelectorAll("button")]
+      .find((candidate) => candidate.textContent?.trim() === label)!;
+    await act(async () => button("Auto").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await act(async () => button("Source").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await act(async () => button("Tool").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await act(async () => button("Time").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await act(async () => button("Prev Edit (,)").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await act(async () => button("-0.1s (←)").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    const scrubRate = dom.window.document.querySelector<HTMLSelectElement>('label[aria-label="Scrub rate control"] select')!;
+    scrubRate.value = "2";
+    await act(async () => scrubRate.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
+    assert.deepEqual(focuses, ["auto", "source-focus", "tool-focus", "time-focus"]);
+    assert.deepEqual(editJumps, ["previous"]);
+    assert.deepEqual(nudges, [-0.1]);
+    assert.deepEqual(scrubRates, [2]);
+    assert.deepEqual(seeks, [durationSec]);
   } finally {
     await act(async () => root.unmount());
     Object.assign(globalThis, previous);
