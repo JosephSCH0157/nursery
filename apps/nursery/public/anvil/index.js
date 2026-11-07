@@ -76192,6 +76192,22 @@ function getRecordingEngine() {
   if (selected.includes("obs") && !selected.includes("core")) return "obs";
   return "core";
 }
+function readSavedRecordingConfiguration() {
+  const raw = readRawSettings();
+  if (!raw) return { ok: false, reason: "missing" };
+  const selected = normalizeSelected(raw.selected);
+  const mode = String(raw.mode || "").toLowerCase();
+  const recordingMode = String(raw.recordingMode || "").toLowerCase();
+  if (mode !== "single" && mode !== "multi" || recordingMode !== "av" && recordingMode !== "audio") {
+    return { ok: false, reason: "invalid" };
+  }
+  if (selected.length === 0 || selected.some((id) => id !== "core" && id !== "obs")) {
+    return { ok: false, reason: "invalid" };
+  }
+  const engine = selected.includes("obs") && !selected.includes("core") ? "obs" : "core";
+  if (engine === "obs" && recordingMode === "audio") return { ok: false, reason: "invalid" };
+  return { ok: true, configuration: { engine, mode: recordingMode } };
+}
 var SETTINGS_KEY;
 var init_recording_settings = __esm({
   "src/recording/recording-settings.ts"() {
@@ -94723,6 +94739,14 @@ function initRecPillsMain(store3) {
   } catch {
   }
   try {
+    window.addEventListener("tp:recording:arm-state", (ev) => {
+      const state9 = String(ev?.detail?.state || "").toLowerCase();
+      recordingEnabled = state9 === "armed" || state9 === "recording";
+      recompute();
+    });
+  } catch {
+  }
+  try {
     window.addEventListener("tp:recording:transcript-state", (ev) => {
       const detail = ev?.detail || {};
       const status2 = String(detail.status || "idle");
@@ -94775,6 +94799,340 @@ var init_rec_pills = __esm({
 .rec-pill-live{min-width:1px;min-height:1px}
 @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
 `;
+  }
+});
+
+// src/recording/recording-arm.ts
+function permissionDenied(error) {
+  const name = String(error?.name || "");
+  return name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError";
+}
+function defaultDependencies() {
+  const readStored = (key) => {
+    try {
+      const value = String(window.localStorage.getItem(key) || "").trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    readConfiguration: readSavedRecordingConfiguration,
+    enumerateDevices: async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) throw new Error("media_unsupported");
+      return Array.from(await navigator.mediaDevices.enumerateDevices());
+    },
+    getMicApi: () => window.__tpMic || null,
+    getCameraApi: () => window.__tpCamera || null,
+    getObsApi: () => {
+      const controller = window.__tpObs;
+      if (!controller) return null;
+      const events = window.__obsBridge;
+      return {
+        armed: typeof controller.armed === "function" ? () => controller.armed() : void 0,
+        setArmed: typeof controller.setArmed === "function" ? (on3) => controller.setArmed(on3) : void 0,
+        maybeConnect: typeof controller.maybeConnect === "function" ? () => controller.maybeConnect() : void 0,
+        disconnect: typeof controller.disconnect === "function" ? () => controller.disconnect() : typeof events?.disconnect === "function" ? () => events.disconnect() : void 0,
+        on: typeof events?.on === "function" ? (event, callback) => events.on(event, callback) : void 0
+      };
+    },
+    setObsEnabled: (enabled2) => setRecorderEnabled("obs", enabled2),
+    readSavedMicDeviceId: () => readStored("tp_mic_device_v1"),
+    readSavedCameraDeviceId: () => readStored("tp_camera_device_v1"),
+    isRecording: isSessionRecording,
+    dispatch: (snapshot) => {
+      window.dispatchEvent(new CustomEvent("tp:recording:arm-state", { detail: snapshot }));
+    }
+  };
+}
+function createRecordingArmController(overrides = {}) {
+  const deps = { ...defaultDependencies(), ...overrides };
+  let snapshot = { state: "idle", configuration: null, failure: null };
+  let ownsMic = false;
+  let ownsCamera = false;
+  let ownsObsArm = false;
+  let removeObsDisconnectListener = null;
+  const listeners3 = /* @__PURE__ */ new Set();
+  const publish = (next) => {
+    snapshot = next;
+    deps.dispatch({ ...next });
+    listeners3.forEach((listener) => listener({ ...next }));
+  };
+  const cleanupOwnedMedia = async () => {
+    removeObsDisconnectListener?.();
+    removeObsDisconnectListener = null;
+    if (ownsObsArm) {
+      const obs = deps.getObsApi();
+      try {
+        await obs?.setArmed?.(false);
+      } catch {
+      }
+      try {
+        await obs?.disconnect?.();
+      } catch {
+      }
+      try {
+        deps.setObsEnabled(false);
+      } catch {
+      }
+      ownsObsArm = false;
+    }
+    if (ownsCamera) {
+      try {
+        deps.getCameraApi()?.stop?.();
+      } catch {
+      }
+      ownsCamera = false;
+    }
+    if (ownsMic) {
+      try {
+        await deps.getMicApi()?.releaseMic?.();
+      } catch {
+      }
+      ownsMic = false;
+    }
+  };
+  const fail3 = async (failure, configuration) => {
+    await cleanupOwnedMedia();
+    publish({ state: "error", configuration, failure });
+    return { ok: false, failure };
+  };
+  return {
+    getSnapshot: () => ({ ...snapshot }),
+    subscribe(listener) {
+      listeners3.add(listener);
+      listener({ ...snapshot });
+      return () => listeners3.delete(listener);
+    },
+    async arm() {
+      if (snapshot.state === "armed" || snapshot.state === "recording") return { ok: true };
+      const saved = deps.readConfiguration();
+      if (!saved.ok) {
+        return fail3(saved.reason === "missing" ? "configuration_missing" : "configuration_invalid", null);
+      }
+      const configuration = saved.configuration;
+      publish({ state: "arming", configuration, failure: null });
+      if (configuration.engine === "obs") {
+        const obs = deps.getObsApi();
+        if (!obs?.setArmed || !obs.armed) return fail3("obs_unavailable", configuration);
+        if (obs.armed()) {
+          deps.setObsEnabled(true);
+          publish({ state: "armed", configuration, failure: null });
+          return { ok: true };
+        }
+        try {
+          deps.setObsEnabled(true);
+          const armResult = await obs.setArmed(true);
+          if (armResult === false) return fail3("obs_failed", configuration);
+          ownsObsArm = obs.armed();
+          const connectResult = await obs.maybeConnect?.();
+          if (connectResult === false || !obs.armed()) return fail3("obs_failed", configuration);
+          if (obs.on) {
+            const cleanup = obs.on("disconnect", () => {
+              if (!ownsObsArm || snapshot.configuration?.engine !== "obs") return;
+              ownsObsArm = false;
+              publish({ state: "error", configuration, failure: "obs_disconnected" });
+            });
+            if (typeof cleanup === "function") removeObsDisconnectListener = cleanup;
+          }
+          publish({ state: "armed", configuration, failure: null });
+          return { ok: true };
+        } catch {
+          return fail3("obs_failed", configuration);
+        }
+      }
+      if (!navigator.mediaDevices?.getUserMedia) return fail3("media_unsupported", configuration);
+      let devices;
+      try {
+        devices = await deps.enumerateDevices();
+      } catch {
+        return fail3("media_unsupported", configuration);
+      }
+      const micId = deps.readSavedMicDeviceId();
+      const cameraId = deps.readSavedCameraDeviceId();
+      if (micId && !devices.some((device) => device.kind === "audioinput" && device.deviceId === micId)) {
+        return fail3("microphone_missing", configuration);
+      }
+      if (configuration.mode === "av" && cameraId && !devices.some((device) => device.kind === "videoinput" && device.deviceId === cameraId)) {
+        return fail3("camera_missing", configuration);
+      }
+      const mic2 = deps.getMicApi();
+      if (!mic2?.requestMic) return fail3("microphone_failed", configuration);
+      if (!mic2.isOpen?.()) {
+        try {
+          await mic2.requestMic(micId || void 0);
+          ownsMic = true;
+        } catch (error) {
+          return fail3(permissionDenied(error) ? "microphone_denied" : "microphone_failed", configuration);
+        }
+      }
+      if (configuration.mode === "av") {
+        const camera = deps.getCameraApi();
+        if (!camera?.start) return fail3("camera_failed", configuration);
+        if (!camera.isActive?.()) {
+          try {
+            if (cameraId && camera.setDevice) {
+              const selected = await camera.setDevice(cameraId);
+              if (selected === false) return fail3("camera_failed", configuration);
+            }
+            const started = await camera.start();
+            if (started === false) {
+              const failure = camera.getLastStartFailure?.() === "permission_denied" ? "camera_denied" : "camera_failed";
+              return fail3(failure, configuration);
+            }
+            ownsCamera = true;
+          } catch (error) {
+            return fail3(permissionDenied(error) ? "camera_denied" : "camera_failed", configuration);
+          }
+        }
+      }
+      publish({ state: "armed", configuration, failure: null });
+      return { ok: true };
+    },
+    async disarm() {
+      if (deps.isRecording() || snapshot.state === "recording") return false;
+      await cleanupOwnedMedia();
+      publish({ state: "idle", configuration: null, failure: null });
+      return true;
+    },
+    setRecordingActive(active) {
+      if (active) {
+        publish({ state: "recording", configuration: snapshot.configuration, failure: null });
+      } else if (snapshot.state === "recording") {
+        publish({
+          state: ownsMic || ownsCamera || ownsObsArm || snapshot.configuration?.engine === "obs" && !!deps.getObsApi()?.armed?.() ? "armed" : "idle",
+          configuration: snapshot.configuration,
+          failure: null
+        });
+      }
+    }
+  };
+}
+var init_recording_arm = __esm({
+  "src/recording/recording-arm.ts"() {
+    "use strict";
+    init_recorderRegistry();
+    init_recording_settings();
+    init_recorder_settings();
+  }
+});
+
+// src/features/recording-arm-control.ts
+function openRecordingSettings() {
+  try {
+    document.getElementById("settingsBtn")?.click();
+  } catch {
+  }
+  const activate = () => {
+    try {
+      document.querySelector('[data-settings-tab="recording"]')?.click();
+    } catch {
+    }
+  };
+  activate();
+  setTimeout(activate, 0);
+}
+function failureMessage(failure) {
+  switch (failure) {
+    case "configuration_missing":
+      return "Choose recording settings before arming.";
+    case "configuration_invalid":
+      return "Your saved recording settings need attention before arming.";
+    case "microphone_missing":
+      return "The saved microphone is unavailable. Choose a microphone in Recording Settings.";
+    case "camera_missing":
+      return "The saved camera is unavailable. Choose a camera in Recording Settings.";
+    case "microphone_denied":
+      return "Microphone permission was denied. Allow access, then arm again.";
+    case "camera_denied":
+      return "Camera permission was denied. Allow access, then arm again.";
+    case "media_unsupported":
+      return "This browser cannot initialize recording devices.";
+    case "camera_failed":
+      return "The camera could not be initialized. Check Recording Settings and device access.";
+    case "obs_unavailable":
+      return "OBS control is unavailable. Check OBS in Recording Settings.";
+    case "obs_disconnected":
+      return "OBS disconnected. Check OBS, then arm again.";
+    case "obs_failed":
+      return "OBS could not be armed. Check its connection in Recording Settings.";
+    default:
+      return "The microphone could not be initialized. Check Recording Settings and device access.";
+  }
+}
+function buttonLabel(state9) {
+  if (state9 === "arming") return "Arming\u2026";
+  if (state9 === "armed") return "Disarm Recording";
+  if (state9 === "recording") return "Recording Active";
+  return "Arm Recording";
+}
+function initRecordingArmControl() {
+  if (initialized2 || typeof document === "undefined") return;
+  initialized2 = true;
+  const controller = createRecordingArmController();
+  const render = (state9, failure) => {
+    const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
+    buttons.forEach((button) => {
+      button.textContent = buttonLabel(state9);
+      button.disabled = state9 === "arming" || state9 === "recording";
+      button.setAttribute("aria-pressed", state9 === "armed" || state9 === "recording" ? "true" : "false");
+      button.dataset.state = state9;
+    });
+    const status2 = document.getElementById("recordingArmStatus");
+    if (status2) {
+      status2.textContent = failure ? failureMessage(failure) : `Recording devices: ${state9}`;
+      status2.dataset.state = state9;
+    }
+  };
+  controller.subscribe((next) => render(next.state, next.failure));
+  const wireButtons2 = () => {
+    const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
+    buttons.forEach((button) => {
+      if (button.dataset.recordingArmWired) return;
+      button.dataset.recordingArmWired = "1";
+      button.addEventListener("click", async () => {
+        if (button.disabled) return;
+        const current2 = controller.getSnapshot();
+        if (current2.state === "armed") {
+          await controller.disarm();
+          return;
+        }
+        const result = await controller.arm();
+        if (!result.ok) {
+          const message = failureMessage(result.failure);
+          try {
+            window.toast?.(message, { type: "warn" });
+          } catch {
+          }
+          openRecordingSettings();
+        }
+      });
+    });
+  };
+  wireButtons2();
+  document.addEventListener("tp:settings:rendered", () => {
+    wireButtons2();
+    const next = controller.getSnapshot();
+    render(next.state, next.failure);
+  });
+  const syncRecordingState = (event) => {
+    const state9 = String(event?.detail?.state || "").toLowerCase();
+    if (state9 === "recording") controller.setRecordingActive(true);
+    if (state9 === "idle") controller.setRecordingActive(false);
+  };
+  window.addEventListener("rec:state", syncRecordingState);
+  window.addEventListener("tp:recording:state", (event) => {
+    const recording = event?.detail?.recording;
+    if (typeof recording === "boolean") controller.setRecordingActive(recording);
+  });
+  window.__tpRecordingArm = controller;
+}
+var initialized2;
+var init_recording_arm_control = __esm({
+  "src/features/recording-arm-control.ts"() {
+    "use strict";
+    init_recording_arm();
+    initialized2 = false;
   }
 });
 
@@ -101799,8 +102157,8 @@ async function loadInitialAuthState() {
   }
 }
 function initAuthUnlock() {
-  if (initialized2) return;
-  initialized2 = true;
+  if (initialized3) return;
+  initialized3 = true;
   wireTrialGuards();
   try {
     appStoreSingleton.subscribe("session.phase", (phase) => {
@@ -101817,7 +102175,7 @@ function initAuthUnlock() {
   }
   void loadInitialAuthState();
 }
-var TRIAL_LIMIT_MS, LOGIN_PATH, SESSION_CACHE_KEYS, initialized2, currentSession, trialLocked, liveStartedAt, trialTimerId, trialChannel;
+var TRIAL_LIMIT_MS, LOGIN_PATH, SESSION_CACHE_KEYS, initialized3, currentSession, trialLocked, liveStartedAt, trialTimerId, trialChannel;
 var init_auth_unlock = __esm({
   "src/features/auth-unlock.ts"() {
     "use strict";
@@ -101829,7 +102187,7 @@ var init_auth_unlock = __esm({
     TRIAL_LIMIT_MS = 5 * 60 * 1e3;
     LOGIN_PATH = "/login";
     SESSION_CACHE_KEYS = ["forge_profile_cache", "forge_user_cache"];
-    initialized2 = false;
+    initialized3 = false;
     currentSession = null;
     trialLocked = false;
     liveStartedAt = 0;
@@ -103310,6 +103668,10 @@ function buildSettingsContent(rootEl2) {
 
       <div class="settings-card anim-in">
         <h4>Manual session control</h4>
+        <div class="row gap" style="margin-bottom:8px">
+          <button id="settingsArmRecordingBtn" class="btn" type="button" data-action="recording-arm-toggle" aria-pressed="false">Arm Recording</button>
+          <span id="recordingArmStatus" class="settings-small muted" role="status" aria-live="polite">Recording devices: idle</span>
+        </div>
         <div class="row gap">
           <button id="startRecBtn" class="btn primary" type="button">Start recording</button>
           <button id="stopRecBtn" class="btn" type="button">Stop recording</button>
@@ -104165,6 +104527,10 @@ function wireSettingsDynamic(rootEl2, store3) {
   } catch {
   }
   try {
+    wireRecordButtons(store3, { startSelector: "#startRecBtn", stopSelector: "#stopRecBtn" });
+  } catch {
+  }
+  try {
     const obs = new MutationObserver(() => {
     });
     obs.observe(rootEl2, { childList: true, subtree: true, attributes: true });
@@ -104372,6 +104738,7 @@ var init_wire = __esm({
     "use strict";
     init_auto_record_ssot();
     init_recorders();
+    init_recordButtons();
     init_recorder_settings();
     init_recorderRegistry();
     init_recording_mode_ui();
@@ -105208,21 +105575,21 @@ function onKeydown(event) {
   }
 }
 function initHotkeys() {
-  if (initialized3) return;
+  if (initialized4) return;
   if (typeof window === "undefined") return;
   window.addEventListener("keydown", onKeydown, { capture: true });
-  initialized3 = true;
+  initialized4 = true;
   try {
     console.log("[src/features/hotkeys] initHotkeys");
   } catch {
   }
 }
-var initialized3;
+var initialized4;
 var init_hotkeys = __esm({
   "src/features/hotkeys.ts"() {
     "use strict";
     init_kick();
-    initialized3 = false;
+    initialized4 = false;
   }
 });
 
@@ -108147,6 +108514,7 @@ function bindCameraUI() {
   let currentDeviceId = null;
   let isStarting = false;
   let applyingFromStore = false;
+  let lastStartFailure = null;
   function updateChip(text) {
     if (camRtcChip) camRtcChip.textContent = text;
   }
@@ -108235,6 +108603,7 @@ function bindCameraUI() {
       return false;
     }
     isStarting = true;
+    lastStartFailure = null;
     setButtons(false, true);
     try {
       const id = currentDeviceId || deviceSelects[0] && deviceSelects[0].value || void 0;
@@ -108276,6 +108645,7 @@ function bindCameraUI() {
       } catch {
       }
       const name = err?.name || "";
+      lastStartFailure = name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError" ? "permission_denied" : "failed";
       const busy = name === "NotReadableError" || name === "TrackStartError";
       if (!attemptedFallback && currentDeviceId && busy) {
         try {
@@ -108415,6 +108785,7 @@ function bindCameraUI() {
   };
   api.isActive = isActive;
   api.currentDeviceId = currentDeviceId;
+  api.getLastStartFailure = () => lastStartFailure;
   api.startCamera = doStart;
   api.stopCamera = doStop;
   api.switchCamera = (id) => setDevice(id);
@@ -110703,8 +111074,8 @@ var init_single_monitor = __esm({
 
 // src/media/recorders-bridge-compat.ts
 function ensureBridgeInit() {
-  if (initialized4) return;
-  initialized4 = true;
+  if (initialized5) return;
+  initialized5 = true;
   try {
     initCompat();
   } catch {
@@ -110736,12 +111107,12 @@ function unregisterObsAdapter() {
   } catch {
   }
 }
-var initialized4;
+var initialized5;
 var init_recorders_bridge_compat2 = __esm({
   "src/media/recorders-bridge-compat.ts"() {
     "use strict";
     init_recorders_bridge_compat();
-    initialized4 = false;
+    initialized5 = false;
   }
 });
 
@@ -120904,6 +121275,10 @@ async function boot() {
           settings_default({ store: appStoreSingleton });
         } catch {
         }
+        try {
+          initRecordingArmControl();
+        } catch {
+        }
         if (isCiSmoke()) {
           try {
             injectSettingsFolderForSmoke();
@@ -121454,6 +121829,7 @@ var init_index_app = __esm({
     init_scroll_session();
     init_recording_session();
     init_rec_pills();
+    init_recording_arm_control();
     init_local_auto();
     init_obs_finished_import();
     init_page_tabs();
