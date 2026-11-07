@@ -593,3 +593,67 @@ export async function loadWorkpieceMediaPreviewUrl(args: {
     });
   }
 }
+
+export type HammerCanonicalPlayableMedia = Readonly<{
+  url: string;
+  contentType: string;
+  byteSize: number | null;
+  durationMs: number | null;
+  expiresAt: string;
+  mediaId: string;
+  mediaPath: string;
+  sourceSha256: string;
+}>;
+
+/**
+ * Resolves only the active canonical recording selected by Tongs. Unlike the
+ * generic preview loader, this deliberately leaves byte-range delivery to the
+ * signed storage URL and never buffers the full recording into a Blob.
+ */
+export async function loadHammerCanonicalPlayableMedia(args: {
+  workspaceId: string;
+  workpieceId: string;
+  canonicalRecordingId: string;
+  recordingRevisionId: string;
+  sourceSha256: string;
+  fetcher?: TongsFetcher;
+}): Promise<HammerCanonicalPlayableMedia> {
+  const response = await (args.fetcher ?? tongsFetch)(
+    `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/workpieces/${encodeURIComponent(args.workpieceId)}/hammer/playable-media`,
+    {
+      method: "POST",
+      json: {
+        canonical_recording_id: args.canonicalRecordingId,
+        recording_revision_id: args.recordingRevisionId,
+        source_sha256: args.sourceSha256.trim().toLowerCase().replace(/^sha256:/, ""),
+      },
+      timeoutMs: 30_000,
+    },
+  );
+  const payload = await response.json().catch(() => null);
+  const root = readJsonObject(payload);
+  if (!response.ok) {
+    const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not resolve canonical playback media.";
+    throw new Error(message);
+  }
+  const data = readJsonObject(root?.data);
+  const url = readString(data?.url);
+  const mediaId = readString(data?.media_id);
+  const mediaPath = readString(data?.media_path);
+  const sourceSha256 = readString(data?.source_sha256);
+  const expiresAt = readString(data?.expires_at);
+  const contentType = readString(data?.content_type);
+  if (!url || !mediaId || !mediaPath || !sourceSha256 || !expiresAt || !contentType) {
+    throw new Error("Tongs returned an incomplete canonical playback receipt.");
+  }
+  return Object.freeze({
+    url,
+    mediaId,
+    mediaPath,
+    sourceSha256,
+    expiresAt,
+    contentType,
+    byteSize: typeof data?.byte_size === "number" ? data.byte_size : null,
+    durationMs: typeof data?.duration_ms === "number" ? data.duration_ms : null,
+  });
+}

@@ -7,7 +7,7 @@ import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
 import type { HammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { executeDialogueAudioRenderWithBackend, processDialogueAudioWithBackend, resolveHammerAudioProcessingBackend, type HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
 import { buildHammerDevMediaUrl, loadCanonicalAudioPolishPreviewUrl } from "../lib/previewSource";
-import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
+import { createHammerPlaybackSourceResolutionGuard, resolveHammerRawPlaybackSource, resolveHammerSignedMediaRefreshDelayMs, selectHammerEffectivePlaybackUrl } from "./hammerCanonicalPlayback";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity, fingerprintHammerAudio } from "./hammerAudioDspPlan";
 import { validateHammerExactAudioReleaseReceipt } from "./hammerExactAudioReceipt";
@@ -161,7 +161,7 @@ export function useHammerAudioFinishingPreviewRefs() {
 export type HammerAudioFinishingPreviewRuntimeArgs = {
   activeTool: string; currentPass: string; compareMode: HammerAudioFinalizationCompareMode;
   rack: HammerStudioRackState; transcriptSegments: HammerTranscriptSegment[];
-  workspaceId: string; workpieceId: string; historyHeadEntryId: string | null;
+  workspaceId: string; workpieceId: string; historyHeadEntryId: string | null; canonicalRecordingId: string | null; recordingRevisionId: string | null;
   runtime: HammerMediaBackboneRuntimeSummary; mediaRef: MediaRef | null; localRootAbs: string | null;
   preferredPlayback: { kind: string; local_relpath?: string | null; workpiece_path?: string | null; mime_type?: string | null };
   hasAudibleProcessing: boolean; ffmpegAvailable: boolean;
@@ -177,10 +177,11 @@ export function useHammerAudioFinishingPreviewEffects(
   setPreviewSrc: Dispatch<SetStateAction<string | null>>,
   refs: ReturnType<typeof useHammerAudioFinishingPreviewRefs>,
 ) {
+  const [canonicalPlaybackRefreshEpoch, setCanonicalPlaybackRefreshEpoch] = useState(0); const rawPlaybackResolutionGuardRef = useRef<ReturnType<typeof createHammerPlaybackSourceResolutionGuard> | null>(null);
+  if (!rawPlaybackResolutionGuardRef.current) rawPlaybackResolutionGuardRef.current = createHammerPlaybackSourceResolutionGuard();
   const {
     activeTool, currentPass, compareMode, rack, transcriptSegments, workspaceId,
-    workpieceId, historyHeadEntryId, runtime, mediaRef, localRootAbs,
-    preferredPlayback, hasAudibleProcessing, ffmpegAvailable, playbackMediaSrc,
+    workpieceId, historyHeadEntryId, canonicalRecordingId, recordingRevisionId, runtime, mediaRef, localRootAbs, preferredPlayback, hasAudibleProcessing, ffmpegAvailable, playbackMediaSrc,
     previewVideoSrc, setPlaybackMediaSrc, setPreviewVideoSrc, setRenderStatus, inferMime,
   } = args;
   const shouldUseProcessed = activeTool === "audio" && currentPass === "audio_finalization" && compareMode === "after" && hasAudibleProcessing;
@@ -263,29 +264,32 @@ export function useHammerAudioFinishingPreviewEffects(
   ]);
   useEffect(() => {
     let active = true;
+    let refreshTimer: number | null = null;
+    const resolutionToken = rawPlaybackResolutionGuardRef.current!.begin();
     const resolveRaw = async () => {
-      const path = mediaRef?.local_relpath ?? null;
-      if (!path) { setPreviewVideoSrc(null); return null; }
+      const rawMediaRef = mediaRef; const path = rawMediaRef?.local_relpath ?? null;
+      if (!path || !rawMediaRef) { setPreviewVideoSrc(null); return null; }
       if (localRootAbs) { const url = buildHammerDevMediaUrl(localRootAbs, path); setPreviewVideoSrc(url); return url; }
-      try { const url = await loadWorkpieceMediaPreviewUrl({ workpieceId: workpieceId, path, mimeType: inferMime({ path, kind: mediaRef?.kind ?? "other" }), surface: "unknown" }); if (!active) { URL.revokeObjectURL(url); return null; } setPreviewVideoSrc(url); return url; } catch { if (active) setPreviewVideoSrc(null); return null; }
+      try {
+        const source = await resolveHammerRawPlaybackSource({ workspaceId, workpieceId, canonicalRecordingId, recordingRevisionId, mediaRef: rawMediaRef, path, mimeType: inferMime({ path, kind: rawMediaRef.kind }) });
+        const url = source.url;
+        if (!active || !rawPlaybackResolutionGuardRef.current!.accepts(resolutionToken)) { if (url.startsWith("blob:")) URL.revokeObjectURL(url); return null; }
+        if (source.expiresAt) refreshTimer = window.setTimeout(() => setCanonicalPlaybackRefreshEpoch((value) => value + 1), resolveHammerSignedMediaRefreshDelayMs(source.expiresAt));
+        setPreviewVideoSrc(url);
+        return url;
+      } catch { if (active) setPreviewVideoSrc(null); return null; }
     };
-    void (async () => { const raw = await resolveRaw(); if (!active) return; if (shouldUseProcessed && previewSrc) { setPlaybackMediaSrc(previewSrc); return; } if (preferredPlayback.kind === "polished") { if (preferredPlayback.local_relpath && localRootAbs) { setPlaybackMediaSrc(buildHammerDevMediaUrl(localRootAbs, preferredPlayback.local_relpath)); return; } if (preferredPlayback.workpiece_path) { try { const url = await loadCanonicalAudioPolishPreviewUrl({ workpieceId: workpieceId, workpiecePath: preferredPlayback.workpiece_path, mimeType: preferredPlayback.mime_type }); if (!active) { URL.revokeObjectURL(url); return; } setPlaybackMediaSrc(url); return; } catch { if (!active) return; } } } setPlaybackMediaSrc(raw); })();
-    return () => { active = false; };
+    void (async () => { const raw = await resolveRaw(); if (!active) return; let polished: string | null = null; if (preferredPlayback.kind === "polished") { if (preferredPlayback.local_relpath && localRootAbs) polished = buildHammerDevMediaUrl(localRootAbs, preferredPlayback.local_relpath); else if (preferredPlayback.workpiece_path) { try { polished = await loadCanonicalAudioPolishPreviewUrl({ workpieceId: workpieceId, workpiecePath: preferredPlayback.workpiece_path, mimeType: preferredPlayback.mime_type }); } catch { polished = null; } } } if (!active) { if (polished?.startsWith("blob:")) URL.revokeObjectURL(polished); return; } setPlaybackMediaSrc(selectHammerEffectivePlaybackUrl({ rawUrl: raw, processedUrl: previewSrc, polishedUrl: polished, useProcessed: shouldUseProcessed, preferPolished: preferredPlayback.kind === "polished" })); })();
+    return () => { active = false; if (refreshTimer !== null) window.clearTimeout(refreshTimer); };
   }, [
-    previewSrc,
-    activeTool,
-    compareMode,
-    currentPass,
-    inferMime,
-    localRootAbs,
-    mediaRef,
+    previewSrc, canonicalPlaybackRefreshEpoch, activeTool, compareMode, currentPass, inferMime, localRootAbs, mediaRef,
     preferredPlayback.kind,
     preferredPlayback.local_relpath,
     preferredPlayback.mime_type,
     preferredPlayback.workpiece_path,
     setPlaybackMediaSrc,
     setPreviewVideoSrc,
-    workpieceId,
+    workpieceId, workspaceId, canonicalRecordingId, recordingRevisionId,
     shouldUseProcessed,
   ]);
   return shouldUseProcessed;
