@@ -48,6 +48,7 @@ export interface HammerTranscriptPrepSegment {
 }
 
 export interface HammerTranscriptPrepResponse {
+  resolution?: "persisted_reuse" | "provider_completion";
   provider: "openai" | "assemblyai";
   model: string;
   provider_request_id: string | null;
@@ -367,6 +368,7 @@ function normalizeResponse(payload: unknown): HammerTranscriptPrepResponse | nul
     .filter((segment): segment is HammerTranscriptPrepSegment => Boolean(segment));
 
   return {
+    resolution: data?.resolution === "persisted_reuse" || data?.resolution === "provider_completion" ? data.resolution : undefined,
     provider,
     model,
     provider_request_id: readString(data?.provider_request_id),

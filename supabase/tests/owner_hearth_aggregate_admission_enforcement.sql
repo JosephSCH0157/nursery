@@ -1,3 +1,33 @@
+-- Test-only predecessor identity; no linked or hosted database may run this proof.
+do $request_guard$
+begin
+ if current_database() is distinct from 'postgres'
+  or current_user is distinct from 'postgres'
+  or current_setting('forge.owner_request_certification',true) is distinct from 'disposable-baseline-v1'
+  or (select count(*) from forge_meta.database_lineage) is distinct from 1
+  or not exists(select 1 from forge_meta.database_lineage where singleton and lineage='baseline-v1')
+  or (select max(version) from supabase_migrations.schema_migrations) is distinct from '20261104071802'
+  or exists(select 1 from auth.users where id='94000000-0000-4000-8000-000000000001') then
+   raise exception 'Owner request proof requires the exact disposable canonical predecessor' using errcode='42501';
+ end if;
+end $request_guard$;
+
+create function pg_temp.owner_request_fingerprints()
+returns table(relation_name text,fingerprint text) language plpgsql as $fingerprints$
+declare r record;
+begin
+ for r in select c.oid::regclass::text rel
+   from pg_class c join pg_namespace n on n.oid=c.relnamespace
+   where (n.nspname='tongs' and c.relkind in ('r','p'))
+      or (n.nspname='auth' and c.relname='users')
+ loop
+  relation_name:=r.rel;
+  execute format('select md5(coalesce(string_agg(to_jsonb(x)::text,E''\n'' order by to_jsonb(x)::text),'''')) from %s x',r.rel) into fingerprint;
+  return next;
+ end loop;
+end $fingerprints$;
+create temp table owner_request_original_state as select * from pg_temp.owner_request_fingerprints();
+
 begin;
 
 -- The disposable policy fixture is historical evidence and intentionally stale.
@@ -35,12 +65,144 @@ select tongs.activate_owner_hearth_compatibility_package(
  '94000000-0000-4000-8000-000000000001','94000000-0000-4000-8000-000000000020',
  '94000000-0000-4000-8000-000000000021','94000000-0000-4000-8000-000000000022',
  'disposable aggregate enforcement package');
+reset role;
+create temp table owner_request_evidence(
+ kind text primary key,body text not null,sha256 text not null,serialized_bytes bigint not null,
+ tokenizer_input_tokens bigint not null,protocol_overhead_tokens bigint not null,bounded_input_tokens bigint not null);
+insert into owner_request_evidence values
+ ('historical',$historical_request${"max_completion_tokens":512,"messages":[{"content":"You are Hearth, a concise podcast writing collaborator. Answer only the creator's bounded request. Do not browse, call tools, purchase assets, or claim work you did not perform. Return plain text or the existing Hearth JSON reply shape.","role":"system"},{"content":"Reply with exactly: Ready.","role":"user"}],"model":"gpt-6-astra"}$historical_request$,'a47a64df70bcccf38b7174d5829798f7a69e47c11f218857091f99b3b0f9cd43',386,85,16,386),
+ ('current',$current_request${"max_completion_tokens":512,"messages":[{"content":"You are Hearth, a concise podcast writing collaborator. Answer only the creator's bounded request. Do not browse, call tools, purchase assets, or claim work you did not perform. Return plain text or the existing Hearth JSON reply shape.","role":"system"},{"content":"Reply with exactly: Ready.","role":"user"}],"model":"gpt-6-astra","prompt_cache_options":{"ttl":"30m"},"service_tier":"default"}$current_request$,'5782309a417f5970d78dfc57b6c42c717d771ce9bc1c6b88747c8c2ee2da2735',448,101,16,448);
+do $temporary_schema_access$
+begin
+ execute format('grant usage on schema %I to service_role',
+  (select nspname from pg_namespace where oid=pg_my_temp_schema()));
+end $temporary_schema_access$;
+grant select on pg_temp.owner_request_evidence to service_role;
+
+-- These are retained reviewed terms, not a new allowance or a price recalculation.
+do $reviewed_terms$
+declare v_source text;
+begin
+ if (select count(*) from tongs.openai_text_cost_policy_revisions
+     where id='81000000-0000-4000-8000-000000000001' and revision=101
+       and policy_code='owner-hearth-compat-astra-v1' and route_code='hearth.chat_completion'
+       and maximum_input_units=386 and maximum_output_units=512 and maximum_attempts=1
+       and direct_provider_ceiling_micros=29460 and supporting_cost_ceiling_micros=1456
+       and full_cost_ceiling_micros=30916 and cost_coverage='complete') is distinct from 1
+    or not exists(select 1 from tongs.owner_hearth_model_terms
+     where authorization_id='94000000-0000-4000-8000-000000000020' and provider_model_id='gpt-6-astra'
+       and cost_policy_revision_id='81000000-0000-4000-8000-000000000001')
+    or not exists(select 1 from tongs.owner_hearth_authorizations
+     where id='94000000-0000-4000-8000-000000000020' and maximum_amount_micros=90000
+       and maximum_operations=5 and maximum_concurrency=1 and maximum_attempts=1)
+    or exists(select 1 from pg_temp.owner_request_evidence
+     where octet_length(convert_to(body,'UTF8')) is distinct from serialized_bytes
+       or encode(extensions.digest(convert_to(body,'UTF8'),'sha256'),'hex') is distinct from sha256
+       or greatest(tokenizer_input_tokens+protocol_overhead_tokens,serialized_bytes) is distinct from bounded_input_tokens)
+ then raise exception 'Historical owner request evidence or reviewed financial terms changed'; end if;
+ select pg_get_functiondef(p.oid) into strict v_source
+ from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+ where n.nspname='tongs' and p.proname='prepare_owner_hearth_operation';
+ if position('cost.maximum_input_units<p_bounded_input_tokens' in v_source)=0
+   or position('consumed+held+cost.full_cost_ceiling_micros+3>authz.maximum_amount_micros' in v_source)=0
+ then raise exception 'Owner input or aggregate amount admission guard changed'; end if;
+end $reviewed_terms$;
+
+-- Calls the unchanged production RPC as service_role. No stubbed SQL admission.
+create function pg_temp.prepare_owner_request(p_kind text,p_owner uuid,p_operation text,p_expiry timestamptz)
+returns jsonb language sql as $prepare$
+ select tongs.prepare_owner_hearth_operation(
+  '94000000-0000-4000-8000-000000000080','94000000-0000-4000-8000-000000000081',
+  '94000000-0000-4000-8000-000000000082','94000000-0000-4000-8000-000000000083',
+  p_owner,'94000000-0000-4000-8000-000000000010','aggregate-enforcement-workpiece',
+  p_operation,'gpt-6-astra',repeat('a',64),e.sha256,e.serialized_bytes,e.tokenizer_input_tokens,
+  e.protocol_overhead_tokens,e.bounded_input_tokens,512,1::smallint,
+  'openai-json-o200k-byte-ceiling-v1','o200k_base-js-tiktoken-1.0.21',p_expiry)
+ from pg_temp.owner_request_evidence e where e.kind=p_kind
+$prepare$;
+grant execute on function pg_temp.prepare_owner_request(text,uuid,text,timestamptz) to service_role;
+
+create temp table owner_request_before_denial as select * from pg_temp.owner_request_fingerprints();
+set local role service_role;
+do $current_request_denied$
+declare v_denied boolean; i integer;
+begin
+ for i in 1..2 loop
+  v_denied:=false;
+  begin
+   perform pg_temp.prepare_owner_request('current','94000000-0000-4000-8000-000000000001',
+    'owner-hearth-current-request-denied',now()+interval '10 minutes');
+  exception when sqlstate 'P0001' then
+   if sqlerrm is distinct from 'exact owner Hearth cost and pricing terms required' then raise; end if;
+   v_denied:=true;
+  end;
+  if v_denied is distinct from true then raise exception 'Current request exceeded historical authority without denial'; end if;
+ end loop;
+ v_denied:=false;
+ begin
+  perform pg_temp.prepare_owner_request('historical','94000000-0000-4000-8000-000000000001',
+   'owner-hearth-expired-request-denied',now()-interval '1 minute');
+ exception when invalid_parameter_value then
+  if sqlerrm is distinct from 'invalid exact owner Hearth request evidence' then raise; end if;
+  v_denied:=true;
+ end;
+ if v_denied is distinct from true then raise exception 'Expired owner request was accepted'; end if;
+ v_denied:=false;
+ begin
+  perform pg_temp.prepare_owner_request('historical','94000000-0000-4000-8000-000000000002',
+   'owner-hearth-cross-owner-request-denied',now()+interval '10 minutes');
+ exception when insufficient_privilege then
+  if sqlerrm is distinct from 'owner Hearth authorization is not active' then raise; end if;
+  v_denied:=true;
+ end;
+ if v_denied is distinct from true then raise exception 'Cross-owner request inherited authority'; end if;
+end $current_request_denied$;
+reset role;
+do $denial_integrity$
+begin
+ if exists(select 1 from pg_temp.owner_request_fingerprints() a
+   full join pg_temp.owner_request_before_denial b using(relation_name)
+   where a.fingerprint is distinct from b.fingerprint)
+   or exists(select 1 from tongs.funding_reservations where id='94000000-0000-4000-8000-000000000083')
+   or exists(select 1 from tongs.owner_hearth_operation_authorizations where id='94000000-0000-4000-8000-000000000080')
+ then raise exception 'Denied current/expired/cross-owner requests mutated financial or provider state'; end if;
+end $denial_integrity$;
+select 'Current Astra request denied by unchanged 386-unit SQL authority; zero financial/provider mutations' as certification;
+set local role service_role;
+
 select tongs.prepare_owner_hearth_operation(
  '94000000-0000-4000-8000-000000000030','94000000-0000-4000-8000-000000000031',
  '94000000-0000-4000-8000-000000000032','94000000-0000-4000-8000-000000000033',
  '94000000-0000-4000-8000-000000000001','94000000-0000-4000-8000-000000000010','aggregate-enforcement-workpiece',
- 'owner-hearth-aggregate-enforcement','gpt-6-astra',repeat('a',64),repeat('b',64),386,300,16,386,512,1::smallint,
- 'openai-json-o200k-byte-ceiling-v1','o200k_base-js-tiktoken-1.0.21',now()+interval '10 minutes');
+ 'owner-hearth-aggregate-enforcement','gpt-6-astra',repeat('a',64),e.sha256,e.serialized_bytes,e.tokenizer_input_tokens,e.protocol_overhead_tokens,e.bounded_input_tokens,512,1::smallint,
+ 'openai-json-o200k-byte-ceiling-v1','o200k_base-js-tiktoken-1.0.21',now()+interval '10 minutes')
+from pg_temp.owner_request_evidence e where e.kind='historical';
+
+
+reset role;
+create temp table owner_request_before_replay as select * from pg_temp.owner_request_fingerprints();
+set local role service_role;
+do $changed_hash_denied$
+declare v_denied boolean:=false;
+begin
+ begin
+  perform pg_temp.prepare_owner_request('current','94000000-0000-4000-8000-000000000001',
+   'owner-hearth-aggregate-enforcement',now()+interval '10 minutes');
+ exception when unique_violation then
+  if sqlerrm is distinct from 'owner Hearth operation replay conflict' then raise; end if;
+  v_denied:=true;
+ end;
+ if v_denied is distinct from true then raise exception 'Changed current request reused historical operation authority'; end if;
+end $changed_hash_denied$;
+reset role;
+do $replay_integrity$
+begin
+ if exists(select 1 from pg_temp.owner_request_fingerprints() a
+   full join pg_temp.owner_request_before_replay b using(relation_name)
+   where a.fingerprint is distinct from b.fingerprint)
+ then raise exception 'Changed request hash mutated historical authorization or financial state'; end if;
+end $replay_integrity$;
+set local role service_role;
 
 -- Missing aggregate admission must deny before any financial or attempt mutation.
 do $missing_admission$
@@ -224,4 +386,13 @@ begin
 end
 $installed_contract$;
 
+reset role;
 rollback;
+do $original_integrity$
+begin
+ if exists(select 1 from pg_temp.owner_request_fingerprints() a
+   full join pg_temp.owner_request_original_state b using(relation_name)
+   where a.fingerprint is distinct from b.fingerprint)
+ then raise exception 'Owner historical/current certification failed complete rollback integrity'; end if;
+end $original_integrity$;
+select 'Historical serialization/terms, current denial, hash isolation and complete rollback certified; no provider execution claimed' as certification;

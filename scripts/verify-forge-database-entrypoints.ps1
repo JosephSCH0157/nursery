@@ -47,6 +47,8 @@ $approvedExecutablePaths = @(
   'package.json',
   'scripts/invoke-forge-database.ps1',
   'scripts/new-forge-database-workdir.ps1',
+  'scripts/start-forge-disposable-ci-database.ps1',
+  'scripts/test-forge-disposable-ci-guards.ps1',
   'scripts/generate-forge-database-types.ps1',
   'scripts/certify-canonical-baseline-v1.ps1'
   'scripts/certify-gate6h-successor.ps1'

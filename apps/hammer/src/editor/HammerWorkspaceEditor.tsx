@@ -64,6 +64,7 @@ import {
   loadLegacyHammerTranscriptArtifacts,
   advanceHammerPreparation,
   openHammerRecordingSession,
+  readHammerCanonicalTranscriptV2,
   resetHammerRecordingRevision,
   saveHammerRecordingRevision,
   sealHammerCanonicalBaseline,
@@ -83,10 +84,9 @@ import {
   type HammerPrepState,
 } from "../prep/hammerPrep";
 import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
+import { scanNonCanonicalAnvilTranscript } from "./hammerSavedTranscriptDiscovery";
 import { reconcileTranscriptReuseVisualPlacements } from "./hammerPrepReusePolicy";
-import {
-  findRecoveredAnvilSnapshotByWorkpieceId,
-} from "../transcript/hammerAnvilSnapshotRecovery";
+import { findRecoveredAnvilSnapshotByWorkpieceId } from "../transcript/hammerAnvilSnapshotRecovery";
 import {
   buildHammerPrepAiNoticeApprovalKey,
   buildHammerPrepAiNoticeModel,
@@ -1434,10 +1434,11 @@ export default function HammerWorkspaceEditor(
           // 2. Revision transcript
           // 3. Canonical baseline transcript
 
-          const [baselineResult, revisionArtifactsResult, persistenceSnapshotResult] = await Promise.all([
+          const [baselineResult, revisionArtifactsResult, persistenceSnapshotResult, canonicalV2Result] = await Promise.all([
             loadHammerCanonicalBaselineArtifacts(sessionResult.data.canonical_recording),
             loadHammerRecordingRevisionArtifacts(sessionResult.data.revision),
             loadHammerPersistenceSnapshot(persistenceTarget),
+            readHammerCanonicalTranscriptV2(persistenceTarget, sessionResult.data.canonical_recording, sessionResult.data.revision),
           ]);
           setCanonicalTimingBaseline(baselineResult.ok ? baselineResult.data.timing_baseline : null);
           if (!revisionArtifactsResult.ok) {
@@ -1456,7 +1457,7 @@ export default function HammerWorkspaceEditor(
           }
 
           const canonicalTranscript = baselineResult.ok ? baselineResult.data.structured_transcript : null;
-          const canonicalSpeakerMap = baselineResult.ok ? baselineResult.data.speaker_map : null;
+          let canonicalSpeakerMap = baselineResult.ok ? baselineResult.data.speaker_map : null;
           const revisionEditorSession = revisionArtifactsResult.ok ? revisionArtifactsResult.data.editor_session : null;
           const revisionTranscript = revisionArtifactsResult.ok ? revisionArtifactsResult.data.revision_transcript : null;
           const revisionAudioPolish = revisionArtifactsResult.ok ? revisionArtifactsResult.data.audio_polish : null;
@@ -1495,6 +1496,11 @@ export default function HammerWorkspaceEditor(
             && transcriptMatchesCanonicalMedia(canonicalTranscript, sessionResult.data.canonical_recording.media_id)
           );
           const baselineTranscriptSegmentCount = baselineTranscriptLoadOk ? canonicalTranscript.segments.length : null;
+          const canonicalV2Transcript = canonicalV2Result.ok && canonicalV2Result.data.outcome === "found"
+            ? canonicalV2Result.data.transcript
+            : null;
+          const canonicalV2Status = !canonicalV2Result.ok ? "unverifiable" as const
+            : canonicalV2Result.data.outcome === "found" ? "usable" as const : "absent" as const;
 
           if (ingestDiagnosticRef.current) {
             ingestDiagnosticRef.current.pointers = {
@@ -1557,15 +1563,18 @@ export default function HammerWorkspaceEditor(
             path: registeredTranscriptPath,
             segment_count: registeredTranscriptSegmentCount,
             load_ok: registeredTranscriptLoadOk,
+            status: registeredTranscriptLoadOk ? "usable" : persistenceSnapshotResult.ok ? "absent" : "unverifiable",
             rejection_reason: registeredTranscriptDefinitiveFailure
               ? (registeredTranscriptRejectionReason ?? "definitively_bad")
               : null,
           });
+          transcriptEvaluations.push({ source: "canonical_v2", path: canonicalV2Result.ok && canonicalV2Result.data.outcome === "found" ? canonicalV2Result.data.artifact_path : null, segment_count: canonicalV2Transcript?.segments.length ?? null, load_ok: canonicalV2Status === "usable", status: canonicalV2Status, rejection_reason: canonicalV2Status === "unverifiable" ? (canonicalV2Result.ok ? "invalid" : canonicalV2Result.error_code ?? canonicalV2Result.error) : null });
           transcriptEvaluations.push({
             source: "revision",
             path: sessionResult.data.revision.revision_transcript_path ?? null,
             segment_count: revisionTranscriptSegmentCount,
             load_ok: revisionTranscriptLoadOk,
+            status: revisionTranscriptLoadOk ? "usable" : revisionArtifactsResult.ok ? "absent" : "unverifiable",
             rejection_reason: null,
           });
           transcriptEvaluations.push({
@@ -1573,6 +1582,7 @@ export default function HammerWorkspaceEditor(
             path: sessionResult.data.canonical_recording.baseline_transcript_path ?? null,
             segment_count: baselineTranscriptSegmentCount,
             load_ok: baselineTranscriptLoadOk,
+            status: baselineTranscriptLoadOk ? "usable" : baselineResult.ok ? "absent" : "unverifiable",
             rejection_reason: null,
           });
 
@@ -1590,6 +1600,10 @@ export default function HammerWorkspaceEditor(
               load_ok: baselineTranscriptLoadOk,
               segment_count: baselineTranscriptSegmentCount,
             },
+            canonicalV2: {
+              status: canonicalV2Status,
+              segment_count: canonicalV2Transcript?.segments.length ?? null,
+            },
           });
 
           transcriptSource = hydrationDecision.selected_source;
@@ -1599,63 +1613,45 @@ export default function HammerWorkspaceEditor(
             hydratedTranscript = revisionTranscript;
           } else if (transcriptSource === "canonical_baseline") {
             hydratedTranscript = canonicalTranscript;
+          } else if (transcriptSource === "canonical_transcript_v2") {
+            hydratedTranscript = canonicalV2Transcript;
+            canonicalSpeakerMap = canonicalV2Result.ok && canonicalV2Result.data.outcome === "found"
+              ? canonicalV2Result.data.speaker_map
+              : null;
+            console.info("[hammer:transcript:canonical_reuse]", {
+              transcript_id: canonicalV2Transcript?.transcript_id,
+              operation_id: canonicalV2Result.ok && canonicalV2Result.data.outcome === "found" ? canonicalV2Result.data.operation_id : null,
+              source: "persisted_reuse",
+            });
           } else {
+            const savedSourceFailure = !persistenceSnapshotResult.ok
+              ? persistenceSnapshotResult
+              : !baselineResult.ok
+                ? baselineResult
+                : !canonicalV2Result.ok
+                  ? canonicalV2Result
+                  : null;
+            if (savedSourceFailure) {
+              return {
+                reloadOutcome: "failure",
+                effectiveLaunchContext: nextLaunchContext,
+                hasCanonicalBasis: false,
+                reopenPersistenceSource: nextReopenPersistenceSource,
+                loadedPersistenceSnapshot: null,
+                activeCanonicalRecording: nextActiveCanonicalRecording,
+                activeRevision: nextActiveRevision,
+                prepFailureMessage: `A saved transcript may exist but could not be verified: ${savedSourceFailure.error}`,
+                prepFailureKind: "ai_failed",
+                prepFailureCode: "error_code" in savedSourceFailure && typeof savedSourceFailure.error_code === "string"
+                  ? savedSourceFailure.error_code
+                  : "hammer_saved_transcript_unverifiable",
+              };
+            }
             rejectionReason = "No valid transcript found in any source (registered, revision, baseline)";
 
-            // --- Local Anvil live transcript recovery ---
-            console.info("[hammer:transcript:canonical_missing]", {
-              workpiece_id: persistenceTarget.workpieceId,
-              timestamp: new Date().toISOString(),
-            });
-            console.info("[hammer:transcript:live_noncanonical_scan_start]", {
-              workpiece_id: persistenceTarget.workpieceId,
-              timestamp: new Date().toISOString(),
-            });
-
-            const localAnvilRecoveryResult: {
-              scan_attempted: boolean;
-              match_found: boolean;
-              capture_session_id: string | null;
-              segment_count: number | null;
-              blocked_reason: string | null;
-            } = {
-              scan_attempted: true,
-              match_found: false,
-              capture_session_id: null,
-              segment_count: null,
-              blocked_reason: null,
-            };
-
-            try {
-              const recovered = findRecoveredAnvilSnapshotByWorkpieceId(persistenceTarget.workpieceId);
-              if (recovered && recovered.segments.length > 0) {
-                console.info("[hammer:transcript:live_noncanonical_match_found]", {
-                  workpiece_id: persistenceTarget.workpieceId,
-                  capture_session_id: recovered.capture_session_id,
-                  segment_count: recovered.segment_count,
-                  timestamp: new Date().toISOString(),
-                });
-                localAnvilRecoveryResult.match_found = true;
-                localAnvilRecoveryResult.capture_session_id = recovered.capture_session_id;
-                localAnvilRecoveryResult.segment_count = recovered.segment_count;
-                localAnvilRecoveryResult.blocked_reason = "live_noncanonical_asr_cannot_seed_canonical_transcript";
-                transcriptEvaluations.push({
-                  source: "live_noncanonical",
-                  path: recovered.live_path ?? recovered.final_path,
-                  segment_count: recovered.segment_count,
-                  load_ok: false,
-                  rejection_reason: "live_noncanonical_asr",
-                });
-              }
-            } catch (localRecoveryError) {
-              localAnvilRecoveryResult.blocked_reason = localRecoveryError instanceof Error
-                ? localRecoveryError.message
-                : String(localRecoveryError);
-            }
-
-            if (ingestDiagnosticRef.current) {
-              ingestDiagnosticRef.current.live_noncanonical_asr = localAnvilRecoveryResult;
-            }
+            const localAnvil = scanNonCanonicalAnvilTranscript({ workpieceId: persistenceTarget.workpieceId, find: findRecoveredAnvilSnapshotByWorkpieceId });
+            if (localAnvil.evaluation) transcriptEvaluations.push(localAnvil.evaluation);
+            if (ingestDiagnosticRef.current) ingestDiagnosticRef.current.live_noncanonical_asr = localAnvil.recovery;
 
             if (!hydratedTranscript) {
               const hasMedia = Boolean(
@@ -3407,11 +3403,14 @@ export default function HammerWorkspaceEditor(
         setPrepState(createHammerPrepState("prepared", "ready_for_next_step"));
         setShowPreparedHandoff(true);
         try {
-          console.info("[hammer:transcript:ai_fallback_completed]", {
+          console.info(transcriptPrep.data.resolution === "persisted_reuse"
+            ? "[hammer:transcript:canonical_reuse]"
+            : "[hammer:transcript:ai_fallback_completed]", {
             workspace_id: currentLaunchContext.workspace_id,
             workpiece_id: currentLaunchContext.workpiece_id,
             provider: transcriptPrep.data.provider,
             client_request_id: transcriptClientRequestId,
+            resolution: transcriptPrep.data.resolution ?? "provider_completion",
           });
         } catch {}
         logTranscriptStage("transcript:prep:ok", {

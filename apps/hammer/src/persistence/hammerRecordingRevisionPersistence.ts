@@ -18,6 +18,8 @@ import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
 import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
 import { parseTongsReadFileResponse } from "../lib/tongsReadFileResponse";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import type { HammerCanonicalTranscriptV2 } from "../../../../packages/contracts/hammer/canonical-transcript-v2.contract";
+import { projectCanonicalTranscriptV2ToHammerV1Editor, validateHammerCanonicalTranscriptV2 } from "../transcript/hammerSingleProviderTranscript";
 
 type JsonObject = Record<string, unknown>;
 
@@ -234,6 +236,86 @@ export async function openHammerRecordingSession(
   }
 
   return { ok: true, status: response.status, data: { canonical_recording: canonical, revision, preparation_attempt: preparationAttempt } };
+}
+
+export type HammerCanonicalTranscriptDiscovery =
+  | { outcome: "absent" }
+  | { outcome: "found"; transcript: HammerPersistedStructuredTranscript; speaker_map: HammerPersistedSpeakerMap; operation_id: string; artifact_path: string };
+
+export async function readHammerCanonicalTranscriptV2(
+  target: HammerPersistenceTarget,
+  canonical: HammerCanonicalRecordingRecord,
+  revision: HammerRecordingRevisionRecord,
+): Promise<PersistenceResult<HammerCanonicalTranscriptDiscovery>> {
+  const sourceSha256 = canonical.media_signature?.trim().toLowerCase().replace(/^sha256:/, "") ?? "";
+  if (!/^[0-9a-f]{64}$/.test(sourceSha256)) {
+    return { ok: false, status: 409, error: "The canonical recording fingerprint is unavailable.", error_code: "hammer_canonical_transcript_fingerprint_unverifiable" };
+  }
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/canonical-transcript`,
+      { method: "POST", json: { canonical_recording_id: canonical.id, recording_revision_id: revision.id, source_sha256: sourceSha256 }, timeoutMs: 30_000 },
+    );
+  } catch (error) {
+    return { ok: false, status: 504, error: toErrorMessage(error, "Saved transcript discovery timed out."), error_code: "hammer_canonical_transcript_read_failed" };
+  }
+  const payload = await readJsonBody(response);
+  if (!response.ok) {
+    const info = readErrorInfo(payload, "Saved transcript discovery failed.");
+    return { ok: false, status: response.status, error: info.message, error_code: info.code, error_details: info.details };
+  }
+  const data = readJsonObject(readJsonObject(payload)?.data);
+  if (data?.outcome === "absent") return { ok: true, status: response.status, data: { outcome: "absent" } };
+  const row = readJsonObject(data?.canonical_transcript);
+  if (data?.outcome !== "found" || !row) {
+    return { ok: false, status: 502, error: "Tongs returned an invalid saved transcript outcome.", error_code: "hammer_canonical_transcript_response_invalid" };
+  }
+  try {
+    const canonicalTranscript = validateHammerCanonicalTranscriptV2(row.transcript_json as HammerCanonicalTranscriptV2);
+    if (canonicalTranscript.provider.provider !== "assemblyai") {
+      throw new Error("Hammer ordinary-open recovery requires the certified AssemblyAI transcript contract.");
+    }
+    if (canonicalTranscript.transcript_id !== readString(row.id)
+      || canonicalTranscript.recording.canonical_recording_id !== canonical.id
+      || canonicalTranscript.recording.recording_revision_id !== revision.id
+      || canonicalTranscript.recording.media_sha256 !== sourceSha256) {
+      throw new Error("The saved transcript identity does not match the active recording.");
+    }
+    const projected = projectCanonicalTranscriptV2ToHammerV1Editor(canonicalTranscript);
+    return {
+      ok: true,
+      status: response.status,
+      data: {
+        outcome: "found",
+        transcript: {
+          schema_version: 1,
+          transcript_id: canonicalTranscript.transcript_id,
+          media_id: canonical.media_id ?? null,
+          media_signature: canonical.media_signature ?? null,
+          prepared_at: canonicalTranscript.prepared_at,
+          structure: "speaker_turns",
+          source_media_ref: null,
+          diarization: {
+            label_scheme: "forge-neutral-speakers.v1",
+            labels: projected.speakerMap.default_labels,
+            raw_labels: canonicalTranscript.speakers.map((speaker) => speaker.provider_label),
+            version: canonicalTranscript.provider.diarization_model_version,
+            provider: "assemblyai",
+            provider_request_id: canonicalTranscript.provider.provider_request_id,
+            model: canonicalTranscript.provider.model,
+          },
+          confidence_flags: [],
+          segments: projected.segments,
+        },
+        speaker_map: projected.speakerMap,
+        operation_id: readString(row.operation_id) ?? "",
+        artifact_path: readString(row.artifact_path) ?? "",
+      },
+    };
+  } catch (error) {
+    return { ok: false, status: 409, error: toErrorMessage(error, "The saved transcript is invalid."), error_code: "hammer_canonical_transcript_validation_failed" };
+  }
 }
 
 export type HammerCanonicalBaselineArtifacts = {

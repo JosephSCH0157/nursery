@@ -46,6 +46,17 @@ function Copy-BaselineMigrations {
   }
 }
 
+
+# Operational predecessor fixtures require a precise installed head. Validate
+# the complete assembled tail first, then hold back ALL later migration files.
+function Hold-CatalogStageSuffix {
+  $head = if ($CatalogStage -eq 'aggregate-attempt') { '20261104003358' } else { '20261104071802' }
+  foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $workdir 'supabase/migrations') -Filter '*.sql' -File)) {
+    if ($file.BaseName.Substring(0,14) -gt $head) { Remove-Item -LiteralPath $file.FullName }
+  }
+  Assert-CatalogStageMigrationPrefix
+}
+
 function Get-FileSha256([string]$Path) {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
@@ -138,12 +149,7 @@ try {
     Copy-BaselineMigrations
     if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')) {
       & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
-      if ($CatalogStage -in @('provider-alignment','hammer-renewal-compatibility')) {
-        Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql')
-      }
-      if ($CatalogStage -eq 'hammer-renewal-compatibility') {
-        Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql')
-      }
+      Hold-CatalogStageSuffix
     } else {
       Assert-CatalogStageMigrationPrefix
     }
@@ -172,24 +178,15 @@ $restrictive_defaults$
     Copy-BaselineMigrations
     if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')) {
       & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
-      if ($CatalogStage -in @('provider-alignment','hammer-renewal-compatibility')) {
-        Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql')
-      }
-      if ($CatalogStage -eq 'hammer-renewal-compatibility') {
-        Remove-Item -LiteralPath (Join-Path $workdir 'supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql')
-      }
+      Hold-CatalogStageSuffix
     } else {
       Assert-CatalogStageMigrationPrefix
     }
     Invoke-Supabase @('migration','up','--local','--workdir',$workdir,'--yes')
   }
 
-  if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement')) {
-    & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
-  } else {
-    Assert-CatalogStageMigrationPrefix
-    Assert-CatalogStageDatabaseHistory -Container "supabase_db_$projectId"
-  }
+  Assert-CatalogStageMigrationPrefix
+  Assert-CatalogStageDatabaseHistory -Container "supabase_db_$projectId"
   Invoke-Supabase @('db','query','--local','--workdir',$workdir,'--agent=no',"notify pgrst, 'reload schema';")
   if ($DefaultPrivilegeMode -eq 'restrictive') {
     # This lane intentionally starts PostgREST before the tongs schema exists.
@@ -225,15 +222,20 @@ $restrictive_defaults$
     Copy-Item -LiteralPath (Join-Path $repo 'supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql') `
       -Destination (Join-Path $workdir 'supabase/migrations')
     Invoke-Supabase @('migration','up','--local','--workdir',$workdir,'--yes')
-    if ($CatalogStage -eq 'provider-alignment') {
-      & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
-    }
+
   }
   if ($CatalogStage -eq 'hammer-renewal-compatibility') {
     Copy-Item -LiteralPath (Join-Path $repo 'supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql') `
       -Destination (Join-Path $workdir 'supabase/migrations')
     Invoke-Supabase @('migration','up','--local','--workdir',$workdir,'--yes')
-    & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
+  }
+  if ($CatalogStage -in @('aggregate-attempt','owner-hearth-aggregate-enforcement','provider-alignment','hammer-renewal-compatibility')) {
+    # Check the exact installed stage before restoring the pending suffix. Full
+    # lineage preflight then verifies canonical bytes and a chronological DB
+    # prefix without applying migrations outside this frozen catalog contract.
+    Assert-CatalogStageDatabaseHistory -Container $container
+    Copy-BaselineMigrations
+    & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $workdir -DatabaseTarget local -Mode preflight -RepositoryRoot $repo | Out-Null
   }
   $successorParityPath = Join-Path $workdir 'account-admission-activation-preparation-public-slice-a-catalog-parity.sql'
   & (Join-Path $repo 'scripts/new-beta-invitation-public-slice-a-parity.ps1') -OutputPath $successorParityPath -RepositoryRoot $repo | Out-Null
@@ -254,7 +256,8 @@ $restrictive_defaults$
     'supabase/tests/provider_request_financial_alignment.sql'
     'supabase/tests/runway_success_financial_finalization.sql'
     'supabase/tests/runway_paid_execution_boundary.sql'
-    'supabase/tests/customer_hearth_luna_canary.sql'
+    'supabase/tests/luna_canary_canonical_tenant_setup.sql'
+    'supabase/tests/customer_hearth_luna_current_denial.sql'
     'supabase/tests/account_admission_authority.sql'
     'supabase/tests/beta_invitation_provisioning.sql'
     'supabase/tests/account_admission_enforcement_inactive.sql'
@@ -266,7 +269,8 @@ $restrictive_defaults$
     if ($test -in @('supabase/tests/aggregate_paid_execution_connection.sql','supabase/tests/owner_funded_hearth_activation.sql','supabase/tests/runway_success_financial_finalization.sql') -and $CatalogStage -ne 'aggregate-attempt') { continue }
     if ($test -eq 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql' -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
     if ($test -eq 'supabase/tests/provider_request_financial_alignment.sql' -and $CatalogStage -notin @('provider-alignment','hammer-renewal-compatibility')) { continue }
-    if ($test -in @('supabase/tests/runway_paid_execution_boundary.sql','supabase/tests/customer_hearth_luna_canary.sql') -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
+    if ($test -in @('supabase/tests/runway_paid_execution_boundary.sql','supabase/tests/luna_canary_canonical_tenant_setup.sql') -and $CatalogStage -ne 'owner-hearth-aggregate-enforcement') { continue }
+    if ($test -eq 'supabase/tests/customer_hearth_luna_current_denial.sql' -and $CatalogStage -notin @('provider-alignment','hammer-renewal-compatibility')) { continue }
     if ($test -eq 'supabase/tests/hammer_transcription_real_database_integration.sql' -and $SkipHammerRealDatabaseIntegration) { continue }
     $source = if ([IO.Path]::IsPathFullyQualified($test)) { $test } else { Join-Path $repo $test }
     $target = '/tmp/' + [IO.Path]::GetFileName($test)
@@ -275,6 +279,30 @@ $restrictive_defaults$
     if ($test -eq 'supabase/tests/hammer_transcription_real_database_integration.sql') {
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
         -c "select set_config('forge.hammer_real_db_certification','disposable-baseline-v1',false), set_config('request.jwt.claim.role','service_role',false);" -f $target
+    }
+    elseif ($test -eq 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql') {
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.owner_request_certification','disposable-baseline-v1',false);" -f $target
+    }
+    elseif ($test -eq 'supabase/tests/runway_paid_execution_boundary.sql') {
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.runway_boundary_certification','disposable-baseline-v1',false);" -f $target
+    }
+    elseif ($test -eq 'supabase/tests/luna_canary_canonical_tenant_setup.sql') {
+      # The historical successful-execution canary remains in its isolated harness.
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.luna_canary_certification','disposable-baseline-v1',false);" -f $target
+    }
+    elseif ($test -eq 'supabase/tests/customer_hearth_luna_current_denial.sql') {
+      $tenantSource = Join-Path $repo 'supabase/tests/luna_canary_canonical_tenant_setup.sql'
+      $tenantTarget = '/tmp/luna_canary_canonical_tenant_setup.sql'
+      & docker cp $tenantSource "$($container):$tenantTarget"
+      if ($LASTEXITCODE -ne 0) { throw 'Unable to copy Luna canonical tenant proof.' }
+      # One connection preserves the original-state snapshot across both rollbacks.
+      & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres `
+        -c "select set_config('forge.luna_canary_certification','disposable-baseline-v1',false), set_config('forge.luna_current_denial_certification','disposable-baseline-v1',false);" `
+        -f $tenantTarget -f $target `
+        -c "select pg_temp.assert_luna_original_state(); drop table pg_temp.luna_original_state;"
     }
     else {
       & docker exec $container psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f $target
