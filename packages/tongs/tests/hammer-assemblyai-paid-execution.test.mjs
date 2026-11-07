@@ -374,8 +374,15 @@ test("canonical normalization binds provider utterances to the exact recording",
     utterances: [{ speaker: "A", start: 0, end: 900, text: "Welcome to Gasoline." }],
   }, authorization, "provider-request-1");
   assert.equal(transcript.schema_version, "2");
+  assert.equal(transcript.schema, "forge.hammer.canonical-transcript.v2");
+  assert.equal(transcript.structure, undefined);
+  assert.equal(transcript.recording.workspace_id, undefined);
+  assert.equal(transcript.recording.workpiece_id, undefined);
+  assert.equal(transcript.recording.canonical_recording_id, IDs.recording);
+  assert.equal(transcript.recording.recording_revision_id, IDs.revision);
   assert.equal(transcript.recording.media_sha256, SOURCE_SHA);
   assert.equal(transcript.provider.provider_request_id, "provider-request-1");
+  assert.equal(transcript.segments[0].speaker, "A");
   assert.equal(transcript.segments.length, 1);
 });
 

@@ -13190,14 +13190,36 @@ export class TongsCommitService {
     }
     const transcript = row.transcript_json;
     const recording = isRecord(transcript.recording) ? transcript.recording : null;
-    if (transcript.schema_version !== 2 || transcript.structure !== "speaker_turns_with_words" || !recording
-      || readStringField(recording, "workspace_id") !== workspaceId
-      || readStringField(recording, "workpiece_id") !== workpieceId
+    const schemaVersion = transcript.schema_version === 2 || transcript.schema_version === "2";
+    const provider = isRecord(transcript.provider) ? transcript.provider : null;
+    const durationMs = recording?.duration_ms;
+    const segmentsValid = Array.isArray(transcript.segments) && transcript.segments.length > 0
+      && transcript.segments.every((value) => {
+        if (!isRecord(value)) return false;
+        const startMs = value.start_ms;
+        const endMs = value.end_ms;
+        return Boolean(readStringField(value, "id") && readStringField(value, "speaker") && readStringField(value, "text"))
+          && typeof startMs === "number" && Number.isSafeInteger(startMs) && startMs >= 0
+          && typeof endMs === "number" && Number.isSafeInteger(endMs) && endMs > startMs
+          && typeof durationMs === "number" && Number.isSafeInteger(durationMs) && durationMs > 0
+          && endMs <= durationMs + 1000;
+      });
+    if (!schemaVersion || transcript.schema !== "forge.hammer.canonical-transcript.v2" || !recording || !provider
       || readStringField(recording, "canonical_recording_id") !== canonicalRecordingId
       || readStringField(recording, "recording_revision_id") !== recordingRevisionId
       || readStringField(recording, "media_sha256") !== signature
-      || !Array.isArray(transcript.segments) || transcript.segments.length === 0) {
+      || readStringField(provider, "provider") !== "assemblyai"
+      || readStringField(provider, "model") !== "universal-3-5-pro"
+      || !readStringField(provider, "provider_request_id")
+      || provider.speaker_labels !== true
+      || !segmentsValid) {
       throw new HttpError(409, "hammer_canonical_transcript_identity_invalid", "The saved transcript does not match the active recording authority.");
+    }
+    if (readStringField(row, "workspace_id") !== workspaceId
+      || readStringField(row, "workpiece_id") !== workpieceId
+      || readStringField(row, "canonical_recording_id") !== canonicalRecordingId
+      || readStringField(row, "recording_revision_id") !== recordingRevisionId) {
+      throw new HttpError(409, "hammer_canonical_transcript_identity_invalid", "The saved transcript row does not match the authorized workspace and recording.");
     }
     const operationId = readStringField(row, "operation_id");
     const transcriptId = readStringField(row, "id");
