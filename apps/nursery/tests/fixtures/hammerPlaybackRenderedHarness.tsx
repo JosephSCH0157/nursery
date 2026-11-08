@@ -12,7 +12,7 @@ import { createDefaultHammerStudioRackState } from "../../../hammer/src/editor/h
 const mediaSrc = `data:video/webm;base64,${spokenMediaBase64.trim()}`;
 const noop = (): void => undefined;
 
-function Harness(): React.JSX.Element {
+export function Harness(): React.JSX.Element {
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
@@ -28,6 +28,7 @@ function Harness(): React.JSX.Element {
   const [scrubbing, setScrubbing] = useState(false);
   const [markers, setMarkers] = useState<never[]>([]);
   const [hint, setHint] = useState<string | null>(null);
+  const [audioContextState, setAudioContextState] = useState("missing");
   const readiness = useHammerPlaybackReadiness({ mediaRef, source: mediaSrc, expectedDurationSec: 3 });
 
   useEffect(() => {
@@ -54,7 +55,6 @@ function Harness(): React.JSX.Element {
     setTranscriptTimingHint: setHint, pauseAuxiliaryMediaPlayback: noop,
   });
 
-  const runtime = inspectHammerStudioRackNativePreview(mediaRef.current);
   return <main>
     <button type="button" onClick={transport.togglePlayback}>{playing ? "Pause (Space)" : "Play (Space)"}</button>
     <video
@@ -62,13 +62,16 @@ function Harness(): React.JSX.Element {
       src={mediaSrc}
       preload="auto"
       playsInline
-      onTimeUpdate={(event) => playing && transport.handlePlaybackProgress(event.currentTarget.currentTime)}
+      onTimeUpdate={(event) => {
+        setAudioContextState(inspectHammerStudioRackNativePreview(event.currentTarget).contextState ?? "missing");
+        if (playing) transport.handlePlaybackProgress(event.currentTarget.currentTime);
+      }}
       onEnded={(event) => transport.handlePlaybackEnded(event.currentTarget.currentTime)}
     />
     <output data-testid="readiness">{readiness.status}</output>
     <output data-testid="playhead">{playhead.toFixed(3)}</output>
     <output data-testid="hint">{hint ?? ""}</output>
-    <output data-testid="audio-context">{runtime.contextState ?? "missing"}</output>
+    <output data-testid="audio-context">{audioContextState}</output>
   </main>;
 }
 
