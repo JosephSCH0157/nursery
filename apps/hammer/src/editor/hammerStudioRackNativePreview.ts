@@ -45,6 +45,12 @@ export function buildHammerNativePreviewPlan(rack: HammerStudioRackState): Hamme
 type NativePreviewGraph = { context: AudioContext; source: MediaElementAudioSourceNode; beforeGain: GainNode; afterInput: GainNode; afterOutput: GainNode; master: GainNode; replaceableNodes: AudioNode[] };
 const graphs = new WeakMap<HTMLMediaElement, NativePreviewGraph>();
 
+export type HammerNativePreviewRuntime = Readonly<{
+  attached: boolean;
+  contextState: AudioContextState | null;
+  destinationChannels: number | null;
+}>;
+
 function getAudioContextConstructor(): typeof AudioContext | null {
   if (typeof window === "undefined") return null;
   const runtime = window as typeof window & { webkitAudioContext?: typeof AudioContext };
@@ -67,8 +73,22 @@ export function buildDeterministicReverbImpulse(context: BaseAudioContext, args:
 function createGraph(element: HTMLMediaElement, Context: typeof AudioContext): NativePreviewGraph {
   const context = new Context(); const source = context.createMediaElementSource(element); const beforeGain = context.createGain(); const afterInput = context.createGain(); const afterOutput = context.createGain(); const master = context.createGain();
   source.connect(beforeGain); beforeGain.connect(master); source.connect(afterInput); afterOutput.connect(master); master.connect(context.destination);
-  element.addEventListener("play", () => { void context.resume(); });
   return { context, source, beforeGain, afterInput, afterOutput, master, replaceableNodes: [] };
+}
+
+export function inspectHammerStudioRackNativePreview(element: HTMLMediaElement | null): HammerNativePreviewRuntime {
+  const graph = element ? graphs.get(element) : null;
+  return Object.freeze({
+    attached: Boolean(graph),
+    contextState: graph?.context.state ?? null,
+    destinationChannels: graph?.context.destination.channelCount ?? null,
+  });
+}
+
+export function resumeHammerStudioRackNativePreview(element: HTMLMediaElement | null): Promise<void> | null {
+  const graph = element ? graphs.get(element) : null;
+  if (!graph || graph.context.state === "running") return null;
+  return graph.context.resume();
 }
 
 function connectFilter(graph: NativePreviewGraph, tail: AudioNode, filter: HammerNativePreviewFilter): AudioNode {
@@ -86,5 +106,5 @@ export function applyHammerStudioRackNativePreview(element: HTMLMediaElement | n
   let graph = graphs.get(element); try { if (!graph) { graph = createGraph(element, Context); graphs.set(element, graph); } } catch { return false; }
   graph.afterInput.disconnect(); for (const node of graph.replaceableNodes) node.disconnect(); graph.replaceableNodes = [];
   let tail: AudioNode = graph.afterInput; for (const filter of buildHammerNativePreviewPlan(rack)) tail = connectFilter(graph, tail, filter); tail.connect(graph.afterOutput);
-  const after = rack.is_enabled && !rack.is_bypassed; graph.beforeGain.gain.setValueAtTime(after ? 0 : 1, graph.context.currentTime); graph.afterOutput.gain.setValueAtTime(after ? 1 : 0, graph.context.currentTime); void graph.context.resume(); return true;
+  const after = rack.is_enabled && !rack.is_bypassed; graph.beforeGain.gain.setValueAtTime(after ? 0 : 1, graph.context.currentTime); graph.afterOutput.gain.setValueAtTime(after ? 1 : 0, graph.context.currentTime); return true;
 }

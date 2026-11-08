@@ -1045,7 +1045,7 @@ function HammerWorkspaceShellWithContext(
     resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime,
     resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime,
     playbackMediaSrc: effectivePlaybackMediaSrc,
-    playbackReady: playbackReadiness.status === "playable",
+    playbackReady: playbackReadiness.status === "playable", playbackPhase: packagingTransport.phase,
     previewVideoSrc: effectivePreviewVideoSrc,
     segmentationVideoSrc: effectivePreviewVideoSrc,
     visualPolishPreviewActive,
