@@ -2185,6 +2185,13 @@ Guardrails:
 }
 
 .hammer-timeline-control-groups { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.hammer-timeline-transport-primary {
+  min-width: 64px;
+  border-color: rgba(96, 165, 250, 0.72) !important;
+  background: rgba(30, 64, 175, 0.42) !important;
+  color: #eff6ff !important;
+  font-weight: 700;
+}
 .hammer-timeline-control-group { display: grid; gap: 4px; }
 .hammer-timeline-more summary { cursor: pointer; color: #bfdbfe; font-size: 10px; }
 .hammer-timeline-more[open] { flex-basis: 100%; }

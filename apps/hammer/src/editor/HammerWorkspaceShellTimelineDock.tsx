@@ -177,6 +177,14 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
       <header className="hammer-bay-head">
         <strong>Timeline Dock</strong>
         <div className="hammer-timeline-tools">
+          <button
+            type="button"
+            className="hammer-timeline-transport-primary"
+            onClick={togglePlayback}
+            aria-label={isPlaybackActive ? "Pause timeline playback" : "Play timeline"}
+          >
+            {isPlaybackActive ? "Pause" : "Play"}
+          </button>
           <button type="button" onClick={() => setFocusOverride("auto")}>Auto</button>
           <button type="button" onClick={() => setFocusOverride("source-focus")}>Source</button>
           <button type="button" onClick={() => setFocusOverride("tool-focus")}>Tool</button>

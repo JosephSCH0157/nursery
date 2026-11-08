@@ -59,6 +59,7 @@ test("production dock geometry exposes the source ruler in collapsed and expande
       const track = document.querySelector(".hammer-timeline-track-scroll")!.getBoundingClientRect();
       const range = document.querySelector('input[aria-label="Timeline playhead"]')!.getBoundingClientRect();
       const controls = getComputedStyle(document.querySelector(".hammer-timeline-control-groups")!).display;
+      const transport = document.querySelector(".hammer-timeline-transport-primary")!.getBoundingClientRect();
       return {
         dock: { top: dock.top, bottom: dock.bottom }, track: { top: track.top, bottom: track.bottom, height: track.height },
         range: { top: range.top, bottom: range.bottom, height: range.height }, controls,
@@ -66,6 +67,7 @@ test("production dock geometry exposes the source ruler in collapsed and expande
         rulers: document.querySelectorAll(".hammer-timeline-ruler").length,
         playheads: document.querySelectorAll(".hammer-timeline-playhead").length,
         max: (document.querySelector('input[aria-label="Timeline playhead"]') as HTMLInputElement).max,
+        transport: { width: transport.width, height: transport.height },
       };
     });
     assert.equal(collapsed.controls, "none");
@@ -73,6 +75,7 @@ test("production dock geometry exposes the source ruler in collapsed and expande
     assert.equal(collapsed.rulers, 1);
     assert.equal(collapsed.playheads, 1);
     assert.equal(collapsed.max, String(durationSec));
+    assert.ok(collapsed.transport.width >= 64 && collapsed.transport.height > 0);
     assert.ok(collapsed.range.height > 0 && collapsed.track.height >= 140);
     assert.ok(collapsed.range.top >= collapsed.dock.top && collapsed.track.bottom <= collapsed.dock.bottom);
 
@@ -80,11 +83,13 @@ test("production dock geometry exposes the source ruler in collapsed and expande
     const expanded = await page.evaluate(() => {
       const track = document.querySelector(".hammer-timeline-track-scroll")!.getBoundingClientRect();
       const controls = document.querySelector(".hammer-timeline-control-groups")!.getBoundingClientRect();
-      return { trackDisplay: getComputedStyle(document.querySelector(".hammer-timeline-track-scroll")!).display, controlsDisplay: getComputedStyle(document.querySelector(".hammer-timeline-control-groups")!).display, trackTop: track.top, controlsTop: controls.top };
+      const transport = document.querySelector(".hammer-timeline-transport-primary")!.getBoundingClientRect();
+      return { trackDisplay: getComputedStyle(document.querySelector(".hammer-timeline-track-scroll")!).display, controlsDisplay: getComputedStyle(document.querySelector(".hammer-timeline-control-groups")!).display, trackTop: track.top, controlsTop: controls.top, transportHeight: transport.height };
     });
     assert.notEqual(expanded.trackDisplay, "none");
     assert.notEqual(expanded.controlsDisplay, "none");
     assert.ok(expanded.trackTop < expanded.controlsTop);
+    assert.ok(expanded.transportHeight > 0);
   } finally {
     await page.close();
     await browser.close();
