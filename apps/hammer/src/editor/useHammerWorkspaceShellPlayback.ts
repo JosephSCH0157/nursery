@@ -130,6 +130,7 @@ export type UseHammerWorkspaceShellPlaybackResult = {
 export function useHammerWorkspaceShellPlayback(
   args: UseHammerWorkspaceShellPlaybackArgs,
 ): UseHammerWorkspaceShellPlaybackResult {
+  const setTranscriptTimingHint = args.setTranscriptTimingHint;
   const lastPlaybackMediaSrcRef = useRef<string | null>(null);
   const lastPreviewVideoSrcRef = useRef<string | null>(null);
   const lastSegmentationVideoSrcRef = useRef<string | null>(null);
@@ -309,8 +310,8 @@ export function useHammerWorkspaceShellPlayback(
   const reportPlaybackFailure = useCallback((media: HTMLMediaElement, reason: unknown, boundary: string): void => {
     const failure = describeHammerMediaPlaybackFailure(media, reason);
     console.error("[HammerPlayback:media_failure]", { boundary, ...failure });
-    args.setTranscriptTimingHint(`Playback could not start (${failure.name}). ${failure.message}`);
-  }, [args.setTranscriptTimingHint]);
+    setTranscriptTimingHint(`Playback could not start (${failure.name}). ${failure.message}`);
+  }, [setTranscriptTimingHint]);
 
   useEffect(() => {
     const audio = args.previewAudioRef.current;
