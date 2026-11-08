@@ -735,7 +735,13 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           ) : null}
           <span>Playback lane: {vm.playbackBackendLabel}</span>
           <span>{vm.previewVideoSrc ? "Base video ready" : "Base video unavailable"}</span>
-          <span>{vm.playbackMediaSrc ? "Playback media ready" : "Playback media unavailable"}</span>
+          <span>{vm.playbackReadinessStatus === "playable"
+            ? "Playback media ready"
+            : vm.playbackReadinessStatus === "failed"
+            ? "Playback media failed verification"
+            : vm.playbackMediaSrc
+            ? "Playback media loading"
+            : "Playback media unavailable"}</span>
           {vm.visualPolishPreviewActive ? (
             <span>Visual polish preview mode active</span>
           ) : vm.activeVisualTool !== null ? (

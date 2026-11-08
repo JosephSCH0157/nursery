@@ -11,11 +11,23 @@ test("primary Hammer transport retains synchronous audible play and explicit rej
   assert.ok(toggleStart > 0 && toggleEnd > toggleStart);
   assert.match(toggle, /previewAudio\.muted = false/);
   assert.match(toggle, /previewAudio\.volume = 1/);
+  assert.match(toggle, /resumeHammerStudioRackNativePreview\(previewAudio\)/);
   assert.match(toggle, /const playRequest = previewAudio\.play\(\)/);
   assert.match(toggle, /user_activation_play/);
   assert.match(toggle, /previewAudio\.pause\(\)/);
   assert.match(toggle, /previewVideoRef\.current\?\.pause\(\)/);
   assert.match(toggle, /setIsPlaybackActive\(false\)/);
+});
+
+test("source bookkeeping cannot pause a user-activation play request", () => {
+  const source = readFileSync(new URL("../src/editor/useHammerWorkspaceShellPlayback.ts", import.meta.url), "utf8");
+  const syncStart = source.indexOf("let srcChanged = false");
+  const syncEnd = source.indexOf("if (!args.playbackMediaSrc)", syncStart);
+  const sourceBookkeeping = source.slice(syncStart, syncEnd);
+  assert.ok(syncStart > 0 && syncEnd > syncStart);
+  assert.doesNotMatch(sourceBookkeeping, /previewAudio\.pause\(\)/);
+  assert.doesNotMatch(sourceBookkeeping, /previewVideo\.pause\(\)/);
+  assert.doesNotMatch(sourceBookkeeping, /segmentationVideo\.pause\(\)/);
 });
 
 test("media failures retain browser and media-element diagnostics", () => {

@@ -51,15 +51,33 @@ export function useHammerPlaybackReadiness(args: {
   const [readiness, setReadiness] = useState(() => createHammerPlaybackReadiness(args.source));
   useEffect(() => {
     const media = args.mediaRef.current;
-    setReadiness(createHammerPlaybackReadiness(args.source));
-    if (!media || !args.source) return;
+    if (!media || !args.source) {
+      setReadiness(createHammerPlaybackReadiness(args.source));
+      return;
+    }
     const source = args.source;
-    const metadata = () => setReadiness((current) => acceptHammerPlaybackMetadata({ current, source, durationSec: media.duration, expectedDurationSec: args.expectedDurationSec }));
-    const canPlay = () => setReadiness((current) => acceptHammerPlaybackCanPlay(current, source));
+    const reconcile = (canPlay: boolean) => setReadiness((current) => {
+      let next = current.source === source ? current : createHammerPlaybackReadiness(source);
+      if (media.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        next = acceptHammerPlaybackMetadata({ current: next, source, durationSec: media.duration, expectedDurationSec: args.expectedDurationSec });
+      }
+      if (canPlay || media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+        next = acceptHammerPlaybackCanPlay(next, source);
+      }
+      return next;
+    });
+    const metadata = () => reconcile(false);
+    const canPlay = () => reconcile(true);
     const error = () => setReadiness((current) => failHammerPlayback(current, source, media.error?.message ?? "media_load_failed"));
     media.addEventListener("loadedmetadata", metadata); media.addEventListener("canplay", canPlay); media.addEventListener("error", error);
-    if (media.readyState >= HTMLMediaElement.HAVE_METADATA) metadata();
-    if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) canPlay();
+    setReadiness(() => {
+      let next = createHammerPlaybackReadiness(source);
+      if (media.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        next = acceptHammerPlaybackMetadata({ current: next, source, durationSec: media.duration, expectedDurationSec: args.expectedDurationSec });
+      }
+      if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) next = acceptHammerPlaybackCanPlay(next, source);
+      return next;
+    });
     return () => { media.removeEventListener("loadedmetadata", metadata); media.removeEventListener("canplay", canPlay); media.removeEventListener("error", error); };
   }, [args.expectedDurationSec, args.mediaRef, args.source]);
   return readiness;
