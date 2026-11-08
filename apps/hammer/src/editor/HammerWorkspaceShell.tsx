@@ -1437,7 +1437,7 @@ function HammerWorkspaceShellWithContext(
       const visualLabel = playheadPrimaryVisualClip.label?.trim() || playheadPrimaryVisualClip.clip_id;
       return `Active visual: ${visualLabel} (${playheadPrimaryVisualClip.start_sec.toFixed(1)}s-${playheadPrimaryVisualClip.end_sec.toFixed(1)}s)`;
     }
-    const fallback = resolvePreviewLabel(playheadSegment, compositionPlayheadSec, playbackReadiness.status === "playable" && Boolean(effectivePlaybackMediaSrc));
+    const fallback = resolvePreviewLabel(playheadSegment, compositionPlayheadSec, Boolean(effectivePlaybackMediaSrc) && !["idle", "failed"].includes(playbackReadiness.status));
     return fallback.length > 120 ? `${fallback.slice(0, 117)}...` : fallback;
   }, [compositionPlayheadSec, effectivePlaybackMediaSrc, isVisualPreviewAuthority, packagingTransport.introDurationSec, packagingTransport.outroDurationSec, packagingTransport.phase, playbackReadiness.status, playheadPrimaryVisualClip, playheadSegment]);
 
