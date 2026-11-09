@@ -3,6 +3,99 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { createServer, type Plugin } from "vite";
 import { chromium } from "playwright";
+import { TongsCommitService } from "@forge/tongs/workpiece-commit-api";
+
+const CANONICAL_IDS = {
+  workspace: "cc5478ff-37be-403e-824c-467fa7da061e",
+  workpiece: "21d16d6a-905b-491e-8761-028789612ae5",
+  recording: "4cc846e3-187c-46d9-8733-e7402488236c",
+  revision: "9c991aa7-f551-4f03-a4d6-41eb40ef81ec",
+  completion: "bf67d649-1bc2-44ba-9a33-783b3ab523ea",
+  capture: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  receipt: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+};
+const CANONICAL_SHA = "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24";
+
+function canonicalOpenFixtureService(signedUrl: () => string): TongsCommitService {
+  const canonical = {
+    id: CANONICAL_IDS.recording,
+    workspace_id: CANONICAL_IDS.workspace,
+    workpiece_id: CANONICAL_IDS.workpiece,
+    status: "draft",
+    media_id: `anvil-completion:${CANONICAL_IDS.completion}`,
+    media_path: "recordings/brad.webm",
+    media_signature: CANONICAL_SHA,
+    media_bytes: 12_399,
+    media_content_type: "video/webm;codecs=vp9,opus",
+    media_duration_ms: null,
+    source_kind: "anvil_capture",
+    source_authority_id: CANONICAL_IDS.completion,
+    source_capture_authority_id: CANONICAL_IDS.capture,
+  };
+  const rows: Record<string, unknown> = {
+    episodes: { canonical_recording_id: CANONICAL_IDS.recording, active_revision_id: CANONICAL_IDS.revision },
+    canonical_recordings: canonical,
+    recording_revisions: {
+      id: CANONICAL_IDS.revision,
+      workspace_id: CANONICAL_IDS.workspace,
+      workpiece_id: CANONICAL_IDS.workpiece,
+      canonical_recording_id: CANONICAL_IDS.recording,
+      status: "active",
+    },
+    anvil_recording_completion_requests: {
+      id: CANONICAL_IDS.completion,
+      workspace_id: CANONICAL_IDS.workspace,
+      workpiece_id: CANONICAL_IDS.workpiece,
+      capture_authority_id: CANONICAL_IDS.capture,
+      media_path: "recordings/brad.webm",
+      media_hash: CANONICAL_SHA,
+      media_bytes: 12_399,
+      media_content_type: "video/webm;codecs=vp9,opus",
+      media_verification_receipt_id: CANONICAL_IDS.receipt,
+    },
+    recording_media_verification_receipts: {
+      id: CANONICAL_IDS.receipt,
+      workspace_id: CANONICAL_IDS.workspace,
+      workpiece_id: CANONICAL_IDS.workpiece,
+      recording_capture_authority_id: CANONICAL_IDS.capture,
+      media_path: "recordings/brad.webm",
+      media_hash: CANONICAL_SHA,
+      media_bytes: 12_399,
+      media_content_type: "video/webm;codecs=vp9,opus",
+      duration_ms: 2_530,
+    },
+  };
+  const schema = {
+    from(table: string) {
+      const builder = {
+        select() { return builder; },
+        eq() { return builder; },
+        maybeSingle() { return Promise.resolve({ data: rows[table] ?? null, error: null }); },
+      };
+      return builder;
+    },
+    async rpc(name: string) {
+      assert.equal(name, "open_hammer_authority");
+      return {
+        data: {
+          outcome: "opened",
+          canonical_recording: canonical,
+          revision: rows.recording_revisions,
+          preparation_attempt: { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" },
+        },
+        error: null,
+      };
+    },
+  };
+  const service = new TongsCommitService({
+    schema: () => schema,
+    storage: { from: () => ({ createSignedUrl: async () => ({ data: { signedUrl: signedUrl() }, error: null }) }) },
+  } as never, "forge-workpieces", null, () => ({ schema: () => schema } as never));
+  service.getWorkspaceOrThrow = async () => ({ id: CANONICAL_IDS.workspace } as never);
+  service.assertWorkpieceInWorkspace = async () => undefined;
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "fixture", role: "editor" } as never);
+  return service;
+}
 
 test("rendered Hammer Play transport advances real VP9/Opus media and its playhead", async () => {
   const server = await createServer({
@@ -74,9 +167,44 @@ test("normal canonical open plays real WebM whose container duration is unknown"
   assert.ok(durationElementOffset >= 0, "fixture must contain an eight-byte WebM Duration element");
   const unknownDurationFixture = Buffer.from(fixture);
   unknownDurationFixture[durationElementOffset + 1] = 0x88;
+  let origin = "";
+  const fixtureService = canonicalOpenFixtureService(
+    () => `${origin}/signed/hammer-unknown-duration.webm`,
+  );
   const signedMediaPlugin: Plugin = {
     name: "hammer-unknown-duration-signed-media",
     configureServer(server) {
+      server.middlewares.use("/test/hammer/session", async (_request, response) => {
+        const opened = await fixtureService.openHammerAuthority(
+          CANONICAL_IDS.workspace,
+          CANONICAL_IDS.workpiece,
+          { operation_key: "hammer-open:rendered-authority", transcript_policy: "reuse_only" },
+          { userAccessToken: "fixture" },
+        );
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true, data: opened }));
+      });
+      server.middlewares.use((request, response, next) => {
+        if (!request.url?.endsWith("/hammer/playable-media")) return next();
+        let body = "";
+        request.on("data", (chunk) => { body += String(chunk); });
+        request.on("end", async () => {
+          try {
+            const result = await fixtureService.readHammerPlayableMedia(
+              CANONICAL_IDS.workspace,
+              CANONICAL_IDS.workpiece,
+              JSON.parse(body),
+              { userAccessToken: "fixture" },
+            );
+            response.setHeader("content-type", "application/json");
+            response.end(JSON.stringify({ ok: true, data: result }));
+          } catch (error) {
+            response.statusCode = Number((error as { status?: number }).status ?? 500);
+            response.setHeader("content-type", "application/json");
+            response.end(JSON.stringify({ ok: false, error: { code: (error as { code?: string }).code, message: String(error) } }));
+          }
+        });
+      });
       server.middlewares.use("/signed/hammer-unknown-duration.webm", (request, response) => {
         response.setHeader("content-type", "video/webm;codecs=vp9,opus");
         response.setHeader("cache-control", "no-store");
@@ -110,10 +238,15 @@ test("normal canonical open plays real WebM whose container duration is unknown"
   await server.listen();
   const address = server.httpServer?.address();
   assert.ok(address && typeof address !== "string");
+  origin = `http://127.0.0.1:${address.port}`;
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   const consoleMessages: string[] = [];
+  const providerRequests: string[] = [];
   page.on("console", (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
+  page.on("request", (request) => {
+    if (/assemblyai|transcription|openai|runway/i.test(request.url())) providerRequests.push(request.url());
+  });
 
   const exerciseOpen = async () => {
     await page.goto(`http://127.0.0.1:${address.port}/apps/nursery/tests/fixtures/hammer-canonical-playback-harness.html`);
@@ -125,6 +258,8 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     assert.equal(await page.getByTestId("endpoint-calls").textContent(), "1");
     assert.equal(await page.getByTestId("binary-fallback-calls").textContent(), "0");
     assert.equal(await page.getByTestId("source-sha").textContent(), "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24");
+    assert.equal(await page.getByTestId("transcript-id").textContent(), "saved-transcript");
+    assert.equal(await page.getByTestId("provider-attempt-count").textContent(), "1");
 
     await page.getByRole("button", { name: "Play" }).click();
     await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).currentTime > 0.25);
@@ -175,6 +310,7 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     });
     await page.getByRole("button", { name: "Play" }).click();
     await page.waitForFunction(() => (window as typeof window & { __hammerReloadAdvanced?: boolean }).__hammerReloadAdvanced === true);
+    assert.deepEqual(providerRequests, []);
   } catch (error) {
     const mediaState = await page.locator("video").evaluate((media: HTMLVideoElement) => ({
       currentTime: media.currentTime,
