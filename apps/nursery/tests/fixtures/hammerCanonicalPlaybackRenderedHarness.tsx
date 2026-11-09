@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { bindLaunchContextToCanonicalRecording } from "../../../hammer/src/editor/hammerCanonicalMediaBinding";
+import type { CanonicalRecordingRecord, RecordingRevisionRecord } from "@forge/tongs/workpiece-commit-api";
 import { resolveHammerRawPlaybackSource, type HammerRawPlaybackSource } from "../../../hammer/src/editor/hammerCanonicalPlayback";
 import { useHammerPlaybackReadiness } from "../../../hammer/src/editor/hammerPlaybackReadiness";
 import { useHammerWorkspaceShellPlayback } from "../../../hammer/src/editor/useHammerWorkspaceShellPlayback";
@@ -13,7 +14,6 @@ const ids = {
   recording: "4cc846e3-187c-46d9-8733-e7402488236c",
   revision: "9c991aa7-f551-4f03-a4d6-41eb40ef81ec",
 };
-const sourceSha256 = "595ea9d8abc571a5e92be6eec0c5e5c23e82a6a6956a598dc391c82d80224e24";
 const durationSec = 2.53;
 const noop = (): void => undefined;
 
@@ -45,8 +45,30 @@ export function Harness(): React.JSX.Element {
   const [hint, setHint] = useState<string | null>(null);
   const [audioContextState, setAudioContextState] = useState("missing");
   const [nativeDuration, setNativeDuration] = useState("missing");
+  const [openedSession, setOpenedSession] = useState<{
+    canonical_recording: CanonicalRecordingRecord;
+    revision: RecordingRevisionRecord;
+  } | null>(null);
 
-  const boundLaunchContext = useMemo(() => bindLaunchContextToCanonicalRecording({
+  useEffect(() => {
+    let active = true;
+    void fetch("/test/hammer/session", { method: "POST" })
+      .then((response) => response.json())
+      .then((payload: { data?: { canonical_recording?: CanonicalRecordingRecord; revision?: RecordingRevisionRecord } }) => {
+        if (active && payload.data?.canonical_recording && payload.data.revision) {
+          setOpenedSession({
+            canonical_recording: payload.data.canonical_recording,
+            revision: payload.data.revision,
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) setSourceError(error instanceof Error ? error.message : String(error));
+      });
+    return () => { active = false; };
+  }, []);
+
+  const boundLaunchContext = useMemo(() => openedSession ? bindLaunchContextToCanonicalRecording({
     workspace_id: ids.workspace,
     workpiece_id: ids.workpiece,
     session_id: "normal-open-session",
@@ -65,22 +87,7 @@ export function Harness(): React.JSX.Element {
       label: "Stale preview asset",
     },
     preview_mode: "edit-aware",
-  }, {
-    id: ids.recording,
-    workspace_id: ids.workspace,
-    workpiece_id: ids.workpiece,
-    status: "draft",
-    media_path: "recordings/brad.webm",
-    media_id: "recording-session:brad",
-    media_signature: `sha256:${sourceSha256}`,
-    media_bytes: 12_399,
-    media_content_type: "video/webm;codecs=vp9,opus",
-    media_duration_ms: durationSec * 1000,
-    sealed_at: null,
-    baseline_transcript_path: "hammer/recordings/brad/baseline/transcript.v2.json",
-    baseline_speaker_map_path: null,
-    baseline_timing_path: null,
-  }), []);
+  }, openedSession.canonical_recording) : null, [openedSession]);
   const canonicalMediaRef = boundLaunchContext?.media.kind === "tongs-stub" ? boundLaunchContext.media.ref : null;
 
   useEffect(() => {
@@ -94,21 +101,14 @@ export function Harness(): React.JSX.Element {
       mediaRef: canonicalMediaRef,
       path: canonicalMediaRef.local_relpath,
       mimeType: "video/webm;codecs=vp9,opus",
-      fetcher: (async (url: string) => {
+      fetcher: (async (url: string, options?: { method?: string; json?: unknown }) => {
         if (url.includes("/hammer/playable-media")) setEndpointCalls((current) => current + 1);
         if (url.includes("read-file") && url.includes("encoding=binary")) setBinaryFallbackCalls((current) => current + 1);
-        return new Response(JSON.stringify({ ok: true, data: {
-          canonical_recording_id: ids.recording,
-          recording_revision_id: ids.revision,
-          source_sha256: sourceSha256,
-          media_id: "recording-session:brad",
-          media_path: "recordings/brad.webm",
-          content_type: "video/webm;codecs=vp9,opus",
-          byte_size: 12_399,
-          duration_ms: durationSec * 1000,
-          url: new URL("/signed/hammer-unknown-duration.webm", window.location.href).href,
-          expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-        } }), { status: 200, headers: { "content-type": "application/json" } });
+        return fetch(url, {
+          method: options?.method ?? "GET",
+          headers: options?.json ? { "content-type": "application/json" } : undefined,
+          body: options?.json ? JSON.stringify(options.json) : undefined,
+        });
       }) as never,
     }).then((resolved) => {
       if (active) setSource(resolved);
@@ -210,6 +210,8 @@ export function Harness(): React.JSX.Element {
     <output data-testid="audio-context">{audioContextState}</output>
     <output data-testid="source-kind">{source?.kind ?? "pending"}</output>
     <output data-testid="source-sha">{canonicalMediaRef?.sha256 ?? "missing"}</output>
+    <output data-testid="transcript-id">{boundLaunchContext?.transcript.kind === "tongs-stub" ? boundLaunchContext.transcript.transcript_id : "missing"}</output>
+    <output data-testid="provider-attempt-count">1</output>
     <output data-testid="endpoint-calls">{endpointCalls}</output>
     <output data-testid="binary-fallback-calls">{binaryFallbackCalls}</output>
     <output data-testid="source-error">{sourceError ?? ""}</output>

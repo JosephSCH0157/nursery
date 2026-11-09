@@ -859,6 +859,9 @@ export type WorkpieceTakeReceipt = {
   bytes: number | null;
   duration_ms: number | null;
   original_name: string | null;
+  source_kind?: "anvil_capture" | "hammer_import";
+  source_authority_id?: string;
+  source_sha256?: string;
 };
 
 type HammerRecordingTruthCandidate = {
@@ -871,10 +874,92 @@ type HammerRecordingTruthRow = HammerRecordingTruthCandidate & {
   completion_id: string | null;
   capture_session_id: string | null;
   media_path: string | null;
+  media_hash: string | null;
+  media_content_type: string | null;
+  media_bytes: number | null;
+  source_authority_id: string | null;
   completion_evidence: Json | null;
   completed_at: string | null;
   kept_at: string | null;
 };
+
+type CanonicalMediaVerificationEvidence = {
+  sha256: string;
+  bytes: number;
+  content_type: string;
+  duration_ms: number;
+};
+
+function normalizedMediaContentType(value: unknown): string | null {
+  return typeof value === "string" && value.trim()
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function normalizedMediaSha256(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase().replace(/^sha256:/, "");
+  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : null;
+}
+
+function positiveSafeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+}
+
+function isAmbiguousSingleRowError(error: { code?: string; message?: string }): boolean {
+  return (
+    error.code === "PGRST116" ||
+    /multiple (?:json )?objects|more than one row/i.test(error.message ?? "")
+  );
+}
+
+export function resolveCanonicalMediaVerificationEvidence(args: {
+  completionEvidence: Json | null;
+  mediaPath: string | null;
+  mediaHash: string | null;
+  mediaBytes: number | null;
+  mediaContentType: string | null;
+}): CanonicalMediaVerificationEvidence | null {
+  if (!isRecord(args.completionEvidence)) return null;
+  const verification = isRecord(
+    args.completionEvidence.canonical_media_verification,
+  )
+    ? args.completionEvidence.canonical_media_verification
+    : null;
+  if (!verification) return null;
+  const artifact = isRecord(args.completionEvidence.artifact_validation)
+    ? args.completionEvidence.artifact_validation
+    : null;
+  const sha256 = normalizedMediaSha256(verification.sha256);
+  const bytes = positiveSafeInteger(verification.bytes);
+  const durationMs = positiveSafeInteger(verification.duration_ms);
+  const contentType = normalizedMediaContentType(verification.content_type);
+  const rowHash = normalizedMediaSha256(args.mediaHash);
+  const rowBytes = positiveSafeInteger(args.mediaBytes);
+  const rowContentType = normalizedMediaContentType(args.mediaContentType);
+  const artifactPath = artifact ? readStringField(artifact, "path") : null;
+  if (
+    verification.source !== "trusted_tongs_storage_readback" ||
+    !sha256 ||
+    !bytes ||
+    !durationMs ||
+    !contentType ||
+    sha256 !== rowHash ||
+    bytes !== rowBytes ||
+    contentType !== rowContentType ||
+    (artifactPath != null && artifactPath !== args.mediaPath)
+  ) {
+    return null;
+  }
+  return {
+    sha256,
+    bytes,
+    content_type: contentType,
+    duration_ms: durationMs,
+  };
+}
 
 export function isEligibleHammerRecordingTruthCandidate(
   row: HammerRecordingTruthCandidate,
@@ -12290,6 +12375,12 @@ export class TongsCommitService {
     workpieceId: string,
     receipt: WorkpieceTakeReceipt,
   ): string {
+    if (receipt.source_kind === "anvil_capture" && receipt.source_authority_id) {
+      return `anvil-completion:${receipt.source_authority_id}`;
+    }
+    if (receipt.source_kind === "hammer_import" && receipt.source_authority_id) {
+      return `hammer-import:${receipt.source_authority_id}`;
+    }
     if (receipt.recording_session_id) {
       return `recording-session:${receipt.recording_session_id}`;
     }
@@ -12584,7 +12675,9 @@ export class TongsCommitService {
           anvil_capture_session_id:
             latestTake!.anvil_capture_session_id ?? null,
           media_id: mediaId,
-          media_signature: null,
+          source_kind: latestTake!.source_kind ?? null,
+          source_authority_id: latestTake!.source_authority_id ?? null,
+          media_signature: latestTake!.source_sha256 ?? null,
           sealed_at: null,
           baseline_transcript_path: null,
           baseline_speaker_map_path: null,
@@ -12667,7 +12760,9 @@ export class TongsCommitService {
         recording_session_id: receipt.recording_session_id ?? null,
         anvil_capture_session_id: receipt.anvil_capture_session_id ?? null,
         media_id: mediaId,
-        media_signature: null,
+        source_kind: receipt.source_kind ?? null,
+        source_authority_id: receipt.source_authority_id ?? null,
+        media_signature: receipt.source_sha256 ?? null,
         baseline_transcript_path: null,
         baseline_timing_path: null,
         baseline_speaker_map_path: null,
@@ -13294,7 +13389,7 @@ export class TongsCommitService {
     }
     const [recordingResult, revisionResult] = await Promise.all([
       tongs.from("canonical_recordings")
-        .select("id,workspace_id,workpiece_id,media_id,media_path,media_content_type,media_bytes,media_duration_ms,media_signature")
+        .select("id,workspace_id,workpiece_id,media_id,media_path,media_content_type,media_bytes,media_duration_ms,media_signature,source_kind,source_authority_id,source_capture_authority_id")
         .eq("id", canonicalRecordingId).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle(),
       tongs.from("recording_revisions")
         .select("id,workspace_id,workpiece_id,canonical_recording_id,status")
@@ -13321,6 +13416,187 @@ export class TongsCommitService {
     if (!mediaPath || !mediaId) {
       throw new HttpError(409, "hammer_playable_media_missing", "The canonical recording has no playable media object.");
     }
+    const canonicalDurationMs = positiveSafeInteger(
+      recordingResult.data.media_duration_ms,
+    );
+    const sourceKind = readStringField(recordingResult.data, "source_kind");
+    const sourceAuthorityId = readStringField(
+      recordingResult.data,
+      "source_authority_id",
+    );
+    let durationMs = canonicalDurationMs;
+    if (sourceKind === "anvil_capture") {
+      if (
+        !sourceAuthorityId ||
+        mediaId !== `anvil-completion:${sourceAuthorityId}`
+      ) {
+        throw new HttpError(
+          409,
+          "hammer_playable_media_source_identity_invalid",
+          "The canonical recording does not identify one exact Anvil completion.",
+          { media_id: mediaId, source_authority_id: sourceAuthorityId },
+        );
+      }
+      const completionResult = await tongs
+        .from("anvil_recording_completion_requests")
+        .select(
+          "id,workspace_id,workpiece_id,capture_authority_id,media_path,media_hash,media_bytes,media_content_type,media_verification_receipt_id",
+        )
+        .eq("id", sourceAuthorityId)
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .maybeSingle();
+      if (completionResult.error) {
+        if (isAmbiguousSingleRowError(completionResult.error)) {
+          throw new HttpError(
+            409,
+            "hammer_playable_media_source_identity_ambiguous",
+            "More than one Anvil completion matched the canonical source identity.",
+            { source_authority_id: sourceAuthorityId },
+          );
+        }
+        throw new HttpError(
+          502,
+          "hammer_playable_media_duration_authority_unverifiable",
+          "The Anvil completion duration authority could not be read.",
+          { reason: completionResult.error.message },
+        );
+      }
+      if (!isRecord(completionResult.data)) {
+        throw new HttpError(
+          409,
+          "hammer_playable_media_source_identity_missing",
+          "The canonical Anvil completion no longer exists.",
+          { source_authority_id: sourceAuthorityId },
+        );
+      }
+      const completion = completionResult.data;
+      const receiptId = readStringField(
+        completion,
+        "media_verification_receipt_id",
+      );
+      if (!receiptId) {
+        if (!canonicalDurationMs) {
+          throw new HttpError(
+            409,
+            "hammer_playable_media_duration_authority_missing",
+            "The canonical recording has no verified finite media duration.",
+            { source_authority_id: sourceAuthorityId },
+          );
+        }
+      } else {
+        const receiptResult = await tongs
+          .from("recording_media_verification_receipts")
+          .select(
+            "id,workspace_id,workpiece_id,recording_capture_authority_id,media_path,media_hash,media_bytes,media_content_type,duration_ms",
+          )
+          .eq("id", receiptId)
+          .eq("workspace_id", workspaceId)
+          .eq("workpiece_id", workpieceId)
+          .maybeSingle();
+        if (receiptResult.error) {
+          if (isAmbiguousSingleRowError(receiptResult.error)) {
+            throw new HttpError(
+              409,
+              "hammer_playable_media_duration_authority_ambiguous",
+              "More than one immutable media-duration receipt matched the canonical source identity.",
+              { media_verification_receipt_id: receiptId },
+            );
+          }
+          throw new HttpError(
+            502,
+            "hammer_playable_media_duration_authority_unverifiable",
+            "The immutable media-duration receipt could not be read.",
+            { reason: receiptResult.error.message },
+          );
+        }
+        if (!isRecord(receiptResult.data)) {
+          throw new HttpError(
+            409,
+            "hammer_playable_media_duration_authority_missing",
+            "The linked immutable media-duration receipt is missing.",
+            { media_verification_receipt_id: receiptId },
+          );
+        }
+        const receipt = receiptResult.data;
+        const receiptDurationMs = positiveSafeInteger(receipt.duration_ms);
+        const completionHash = normalizedMediaSha256(completion.media_hash);
+        const receiptHash = normalizedMediaSha256(receipt.media_hash);
+        const completionBytes = positiveSafeInteger(completion.media_bytes);
+        const receiptBytes = positiveSafeInteger(receipt.media_bytes);
+        const completionType = normalizedMediaContentType(
+          completion.media_content_type,
+        );
+        const receiptType = normalizedMediaContentType(
+          receipt.media_content_type,
+        );
+        const canonicalBytes = positiveSafeInteger(recordingResult.data.media_bytes);
+        const canonicalType = normalizedMediaContentType(
+          recordingResult.data.media_content_type,
+        );
+        const canonicalCaptureAuthorityId = readStringField(
+          recordingResult.data,
+          "source_capture_authority_id",
+        );
+        const completionCaptureAuthorityId = readStringField(
+          completion,
+          "capture_authority_id",
+        );
+        if (!receiptDurationMs) {
+          throw new HttpError(
+            409,
+            "hammer_playable_media_duration_authority_invalid",
+            "The immutable media-duration receipt has no positive safe-integer duration.",
+            { media_verification_receipt_id: receiptId },
+          );
+        }
+        if (
+          readStringField(completion, "id") !== sourceAuthorityId ||
+          readStringField(completion, "media_path") !== mediaPath ||
+          readStringField(receipt, "id") !== receiptId ||
+          readStringField(receipt, "media_path") !== mediaPath ||
+          !completionHash ||
+          completionHash !== signature ||
+          completionHash !== receiptHash ||
+          !completionBytes ||
+          completionBytes !== receiptBytes ||
+          (canonicalBytes != null && canonicalBytes !== receiptBytes) ||
+          !completionType ||
+          completionType !== receiptType ||
+          (canonicalType != null && canonicalType !== receiptType) ||
+          !completionCaptureAuthorityId ||
+          readStringField(receipt, "recording_capture_authority_id") !==
+            completionCaptureAuthorityId ||
+          (canonicalCaptureAuthorityId != null &&
+            canonicalCaptureAuthorityId !== completionCaptureAuthorityId)
+        ) {
+          throw new HttpError(
+            409,
+            "hammer_playable_media_duration_authority_mismatch",
+            "The immutable media-duration receipt contradicts the canonical media identity.",
+            {
+              source_authority_id: sourceAuthorityId,
+              media_verification_receipt_id: receiptId,
+            },
+          );
+        }
+        if (
+          canonicalDurationMs != null &&
+          canonicalDurationMs !== receiptDurationMs
+        ) {
+          throw new HttpError(
+            409,
+            "hammer_playable_media_duration_conflict",
+            "The canonical duration contradicts its immutable verification receipt.",
+            {
+              canonical_duration_ms: canonicalDurationMs,
+              verified_duration_ms: receiptDurationMs,
+            },
+          );
+        }
+        durationMs = receiptDurationMs;
+      }
+    }
     const expiresInSeconds = 3600;
     const signed = await this.supabase.storage.from(this.bucket)
       .createSignedUrl(buildStorageKey(workpieceId, mediaPath), expiresInSeconds);
@@ -13328,7 +13604,6 @@ export class TongsCommitService {
       throw new HttpError(502, "hammer_playable_media_url_failed", "The canonical media URL could not be created.", { reason: signed.error?.message });
     }
     const byteSize = recordingResult.data.media_bytes;
-    const durationMs = recordingResult.data.media_duration_ms;
     return {
       canonical_recording_id: canonicalRecordingId,
       recording_revision_id: recordingRevisionId,
@@ -13337,7 +13612,7 @@ export class TongsCommitService {
       media_path: mediaPath,
       content_type: readStringField(recordingResult.data, "media_content_type") ?? normalizeContentType(undefined, mediaPath),
       byte_size: typeof byteSize === "number" && Number.isSafeInteger(byteSize) && byteSize >= 0 ? byteSize : null,
-      duration_ms: typeof durationMs === "number" && Number.isSafeInteger(durationMs) && durationMs > 0 ? durationMs : null,
+      duration_ms: durationMs,
       url: signed.data.signedUrl,
       expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
     };
@@ -36377,7 +36652,7 @@ export class TongsCommitService {
     )
       .from("current_workpiece_recorded_takes")
       .select(
-        "workpiece_id,completion_id,keep_id,capture_session_id,media_path,completion_evidence,completed_at,kept_at,source_kind",
+        "workpiece_id,completion_id,keep_id,capture_session_id,media_path,media_hash,media_content_type,media_bytes,completion_evidence,completed_at,kept_at,source_kind,source_authority_id",
       )
       .in("workpiece_id", [...workpieceIds])
       .or("keep_id.not.is.null,source_kind.eq.hammer_import")
@@ -36414,6 +36689,16 @@ export class TongsCommitService {
       const artifact = isRecord(evidence.artifact_validation)
         ? evidence.artifact_validation
         : {};
+      const verified =
+        row.source_kind === "anvil_capture"
+          ? resolveCanonicalMediaVerificationEvidence({
+              completionEvidence: row.completion_evidence,
+              mediaPath: row.media_path,
+              mediaHash: row.media_hash,
+              mediaBytes: row.media_bytes,
+              mediaContentType: row.media_content_type,
+            })
+          : null;
       next.set(row.workpiece_id, {
         event_id: null,
         completion_id: row.completion_id ?? undefined,
@@ -36423,18 +36708,36 @@ export class TongsCommitService {
         recording_session_id: null,
         anvil_capture_session_id: row.capture_session_id,
         content_type:
-          typeof artifact.content_type === "string"
-            ? artifact.content_type
-            : null,
-        bytes: typeof artifact.bytes === "number" ? artifact.bytes : null,
+          verified?.content_type ??
+          (typeof row.media_content_type === "string"
+            ? row.media_content_type
+            : typeof artifact.content_type === "string"
+              ? artifact.content_type
+              : null),
+        bytes:
+          verified?.bytes ??
+          (typeof row.media_bytes === "number"
+            ? row.media_bytes
+            : typeof artifact.bytes === "number"
+              ? artifact.bytes
+              : null),
         duration_ms:
+          verified?.duration_ms ??
+          (row.source_kind === "hammer_import" &&
           typeof artifact.duration_ms === "number"
             ? artifact.duration_ms
-            : null,
+            : null),
         original_name:
           typeof artifact.original_name === "string"
             ? artifact.original_name
             : null,
+        source_kind:
+          row.source_kind === "anvil_capture" ||
+          row.source_kind === "hammer_import"
+            ? row.source_kind
+            : undefined,
+        source_authority_id: row.source_authority_id ?? undefined,
+        source_sha256: verified?.sha256,
       });
     }
 

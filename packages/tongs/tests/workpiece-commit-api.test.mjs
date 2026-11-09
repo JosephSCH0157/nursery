@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { createHash } from "node:crypto";
-import { HAMMER_TRANSCRIPT_CREATION_HALTED_MESSAGE, TongsCommitService, buildImageMapPromptSourceContext, classifyWorkpieceJobInsertError, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis, resolveCanonicalGeneratedImageDimensions, resolvePriorCandidateAssetIdsToSupersede } from "../dist/workpiece-commit-api.js";
+import { HAMMER_TRANSCRIPT_CREATION_HALTED_MESSAGE, TongsCommitService, buildImageMapPromptSourceContext, classifyWorkpieceJobInsertError, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis, resolveCanonicalGeneratedImageDimensions, resolveCanonicalMediaVerificationEvidence, resolvePriorCandidateAssetIdsToSupersede } from "../dist/workpiece-commit-api.js";
 import { ImageProviderRequestError } from "../dist/providers/image-provider.js";
 import { deflateSync } from "node:zlib";
 
@@ -164,21 +164,56 @@ test("canonical transcript read distinguishes absence, identity mismatch, ambigu
   await assert.rejects(denied.service.readHammerCanonicalTranscript(denied.workspaceId, denied.workpieceId, { canonical_recording_id: denied.recordingId, recording_revision_id: denied.revisionId, source_sha256: denied.sha }, { userAccessToken: "unrelated" }), (error) => error?.code === "workspace_access_denied");
 });
 
-function canonicalPlayableMediaFixture({ roleError = null } = {}) {
+function canonicalPlayableMediaFixture({
+  roleError = null,
+  verifiedAuthority = false,
+  canonicalDurationMs = 603848,
+  verifiedDurationMs = 603848,
+  canonicalOverrides = {},
+  receiptOverrides = {},
+  receiptError = null,
+  completionOverrides = {},
+} = {}) {
   const workspaceId = "11111111-1111-4111-8111-111111111111";
   const workpieceId = "22222222-2222-4222-8222-222222222222";
   const recordingId = "33333333-3333-4333-8333-333333333333";
   const revisionId = "44444444-4444-4444-8444-444444444444";
   const sha = "a".repeat(64);
+  const completionId = "55555555-5555-4555-8555-555555555555";
+  const captureAuthorityId = "66666666-6666-4666-8666-666666666666";
+  const receiptId = "77777777-7777-4777-8777-777777777777";
+  const mediaId = verifiedAuthority
+    ? `anvil-completion:${completionId}`
+    : "recording-session:brad";
   const results = {
     episodes: { data: { canonical_recording_id: recordingId, active_revision_id: revisionId }, error: null },
     canonical_recordings: { data: {
       id: recordingId, workspace_id: workspaceId, workpiece_id: workpieceId,
-      media_id: "recording-session:brad", media_path: "recordings/brad.webm",
+      media_id: mediaId, media_path: "recordings/brad.webm",
       media_content_type: "video/webm;codecs=vp9,opus", media_bytes: 120617428,
-      media_duration_ms: 603848, media_signature: sha,
+      media_duration_ms: canonicalDurationMs, media_signature: sha,
+      source_kind: verifiedAuthority ? "anvil_capture" : null,
+      source_authority_id: verifiedAuthority ? completionId : null,
+      source_capture_authority_id: verifiedAuthority ? captureAuthorityId : null,
+      ...canonicalOverrides,
     }, error: null },
     recording_revisions: { data: { id: revisionId, workspace_id: workspaceId, workpiece_id: workpieceId, canonical_recording_id: recordingId, status: "active" }, error: null },
+    anvil_recording_completion_requests: { data: verifiedAuthority ? {
+      id: completionId, workspace_id: workspaceId, workpiece_id: workpieceId,
+      capture_authority_id: captureAuthorityId, media_path: "recordings/brad.webm",
+      media_hash: sha, media_bytes: 120617428,
+      media_content_type: "video/webm;codecs=vp9,opus",
+      media_verification_receipt_id: receiptId,
+      ...completionOverrides,
+    } : null, error: null },
+    recording_media_verification_receipts: { data: verifiedAuthority ? {
+      id: receiptId, workspace_id: workspaceId, workpiece_id: workpieceId,
+      recording_capture_authority_id: captureAuthorityId,
+      media_path: "recordings/brad.webm", media_hash: sha,
+      media_bytes: 120617428, media_content_type: "video/webm;codecs=vp9,opus",
+      duration_ms: verifiedDurationMs,
+      ...receiptOverrides,
+    } : null, error: receiptError },
   };
   const schema = { from(table) {
     const builder = { select() { return builder; }, eq() { return builder; }, maybeSingle() { return Promise.resolve(results[table]); } };
@@ -200,7 +235,7 @@ function canonicalPlayableMediaFixture({ roleError = null } = {}) {
     if (roleError) throw roleError;
     return { userId: "viewer", role: "viewer" };
   };
-  return { service, workspaceId, workpieceId, recordingId, revisionId, sha, signedPaths };
+  return { service, workspaceId, workpieceId, recordingId, revisionId, sha, signedPaths, completionId, receiptId };
 }
 
 test("canonical playable media is viewer-authorized and signs only the server-resolved active source", async () => {
@@ -230,6 +265,208 @@ test("canonical playable media rejects stale browser identity and unrelated user
     (error) => error?.code === "workspace_access_denied",
   );
   assert.equal(denied.signedPaths.length, 0);
+});
+
+test("canonical playable media recovers a null duration only from the exact immutable Anvil receipt", async () => {
+  const fixture = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: null,
+  });
+  const result = await fixture.service.readHammerPlayableMedia(
+    fixture.workspaceId,
+    fixture.workpieceId,
+    { canonical_recording_id: fixture.recordingId, recording_revision_id: fixture.revisionId, source_sha256: fixture.sha },
+    { userAccessToken: "viewer" },
+  );
+  assert.equal(result.media_id, `anvil-completion:${fixture.completionId}`);
+  assert.equal(result.duration_ms, 603848);
+  assert.equal(fixture.signedPaths.length, 1);
+});
+
+test("canonical playable media rejects mismatched and contradictory duration authority before signing", async () => {
+  const mismatch = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: null,
+    receiptOverrides: { media_hash: "b".repeat(64) },
+  });
+  await assert.rejects(
+    mismatch.service.readHammerPlayableMedia(mismatch.workspaceId, mismatch.workpieceId, { canonical_recording_id: mismatch.recordingId, recording_revision_id: mismatch.revisionId, source_sha256: mismatch.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_duration_authority_mismatch",
+  );
+  assert.equal(mismatch.signedPaths.length, 0);
+
+  const conflict = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: 600000,
+    verifiedDurationMs: 603848,
+  });
+  await assert.rejects(
+    conflict.service.readHammerPlayableMedia(conflict.workspaceId, conflict.workpieceId, { canonical_recording_id: conflict.recordingId, recording_revision_id: conflict.revisionId, source_sha256: conflict.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_duration_conflict",
+  );
+  assert.equal(conflict.signedPaths.length, 0);
+
+  const identity = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: null,
+    canonicalOverrides: { media_id: "anvil-completion:88888888-8888-4888-8888-888888888888" },
+  });
+  await assert.rejects(
+    identity.service.readHammerPlayableMedia(identity.workspaceId, identity.workpieceId, { canonical_recording_id: identity.recordingId, recording_revision_id: identity.revisionId, source_sha256: identity.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_source_identity_invalid",
+  );
+  assert.equal(identity.signedPaths.length, 0);
+
+  const missing = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: null,
+    completionOverrides: { media_verification_receipt_id: null },
+  });
+  await assert.rejects(
+    missing.service.readHammerPlayableMedia(missing.workspaceId, missing.workpieceId, { canonical_recording_id: missing.recordingId, recording_revision_id: missing.revisionId, source_sha256: missing.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_duration_authority_missing",
+  );
+  assert.equal(missing.signedPaths.length, 0);
+
+  const ambiguous = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: null,
+    receiptError: { code: "PGRST116", message: "JSON object requested, multiple rows returned" },
+  });
+  await assert.rejects(
+    ambiguous.service.readHammerPlayableMedia(ambiguous.workspaceId, ambiguous.workpieceId, { canonical_recording_id: ambiguous.recordingId, recording_revision_id: ambiguous.revisionId, source_sha256: ambiguous.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_duration_authority_ambiguous",
+  );
+  assert.equal(ambiguous.signedPaths.length, 0);
+
+  const invalid = canonicalPlayableMediaFixture({
+    verifiedAuthority: true,
+    canonicalDurationMs: null,
+    verifiedDurationMs: 0,
+  });
+  await assert.rejects(
+    invalid.service.readHammerPlayableMedia(invalid.workspaceId, invalid.workpieceId, { canonical_recording_id: invalid.recordingId, recording_revision_id: invalid.revisionId, source_sha256: invalid.sha }, { userAccessToken: "viewer" }),
+    (error) => error?.code === "hammer_playable_media_duration_authority_invalid",
+  );
+  assert.equal(invalid.signedPaths.length, 0);
+});
+
+test("canonical completion projection accepts only server-injected media verification bound to the same object", () => {
+  const sha = "a".repeat(64);
+  const evidence = {
+    artifact_validation: { path: "recordings/brad.webm" },
+    canonical_media_verification: {
+      source: "trusted_tongs_storage_readback",
+      sha256: sha,
+      bytes: 120617428,
+      content_type: "video/webm;codecs=vp9,opus",
+      duration_ms: 603848,
+    },
+  };
+  assert.equal(resolveCanonicalMediaVerificationEvidence({
+    completionEvidence: evidence,
+    mediaPath: "recordings/brad.webm",
+    mediaHash: sha,
+    mediaBytes: 120617428,
+    mediaContentType: "video/webm;codecs=vp9,opus",
+  })?.duration_ms, 603848);
+  assert.equal(resolveCanonicalMediaVerificationEvidence({
+    completionEvidence: evidence,
+    mediaPath: "recordings/brad.webm",
+    mediaHash: "b".repeat(64),
+    mediaBytes: 120617428,
+    mediaContentType: "video/webm;codecs=vp9,opus",
+  }), null);
+});
+
+test("future canonical creation projects the server-verified completion duration and identity", async () => {
+  const workspaceId = "11111111-1111-4111-8111-111111111111";
+  const workpieceId = "22222222-2222-4222-8222-222222222222";
+  const completionId = "33333333-3333-4333-8333-333333333333";
+  const sha = "a".repeat(64);
+  const evidence = {
+    artifact_validation: { path: "recordings/future.webm", original_name: "future.webm" },
+    canonical_media_verification: {
+      source: "trusted_tongs_storage_readback",
+      sha256: sha,
+      bytes: 4096,
+      content_type: "video/webm;codecs=vp9,opus",
+      duration_ms: 603848,
+    },
+  };
+  const { ...projectionSupabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [{
+      id: workpieceId, workspace_id: workspaceId, label: "Future verified take",
+      updated_at: "2026-11-09T00:00:00.000Z", created_at: "2026-11-09T00:00:00.000Z",
+      archived_at: null, archived_by: null, archive_reason: null,
+    }],
+    recordedRows: [{
+      workpiece_id: workpieceId,
+      completion_id: completionId,
+      keep_id: "44444444-4444-4444-8444-444444444444",
+      capture_session_id: "55555555-5555-4555-8555-555555555555",
+      media_path: "recordings/future.webm",
+      media_hash: sha,
+      media_content_type: "video/webm;codecs=vp9,opus",
+      media_bytes: 4096,
+      completion_evidence: evidence,
+      completed_at: "2026-11-09T00:00:00.000Z",
+      kept_at: "2026-11-09T00:01:00.000Z",
+      source_kind: "anvil_capture",
+      source_authority_id: completionId,
+    }],
+  });
+  const projectionService = new TongsCommitService(projectionSupabase, "forge-workpieces");
+  projectionService.getCradleOrThrow = async () => ({ workspace_id: workspaceId });
+  const truth = await projectionService.getWorkpieceRecordingTruth(workpieceId);
+  assert.equal(truth.latest_kept_take?.duration_ms, 603848);
+  assert.equal(truth.latest_kept_take?.source_sha256, sha);
+  assert.equal(truth.latest_kept_take?.source_authority_id, completionId);
+
+  let inserted = null;
+  const creationSchema = {
+    from(table) {
+      if (table === "canonical_recordings") return {
+        select() {
+          const builder = { eq() { return builder; }, async maybeSingle() { return { data: null, error: null }; } };
+          return builder;
+        },
+        insert(row) {
+          inserted = structuredClone(row);
+          return { select() { return { async single() { return { data: { id: "66666666-6666-4666-8666-666666666666", ...row }, error: null }; } }; } };
+        },
+      };
+      if (table === "episodes") return {
+        update() {
+          const builder = { eq() { return builder; }, async or() { return { error: null }; } };
+          return builder;
+        },
+      };
+      if (table === "workpiece_events") return {
+        insert(row) {
+          return { select() { return { async single() { return { data: { id: 1, created_at: "2026-11-09T00:02:00.000Z", ...row }, error: null }; } }; } };
+        },
+      };
+      throw new Error(`Unexpected creation table: ${table}`);
+    },
+  };
+  const creationService = new TongsCommitService({ schema: () => creationSchema }, "forge-workpieces");
+  creationService.getWorkspaceOrThrow = async () => ({ id: workspaceId });
+  creationService.assertWorkpieceInWorkspace = async () => undefined;
+  creationService.assertWorkspaceRole = async () => ({ userId: "77777777-7777-4777-8777-777777777777", role: "editor" });
+  creationService.getWorkpieceRecordingTruth = async () => truth;
+  const canonical = await creationService.ensureHammerCanonicalRecording(
+    workspaceId,
+    workpieceId,
+    { written_by: { tool: "hammer", tool_version: "test", lane: "forge-managed" } },
+  );
+  assert.equal(inserted.media_duration_ms, 603848);
+  assert.equal(inserted.media_signature, sha);
+  assert.equal(inserted.media_id, `anvil-completion:${completionId}`);
+  assert.equal(inserted.source_kind, "anvil_capture");
+  assert.equal(inserted.source_authority_id, completionId);
+  assert.equal(canonical.media_duration_ms, 603848);
 });
 
 test("workpiece job insert classifies only the exact financial halt as non-retryable", () => {
