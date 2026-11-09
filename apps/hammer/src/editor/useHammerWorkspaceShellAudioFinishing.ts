@@ -7,7 +7,7 @@ import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
 import type { HammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { executeDialogueAudioRenderWithBackend, processDialogueAudioWithBackend, resolveHammerAudioProcessingBackend, type HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
 import { buildHammerDevMediaUrl, loadCanonicalAudioPolishPreviewUrl } from "../lib/previewSource";
-import { createHammerPlaybackSourceResolutionGuard, resolveHammerRawPlaybackSource, resolveHammerSignedMediaRefreshDelayMs, selectHammerEffectivePlaybackUrl } from "./hammerCanonicalPlayback";
+import { createHammerPlaybackSourceResolutionGuard, resolveHammerRawPlaybackSourceWithDiagnostics, resolveHammerSignedMediaRefreshDelayMs, selectHammerEffectivePlaybackUrl, type HammerRawPlaybackSource } from "./hammerCanonicalPlayback";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity, fingerprintHammerAudio } from "./hammerAudioDspPlan";
 import { validateHammerExactAudioReleaseReceipt } from "./hammerExactAudioReceipt";
@@ -166,7 +166,7 @@ export type HammerAudioFinishingPreviewRuntimeArgs = {
   preferredPlayback: { kind: string; local_relpath?: string | null; workpiece_path?: string | null; mime_type?: string | null };
   hasAudibleProcessing: boolean; ffmpegAvailable: boolean;
   playbackMediaSrc: string | null; previewVideoSrc: string | null;
-  setPlaybackMediaSrc: Dispatch<SetStateAction<string | null>>; setPreviewVideoSrc: Dispatch<SetStateAction<string | null>>;
+  setPlaybackMediaSrc: Dispatch<SetStateAction<string | null>>; setPreviewVideoSrc: Dispatch<SetStateAction<string | null>>; setRawPlaybackSource: Dispatch<SetStateAction<HammerRawPlaybackSource | null>>;
   setRenderStatus: Dispatch<SetStateAction<HammerDialogueRenderExecutionResult | null>>;
   inferMime: (args: { path: string; kind: MediaRef["kind"] }) => string;
 };
@@ -182,7 +182,7 @@ export function useHammerAudioFinishingPreviewEffects(
   const {
     activeTool, currentPass, compareMode, rack, transcriptSegments, workspaceId,
     workpieceId, historyHeadEntryId, canonicalRecordingId, recordingRevisionId, runtime, mediaRef, localRootAbs, preferredPlayback, hasAudibleProcessing, ffmpegAvailable, playbackMediaSrc,
-    previewVideoSrc, setPlaybackMediaSrc, setPreviewVideoSrc, setRenderStatus, inferMime,
+    previewVideoSrc, setPlaybackMediaSrc, setPreviewVideoSrc, setRawPlaybackSource, setRenderStatus, inferMime,
   } = args;
   const shouldUseProcessed = activeTool === "audio" && currentPass === "audio_finalization" && compareMode === "after" && hasAudibleProcessing;
   useEffect(() => {
@@ -265,19 +265,17 @@ export function useHammerAudioFinishingPreviewEffects(
   useEffect(() => {
     let active = true;
     let refreshTimer: number | null = null;
-    const resolutionToken = rawPlaybackResolutionGuardRef.current!.begin();
+    const resolutionToken = rawPlaybackResolutionGuardRef.current!.begin(); setRawPlaybackSource(null);
     const resolveRaw = async () => {
       const rawMediaRef = mediaRef; const path = rawMediaRef?.local_relpath ?? null;
       if (!path || !rawMediaRef) { setPreviewVideoSrc(null); return null; }
       if (localRootAbs) { const url = buildHammerDevMediaUrl(localRootAbs, path); setPreviewVideoSrc(url); return url; }
-      try {
-        const source = await resolveHammerRawPlaybackSource({ workspaceId, workpieceId, canonicalRecordingId, recordingRevisionId, mediaRef: rawMediaRef, path, mimeType: inferMime({ path, kind: rawMediaRef.kind }) });
-        const url = source.url;
-        if (!active || !rawPlaybackResolutionGuardRef.current!.accepts(resolutionToken)) { if (url.startsWith("blob:")) URL.revokeObjectURL(url); return null; }
-        if (source.expiresAt) refreshTimer = window.setTimeout(() => setCanonicalPlaybackRefreshEpoch((value) => value + 1), resolveHammerSignedMediaRefreshDelayMs(source.expiresAt));
-        setPreviewVideoSrc(url);
-        return url;
-      } catch { if (active) setPreviewVideoSrc(null); return null; }
+      const source = await resolveHammerRawPlaybackSourceWithDiagnostics({ workspaceId, workpieceId, canonicalRecordingId, recordingRevisionId, mediaRef: rawMediaRef, path, mimeType: inferMime({ path, kind: rawMediaRef.kind }) });
+      if (!source) { if (active) { setRawPlaybackSource(null); setPreviewVideoSrc(null); } return null; }
+      const url = source.url;
+      if (!active || !rawPlaybackResolutionGuardRef.current!.accepts(resolutionToken)) { if (url.startsWith("blob:")) URL.revokeObjectURL(url); return null; }
+      if (source.expiresAt) refreshTimer = window.setTimeout(() => setCanonicalPlaybackRefreshEpoch((value) => value + 1), resolveHammerSignedMediaRefreshDelayMs(source.expiresAt));
+      setRawPlaybackSource(source); setPreviewVideoSrc(url); return url;
     };
     void (async () => { const raw = await resolveRaw(); if (!active) return; let polished: string | null = null; if (preferredPlayback.kind === "polished") { if (preferredPlayback.local_relpath && localRootAbs) polished = buildHammerDevMediaUrl(localRootAbs, preferredPlayback.local_relpath); else if (preferredPlayback.workpiece_path) { try { polished = await loadCanonicalAudioPolishPreviewUrl({ workpieceId: workpieceId, workpiecePath: preferredPlayback.workpiece_path, mimeType: preferredPlayback.mime_type }); } catch { polished = null; } } } if (!active) { if (polished?.startsWith("blob:")) URL.revokeObjectURL(polished); return; } setPlaybackMediaSrc(selectHammerEffectivePlaybackUrl({ rawUrl: raw, processedUrl: previewSrc, polishedUrl: polished, useProcessed: shouldUseProcessed, preferPolished: preferredPlayback.kind === "polished" })); })();
     return () => { active = false; if (refreshTimer !== null) window.clearTimeout(refreshTimer); };
@@ -287,8 +285,7 @@ export function useHammerAudioFinishingPreviewEffects(
     preferredPlayback.local_relpath,
     preferredPlayback.mime_type,
     preferredPlayback.workpiece_path,
-    setPlaybackMediaSrc,
-    setPreviewVideoSrc,
+    setPlaybackMediaSrc, setPreviewVideoSrc, setRawPlaybackSource,
     workpieceId, workspaceId, canonicalRecordingId, recordingRevisionId,
     shouldUseProcessed,
   ]);

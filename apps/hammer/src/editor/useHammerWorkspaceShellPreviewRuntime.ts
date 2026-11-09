@@ -7,6 +7,7 @@ import type { HammerEyeContactAssistRuntimeStatus } from "../features/eye-contac
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
+import type { HammerRawPlaybackSource } from "./hammerCanonicalPlayback";
 import {
   useHammerAudioFinishingCompareStatus,
   useHammerAudioFinishingPreviewEffects,
@@ -50,6 +51,7 @@ export type UseHammerWorkspaceShellPreviewRuntimeArgs = {
   visualEyeContactAssistDebugOverlay: boolean;
   setPlaybackMediaSrc: Dispatch<SetStateAction<string | null>>;
   setPreviewVideoSrc: Dispatch<SetStateAction<string | null>>;
+  setRawPlaybackSource: Dispatch<SetStateAction<HammerRawPlaybackSource | null>>;
   setStudioRackRenderStatus: Dispatch<SetStateAction<HammerDialogueRenderExecutionResult | null>>;
   inferPlaybackMimeTypeFromPath: (args: {
     path: string;
@@ -103,6 +105,7 @@ export function useHammerWorkspaceShellPreviewRuntime(
     previewVideoSrc: args.previewVideoSrc,
     setPlaybackMediaSrc: args.setPlaybackMediaSrc,
     setPreviewVideoSrc: args.setPreviewVideoSrc,
+    setRawPlaybackSource: args.setRawPlaybackSource,
     setRenderStatus: args.setStudioRackRenderStatus,
     inferMime: args.inferPlaybackMimeTypeFromPath,
   }, studioRackPreviewSrc, setStudioRackPreviewSrc, audioPreviewRefs);

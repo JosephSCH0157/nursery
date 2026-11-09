@@ -38,6 +38,7 @@ export function Harness(): React.JSX.Element {
   const transport = useHammerWorkspaceShellPlayback({
     editableTranscriptSegments: [{ segment_id: "solo", speaker: "Speaker A", start_sec: 0, end_sec: 3, text: "Hammer playback is working clearly." }],
     effectivePlaybackCutRegions: [], timelineDurationSec: 3, playbackTransportDurationSec: 3,
+    playbackMediaDurationSec: readiness.durationSec,
     playheadBoundaryTimesSec: [0, 3], activeTranscriptTargetRange: null,
     resolveAudibleTransportTime: (time) => time < 3 ? time : null,
     resolveMediaTimeForTransportTime: (time) => time,

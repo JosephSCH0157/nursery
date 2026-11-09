@@ -326,7 +326,7 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
           step={0.1}
           value={playheadSec}
           onChange={(event) => {
-            seekPlayheadToTime(Number(event.target.value), "playhead");
+            seekPlayheadToTime(Number(event.target.value), "playhead", { snapToBoundary: false });
           }}
           aria-label="Timeline playhead"
         />

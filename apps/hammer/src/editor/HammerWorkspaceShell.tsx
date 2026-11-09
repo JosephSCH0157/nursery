@@ -587,7 +587,7 @@ function HammerWorkspaceShellWithContext(
   const [historyEpochArchivedNotice, setHistoryEpochArchivedNotice] = useState(false);
   historyEpochStartCandidateRef.current = historyEpochStartCandidate;
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
-  const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null);
+  const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null); const [rawPlaybackSource, setRawPlaybackSource] = useState<import("./hammerCanonicalPlayback").HammerRawPlaybackSource | null>(null);
   const { canonicalWorkpieceLabel, hydrationAuthority: workpieceLabelHydrationAuthority } =
     useHammerWorkspaceShellWorkpieceLabelState();
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
@@ -928,8 +928,8 @@ function HammerWorkspaceShellWithContext(
   const activePackagingMediaSrc = activePackagingMediaPath
     ? (sourceDeskPreviewUrls[activePackagingMediaPath] ?? null)
     : null;
-  const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
-  const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc; const playbackReadiness = useHammerPlaybackReadiness({ mediaRef: previewAudioRef, source: effectivePlaybackMediaSrc, expectedDurationSec: activePackagingMediaPath ? (packagingTransport.phase === "intro" ? packagingTransport.introDurationSec : packagingTransport.outroDurationSec) : compositionDurationSec });
+  const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc; const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
+  const playbackReadiness = useHammerPlaybackReadiness({ mediaRef: previewAudioRef, source: effectivePlaybackMediaSrc, expectedDurationSec: activePackagingMediaPath ? (packagingTransport.phase === "intro" ? packagingTransport.introDurationSec : packagingTransport.outroDurationSec) : compositionDurationSec, verifiedDurationAuthority: !activePackagingMediaPath && effectivePlaybackMediaSrc && rawPlaybackSource?.kind === "canonical_signed" && rawPlaybackSource.url === effectivePlaybackMediaSrc && rawPlaybackSource.authority?.durationSec != null ? { source: effectivePlaybackMediaSrc, durationSec: rawPlaybackSource.authority.durationSec } : null });
   const { resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime, resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime } = useHammerShortMediaTimeMapping(packagingTransport, props.canonicalTimingMap);
   const effectivePlaybackCutRegions = useMemo(
     () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec).map((region) => ({
@@ -1038,7 +1038,7 @@ function HammerWorkspaceShellWithContext(
     editableTranscriptSegments: playbackTranscriptSegments,
     effectivePlaybackCutRegions,
     timelineDurationSec,
-    playbackTransportDurationSec,
+    playbackTransportDurationSec, playbackMediaDurationSec: playbackReadiness.durationSec,
     playheadBoundaryTimesSec,
     activeTranscriptTargetRange: transportTranscriptTargetRange as HammerPlaybackTargetRange | null,
     resolveAudibleTransportTime,
@@ -2113,7 +2113,7 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundBlurFallbackMode: backgroundBlurSettings.fallbackMode,
     visualEyeContactAssistDebugOverlay,
     setPlaybackMediaSrc,
-    setPreviewVideoSrc,
+    setPreviewVideoSrc, setRawPlaybackSource,
     setStudioRackRenderStatus,
     inferPlaybackMimeTypeFromPath,
   });
