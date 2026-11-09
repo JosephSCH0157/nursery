@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   createHammerPlaybackSourceResolutionGuard,
   resolveHammerRawPlaybackSource,
+  resolveHammerRawPlaybackSourceWithDiagnostics,
   resolveHammerSignedMediaRefreshDelayMs,
   selectHammerEffectivePlaybackUrl,
 } from "../src/editor/hammerCanonicalPlayback";
@@ -134,5 +135,25 @@ await assert.rejects(
   (error: unknown) => error instanceof Error && "code" in error && error.code === "hammer_canonical_playback_identity_incomplete",
 );
 assert.equal(incompleteIdentityFetches, 0);
+
+const diagnosticErrors: unknown[][] = [];
+const originalConsoleError = console.error;
+console.error = (...values: unknown[]) => { diagnosticErrors.push(values); };
+try {
+  assert.equal(await resolveHammerRawPlaybackSourceWithDiagnostics({
+    workspaceId: "workspace-1",
+    workpieceId: "workpiece-1",
+    canonicalRecordingId: "recording-1",
+    recordingRevisionId: null,
+    mediaRef: { media_id: "media-1", kind: "recording_video", source_hint: "cloud", local_relpath: "recordings/brad.webm", sha256: canonicalSha256 },
+    path: "recordings/brad.webm",
+    mimeType: "video/webm",
+  }), null);
+} finally {
+  console.error = originalConsoleError;
+}
+assert.equal(diagnosticErrors.length, 1);
+assert.equal(diagnosticErrors[0]?.[0], "[HammerPlayback:source_resolution_failed]");
+assert.equal((diagnosticErrors[0]?.[1] as { code?: string })?.code, "hammer_canonical_playback_identity_incomplete");
 
 console.log("hammer canonical playback lifecycle tests passed");
