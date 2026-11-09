@@ -303,3 +303,38 @@ test("canonical recording binding cannot retain metadata from a different previe
   assert.equal(bound.media.ref.byte_size, undefined);
   assert.equal(bound.media.ref.duration_ms, undefined);
 });
+
+test("canonical recording binding restores Tongs media identity instead of preserving stale preview identity", () => {
+  const canonicalSha256 = "5".repeat(64);
+  const bound = bindLaunchContextToCanonicalRecording(fallbackLaunchContext as any, {
+    id: "canonical-recording-1",
+    workspace_id: target.workspaceId,
+    workpiece_id: target.workpieceId,
+    status: "draft",
+    media_path: "recordings/brad.webm",
+    media_id: "recording-session:brad",
+    media_signature: `sha256:${canonicalSha256}`,
+    media_bytes: 120_617_428,
+    media_content_type: "video/webm;codecs=vp9,opus",
+    media_duration_ms: 603_848,
+    sealed_at: null,
+    baseline_transcript_path: null,
+    baseline_speaker_map_path: null,
+    baseline_timing_path: null,
+  });
+  assert.equal(bound?.media.kind, "tongs-stub");
+  if (bound?.media.kind !== "tongs-stub") return;
+  assert.deepEqual({
+    mediaId: bound.media.ref.media_id,
+    path: bound.media.ref.local_relpath,
+    sha256: bound.media.ref.sha256,
+    byteSize: bound.media.ref.byte_size,
+    durationMs: bound.media.ref.duration_ms,
+  }, {
+    mediaId: "recording-session:brad",
+    path: "recordings/brad.webm",
+    sha256: canonicalSha256,
+    byteSize: 120_617_428,
+    durationMs: 603_848,
+  });
+});

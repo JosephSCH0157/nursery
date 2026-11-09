@@ -58,7 +58,7 @@ type StorageNode = {
   duration_ms?: number | null;
 };
 
-type TongsFetcher = typeof tongsFetch;
+export type TongsFetcher = typeof tongsFetch;
 
 function readJsonObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -603,7 +603,15 @@ export type HammerCanonicalPlayableMedia = Readonly<{
   mediaId: string;
   mediaPath: string;
   sourceSha256: string;
+  canonicalRecordingId: string;
+  recordingRevisionId: string;
 }>;
+
+type HammerCanonicalPlayableMediaError = Error & { code: string };
+
+function createCanonicalPlayableMediaError(code: string, message: string): HammerCanonicalPlayableMediaError {
+  return Object.assign(new Error(message), { code });
+}
 
 /**
  * Resolves only the active canonical recording selected by Tongs. Unlike the
@@ -633,8 +641,10 @@ export async function loadHammerCanonicalPlayableMedia(args: {
   const payload = await response.json().catch(() => null);
   const root = readJsonObject(payload);
   if (!response.ok) {
-    const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not resolve canonical playback media.";
-    throw new Error(message);
+    const responseError = readJsonObject(root?.error);
+    const message = readString(responseError?.message) ?? "Hammer could not resolve canonical playback media.";
+    const code = readString(responseError?.code) ?? "hammer_canonical_playback_resolution_failed";
+    throw createCanonicalPlayableMediaError(code, message);
   }
   const data = readJsonObject(root?.data);
   const url = readString(data?.url);
@@ -643,14 +653,32 @@ export async function loadHammerCanonicalPlayableMedia(args: {
   const sourceSha256 = readString(data?.source_sha256);
   const expiresAt = readString(data?.expires_at);
   const contentType = readString(data?.content_type);
-  if (!url || !mediaId || !mediaPath || !sourceSha256 || !expiresAt || !contentType) {
-    throw new Error("Tongs returned an incomplete canonical playback receipt.");
+  const canonicalRecordingId = readString(data?.canonical_recording_id);
+  const recordingRevisionId = readString(data?.recording_revision_id);
+  if (!url || !mediaId || !mediaPath || !sourceSha256 || !expiresAt || !contentType || !canonicalRecordingId || !recordingRevisionId) {
+    throw createCanonicalPlayableMediaError(
+      "hammer_canonical_playback_receipt_incomplete",
+      "Tongs returned an incomplete canonical playback receipt.",
+    );
+  }
+  const expectedSha256 = args.sourceSha256.trim().toLowerCase().replace(/^sha256:/, "");
+  if (
+    canonicalRecordingId !== args.canonicalRecordingId
+    || recordingRevisionId !== args.recordingRevisionId
+    || sourceSha256.trim().toLowerCase().replace(/^sha256:/, "") !== expectedSha256
+  ) {
+    throw createCanonicalPlayableMediaError(
+      "hammer_canonical_playback_receipt_mismatch",
+      "Tongs canonical playback receipt did not match the requested recording, revision, and source SHA-256.",
+    );
   }
   return Object.freeze({
     url,
     mediaId,
     mediaPath,
     sourceSha256,
+    canonicalRecordingId,
+    recordingRevisionId,
     expiresAt,
     contentType,
     byteSize: typeof data?.byte_size === "number" ? data.byte_size : null,

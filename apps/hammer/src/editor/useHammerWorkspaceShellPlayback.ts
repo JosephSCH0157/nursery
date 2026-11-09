@@ -67,6 +67,7 @@ export type UseHammerWorkspaceShellPlaybackArgs = {
   effectivePlaybackCutRegions: HammerEffectiveCutRegion[];
   timelineDurationSec: number;
   playbackTransportDurationSec: number;
+  playbackMediaDurationSec: number | null;
   playheadBoundaryTimesSec: number[];
   activeTranscriptTargetRange: HammerPlaybackTargetRange | null;
   resolveAudibleTransportTime: (requestedTimeSec: number) => number | null;
@@ -259,7 +260,7 @@ export function useHammerWorkspaceShellPlayback(
     }
 
     if (!seekArgs.applySeamFade || seekArgs.audio.muted || seekArgs.audio.volume <= 0) {
-      seekArgs.audio.currentTime = clampHammerMediaSeekTime(targetTime, seekArgs.audio.duration);
+      seekArgs.audio.currentTime = clampHammerMediaSeekTime(targetTime, seekArgs.audio.duration, args.playbackMediaDurationSec);
       return;
     }
 
@@ -274,7 +275,7 @@ export function useHammerWorkspaceShellPlayback(
 
     const nearSilent = 0.0001;
     seekArgs.audio.volume = nearSilent;
-    seekArgs.audio.currentTime = clampHammerMediaSeekTime(targetTime, seekArgs.audio.duration);
+    seekArgs.audio.currentTime = clampHammerMediaSeekTime(targetTime, seekArgs.audio.duration, args.playbackMediaDurationSec);
 
     ref.timerId = window.setTimeout(() => {
       if (args.cutSeekFadeRef.current.token !== token) return;
@@ -285,7 +286,7 @@ export function useHammerWorkspaceShellPlayback(
       }
       args.cutSeekFadeRef.current.timerId = null;
     }, 60);
-  }, [args.cutSeekFadeRef]);
+  }, [args.cutSeekFadeRef, args.playbackMediaDurationSec]);
 
   const claimGlobalPlaybackAuthority = useCallback((previewAudio: HTMLMediaElement): void => {
     const runtimeWindow = window as HammerPlaybackAuthorityWindow;
@@ -350,7 +351,7 @@ export function useHammerWorkspaceShellPlayback(
           args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec),
         ) > SCRUB_SEEK_THRESHOLD_SEC
       ) {
-        args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec), args.previewAudioRef.current.duration);
+        args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec), args.previewAudioRef.current.duration, args.playbackMediaDurationSec);
       }
       if (args.isPlaybackActive) {
         args.setIsPlaybackActive(false);
@@ -371,10 +372,11 @@ export function useHammerWorkspaceShellPlayback(
       args.previewAudioRef.current
       && Math.abs(args.previewAudioRef.current.currentTime - audibleTarget) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
-      args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(audibleTarget, args.previewAudioRef.current.duration);
+      args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(audibleTarget, args.previewAudioRef.current.duration, args.playbackMediaDurationSec);
     }
   }, [
     args.isPlaybackActive,
+    args.playbackMediaDurationSec,
     args.playbackTransportDurationSec,
     args.playbackWindow?.mode,
     args.playheadSec,
@@ -496,7 +498,7 @@ export function useHammerWorkspaceShellPlayback(
       } else {
         previewVideo.playbackRate = previewAudio.playbackRate;
         if (shouldSynchronizeCurrentTime && Math.abs(previewVideo.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-          previewVideo.currentTime = clampHammerMediaSeekTime(targetMediaTime, previewVideo.duration);
+          previewVideo.currentTime = clampHammerMediaSeekTime(targetMediaTime, previewVideo.duration, args.playbackMediaDurationSec);
         }
       }
     }
@@ -505,7 +507,7 @@ export function useHammerWorkspaceShellPlayback(
       segmentationVideo.volume = 0;
       segmentationVideo.playbackRate = previewAudio.playbackRate;
       if (shouldSynchronizeCurrentTime && Math.abs(segmentationVideo.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
-        segmentationVideo.currentTime = clampHammerMediaSeekTime(targetMediaTime, segmentationVideo.duration);
+        segmentationVideo.currentTime = clampHammerMediaSeekTime(targetMediaTime, segmentationVideo.duration, args.playbackMediaDurationSec);
       }
     }
 
@@ -562,6 +564,7 @@ export function useHammerWorkspaceShellPlayback(
     args.isPlaybackActive,
     args.isScrubbing,
     args.playbackMediaSrc,
+    args.playbackMediaDurationSec,
     args.playbackOwnerIdRef,
     args.playbackTransportDurationSec,
     args.playbackWindow,
@@ -676,7 +679,7 @@ export function useHammerWorkspaceShellPlayback(
         args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec),
       ) > SCRUB_SEEK_THRESHOLD_SEC
     ) {
-      args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec), args.previewAudioRef.current.duration);
+      args.previewAudioRef.current.currentTime = clampHammerMediaSeekTime(args.resolveMediaTimeForTransportTime(transportProgress.nextPlayheadSec), args.previewAudioRef.current.duration, args.playbackMediaDurationSec);
     }
 
     if (transportProgress.shouldLoop) {
@@ -691,6 +694,7 @@ export function useHammerWorkspaceShellPlayback(
     }
   }, [
     args.playbackWindow?.mode,
+    args.playbackMediaDurationSec,
     args.previewAudioRef,
     args.resolveMediaTimeForTransportTime,
     args.resolveTransportTimeForMediaTime,
@@ -823,26 +827,46 @@ export function useHammerWorkspaceShellPlayback(
     options?: { snapToBoundary?: boolean },
   ): void => {
     const clamped = Math.max(0, Math.min(args.timelineDurationSec, roundToTenth(nextTimeSec)));
-    const snapped = options?.snapToBoundary === false
-      ? clamped
-      : snapPlayheadToBoundary({
+    const snapped = options?.snapToBoundary === true
+      ? snapPlayheadToBoundary({
         nextPlayheadSec: clamped,
         boundaryTimesSec: args.playheadBoundaryTimesSec,
         toleranceSec: DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
-      });
+      })
+      : clamped;
     const audibleTarget = resolveAudibleSeekTarget(snapped);
+    const transportTarget = audibleTarget ?? args.playbackTransportDurationSec;
+    const mediaTarget = args.resolveMediaTimeForTransportTime(transportTarget);
     args.selectionOriginRef.current = origin;
-    args.setPlayheadSec(roundToTenth(audibleTarget ?? args.playbackTransportDurationSec));
+    args.setPlayheadSec(roundToTenth(transportTarget));
+    const previewAudio = args.previewAudioRef.current;
+    if (previewAudio) {
+      seekPreviewAudioWithOptionalSeamFade({ audio: previewAudio, targetTime: mediaTarget, applySeamFade: false });
+    }
+    const previewVideo = args.previewVideoRef.current;
+    if (previewVideo) {
+      previewVideo.currentTime = clampHammerMediaSeekTime(mediaTarget, previewVideo.duration, args.playbackMediaDurationSec);
+    }
+    const segmentationVideo = args.segmentationVideoRef?.current;
+    if (segmentationVideo) {
+      segmentationVideo.currentTime = clampHammerMediaSeekTime(mediaTarget, segmentationVideo.duration, args.playbackMediaDurationSec);
+    }
     args.setFocusOverride(resolveFocusAfterPlayheadChange(args.focusOverride));
   }, [
     args.focusOverride,
     args.playbackTransportDurationSec,
     args.playheadBoundaryTimesSec,
+    args.playbackMediaDurationSec,
+    args.previewAudioRef,
+    args.previewVideoRef,
+    args.segmentationVideoRef,
+    args.resolveMediaTimeForTransportTime,
     args.selectionOriginRef,
     args.setFocusOverride,
     args.setPlayheadSec,
     args.timelineDurationSec,
     resolveAudibleSeekTarget,
+    seekPreviewAudioWithOptionalSeamFade,
   ]);
 
   const jumpToSelectionBoundary = useCallback((boundary: "start" | "end"): void => {

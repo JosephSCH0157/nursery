@@ -6,14 +6,14 @@ export function bindLaunchContextToCanonicalRecording(
   canonicalRecording: HammerCanonicalRecordingRecord | null,
 ): HammerLaunchContext | undefined {
   if (!launchContext || !canonicalRecording?.media_path) return launchContext;
-  const currentRef = launchContext.media.kind === "dev-tone" ? null : launchContext.media.ref;
   const canonicalPath = canonicalRecording.media_path.trim();
   const canonicalKind = /\.(?:mp3|m4a|aac|wav|flac|ogg|opus)$/i.test(canonicalPath)
     ? "recording_audio"
     : "recording_video";
   const canonicalMediaId = canonicalRecording.media_id || canonicalRecording.id;
-  const currentRefMatchesCanonical = currentRef?.media_id === canonicalMediaId
-    && currentRef.local_relpath === canonicalPath;
+  const canonicalSha256 = canonicalRecording.media_signature?.trim().toLowerCase().replace(/^sha256:/, "") ?? "";
+  const canonicalDurationMs = canonicalRecording.media_duration_ms;
+  const canonicalByteSize = canonicalRecording.media_bytes;
   return {
     ...launchContext,
     source_mode: "tongs",
@@ -24,11 +24,15 @@ export function bindLaunchContextToCanonicalRecording(
         kind: canonicalKind,
         source_hint: "cloud",
         local_relpath: canonicalPath,
-        ...(currentRefMatchesCanonical ? {
-          byte_size: currentRef.byte_size,
-          sha256: currentRef.sha256,
-          duration_ms: currentRef.duration_ms,
-        } : {}),
+        ...(typeof canonicalByteSize === "number" && Number.isSafeInteger(canonicalByteSize) && canonicalByteSize >= 0
+          ? { byte_size: canonicalByteSize }
+          : {}),
+        ...(/^[0-9a-f]{64}$/.test(canonicalSha256)
+          ? { sha256: canonicalSha256 }
+          : {}),
+        ...(typeof canonicalDurationMs === "number" && Number.isFinite(canonicalDurationMs) && canonicalDurationMs > 0
+          ? { duration_ms: canonicalDurationMs }
+          : {}),
       },
       workspace_mapping: launchContext.media.kind === "tongs-stub"
         ? launchContext.media.workspace_mapping

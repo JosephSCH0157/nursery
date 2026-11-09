@@ -120,6 +120,9 @@ export type HammerCanonicalRecordingRecord = {
   media_path: string;
   media_id?: string | null;
   media_signature?: string | null;
+  media_bytes?: number | null;
+  media_content_type?: string | null;
+  media_duration_ms?: number | null;
   sealed_at: string | null;
   baseline_transcript_path: string | null;
   baseline_speaker_map_path: string | null;
@@ -244,6 +247,54 @@ export type OpenHammerAuthorityResult = OpenHammerRecordingSessionResult & {
   preparation_attempt: HammerPreparationAttemptRecord;
 };
 
+function normalizeCanonicalSourceSha256(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase().replace(/^sha256:/, "") ?? "";
+  return /^[0-9a-f]{64}$/.test(normalized) ? normalized : null;
+}
+
+export function validateHammerOpenAuthorityIdentity(args: {
+  target: HammerPersistenceTarget;
+  canonical: HammerCanonicalRecordingRecord;
+  revision: HammerRecordingRevisionRecord;
+  preparationAttempt: HammerPreparationAttemptRecord;
+}): { ok: true; sourceSha256: string } | { ok: false; error: string; error_code: string } {
+  const { target, canonical, revision, preparationAttempt } = args;
+  const sourceSha256 = normalizeCanonicalSourceSha256(canonical.media_signature);
+  const preparationSha256 = preparationAttempt.media_hash == null
+    ? null
+    : normalizeCanonicalSourceSha256(preparationAttempt.media_hash);
+  if (!canonical.id || !canonical.media_id || !canonical.media_path.trim() || !sourceSha256) {
+    return {
+      ok: false,
+      error: "Hammer canonical playback identity is incomplete (recording, media, path, or SHA-256 is missing).",
+      error_code: "hammer_canonical_playback_identity_incomplete",
+    };
+  }
+  if (
+    canonical.workspace_id !== target.workspaceId
+    || canonical.workpiece_id !== target.workpieceId
+    || revision.workspace_id !== target.workspaceId
+    || revision.workpiece_id !== target.workpieceId
+    || revision.canonical_recording_id !== canonical.id
+    || revision.status !== "active"
+    || preparationAttempt.workspace_id !== target.workspaceId
+    || preparationAttempt.workpiece_id !== target.workpieceId
+    || preparationAttempt.canonical_recording_id !== canonical.id
+    || preparationAttempt.recording_revision_id !== revision.id
+    || preparationAttempt.media_id !== canonical.media_id
+    || preparationAttempt.media_path !== canonical.media_path
+    || (preparationAttempt.media_hash !== null && preparationSha256 === null)
+    || (preparationSha256 !== null && preparationSha256 !== sourceSha256)
+  ) {
+    return {
+      ok: false,
+      error: "Hammer canonical playback identity is inconsistent across the open authority response.",
+      error_code: "hammer_canonical_playback_identity_mismatch",
+    };
+  }
+  return { ok: true, sourceSha256 };
+}
+
 export async function openHammerRecordingSession(
   target: HammerPersistenceTarget,
   args?: { revision_label?: string | null; operation_key?: string },
@@ -285,6 +336,11 @@ export async function openHammerRecordingSession(
   const preparationAttempt = (data?.preparation_attempt ?? null) as HammerPreparationAttemptRecord | null;
   if (!canonical?.id || !revision?.id || !preparationAttempt?.id) {
     return { ok: false, status: response.status, error: "Hammer session response was invalid." };
+  }
+
+  const identity = validateHammerOpenAuthorityIdentity({ target, canonical, revision, preparationAttempt });
+  if (!identity.ok) {
+    return { ok: false, status: 409, error: identity.error, error_code: identity.error_code };
   }
 
   return { ok: true, status: response.status, data: { canonical_recording: canonical, revision, preparation_attempt: preparationAttempt } };

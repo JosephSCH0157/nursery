@@ -521,6 +521,31 @@ async function testCanonicalPlaybackUsesIdentityCheckedSignedUrl() {
   assert.equal("arrayBuffer" in result, false);
 }
 
+async function testCanonicalPlaybackRejectsMismatchedSignedReceipt() {
+  await assert.rejects(
+    loadHammerCanonicalPlayableMedia({
+      workspaceId: "workspace-1",
+      workpieceId: "workpiece-1",
+      canonicalRecordingId: "recording-1",
+      recordingRevisionId: "revision-1",
+      sourceSha256: "5".repeat(64),
+      fetcher: (async () => createOkJsonResponse({ ok: true, data: {
+        canonical_recording_id: "recording-1",
+        recording_revision_id: "revision-other",
+        source_sha256: "5".repeat(64),
+        media_id: "media-1",
+        media_path: "recordings/brad.webm",
+        content_type: "video/webm",
+        byte_size: 100,
+        duration_ms: 603_848,
+        url: "https://storage.example/brad.webm?signed=1",
+        expires_at: "2026-11-08T23:00:00.000Z",
+      } })) as never,
+    }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "hammer_canonical_playback_receipt_mismatch",
+  );
+}
+
 async function run() {
   await testUploadPathRouting();
   await testMediaTypeAcceptance();
@@ -541,6 +566,7 @@ async function run() {
   await testHammerIntakeEpisodeAttachedSkipsCradleCreation();
   await testHammerIntakeStandaloneCreatesCradleThenCommits();
   await testCanonicalPlaybackUsesIdentityCheckedSignedUrl();
+  await testCanonicalPlaybackRejectsMismatchedSignedReceipt();
   // eslint-disable-next-line no-console
   console.log("Hammer Source Desk media API tests passed.");
 }
