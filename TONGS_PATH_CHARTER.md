@@ -15,6 +15,7 @@ Authorization is enforced by Supabase RLS and membership, never by storage key p
 
 **Storage Key Layout**
 - Workpiece files: `workpieces/{workpiece_id}/{path}`
+- Canonical script exception: logical `script/script.md` resolves through the registry to an immutable operation-scoped key. See [conditional script publication](docs/database/SCRIPT_PUBLICATION.md). Never derive its current physical key from the logical path.
 - Canonical cloud role roots: `workspaces/{workspace_id}/{role}/{path}`
 - `role` is one of: `scripts`, `barstock`, `assets`, `projects`, `recordings`, `exports`
 - Non-role workspace support files may still exist under `workspaces/{workspace_id}/{path}` during compatibility window.

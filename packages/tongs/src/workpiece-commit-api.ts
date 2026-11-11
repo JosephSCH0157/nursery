@@ -1,3 +1,4 @@
+import { publishCanonicalScript, type ScriptPublicationInput, type PublicationOperation } from "./script-publication.js";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { evaluateReferenceVisualReadiness } from "@forge/shared/reference-visual-readiness";
 import { coordinateCleanupReview, CleanupReviewError } from "./hammer-cleanup-review-coordinator.js";
@@ -16753,12 +16754,12 @@ export class TongsCommitService {
       createdAt,
     };
 
-    if (!bytes) {
-      return defaultManifest(cradle.id, cradle.workspace_id, status, createdAt);
-    }
-
-    const parsed = parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH);
-    return normalizeLoadedManifest(parsed, fallback);
+    const manifest = bytes
+      ? normalizeLoadedManifest(parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH), fallback)
+      : defaultManifest(cradle.id, cradle.workspace_id, status, createdAt);
+    const script = await this.readWorkpieceFileMetadata(cradle.id, "script/script.md");
+    if (script) manifest.files["script/script.md"] = Object.assign(buildManifestFileEntry("script", "text/markdown; charset=utf-8", script.bytes, script.hash_value, DEFAULT_WRITTEN_BY, script.updated_at), { registry_revision: script.revision, storage_key: script.storage_key });
+    return manifest;
   }
 
   private async commitFileBytes(args: {
@@ -17171,6 +17172,80 @@ export class TongsCommitService {
     };
   }
 
+  async publishScript(workpieceId: string, input: ScriptPublicationInput, userAccessToken: string): Promise<PublicationOperation> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const { userId } = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", userAccessToken);
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const command = async (action: string, proposal?: ScriptPublicationInput & { sha256: string; bytes: number }) => {
+      const { data, error } = await rpc.rpc("script_publication_command", {
+        p_command: action, p_actor: userId, p_workspace: input.workspace_id,
+        p_workpiece: workpieceId, p_operation: input.operation_id,
+        ...(proposal ? { p_expected_revision: proposal.expected_revision, p_expected_hash: proposal.expected_hash,
+          p_content_hash: proposal.sha256, p_bytes: proposal.bytes } : {}),
+      });
+      if (error?.code === "42501") throw new HttpError(403, "script_publication_denied", "Current account admission and workspace editor authority are required.");
+      if (error?.code === "23505") throw new HttpError(409, "script_publication_identity_conflict", "This operation ID belongs to a different immutable publication request.");
+      if (error || !isRecord(data)) throw new HttpError(502, "script_publication_unavailable", "Publication outcome is unknown. Recover using the same operation ID.", { reason: error?.message });
+      return data as unknown as PublicationOperation;
+    };
+    assertApprovedScriptTagContract("script/script.md", "hearth.script.published.v1", textEncoder.encode(input.text));
+    const published = await publishCanonicalScript(input, {
+      command,
+      read: async (key) => {
+        const { data, error } = await this.supabase.storage.from(this.bucket).download(key);
+        if (error) {
+          if (await this.recordingSessionStorageStatus(error) === 404) return null;
+          throw new HttpError(502, "script_staging_read_failed", "Cannot verify staged script", { reason: error.message });
+        }
+        if (!data) throw new HttpError(502, "script_staging_read_failed", "Storage returned no script body");
+        return new Uint8Array(await data.arrayBuffer());
+      },
+      upload: async (key, bytes) => {
+        const { error } = await this.supabase.storage.from(this.bucket).upload(key, uint8ToArrayBuffer(bytes), { upsert: false, contentType: "text/markdown; charset=utf-8" });
+        if (error) throw new HttpError(502, "script_staging_failed", "Script staging failed. Recover using the same operation ID.", { reason: error.message });
+      },
+    });
+    if (published.state === "committed") {
+      const cradle = await this.getCradleOrThrow(workpieceId);
+      const manifest = await this.loadManifestOrDefault(cradle);
+      const finalized = await finalizeManifestTwoPass(manifest, DEFAULT_WRITTEN_BY, new Date().toISOString());
+      await uploadStorageObject(this.supabase, this.bucket, buildStorageKey(workpieceId, MANIFEST_PATH), finalized.manifestBytes, "application/json");
+      await this.upsertWorkpieceFile([{ workpiece_id: workpieceId, path: MANIFEST_PATH, file_type: "manifest", content_type: "application/json", bytes: finalized.finalBytes,
+        hash_algo: SHA256_ALGO, hash_value: finalized.finalHash, storage_bucket: this.bucket, storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
+        written_by_tool: "tongs", written_by_tool_version: "atomic-script-v1", written_by_lane: "forge-managed" }]);
+    }
+    return published;
+  }
+
+  async abandonScriptPublication(workpieceId: string, workspaceId: string, operationId: string, userAccessToken: string): Promise<unknown> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const { userId } = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", userAccessToken);
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const { data, error } = await rpc.rpc("script_publication_command", { p_command: "abandon", p_actor: userId,
+      p_workspace: workspaceId, p_workpiece: workpieceId, p_operation: operationId });
+    if (error || !isRecord(data)) throw new HttpError(502, "script_cleanup_unavailable", "Publication cleanup could not be authorized.");
+    if (data.state !== "abandoned" && data.state !== "conflict") throw new HttpError(409, "script_cleanup_not_permitted", "Only terminal uncommitted publication objects may be removed.");
+    const key = `workpieces/${workpieceId}/script/publications/${operationId}/script.md`;
+    if (data.storage_key !== key) throw new HttpError(409, "script_cleanup_identity_mismatch", "Publication cleanup identity does not match.");
+    const current = await this.readWorkpieceFileMetadata(workpieceId, "script/script.md");
+    if (current?.storage_key === key) throw new HttpError(409, "script_cleanup_current_object", "The current canonical script cannot be removed.");
+    const removed = await this.supabase.storage.from(this.bucket).remove([key]);
+    if (removed.error) throw new HttpError(502, "script_cleanup_failed", "The publication is non-finalizable; exact-object removal must be recovered.");
+    const check = await this.supabase.storage.from(this.bucket).download(key);
+    if (!check.error || await this.recordingSessionStorageStatus(check.error) !== 404) throw new HttpError(502, "script_cleanup_unverified", "Publication is non-finalizable but object absence is not confirmed. Repeat exact-operation cleanup.");
+    return { state: data.state, operation_id: operationId, removed_key: key, absence_verified: true };
+  }
+
+  async readScriptPublication(workpieceId: string, workspaceId: string, operationId: string, userAccessToken: string): Promise<unknown> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const { userId } = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", userAccessToken);
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const { data, error } = await rpc.rpc("script_publication_command", { p_command: "status", p_actor: userId,
+      p_workspace: workspaceId, p_workpiece: workpieceId, p_operation: operationId });
+    if (error) throw new HttpError(502, "script_publication_status_unavailable", "Publication status is unavailable", { reason: error.message });
+    return data;
+  }
+
   async commitFile(
     workpieceId: string,
     input: CommitFileRequest,
@@ -17247,6 +17322,7 @@ export class TongsCommitService {
         input.user_access_token,
       );
     }
+    if (path === "script/script.md" || path.startsWith("script/publications/")) throw new HttpError(409, "conditional_script_publication_required", "Save scripts using conditional canonical publication.");
     if (typeof input.expected_previous_updated_at !== "undefined") {
       const { data: existingFile, error: existingFileError } =
         await this.supabase
@@ -18636,6 +18712,7 @@ export class TongsCommitService {
       input.user_access_token,
     );
     const path = normalizeRelativePath(input.path);
+    if (path === "script/script.md" || path.startsWith("script/publications/")) throw new HttpError(409, "conditional_script_publication_required", "Script paths do not accept recording uploads.");
     if (path === MANIFEST_PATH) {
       throw new HttpError(
         400,
@@ -19046,6 +19123,8 @@ export class TongsCommitService {
       "editor",
       options?.userAccessToken,
     );
+
+    if (normalizedPath === "script/script.md") throw new HttpError(409, "canonical_script_deletion_requires_episode_cleanup", "The current canonical script is retained until authorized episode deletion.");
 
     const warnings: string[] = [];
 
@@ -24576,6 +24655,14 @@ export class TongsCommitService {
       );
     }
     const parsed = parseJsonText(textDecoder.decode(bytes), normalizedPath);
+    if (normalizedPath === MANIFEST_PATH && isRecord(parsed)) {
+      const script = await this.readWorkpieceFileMetadata(workpieceId, "script/script.md");
+      const files = isRecord(parsed.files) ? parsed.files : {};
+      const projection = isRecord(files["script/script.md"]) ? files["script/script.md"] : null;
+      if (script?.storage_key.includes("/script/publications/") && (projection?.registry_revision !== script.revision || projection?.storage_key !== script.storage_key)) {
+        throw new HttpError(409, "script_manifest_projection_stale", "The script manifest projection needs reconciliation; canonical script authority is unchanged.");
+      }
+    }
     return { found: true, data: parsed, file_row: fileRow };
   }
 
@@ -24662,14 +24749,19 @@ export class TongsCommitService {
     path: string,
   ): Promise<ReadTextFileResult> {
     await this.getCradleOrThrow(workpieceId);
-    const storageKey = buildStorageKey(workpieceId, path);
+    const selected = path === "script/script.md" ? await this.readWorkpieceFileMetadata(workpieceId, path) : null;
+    if (path === "script/script.md" && !selected) return { found: false };
+    const storageKey = selected?.storage_key ?? buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(
       this.supabase,
       this.bucket,
       storageKey,
     );
     if (!bytes) return { found: false };
-    const fileRow = await this.readWorkpieceFileMetadata(workpieceId, path);
+    const fileRow = selected ?? await this.readWorkpieceFileMetadata(workpieceId, path);
+    if (selected && (bytes.length !== selected.bytes || await sha256Hex(bytes) !== selected.hash_value)) {
+      throw new HttpError(409, "script_integrity_mismatch", "The selected canonical script failed integrity verification.");
+    }
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
     return { found: true, text, file_row: fileRow };
   }
@@ -24679,13 +24771,19 @@ export class TongsCommitService {
     path: string,
   ): Promise<ReadBinaryFileBytesResult> {
     await this.getCradleOrThrow(workpieceId);
-    const storageKey = buildStorageKey(workpieceId, path);
+    const scriptRow = path === "script/script.md" ? await this.readWorkpieceFileMetadata(workpieceId, path) : null;
+    if (path === "script/script.md" && !scriptRow) throw new HttpError(404, "script_not_found", "Canonical script is unavailable");
+    const storageKey = scriptRow?.storage_key ?? buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(
       this.supabase,
       this.bucket,
       storageKey,
     );
     if (!bytes) return { found: false };
+    if (scriptRow && (bytes.byteLength !== scriptRow.bytes || await sha256Hex(bytes) !== scriptRow.hash_value)) {
+      throw new HttpError(409, "script_integrity_mismatch", "Canonical script bytes do not match registry authority");
+    }
+
 
     const { data: fileRow, error: fileRowError } = await this.supabase
       .schema("tongs")
@@ -25745,12 +25843,21 @@ export class TongsCommitService {
       }
     }
 
+    const publicationRpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const closure = await publicationRpc.rpc("close_episode_script_publications", {
+      p_actor: auth.userId, p_workspace: input.workspace_id, p_workpiece: workpieceId,
+    });
+    if (closure.error || !Array.isArray(closure.data)) throw new HttpError(502, "script_cleanup_unavailable", "Script publications could not be closed safely.");
     const fileRows = workpieceFileRows ?? [];
     const fileStorageRows = fileRows.map((row) => ({
       bucket: row.storage_bucket?.trim() || this.bucket,
       key: row.storage_key?.trim() || buildStorageKey(workpieceId, row.path),
       bytes: row.bytes,
     }));
+    for (const key of closure.data) {
+      if (typeof key !== "string" || !key.startsWith(`workpieces/${workpieceId}/`)) throw new HttpError(409, "script_cleanup_identity_mismatch", "Script cleanup key is outside the episode");
+      if (!fileStorageRows.some(row => row.key === key)) fileStorageRows.push({ bucket: this.bucket, key, bytes: 0 });
+    }
     const assetStorageRows = assetsToDelete.map((row) => ({
       bucket: row.storage_bucket?.trim() || this.bucket,
       key: row.storage_key?.trim() || buildStorageKey(workpieceId, row.path),
@@ -27271,7 +27378,9 @@ export class TongsCommitService {
     expires_at: string;
   }> {
     await this.getCradleOrThrow(workpieceId);
-    const storageKey = buildStorageKey(workpieceId, path);
+    const scriptRow = path === "script/script.md" ? await this.readWorkpieceFileMetadata(workpieceId, path) : null;
+    if (path === "script/script.md" && !scriptRow) throw new HttpError(404, "script_not_found", "Canonical script is unavailable");
+    const storageKey = scriptRow?.storage_key ?? buildStorageKey(workpieceId, path);
     const expiresInSeconds = 3600;
     const { data, error } = await this.supabase.storage
       .from(this.bucket)
@@ -38450,6 +38559,30 @@ export function createTongsCommitApiHandlerWithService(
           { userAccessToken },
         );
         return jsonResponse(200, { ok: true, data: { attachment: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "script-publication") {
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const token = requireUserAccessTokenHeader(request);
+        const publicationService = service as TongsCommitApiService & Pick<TongsCommitService, "publishScript" | "readScriptPublication" | "abandonScriptPublication">;
+        if (request.method === "DELETE") {
+          const url = new URL(request.url);
+          const data = await publicationService.abandonScriptPublication(workpieceId, normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id"), normalizeUuid(url.searchParams.get("operation_id"), "operation_id"), token);
+          return jsonResponse(200, { ok: true, data });
+        }
+        if (request.method === "GET") {
+          const url = new URL(request.url);
+          const data = await publicationService.readScriptPublication(workpieceId, normalizeUuid(url.searchParams.get("workspace_id"), "workspace_id"), normalizeUuid(url.searchParams.get("operation_id"), "operation_id"), token);
+          return jsonResponse(200, { ok: true, data });
+        }
+        requireMethod(request, "POST");
+        const body = await parseJsonBody(request);
+        if (!isRecord(body) || typeof body.text !== "string" || !Number.isSafeInteger(body.expected_revision)) throw new HttpError(400, "invalid_publication", "Invalid script publication request");
+        const data = await publicationService.publishScript(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: normalizeUuid(body.operation_id, "operation_id"),
+          expected_revision: Number(body.expected_revision), expected_hash: body.expected_hash === null ? null : normalizeNonEmptyString(body.expected_hash, "expected_hash"), text: body.text,
+        }, token);
+        return jsonResponse(data.state === "conflict" || data.state === "abandoned" ? 409 : 200, { ok: true, data });
       }
 
       if (

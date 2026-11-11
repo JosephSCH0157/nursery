@@ -1,3 +1,4 @@
+import { canonicalHearthApprovalText } from "./hearth-script-approval";
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { Draft } from "../domain/draft";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
@@ -112,7 +113,8 @@ export async function persistHearthDraft(
     deps.setError(null);
   }
   const shouldValidateForAnvil = args.validateForAnvil === true;
-  const { normalizedText, validation } = deps.evaluateScriptValidation(args.draft.body);
+  const { normalizedText: validationText, validation } = deps.evaluateScriptValidation(args.draft.body);
+  const normalizedText = args.saveReason === "manual" ? canonicalHearthApprovalText(args.draft.body) : validationText;
   const hasAnvilTagWarning = !validation.ok;
   if (hasAnvilTagWarning) {
     deps.setScriptValidation({

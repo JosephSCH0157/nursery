@@ -31,6 +31,7 @@ type HearthDraftScriptHeaderProps = {
   onDeleteDraft: (draft: Draft) => void | Promise<void>;
   openRevisionModal: () => void;
   openRevisionPanel: () => void;
+  onReloadCanonical?: () => void | Promise<unknown>;
   onApproveScript: () => void | Promise<unknown>;
   onReviewForRecording: () => void | Promise<unknown>;
   onCompletePreflightReview: () => void | Promise<unknown>;
@@ -96,6 +97,7 @@ export default function HearthDraftScriptHeader({
   onDraftTitleChange,
   onCreateDraft,
   onSaveDraft,
+  onReloadCanonical,
   isSaving,
   onDeleteDraft,
   openRevisionModal,
@@ -204,6 +206,7 @@ export default function HearthDraftScriptHeader({
         <button onClick={() => void onSaveDraft()} disabled={!activeDraft || isSaving}>
           {isSaving ? "Saving..." : "Save draft"}
         </button>
+        {onReloadCanonical && <button onClick={() => void onReloadCanonical()} disabled={!activeDraft || isSaving}>Reload canonical script</button>}
         <button onClick={() => activeDraft && void onDeleteDraft(activeDraft)} disabled={!activeDraft || isSaving}>
           Delete Draft Buffer
         </button>

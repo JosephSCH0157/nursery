@@ -74,6 +74,7 @@ export async function readPublishedScriptApprovalAuthority(workpieceId: string):
 export async function commitPublishedScriptApprovalAuthority(args: {
   workpieceId: string; workspaceId: string; creatorVersion: number; scriptText: string; operationId?: string;
   isCurrent: () => boolean;
+  expectedPublication?: { revision: number; hash: string; bytes: number };
 }): Promise<{ ok: true; authority: PublishedScriptApprovalAuthority } | ApprovalFailure> {
   const expectedSourceHash = await hashCanonicalHearthApprovalText(args.scriptText);
   const changed = { ok: false as const, error: "The working draft changed before approval. Reload the current script and approve it deliberately." };
@@ -92,6 +93,10 @@ export async function commitPublishedScriptApprovalAuthority(args: {
   const returnedSourceHash = typeof sourceData?.hash_value === "string" ? sourceData.hash_value.toLowerCase() : "";
   if (!sourceResponse.ok) return responseFailure(sourceResponse, sourceBody, "The canonical script could not be read for approval.");
   if (!args.isCurrent() || !Number.isInteger(returnedSourceRevision) || returnedSourceRevision < 1 || returnedSourceHash !== expectedSourceHash) return changed;
+
+  if (args.expectedPublication && (args.expectedPublication.revision !== returnedSourceRevision
+    || args.expectedPublication.hash !== expectedSourceHash
+    || args.expectedPublication.bytes !== new TextEncoder().encode(canonicalHearthApprovalText(args.scriptText)).length)) return changed;
 
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/script-approval`, {
     method: "POST",

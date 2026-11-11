@@ -1,3 +1,4 @@
+import { normalizeScriptPublicationBasis } from "../domain/draft";
 import type {
   Draft,
   DraftAttribution,
@@ -218,6 +219,7 @@ function normalizeDraft(value: unknown): Draft | null {
     updatedBy,
     scriptValidationMeta,
     scriptAuthoringMeta,
+    scriptPublicationBasis: normalizeScriptPublicationBasis(row.scriptPublicationBasis),
   };
 }
 

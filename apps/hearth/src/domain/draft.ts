@@ -47,6 +47,7 @@ export interface ScriptAuthoringMeta {
 }
 
 export interface Draft {
+  scriptPublicationBasis?: { workpieceId: string; revision: number; hash: string | null };
   id: DraftId;
   title: string;
   body: string;
@@ -91,4 +92,13 @@ export function createDraft(partial?: { title?: string; body?: string }): Draft 
     scriptValidationMeta: null,
     scriptAuthoringMeta: null,
   };
+}
+
+export function normalizeScriptPublicationBasis(value: unknown): Draft["scriptPublicationBasis"] {
+  if (!value || typeof value !== 'object') return undefined;
+  const row = value as Record<string, unknown>;
+  if (typeof row.workpieceId !== 'string' || !/^[0-9a-f-]{36}$/i.test(row.workpieceId)
+    || typeof row.revision !== 'number' || !Number.isSafeInteger(row.revision) || row.revision < 0
+    || (row.revision === 0 ? row.hash !== null : typeof row.hash !== 'string' || !/^[a-f0-9]{64}$/.test(row.hash))) return undefined;
+  return { workpieceId: row.workpieceId, revision: row.revision, hash: row.hash as string | null };
 }

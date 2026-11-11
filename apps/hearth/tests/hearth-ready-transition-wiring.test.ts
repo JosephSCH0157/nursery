@@ -22,7 +22,7 @@ function installWindow(): () => void {
   return () => { if (previous === undefined) Reflect.deleteProperty(runtime, "window"); else runtime.window = previous; };
 }
 
-test("working-document commit does not independently publish Ready", async () => {
+test("optional review cannot publish changed text without explicit Save", async () => {
   const originalFetch = globalThis.fetch;
   const restoreWindow = installWindow();
   const requests: string[] = [];
@@ -34,10 +34,10 @@ test("working-document commit does not independently publish Ready", async () =>
   }) as typeof fetch;
   try {
     const result = await commitHearthPrimaryScript(WORKPIECE_ID, VALID_SCRIPT);
-    assert.equal(result.ok, true);
-    assert.equal(requests.length, 2);
+    assert.deepEqual(result, { ok: false, status: 409, reason: "explicit_script_save_required", outcome: "conflict", rehydrate: true });
+    assert.equal(requests.length, 1);
     assert.match(requests[0] ?? "", /read-file/);
-    assert.match(requests[1] ?? "", /commit-file$/);
+    assert.equal(requests.some(url => /commit-file$/.test(url)), false);
   } finally { globalThis.fetch = originalFetch; restoreWindow(); }
 });
 

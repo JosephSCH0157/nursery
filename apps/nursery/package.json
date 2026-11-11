@@ -6,6 +6,7 @@
   "engines": { "node": "20.20.0" },
   "volta": { "node": "20.20.0" },
   "scripts": {
+    "test:script-publication": "playwright test --config playwright.script-publication.config.ts hearth-script-publication.spec.ts",
     "sync:anvil": "node scripts/sync-anvil-dist.mjs",
     "gen:forge-nav": "tsx scripts/generate-forge-nav.ts",
     "predev": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",

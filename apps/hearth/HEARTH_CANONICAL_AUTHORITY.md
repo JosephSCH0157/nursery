@@ -42,3 +42,13 @@ Handoff payloads are references plus advisory context, never self-authorizing tr
 4. V2 schema contract
 5. Product manifest (philosophy and scope; executable authority remains above)
 
+
+## Explicit script Save and conditional publication
+
+Explicit Save persists the frozen reviewed draft and its editing basis, then uses
+Tongs conditional script publication. Approval requires a verified canonical
+revision/hash/byte-count acknowledgment and is invalidated by subsequent edits.
+Autosave remains draft-only; optional review does not publish changed text.
+Conflicts require deliberate canonical review, never silent rebasing. The registry
+remains the only current-script selector; see
+[publication and recovery](../../docs/database/SCRIPT_PUBLICATION.md).

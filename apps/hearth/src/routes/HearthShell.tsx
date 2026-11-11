@@ -1,3 +1,4 @@
+import { useHearthScriptPublication } from "../hooks/useHearthScriptPublication";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
@@ -4238,6 +4239,10 @@ export default function HearthShell({
       setPreflightError(error instanceof Error ? error.message : "Optional script-review status was not saved.");
     }
   }, [preflightAuthority, workpieceId, workspaceId]);
+  const rememberScriptBasis = useCallback((draftId: string, basis: NonNullable<Draft["scriptPublicationBasis"]>) => {
+    setActiveDraft(current => current?.id === draftId ? { ...current, scriptPublicationBasis: basis } : current);
+  }, []);
+  const scriptPublication = useHearthScriptPublication(workspaceId, workpieceId, activeDraft, rememberScriptBasis);
   const {
     isApprovingScript,
     onApproveScript,
@@ -4246,7 +4251,9 @@ export default function HearthShell({
     activeDraft,
     workpieceId,
     workspaceId,
-    isSaving,
+    isSaving: isSaving || scriptPublication.busy,
+    publicationAcknowledgment: scriptPublication.acknowledgment,
+    publicationRequired: true,
     isAiProcessing,
     setError,
     setChatError,
@@ -5036,7 +5043,10 @@ export default function HearthShell({
     scriptPanelBodyText,
     normalizeUuid,
     dedupeDraftListById,
-    persistDraftManual: (manualSaveArgs) => persistDraft(manualSaveArgs),
+    persistDraftManual: async (manualSaveArgs) => {
+      try { return await scriptPublication.save((frozen) => persistDraft({ ...manualSaveArgs, draft: frozen })); }
+      catch (error) { setError(error instanceof Error ? error.message : "Canonical Save failed."); return false; }
+    },
     noteManualSaveSuccess,
     flushChatHistoryNow,
     refreshDrafts,
@@ -7095,7 +7105,16 @@ export default function HearthShell({
             onDraftTitleChange={onDraftTitleChange}
             onCreateDraft={onCreateDraft}
             onSaveDraft={onSaveDraft}
-            isSaving={isSaving}
+            onReloadCanonical={async () => {
+              if (!activeDraft || !window.confirm("Replace this editor buffer with the current canonical script? Copy any unsaved edits before continuing.")) return;
+              const draftId = activeDraft.id;
+              try {
+                const canonical = await scriptPublication.reloadCanonical();
+                setActiveDraft(current => current?.id === draftId ? { ...current, body: canonical.text, scriptPublicationBasis: canonical.basis } : current);
+                setError(null);
+              } catch (error) { setError(error instanceof Error ? error.message : "Canonical script could not be reloaded."); }
+            }}
+            isSaving={isSaving || scriptPublication.busy}
             onDeleteDraft={onDeleteDraft}
             openRevisionModal={openRevisionModal}
             openRevisionPanel={openRevisionPanel}
@@ -7109,7 +7128,7 @@ export default function HearthShell({
             hasScript={hasScript}
             isAiProcessing={isAiProcessing}
             isApprovingScript={isApprovingScript}
-            approvalBlocked={approvalBlocked}
+            approvalBlocked={approvalBlocked || !scriptPublication.eligible}
             activeTonePreset={activeTonePreset}
             onChangeTonePreset={onChangeTonePreset}
             tonePresetOptions={TONE_PRESET_OPTIONS}

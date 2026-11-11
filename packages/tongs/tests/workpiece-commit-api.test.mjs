@@ -10510,7 +10510,7 @@ test("TongsCommitService.deleteReadyScript returns warning when storage delete f
     created_at: "2026-03-02T00:00:00.000Z",
   });
 
-  const result = await service.deleteReadyScript(workpieceId, "script/script.md", {
+  const result = await service.deleteReadyScript(workpieceId, "scripts/script.anvil.txt", {
     userAccessToken: "editor_token",
   });
 
@@ -10573,7 +10573,7 @@ test("TongsCommitService.deleteReadyScript does not touch ready queue state", as
     created_at: "2026-03-02T00:00:00.000Z",
   });
 
-  const result = await service.deleteReadyScript(workpieceId, "script/script.md", {
+  const result = await service.deleteReadyScript(workpieceId, "scripts/script.anvil.txt", {
     userAccessToken: "editor_token",
   });
 

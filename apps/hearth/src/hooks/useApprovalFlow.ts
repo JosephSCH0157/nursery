@@ -11,6 +11,8 @@ type ApprovalPersistenceStatusLike = { cloud: "ok"; local: "ok" | "failed"; loca
 type StyleUpdateResult = { ok: boolean; skipped?: boolean; reason?: string; status?: string | number; error?: unknown; profile?: { scriptsAnalyzedCount: number } };
 
 type UseApprovalFlowArgs = {
+  publicationRequired?: boolean;
+  publicationAcknowledgment?: { revision: number; hash: string; bytes: number } | null;
   operationAuthority: HearthOperationAuthority;
   activeDraft: Draft | null;
   workpieceId: string | null | undefined;
@@ -51,6 +53,9 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
     if (isApprovingScript || args.isSaving || args.isAiProcessing) return false;
     const approvalDraft = options?.draftOverride ?? args.activeDraft;
     if (!approvalDraft) return false;
+    if (args.publicationRequired && !args.publicationAcknowledgment) {
+      args.setError("Save this exact script and wait for canonical confirmation before approval."); return false;
+    }
     const episodeId = args.workpieceId?.trim();
     if (!episodeId) { args.setChatError("Select an Episode or Spark to start."); return false; }
     if (!approvalDraft.body.trim()) { args.setError("Script body is empty. Add script content before approval."); return false; }
@@ -100,6 +105,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         creatorVersion: nextVersion,
         scriptText: normalizedText,
         isCurrent: isApprovalCurrent,
+        expectedPublication: args.publicationAcknowledgment ?? undefined,
       });
       if (!isApprovalCurrent()) return false;
       if (!authorityCommit.ok) { args.setError(authorityCommit.error); return false; }

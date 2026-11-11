@@ -1,3 +1,4 @@
+import { publishReviewedScript } from "./hearth-script-publication";
 import { tongsFetch } from "./tongs-fetch";
 import { buildDefaultMetadataDocument } from "./episode-package-v2";
 
@@ -332,31 +333,23 @@ function normalizeScriptSeed(seed: string | null | undefined): string {
 }
 
 async function commitScriptSeed(args: {
+  workspaceId: string;
   workpieceId: string;
   writtenBy: WrittenBy;
   origin?: ForgeOrigin;
   scriptSeed?: string | null;
 }): Promise<{ ok: boolean; status?: number; details?: unknown }> {
   const scriptText = normalizeScriptSeed(args.scriptSeed);
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
-    method: "POST",
-    json: {
-      path: PRIMARY_SCRIPT_PATH,
-      content_type: "text/markdown; charset=utf-8",
-      written_by: args.writtenBy,
-      text: scriptText,
-      event_name: "hearth.script.seeded.v1",
-      event_payload: {
-        path: PRIMARY_SCRIPT_PATH,
-        chars: scriptText.length,
-        origin: args.origin?.created_from ?? "hearth",
-      },
-      correlation_id: nextCorrelationId("hearth-script-seed"),
-    },
-  });
+  // A deterministic seed operation survives response loss without creating a
+  // second initial publication. The server fingerprints the exact seed bytes.
+  const operationId = args.workpieceId;
+  try {
+    const receipt = await publishReviewedScript({ workspaceId: args.workspaceId,
+      workpieceId: args.workpieceId, operationId, text: scriptText,
+      basis: { revision: 0, hash: null } });
+    return { ok: true, details: receipt };
+  } catch (error) { return { ok: false, details: error instanceof Error ? error.message : 'Script publication failed' }; }
 
-  const body = await readBodyAsJson(response);
-  return { ok: response.ok && isCommitAck(body), status: response.status, details: body };
 }
 
 export async function createHearthWorkpiece(
@@ -400,6 +393,7 @@ export async function createHearthWorkpiece(
   }
 
   const script = await commitScriptSeed({
+    workspaceId,
     workpieceId: created.workpieceId,
     writtenBy,
     origin,
@@ -442,7 +436,7 @@ export async function getOrCreateHearthProjectWorkpiece(args: {
       if (!metadata.ok) return { ok: false, reason: "metadata_commit_failed", status: metadata.status, details: metadata.details, workpieceId: resolved.workpieceId };
     }
     if (!await bootstrapFileExists(resolved.workpieceId, PRIMARY_SCRIPT_PATH)) {
-      const script = await commitScriptSeed({ workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
+      const script = await commitScriptSeed({ workspaceId, workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
       if (!script.ok) return { ok: false, reason: "script_seed_failed", status: script.status, details: script.details, workpieceId: resolved.workpieceId };
     }
   } catch (error) {
@@ -471,7 +465,7 @@ export async function getOrCreateHearthSparkWorkpiece(args: {
       if (!metadata.ok) return { ok: false, reason: "metadata_commit_failed", status: metadata.status, details: metadata.details, workpieceId: resolved.workpieceId };
     }
     if (!await bootstrapFileExists(resolved.workpieceId, PRIMARY_SCRIPT_PATH)) {
-      const script = await commitScriptSeed({ workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
+      const script = await commitScriptSeed({ workspaceId, workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
       if (!script.ok) return { ok: false, reason: "script_seed_failed", status: script.status, details: script.details, workpieceId: resolved.workpieceId };
     }
   } catch (error) {
