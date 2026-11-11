@@ -7,6 +7,7 @@ test("real Hearth manual Save publishes exact bytes before Approve and Ready", a
   const artifact=readHearthPhase4Artifact();
   await page.goto(`/apps/hearth?${new URLSearchParams({workspace_id:artifact.workspace_id,workpiece_id:artifact.workpiece_id})}`);
   await openWorkpieceInHearth(page,artifact.handoff.title);
+  await page.getByRole("tab",{name:"Script",exact:true}).click();
   const editor=page.locator("textarea.hs-textarea-body");
   await expect(editor).toBeVisible();
   const original=await editor.inputValue();
@@ -33,6 +34,7 @@ test("real Hearth manual Save publishes exact bytes before Approve and Ready", a
   const restored=await publish(original);
   expect(restored.revision).toBeGreaterThan(changed.revision);
   await page.reload();await openWorkpieceInHearth(page,artifact.handoff.title);
+  await page.getByRole("tab",{name:"Script",exact:true}).click();
   await expect(editor).toHaveValue(original);
   await expect(page.locator(".hs-episode-ready-pill")).toHaveText("Ready");
 });
