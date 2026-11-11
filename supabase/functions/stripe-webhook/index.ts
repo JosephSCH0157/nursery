@@ -20,6 +20,8 @@ import {
   readTrustedFinancialEnvironment,
 } from "../_shared/financial-environment.ts";
 
+import { resolveStorageSubscriptionMetadata } from "../_shared/storage-subscription-authority.ts";
+
 type SupabaseAdminClient = ReturnType<typeof createClient>;
 
 type TongsRpcClient = {
@@ -351,6 +353,9 @@ async function resolveSubscriptionMetadata(
       `Unable to resolve Forge user for stripe_subscription_id=${subscription.id}`,
     );
   }
+
+  const storageMetadata = resolveStorageSubscriptionMetadata(subscription, resolvedUserId);
+  if (storageMetadata) return storageMetadata;
 
   try {
     return parsePurchaseMetadataWithResolvedUserId({
@@ -731,6 +736,13 @@ async function upsertCanonicalSubscriptionFromStripe(
   if (!subscriptionId) {
     throw new Error("customer.subscription event missing subscription id");
   }
+
+  // Checkout metadata can describe the original purchase after a portal price
+  // change. Derive storage capacity from the actual subscription before writes.
+  const storageMetadata = resolveStorageSubscriptionMetadata(
+    params.subscription, params.metadata.supabaseUserId, params.metadata.purchaseType,
+  );
+  if (storageMetadata) params = { ...params, metadata: toRecurringPurchaseMetadata(storageMetadata) };
 
   const stripeCustomer = (!params.customerEmail || !params.customerName)
     ? await fetchStripeCustomerContext(customerId)
