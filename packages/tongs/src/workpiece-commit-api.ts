@@ -5632,6 +5632,16 @@ async function uploadStorageObject(
     } catch {
       /* ignore */
     }
+    if (error.message.includes("storage_capacity_exceeded_delete_only")) {
+      throw new HttpError(409, "storage_capacity_exceeded",
+        "The workspace owner's storage is full. Delete retained files or add storage capacity before uploading.");
+    }
+    if (error.message.includes("storage_usage_reconciliation_required")
+      || error.message.includes("storage_billing_owner_unresolved")
+      || error.message.includes("storage_usage_size_unverified")) {
+      throw new HttpError(409, "storage_usage_unverified",
+        "Storage additions are paused until usage and ownership are verified. Existing files can still be deleted.");
+    }
     if (isStorageObjectTooLargeError(error)) {
       throw new HttpError(
         413,

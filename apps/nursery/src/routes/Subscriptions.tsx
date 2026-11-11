@@ -1,3 +1,4 @@
+import { parseStorageCapacity, formatStorageBytes, type StorageCapacity } from "./storageCapacity";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
@@ -149,6 +150,7 @@ type AccountBalanceRow = {
 };
 
 type AccountBillingOverview = {
+  storageCapacity: StorageCapacity;
   stripeCustomerId: string | null;
   planItemId: string | null;
   planInterval: string | null;
@@ -191,7 +193,7 @@ type TongsBillingClient = TongsRpcClient & TongsAccountBalanceTableClient;
 
 // Canonical Account & Billing reads must stay on the tongs schema.
 const tongsBillingDb = tongsSupabase as unknown as TongsBillingClient;
-const BASE_PLAN_STORAGE_BYTES = 500 * 1024 * 1024 * 1024;
+
 
 function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -443,7 +445,7 @@ function getConfiguredStoragePacks(): StoragePack[] {
     {
       level: "50gb_v2",
       offerId: STRIPE_CATALOG.storage["50gb_v2"].offerId,
-      sizeLabel: "+50 GB",
+      sizeLabel: "+50 GiB",
       priceLabel: "$5/month",
       description: "Stackable monthly recurring add-on",
       priceId: getConfiguredStoragePriceId("50gb_v2"),
@@ -451,7 +453,7 @@ function getConfiguredStoragePacks(): StoragePack[] {
     {
       level: "150gb",
       offerId: STRIPE_CATALOG.storage["150gb"].offerId,
-      sizeLabel: "+150 GB",
+      sizeLabel: "+150 GiB",
       priceLabel: "$10/month",
       description: "Most popular monthly recurring add-on",
       featured: true,
@@ -460,7 +462,7 @@ function getConfiguredStoragePacks(): StoragePack[] {
     {
       level: "500gb",
       offerId: STRIPE_CATALOG.storage["500gb"].offerId,
-      sizeLabel: "+500 GB",
+      sizeLabel: "+500 GiB",
       priceLabel: "$20/month",
       description: "Large monthly recurring add-on",
       priceId: getConfiguredStoragePriceId("500gb"),
@@ -560,12 +562,12 @@ function isStorageLevel(value: string): value is StorageLevel {
 function formatStorageLabel(value: string | null | undefined): string {
   const normalized = normalizeLowerString(value);
   if (!normalized) return "No storage add-on";
-  if (normalized === "50gb") return "Legacy 250 GB";
-  if (normalized === "100gb") return "Legacy 1 TB";
-  if (normalized === "1tb") return "Legacy 5 TB";
-  if (normalized === "50gb_v2") return "50 GB";
-  if (normalized === "150gb") return "150 GB";
-  if (normalized === "500gb") return "500 GB";
+  if (normalized === "50gb") return "Legacy 250 GiB";
+  if (normalized === "100gb") return "Legacy 1 TiB";
+  if (normalized === "1tb") return "Legacy 5 TiB";
+  if (normalized === "50gb_v2") return "50 GiB";
+  if (normalized === "150gb") return "150 GiB";
+  if (normalized === "500gb") return "500 GiB";
   return formatStatusLabel(normalized);
 }
 
@@ -590,22 +592,7 @@ function formatDateLabel(value: string | null | undefined): string {
   });
 }
 
-function formatByteCount(value: number | null): string {
-  if (value == null || !Number.isFinite(value) || value < 0) return "--";
-  if (value === 0) return "0 B";
-
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let next = value;
-  let unitIndex = 0;
-
-  while (next >= 1024 && unitIndex < units.length - 1) {
-    next /= 1024;
-    unitIndex += 1;
-  }
-
-  const rounded = next >= 100 || unitIndex === 0 ? next.toFixed(0) : next.toFixed(1);
-  return `${rounded} ${units[unitIndex]}`;
-}
+const formatByteCount = formatStorageBytes;
 
 function formatAiBillingModeLabel(mode: AiBillingMode | null | undefined): string {
   if (mode === "forge") return "Forge-managed";
@@ -744,22 +731,24 @@ async function fetchCanonicalAccountOverview(userId: string): Promise<AccountBil
     throw new Error(error.message || "Failed to load account billing overview.");
   }
 
-  if (!data) return null;
-
-  const rawStorageItemId = normalizeLowerString(data.storage_item_id);
+  const capacityResult = await tongsBillingDb.rpc("read_my_storage_capacity");
+  if (capacityResult.error) throw new Error(capacityResult.error.message || "Storage capacity is unavailable.");
+  const storageCapacity = parseStorageCapacity(capacityResult.data);
+  const rawStorageItemId = normalizeLowerString(data?.storage_item_id);
 
   return {
-    stripeCustomerId: normalizeString(data.stripe_customer_id) || null,
-    planItemId: normalizeLowerString(data.plan_item_id) || null,
-    planInterval: normalizeLowerString(data.plan_interval) || null,
-    planStatus: normalizeLowerString(data.plan_status) || null,
-    planCurrentPeriodEnd: normalizeString(data.plan_current_period_end) || null,
-    planEntitled: Boolean(data.plan_entitled),
+    storageCapacity,
+    stripeCustomerId: normalizeString(data?.stripe_customer_id) || null,
+    planItemId: normalizeLowerString(data?.plan_item_id) || null,
+    planInterval: normalizeLowerString(data?.plan_interval) || null,
+    planStatus: normalizeLowerString(data?.plan_status) || null,
+    planCurrentPeriodEnd: normalizeString(data?.plan_current_period_end) || null,
+    planEntitled: Boolean(data?.plan_entitled),
     storageItemId: isStorageLevel(rawStorageItemId) ? rawStorageItemId : null,
-    storageStatus: normalizeLowerString(data.storage_status) || null,
-    storageCurrentPeriodEnd: normalizeString(data.storage_current_period_end) || null,
-    storageBytesEntitled: parseIntegerValue(data.storage_bytes_entitled),
-    aiCreditBalance: parseIntegerValue(data.ai_credit_balance),
+    storageStatus: normalizeLowerString(data?.storage_status) || null,
+    storageCurrentPeriodEnd: normalizeString(data?.storage_current_period_end) || null,
+    storageBytesEntitled: parseIntegerValue(data?.storage_bytes_entitled),
+    aiCreditBalance: parseIntegerValue(data?.ai_credit_balance),
   };
 }
 
@@ -1107,12 +1096,11 @@ export default function SubscriptionsRoute() {
     : accountOverview?.storageItemId
     ? "Pending"
     : "No storage add-on";
-  const storageAddonBytesEntitled = accountOverview?.storageBytesEntitled ?? 0;
-  const storageTotalBytesEntitled = BASE_PLAN_STORAGE_BYTES + storageAddonBytesEntitled;
-  const storageBytesUsed: number | null = null;
-  const storageBytesRemaining = storageBytesUsed == null
-    ? null
-    : Math.max(0, storageTotalBytesEntitled - storageBytesUsed);
+  const storageBaseBytes = accountOverview?.storageCapacity.baseBytes ?? null;
+  const storageAddonBytesEntitled = accountOverview?.storageCapacity.addonBytes ?? null;
+  const storageTotalBytesEntitled = accountOverview?.storageCapacity.totalBytes ?? null;
+  const storageBytesUsed = accountOverview?.storageCapacity.usedBytes ?? null;
+  const storageBytesRemaining = accountOverview?.storageCapacity.remainingBytes ?? null;
   const selectedPlanChoice = planChoices.find((choice) =>
     choice.key === (accountOverview?.planItemId ?? "")
     && choice.interval === (accountOverview?.planInterval === "quarterly" ? "quarterly" : "monthly")
@@ -1639,9 +1627,14 @@ export default function SubscriptionsRoute() {
             <article className="subscriptions-card subscriptions-card--wide">
               <h3>Storage</h3>
               <p className="subscriptions-card__copy">
-                Storage add-ons are stackable and billed monthly. Total storage equals base plan storage plus all active add-ons.
+                Storage add-ons are stackable and billed monthly. Eligible subscribed accounts include 5 GiB. Retained files and revisions count once against the workspace owner; temporary processing files and database rows do not count.
               </p>
 
+              {accountOverview?.storageCapacity.deleteOnly && (
+                <p role="status">{storageBytesUsed == null
+                  ? "Storage additions are paused while usage and ownership are verified. Existing files can still be deleted."
+                  : "Storage additions are paused. You can delete retained files to free space or purchase additional capacity."}</p>
+              )}
               <dl className="subscriptions-facts subscriptions-facts--compact">
                 <div>
                   <dt>Total storage entitlement</dt>
@@ -1649,7 +1642,7 @@ export default function SubscriptionsRoute() {
                 </div>
                 <div>
                   <dt>Base plan storage</dt>
-                  <dd>{formatByteCount(BASE_PLAN_STORAGE_BYTES)} included</dd>
+                  <dd>{formatByteCount(storageBaseBytes)} included</dd>
                 </div>
                 <div>
                   <dt>Storage add-on</dt>
@@ -1664,12 +1657,12 @@ export default function SubscriptionsRoute() {
                   <dd>{accountOverviewLoading ? "Loading..." : formatByteCount(storageAddonBytesEntitled)}</dd>
                 </div>
                 <div>
-                  <dt>Storage used</dt>
-                  <dd>{storageBytesUsed == null ? "Not yet surfaced" : formatByteCount(storageBytesUsed)}</dd>
+                  <dt>Retained storage used</dt>
+                  <dd>{storageBytesUsed == null ? "Awaiting verified usage" : formatByteCount(storageBytesUsed)}</dd>
                 </div>
                 <div>
                   <dt>Storage remaining</dt>
-                  <dd>{storageBytesRemaining == null ? "Not yet surfaced" : formatByteCount(storageBytesRemaining)}</dd>
+                  <dd>{storageBytesRemaining == null ? "Awaiting verified usage" : formatByteCount(storageBytesRemaining)}</dd>
                 </div>
                 <div>
                   <dt>Current period end</dt>

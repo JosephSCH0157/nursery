@@ -1,4 +1,5 @@
-import type Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
+// Stripe metadata is a string map; keep shared validation runtime-neutral.
+type StripeMetadata = Record<string, string>;
 import {
   STRIPE_CATALOG,
   type StripeCatalogPriceMatch,
@@ -27,7 +28,7 @@ export type ForgePurchaseMetadata = {
 export const FORGE_PRODUCT_ID = "podcasters_forge";
 export const FORGE_METADATA_VERSION = "v1";
 
-const AI_PACK_IDS = new Set(
+const AI_PACK_IDS = new Set<string>(
   Object.values(STRIPE_CATALOG.packs.ai_credits).map((entry) => entry.packId),
 );
 const OFFER_IDS = new Set([
@@ -45,7 +46,7 @@ const OFFER_IDS = new Set([
   ),
   ...Object.values(STRIPE_CATALOG.storage).map((entry) => entry.offerId),
 ]);
-const CLOUD_STORAGE_IDS = new Set(
+const CLOUD_STORAGE_IDS = new Set<string>(
   Object.values(STRIPE_CATALOG.storage).map((entry) => entry.storageLevel),
 );
 const SUBSCRIPTION_ITEM_IDS = new Set([
@@ -76,7 +77,7 @@ function isForgePurchaseInterval(value: string): value is ForgePurchaseInterval 
 }
 
 function readMetadataString(
-  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined,
+  metadata: Record<string, unknown> | StripeMetadata | null | undefined,
   key: string,
 ): string | null {
   return normalizeString(metadata?.[key]);
@@ -118,7 +119,7 @@ function resolveCheckoutMetadataCore(
 }
 
 function inferLegacyPurchaseType(
-  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined,
+  metadata: Record<string, unknown> | StripeMetadata | null | undefined,
 ): ForgePurchaseType | null {
   const packType = readMetadataString(metadata, "forge_pack_type");
   if (packType === "ai_credits") return "ai_credits";
@@ -133,7 +134,7 @@ function inferLegacyPurchaseType(
 }
 
 function inferLegacyItemId(
-  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined,
+  metadata: Record<string, unknown> | StripeMetadata | null | undefined,
 ): string | null {
   return readMetadataString(metadata, "forge_item_id")
     ?? readMetadataString(metadata, "forge_pack_id")
@@ -240,7 +241,7 @@ export function buildForgeCheckoutMetadata(
 }
 
 export function parseForgePurchaseMetadata(args: {
-  metadata: Record<string, unknown> | Stripe.Metadata | null | undefined;
+  metadata: Record<string, unknown> | StripeMetadata | null | undefined;
   mode?: string | null;
   allowLegacyFallback?: boolean;
 }): ForgePurchaseMetadata {
@@ -272,7 +273,7 @@ export function parseForgePurchaseMetadata(args: {
     && isForgePurchaseType(purchaseType)
     && isForgePurchaseInterval(interval)
   ) {
-    const canonical = {
+    const canonical: ForgePurchaseMetadata = {
       supabaseUserId,
       purchaseType,
       offerId,
@@ -313,7 +314,7 @@ export function parseForgePurchaseMetadata(args: {
     );
   }
 
-  const legacy = {
+  const legacy: ForgePurchaseMetadata = {
     supabaseUserId,
     purchaseType: inferredPurchaseType,
     offerId,

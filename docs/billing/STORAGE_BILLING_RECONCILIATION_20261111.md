@@ -1,6 +1,6 @@
 # Storage billing reconciliation — 2026-11-11
 
-Status: **incomplete; not release-certified**. Source baseline
+Status: **superseded by [resumed integration evidence](STORAGE_BILLING_INTEGRATION_20261111.md); not release-certified**. Source baseline
 `f5a96058e31f2c8c9b9a6df28a4f6c9d1d2755c9`. Branch:
 `codex/storage-billing-reconciliation-20261111`.
 
