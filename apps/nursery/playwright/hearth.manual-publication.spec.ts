@@ -1,0 +1,37 @@
+import { test, expect } from "playwright/test";
+import { createHash } from "node:crypto";
+import { openWorkpieceInHearth } from "./helpers/hearth-phase4-actions";
+import { readHearthPhase4Artifact } from "./helpers/hearth-phase4-fixtures";
+
+test("real Hearth manual Save publishes exact bytes before Approve and Ready", async ({page}) => {
+  const artifact=readHearthPhase4Artifact();
+  await page.goto(`/apps/hearth?${new URLSearchParams({workspace_id:artifact.workspace_id,workpiece_id:artifact.workpiece_id})}`);
+  await openWorkpieceInHearth(page,artifact.handoff.title);
+  const editor=page.locator("textarea.hs-textarea-body");
+  await expect(editor).toBeVisible();
+  const original=await editor.inputValue();
+  const revised=original.replace("[/s1]","Manual publication certification, using synthetic local fixture content.\n[/s1]");
+  expect(revised).not.toBe(original);
+  const approve=page.getByRole("button",{name:"Approve Script",exact:true});
+  const publish=async(text:string)=>{
+    await editor.fill(text);
+    await expect(approve).toBeDisabled();
+    const response=page.waitForResponse(r=>r.request().method()==="POST" && r.url().includes(`/workpieces/${artifact.workpiece_id}/script-publication`));
+    await page.getByRole("button",{name:"Save draft",exact:true}).click();
+    const result=await response;expect(result.ok()).toBe(true);
+    const body=await result.json();const operation=body.data??body;
+    expect(operation.state).toBe("committed");
+    expect(operation.receipt.workspace_id).toBe(artifact.workspace_id);
+    expect(operation.receipt.workpiece_id).toBe(artifact.workpiece_id);
+    expect(operation.receipt.sha256).toBe(createHash("sha256").update(text.replace(/\r\n?/g,"\n").normalize("NFC")).digest("hex"));
+    await expect(approve).toBeEnabled();await approve.click();
+    await expect(page.locator(".hs-episode-ready-pill")).toHaveText("Ready");
+    return operation.receipt;
+  };
+  const changed=await publish(revised);
+  const restored=await publish(original);
+  expect(restored.revision).toBeGreaterThan(changed.revision);
+  await page.reload();await openWorkpieceInHearth(page,artifact.handoff.title);
+  await expect(editor).toHaveValue(original);
+  await expect(page.locator(".hs-episode-ready-pill")).toHaveText("Ready");
+});

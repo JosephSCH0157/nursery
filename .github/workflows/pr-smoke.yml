@@ -303,7 +303,18 @@ jobs:
       # auth at 127.0.0.1:5173 and verifies authenticated Storage before Playwright.
       # Playwright loads the manifest's distinct Hearth/Hammer IDs itself; no
       # external base URL is set, so its normal task-owned Vite server starts.
+      - name: Certify atomic publication on real PostgreSQL backends
+        run: |
+          SUPABASE_DB_CONTAINER="supabase_db_forge-he3-browser-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" node scripts/certify-script-publication-isolated.mjs --upgraded-ci-source
       - run: pnpm gate:browser
+      - name: Certify real Hearth manual Save Approve Ready
+        run: pnpm --filter nursery exec playwright test -c playwright.config.ts playwright/hearth.manual-publication.spec.ts --workers=1
+      - name: Clean exact browser fixture content through canonical lifecycle
+        if: always()
+        run: |
+          if [ -f apps/nursery/playwright/.cache/browser-fixtures.v1.json ]; then
+            pnpm --filter nursery exec tsx scripts/browser-fixtures.mts clean --confirm-fixture-destruction
+          fi
       - name: Stop job-owned disposable Supabase
         if: always() && env.FORGE_BROWSER_SUPABASE_WORKDIR != ''
         shell: pwsh

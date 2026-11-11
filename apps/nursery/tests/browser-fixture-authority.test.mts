@@ -186,3 +186,16 @@ test("manifest validation binds schema, project, identities, and two Ready candi
   assert.throws(() => validateBrowserFixtureManifest({ ...manifest, ready_workpiece_ids: [id("one")] }), /invalid Ready workpieces/);
   assert.throws(() => validateBrowserFixtureManifest({ ...manifest, schema_version: "v0" }), /obsolete/);
 });
+
+
+test("canonical script fixtures use conditional publication and lifecycle cleanup", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /ensureBrowserFixtureAdmission\(admin, config, userId\)/);
+  assert.match(source, /publication\.publishScript/);
+  assert.match(source, /expected_revision:current\.data\?\.revision/);
+  assert.match(source, /expected_hash:current\.data\?\.hash_value/);
+  assert.match(source, /publication\.readWorkpieceText/);
+  assert.doesNotMatch(source, /uploadWorkpieceFile\(admin, config\.bucket, episode\.id, "script\/script\.md"/);
+  assert.match(source, /service\.archiveWorkpiece/);assert.match(source, /service\.deleteWorkpiece/);
+  assert.doesNotMatch(source, /auth\.admin\.deleteUser/);
+});

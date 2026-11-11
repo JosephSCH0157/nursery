@@ -9,7 +9,15 @@ function run(args,input){const r=spawnSync('docker',args,{input,encoding:'utf8',
 const info=JSON.parse(run(['inspect',container]))[0];assert.ok(info.Config.Labels['com.supabase.cli.project']);
 const lineage=run(['exec',container,'psql','-X','-qAt','-U','postgres','-d','postgres','-c','select lineage from forge_meta.database_lineage;']).trim();
 assert.ok(['baseline-v1','historical-v1'].includes(lineage));
-// Schema-only test adapter, not a fresh-install or lineage-successor certificate.
+const upgradedCI = process.argv.includes('--upgraded-ci-source');
+if(upgradedCI){
+ assert.equal(process.env.GITHUB_ACTIONS,'true');assert.equal(process.env.GITHUB_REPOSITORY,'JosephSCH0157/nursery');
+ assert.match(process.env.GITHUB_RUN_ID??'',/^\d+$/);assert.match(process.env.GITHUB_RUN_ATTEMPT??'',/^\d+$/);
+ assert.equal(container,`supabase_db_forge-he3-browser-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`);
+ assert.equal(lineage,'baseline-v1');
+ assert.equal(run(['exec',container,'psql','-X','-qAt','-U','postgres','-d','postgres','-c','select max(version) from supabase_migrations.schema_migrations']).trim(),'20261111054816');
+}
+// Schema-only behavioral adapter sourced from the verified full-tail CI database; not historical equivalence.
 const sqlArgs=['exec','-i',container,'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-d',database];
 const sql=input=>run(sqlArgs,input);
 const owner='11000000-0000-4000-8000-000000000003', workspace='a1000000-0000-4000-8000-000000000001', episode='d1000000-0000-4000-8000-000000000001';
@@ -23,7 +31,8 @@ try {
  run(['exec',container,'createdb','-U','postgres',database]);created=true;
  const dump=run(['exec',container,'pg_dump','-U','postgres','-d','postgres','--schema-only','--no-owner','--schema=tongs','--schema=auth','--schema=extensions','--schema=public']).replace(/^CREATE SCHEMA public;\r?\n/m,'').replace(/^ALTER DEFAULT PRIVILEGES[\s\S]*?;\r?\n/gm,'');
  sql('create schema extensions; create extension pgcrypto with schema extensions; create extension "uuid-ossp" with schema extensions;');sql(dump.replace(/^CREATE SCHEMA extensions;\r?\n/m,''));
- sql(readFileSync('supabase/migrations/20261111054816_tongs_atomic_script_publication.sql','utf8'));
+ if(!upgradedCI) sql(readFileSync('supabase/migrations/20261111054816_tongs_atomic_script_publication.sql','utf8'));
+ else assert.equal(sql("select to_regprocedure('tongs.script_publication_command(text,uuid,uuid,uuid,uuid,bigint,text,text,bigint)') is not null;").trim(),'t');
  sql(`insert into auth.users(id) values('${owner}');insert into tongs.orgs(id,name,created_by) values('91000000-0000-4000-8000-000000000001','Script adapter','${owner}');insert into tongs.workspaces(id,name,created_by,org_id) values('${workspace}','Script adapter','${owner}','91000000-0000-4000-8000-000000000001');insert into tongs.episodes(id,workspace_id,label) values('${episode}','${workspace}','Script adapter');`);
  // Admission fixture only; no funding, pricing or financial policies are activated.
  sql(`insert into tongs.legacy_account_admission_cohort(user_id) values('${owner}');insert into tongs.account_admission_events(user_id,revision,operation_id,event_type,origin_kind,origin_legacy_user_id,actor_id,reason) values('${owner}',1,'${op()}','grant','legacy','${owner}',null,'Disposable script certification fixture');`);
@@ -67,6 +76,6 @@ try {
  assert.ok(keys.includes(current.storage_key));
  fails(service(command('finalize',revoked)),/active episode required/);
  assert.equal(sql(`select state from tongs.script_publication_operations where operation_id='${revoked}';`).trim(),'abandoned');
- const result={sourceLineage:lineage,fixtureDatabase:database,creation:results,updates,recovery:'PASS',abandonment:'PASS',privileges:'PASS',immutableEvidence:'PASS',duplicateFingerprint:'PASS',unchanged:'PASS',revocation:'PASS',archiveCleanup:'PASS',cleanupRace:raceState,rlsAndFunctionGrants:'PASS',limitation:'Schema-only disposable adapter. Separate psql processes exercise real PostgreSQL concurrency; not full-tail certification.'};
+ const result={sourceLineage:lineage,upgradedCI,sourceHead:upgradedCI?'20261111054816':null,fixtureDatabase:database,creation:results,updates,recovery:'PASS',abandonment:'PASS',privileges:'PASS',immutableEvidence:'PASS',duplicateFingerprint:'PASS',unchanged:'PASS',revocation:'PASS',archiveCleanup:'PASS',cleanupRace:raceState,rlsAndFunctionGrants:'PASS',limitation:'Schema-only disposable adapter. Separate psql processes exercise real PostgreSQL concurrency; not full-tail certification.'};
  if(process.env.SCRIPT_PUBLICATION_EVIDENCE)writeFileSync(process.env.SCRIPT_PUBLICATION_EVIDENCE,JSON.stringify(result,null,2));console.log(JSON.stringify(result,null,2));
 }finally{if(created)run(['exec',container,'dropdb','-U','postgres',database]);}

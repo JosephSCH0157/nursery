@@ -1,3 +1,4 @@
+import { ensureBrowserFixtureAdmission } from "./browser-fixture-admission.mts";
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -156,6 +157,7 @@ async function findOrCreateUser(admin: SupabaseClient, config: FixtureConfig): P
 }
 
 async function uploadWorkpieceFile(admin: SupabaseClient, bucket: string, workpieceId: string, filePath: string, contentType: string, bytes: Buffer): Promise<string> {
+  if (filePath === "script/script.md") throw new Error("Canonical scripts require atomic publication.");
   const storageKey = `workpieces/${workpieceId}/${filePath}`;
   const upload = await admin.storage.from(bucket).upload(storageKey, bytes, { upsert: true, contentType });
   if (upload.error) throw new Error(`Upload ${filePath}: ${upload.error.message}`);
@@ -180,6 +182,10 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
   const config = loadFixtureConfig();
   const admin = createClient(config.supabaseUrl, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const userId = await findOrCreateUser(admin, config);
+  await ensureBrowserFixtureAdmission(admin, config, userId);
+  const authenticated = await signIn(config);
+  const { createTongsCommitService } = await import("../../../packages/tongs/src/workpiece-commit-api.ts");
+  const publication = createTongsCommitService({supabaseUrl:config.supabaseUrl,supabaseServiceRoleKey:config.serviceKey,bucket:config.bucket});
   const tongs = admin.schema("tongs");
   const personalOrg = await tongs.from("orgs").select("id").eq("personal_owner_user_id", userId).maybeSingle();
   if (personalOrg.error) throw new Error(`Managed personal organization lookup failed: ${personalOrg.error.message}`);
@@ -199,7 +205,20 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
   const hashes: Record<string, string> = {};
   for (const episode of episodes.slice(0, 3)) {
     const script = fixtureScript(episode.label);
-    hashes[`${episode.id}:script/script.md`] = await uploadWorkpieceFile(admin, config.bucket, episode.id, "script/script.md", "text/markdown", Buffer.from(script));
+    const hash = sha256(Buffer.from(script));
+    const current = await tongs.from("workpiece_files").select("revision,hash_value").eq("workpiece_id",episode.id).eq("path","script/script.md").maybeSingle();
+    if(current.error) throw new Error("Fixture script authority lookup failed.");
+    if(current.data?.hash_value !== hash) {
+      const result = await publication.publishScript(episode.id, {workspace_id:workspaceId,
+        operation_id:deterministicFixtureUuid(`${episode.id}:script:${current.data?.revision ?? 0}:${hash}`),
+        expected_revision:current.data?.revision ?? 0,expected_hash:current.data?.hash_value ?? null,text:script,
+      }, authenticated.session.access_token);
+      if(result.state !== "committed" || result.receipt?.sha256 !== hash || result.receipt?.workpiece_id !== episode.id
+        || result.receipt?.workspace_id !== workspaceId || result.receipt?.bytes !== Buffer.byteLength(script)) throw new Error("Fixture publication receipt mismatch.");
+    }
+    const verified = await publication.readWorkpieceText(episode.id,"script/script.md");
+    if(sha256(Buffer.from(verified.text ?? "")) !== hash) throw new Error("Fixture canonical script readback mismatch.");
+    hashes[`${episode.id}:script/script.md`] = hash;
   }
   const handoffScript = fixtureScript(episodes[0]!.label);
   const handoffDrafts = {
@@ -222,7 +241,6 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
     }],
   };
   hashes[`${hearthId}:hearth/drafts.v1.json`] = await uploadWorkpieceFile(admin, config.bucket, hearthId, "hearth/drafts.v1.json", "application/json", Buffer.from(JSON.stringify(handoffDrafts)));
-  const authenticated = await signIn(config);
   for (const [index, workpieceId] of readyIds.entries()) {
     const userTongs = authenticated.client.schema("tongs");
     const scriptText = fixtureScript(episodes[index + 1]!.label);
@@ -460,30 +478,23 @@ export async function cleanBrowserFixtures(confirm: boolean): Promise<void> {
   if (scope.error || scope.data?.length !== workpieceIds.length || scope.data.some((row) => row.workspace_id !== manifest.workspace_id || row.creation_origin !== BROWSER_FIXTURE_NAMESPACE)) throw new Error("Fixture cleanup scope proof failed; no records were removed.");
   const workspace = await tongs.from("workspaces").select("id,name,org_id").eq("id", manifest.workspace_id).maybeSingle();
   if (workspace.error || !workspace.data || workspace.data.org_id !== manifest.org_id || !workspace.data.name.startsWith("[fixture]")) throw new Error("Fixture workspace scope proof failed; no records were removed.");
-  const files = await tongs.from("workpiece_files").select("storage_bucket,storage_key").in("workpiece_id", workpieceIds);
-  if (files.error) throw new Error(`Fixture cleanup inventory failed: ${files.error.message}`);
-  const storageKeys = new Map<string, string[]>();
-  for (const row of files.data ?? []) storageKeys.set(row.storage_bucket, [...(storageKeys.get(row.storage_bucket) ?? []), row.storage_key]);
-  for (const [bucket, keys] of storageKeys) if (keys.length) await admin.storage.from(bucket).remove(keys);
-  await requireSuccess(
-    tongs.from("episodes").delete().in("id", workpieceIds).eq("workspace_id", manifest.workspace_id),
-    "Fixture workpiece cleanup",
-  );
-  await requireSuccess(
-    tongs.from("workspace_members").delete().eq("workspace_id", manifest.workspace_id).eq("user_id", manifest.user_id),
-    "Fixture workspace membership cleanup",
-  );
-  await requireSuccess(
-    tongs.from("workspaces").delete().eq("id", manifest.workspace_id).eq("org_id", manifest.org_id),
-    "Fixture workspace cleanup",
-  );
-  await requireSuccess(
-    tongs.from("org_members").delete().eq("org_id", manifest.org_id).eq("user_id", manifest.user_id),
-    "Fixture organization membership cleanup",
-  );
-  await requireSuccess(tongs.from("orgs").delete().eq("id", manifest.org_id), "Fixture organization cleanup");
-  const deletedUser = await admin.auth.admin.deleteUser(manifest.user_id);
-  if (deletedUser.error) throw new Error(`Fixture user cleanup failed: ${deletedUser.error.message}`);
+  const authenticated = await signIn(config);
+  if(authenticated.user.id !== manifest.user_id) throw new Error("Fixture cleanup actor mismatch.");
+  const { createTongsCommitService } = await import("../../../packages/tongs/src/workpiece-commit-api.ts");
+  const service = createTongsCommitService({supabaseUrl:config.supabaseUrl,supabaseServiceRoleKey:config.serviceKey,bucket:config.bucket});
+  for(const workpieceId of workpieceIds) {
+    const row = await tongs.from("episodes").select("deleted_at,archived_at,creation_origin").eq("id",workpieceId).eq("workspace_id",manifest.workspace_id).maybeSingle();
+    if(row.error || !row.data || row.data.creation_origin !== BROWSER_FIXTURE_NAMESPACE) throw new Error("Fixture cleanup episode scope mismatch.");
+    if(row.data.deleted_at) continue;
+    if(!row.data.archived_at) await service.archiveWorkpiece(workpieceId,{workspace_id:manifest.workspace_id,reason:"Disposable browser fixture cleanup"},{userAccessToken:authenticated.session.access_token});
+    await service.deleteWorkpiece(workpieceId,{workspace_id:manifest.workspace_id,deletion_mode:"full_delete"},{userAccessToken:authenticated.session.access_token});
+    const objects = await admin.storage.from(config.bucket).list(`workpieces/${workpieceId}`,{limit:1000});
+    if(objects.error || objects.data?.length) throw new Error("Fixture cleanup left scoped Storage artifacts.");
+  }
+  const remaining = await tongs.from("workpiece_files").select("workpiece_id").in("workpiece_id",workpieceIds);
+  if(remaining.error || remaining.data?.length) throw new Error("Fixture cleanup left registry artifacts.");
+  // Retain admission identities, workspace, tombstones and immutable receipts.
+  // The job-owned database is removed by the existing guarded CI teardown.
   for (const target of [config.manifestPath, config.receiptPath, config.authPath]) if (fs.existsSync(target)) fs.rmSync(target);
 }
 
