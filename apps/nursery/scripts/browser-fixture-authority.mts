@@ -1,3 +1,4 @@
+import { provisionBrowserStorageEntitlement } from './browser-storage-entitlement.mts';
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -192,6 +193,7 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
   await requireSuccess(tongs.from("workspaces").upsert({ id: workspaceId, org_id: orgId, name: `[fixture] Browser Release ${config.projectRef}`, created_by: userId, reference_material_review_enabled: true }), "Workspace");
   await requireSuccess(tongs.from("workspace_members").upsert({ workspace_id: workspaceId, user_id: userId, role: "owner", created_by: userId }, { onConflict: "workspace_id,user_id" }), "Workspace membership");
   await requireSuccess(tongs.from("account_balances").upsert({ user_id: userId, plan_item_id: "creator", plan_status: "active", plan_entitled: true }, { onConflict: "user_id" }), "Fixture plan entitlement");
+  if (process.env.FORGE_BROWSER_SUPABASE_WORKDIR) await provisionBrowserStorageEntitlement(admin,config.supabaseUrl,userId);
   await requireSuccess(tongs.from("recording_sessions").delete().eq("workspace_id", workspaceId).eq("created_by", userId).like("title", `[fixture:${BROWSER_FIXTURE_NAMESPACE}]%`), "Stale fixture session cleanup");
   const episodes = [{ id: hearthId, label: "[fixture] Hearth authenticated handoff" }, { id: readyIds[0], label: "[fixture] Ready candidate Alpha" }, { id: readyIds[1], label: "[fixture] Ready candidate Beta" }, { id: hammerId, label: "[fixture] Hammer authenticated recording" }];
   const fixtureScript = (label: string) => `[s1]\n${label.replace(/^\[fixture\]\s*/u, "")}.\n\nThis authenticated non-production fixture proves canonical script access. The material is synthetic and exists only to verify bounded creator workflows. It describes a creator reviewing a neutral recording plan, walking from the desk to a reference board, checking each supplied source, and returning to the microphone. The creator then compares the proposed visuals, confirms that every moment uses a distinct script anchor, and saves the result through the normal application authority. No real audience, customer work, purchased asset, external search, or paid provider is involved. Every statement is deliberately harmless and traceable to this fixture. The longer passage provides enough canonical narration for separate image and motion moments while retaining exact source text. Test outputs must stay isolated from Live reports and production workpieces. This fixture must never be published.\n[/s1]\n`;

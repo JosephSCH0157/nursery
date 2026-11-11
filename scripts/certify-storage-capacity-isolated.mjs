@@ -2,6 +2,9 @@ import { spawnSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { certifyStorageLifecycle } from './lib/certify-storage-lifecycle.mjs';
+import { certifyStorageHttp } from './lib/certify-storage-http.mjs';
+console.log(JSON.stringify({phase:'storage-cert-imports-loaded'}));
 const container=process.env.SUPABASE_DB_CONTAINER;
 if(!container || !/^supabase_db_forge-/.test(container)) throw Error('Explicit existing disposable Forge container required');
 const database=`forge_storage_${randomUUID().replaceAll('-','').slice(0,12)}`;
@@ -11,7 +14,9 @@ const source=q=>run(['exec',container,'psql','-X','-qAt','-U','postgres','-d','p
 const lineage=source('select lineage from forge_meta.database_lineage');assert.equal(lineage,'baseline-v1');
 const head=source('select max(version) from supabase_migrations.schema_migrations');
 assert.ok(['20261104071802','20261105025313'].includes(head),'Reviewed supported schema source required');
-const sqlArgs=['exec','-i',container,'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-d',database];
+const dbPassword=info.Config.Env.find(v=>v.startsWith('POSTGRES_PASSWORD='))?.slice('POSTGRES_PASSWORD='.length);
+if(!dbPassword)throw Error('Existing disposable admin credential unavailable');
+const sqlArgs=['exec','-i','-e',`PGPASSWORD=${dbPassword}`,container,'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-U','supabase_admin','-d',database];
 const sql=q=>run(sqlArgs,q);
 const owner='11000000-0000-4000-8000-000000000003',other='11000000-0000-4000-8000-000000000004';
 const workspace='a1000000-0000-4000-8000-000000000001',episode='d1000000-0000-4000-8000-000000000001';
@@ -29,13 +34,16 @@ function concurrent(query){return new Promise(resolve=>{const p=spawn('docker',s
 let created=false;
 try{
  run(['exec',container,'createdb','-U','postgres',database]);created=true;
- const dump=run(['exec',container,'pg_dump','-U','postgres','-d','postgres','--schema-only','--no-owner','--schema=tongs','--schema=auth','--schema=storage','--schema=extensions','--schema=public']).replace(/^CREATE SCHEMA public;\r?\n/m,'').replace(/^ALTER DEFAULT PRIVILEGES[\s\S]*?;\r?\n/gm,'');
+ const dump=run(['exec',container,'pg_dump','-U','postgres','-d','postgres','--schema-only','--schema=tongs','--schema=auth','--schema=storage','--schema=extensions','--schema=public']).replace(/^CREATE SCHEMA public;\r?\n/m,'').replace(/^ALTER DEFAULT PRIVILEGES[\s\S]*?;\r?\n/gm,'');
  sql('create schema extensions; create extension pgcrypto with schema extensions; create extension "uuid-ossp" with schema extensions;');
+ console.log(JSON.stringify({phase:'schema-copy'}));
  sql(dump.replace(/^CREATE SCHEMA extensions;\r?\n/m,''));
+ sql(run(['exec',container,'pg_dump','-U','postgres','-d','postgres','--data-only','--table=storage.migrations']));
  sql(`insert into auth.users(id) values('${owner}'),('${other}');insert into tongs.orgs(id,name,created_by) values('91000000-0000-4000-8000-000000000001','Storage adapter','${owner}');insert into tongs.workspaces(id,name,created_by,org_id) values('${workspace}','Storage adapter','${owner}','91000000-0000-4000-8000-000000000001');insert into tongs.episodes(id,workspace_id,label) values('${episode}','${workspace}','Storage adapter');insert into storage.buckets(id,name) values('forge-workpieces','forge-workpieces'),('bellows-capture','bellows-capture');`);
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','legacy-unattributed-fixture.bin','{"size":3}','fixture');`);
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/a1000000-0000-4000-8000-000000000099/orphan.bin','{"size":2}','fixture');`);
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
+ sql(readFileSync('supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql','utf8'));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name='legacy-unattributed-fixture.bin';commit;`));
  assert.equal(capacity().usage_complete,false,'missing workspace must not be silently unbilled');
@@ -54,6 +62,7 @@ try{
  sql(baseReceipt);const receiptCount=sql('select count(*) from tongs.subscription_cycle_receipts;');
  sql(baseReceipt);assert.equal(sql('select count(*) from tongs.subscription_cycle_receipts;'),receiptCount,'duplicate receipt remains idempotent');
  assert.equal(capacity().base_bytes,5*GiB);
+ if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
  sql(subscription('sub_base','creator','subscription','trialing'));assert.equal(capacity().base_bytes,0,'no unapproved permanent trial allowance');
  sql(subscription('sub_base','creator','subscription','past_due'));assert.equal(capacity().base_bytes,5*GiB,'paid-through period preserved');
  sql(`update tongs.billing_subscriptions set current_period_end=now()-interval '1 second' where stripe_subscription_id='sub_base';`);
@@ -106,6 +115,7 @@ try{
  fails(`set role anon;select tongs.read_my_storage_capacity();`,/permission denied/);
  fails(authenticated(other,`select tongs._storage_capacity_entitlement('${owner}');`),/permission denied/);
  assert.equal(sql(`select tgdeferrable and tginitdeferred from pg_trigger where tgname='forge_storage_capacity_guard';`).trim(),'t');
+ if(process.env.FORGE_STORAGE_LIFECYCLE_CERT==='1'){const lifecycle=await certifyStorageLifecycle({sql,sqlArgs,service,subscription,receipt,capacity});console.log(JSON.stringify({lifecycle}));if(lifecycle.result!=='PASS')process.exitCode=1;}
  assert.equal(source('select max(version) from supabase_migrations.schema_migrations'),head,'source unchanged');
  console.log(JSON.stringify({result:'PASS',sourceLineage:lineage,sourceHead:head,database,tests:['duplicate receipt','trial denial','paid-through grace','expiry','legacy stacking','restricted isolation rejection','free denial','receipt-backed 5 GiB','paid add-ons','Test/Live isolation','upgrade payment gate','downgrade','cancellation','temporary exclusion','two-connection concurrency','owner attribution','delete-only','journal unchanged','RPC privilege isolation','Storage permission-probe rollback'],limitation:'Schema-only disposable PostgreSQL adapter. Storage rows are synthetic metadata, not real media; not full-tail or Storage HTTP certification.'},null,2));
 }finally{if(created)run(['exec',container,'dropdb','-U','postgres',database]);}

@@ -137,6 +137,7 @@ try {
     "supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql",
     "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql",
     "supabase/migrations/20261111180013_storage_capacity_authority.sql",
+  "supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql",
   ];
   assert.equal(published.successorFileCount, expectedSuccessorPaths.length);
   assert.deepEqual(
