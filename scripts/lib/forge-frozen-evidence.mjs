@@ -60,7 +60,7 @@ export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_SHA256 = "1addbe643cd6a
 export const SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH = "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql";
 export const SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256 = "838f14fdd5801bcb842fa628a8ca80700bd20bda201569faa56e9b3fa2d2d24a";
 export const STORAGE_CAPACITY_AUTHORITY_PATH = "supabase/migrations/20261111180013_storage_capacity_authority.sql";
-export const STORAGE_CAPACITY_AUTHORITY_SHA256 = "2278af95bed7ba8e04cb14a05d9fdd87be4b08fa9904783780fb1f53dc8ba581";
+export const STORAGE_CAPACITY_AUTHORITY_SHA256 = "835312f662e5e2583f478a7b1c4eef9a174ce6b28baf4004c7aa8aed5c8a8d55";
 export const HISTORICAL_MANIFEST_PATH = "docs/database/baseline/v1-gate1/historical-migrations.sha256.json";
 export const HISTORICAL_MANIFEST_SHA256 = "66a094037af456e95b34ec0ca3fb18bcc791d296fa6c2619af9639a87f7d7f40";
 

@@ -34,9 +34,13 @@ try{
  sql(dump.replace(/^CREATE SCHEMA extensions;\r?\n/m,''));
  sql(`insert into auth.users(id) values('${owner}'),('${other}');insert into tongs.orgs(id,name,created_by) values('91000000-0000-4000-8000-000000000001','Storage adapter','${owner}');insert into tongs.workspaces(id,name,created_by,org_id) values('${workspace}','Storage adapter','${owner}','91000000-0000-4000-8000-000000000001');insert into tongs.episodes(id,workspace_id,label) values('${episode}','${workspace}','Storage adapter');insert into storage.buckets(id,name) values('forge-workpieces','forge-workpieces'),('bellows-capture','bellows-capture');`);
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','legacy-unattributed-fixture.bin','{"size":3}','fixture');`);
+ sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/a1000000-0000-4000-8000-000000000099/orphan.bin','{"size":2}','fixture');`);
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name='legacy-unattributed-fixture.bin';commit;`));
+ assert.equal(capacity().usage_complete,false,'missing workspace must not be silently unbilled');
+ sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where name='workspaces/a1000000-0000-4000-8000-000000000099/orphan.bin';commit;`));
+ assert.equal(capacity().usage_complete,true);
  assert.equal(capacity().total_bytes,0);
  fails(service(insert('free.bin',1)),/storage_capacity_exceeded/);
  // Match Storage canUpload's metadata-less permission probe: rollback never
@@ -80,6 +84,9 @@ try{
  sql(service(`insert into storage.objects(bucket_id,name,metadata,version) values('bellows-capture','${bellowsKey}','{"size":5}','fixture');`));
  assert.equal(capacity().used_bytes,5,'playable Bellows segments are retained, not temporary');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='bellows-capture' and name='${bellowsKey}';commit;`));
+ sql(service(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','hearth/attachments/${workspace}/${episode}/fixture/source.txt','{"size":7}','fixture');`));
+ assert.equal(capacity().used_bytes,7,'existing attachment path uses canonical episode/workspace ownership');
+ sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where name='hearth/attachments/${workspace}/${episode}/fixture/source.txt';commit;`));
  sql(service(insert('retained.bin',5*GiB-10)));
  const journalBefore=sql('select count(*) from tongs.accounting_journal_events;');
  const results=await Promise.all([concurrent(insert('race-a.bin',8)),concurrent(insert('race-b.bin',8))]);

@@ -19,6 +19,18 @@ begin
     select workspace_id into v_workspace from tongs.episodes where id=parts[2]::uuid;
   elsif parts[1]='workspaces' and parts[2] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then
     select id into v_workspace from tongs.workspaces where id=parts[2]::uuid;
+  elsif parts[1]='hearth' and parts[2]='attachments'
+    and parts[3] ~* '^[0-9a-f-]{36}$' and parts[4] ~* '^[0-9a-f-]{36}$' then
+    select workspace_id into v_workspace from tongs.episodes
+      where id=parts[4]::uuid and workspace_id=parts[3]::uuid;
+  elsif parts[1]='recovery' then
+    -- Existing immutable receipt evidence supplies attribution; names alone do
+    -- not establish a payer. This does not change or execute recovery.
+    select case when count(distinct r.workspace_id)=1 then min(r.workspace_id::text)::uuid else null end
+      into v_workspace from tongs.episode_split_recovery_receipts r
+      where r.manifest_hash=tongs.episode_split_recovery_manifest_hash(r.manifest_json)
+        and exists(select 1 from jsonb_each(r.manifest_json->'staged_files') f
+          where f.value->>'storage_bucket'=p_bucket and f.value->>'storage_key'=p_name);
   elsif parts[1] ~* '^[0-9a-f-]{36}$' and parts[2] ~* '^[0-9a-f-]{36}$' then
     select id into v_workspace from tongs.workspaces where id=parts[2]::uuid and created_by=parts[1]::uuid;
   end if;
@@ -73,7 +85,8 @@ returns jsonb language sql volatile security definer set search_path=pg_catalog 
     'retained_objects',count(*),
     'unattributed_objects',(select count(*) from storage.objects o where o.bucket_id in ('forge-workpieces','bellows-capture')
       and not tongs._storage_capacity_temporary(o.bucket_id,o.name)
-      and tongs._storage_capacity_workspace(o.bucket_id,o.name) is null)) from owned
+      and not exists(select 1 from tongs.workspaces w
+        where w.id=tongs._storage_capacity_workspace(o.bucket_id,o.name) and w.created_by is not null))) from owned
 $$;
 
 create function tongs.read_my_storage_capacity()

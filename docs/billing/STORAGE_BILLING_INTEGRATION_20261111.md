@@ -74,15 +74,22 @@ subscription state remain entitlement evidence.
   evidence, not full-tail upgrade, historical financial equivalence, or an actual
   Storage HTTP upload/delete certification.
 - Nursery typecheck, Tongs compilation, focused shared-module typecheck and scoped
-  UI lint were run. Production Vite compilation and bundle checks are recorded
-  separately in the completion report. No threshold was raised.
+  UI lint passed. Production Vite compilation passed; the existing Hearth bundle
+  budget passed (9 JS chunks, 1,765,854 total bytes; largest 964,123 bytes).
+  No threshold was raised.
 
 ## Remaining release gates / minimum next actions
 
-1. Resolve seven hosted legacy objects (`hearth`: 3; `recovery`: 4) using existing
-   ownership/retention evidence. They have no matching workpiece registry entry.
-   Do not guess a payer or delete them. A hosted rollout currently fails closed
-   on their unresolved attribution. Any hosted correction needs owner approval.
+1. Read-only attribution found 448 workpiece objects without an existing episode
+   (426,793 bytes; no matching episode-deletion audit), plus 27 with an episode
+   but no matching workspace. Do not guess a payer or delete them. Production
+   would fail closed globally on unresolved ownership; do not deploy this guard
+   until their authorized ownership/retention disposition is established.
+   Three attachment objects map through existing episode/workspace paths; four
+   recovery objects map through exact staged-file entries in hash-verified
+   recovery receipts. Those relationships are supported by the new lookup.
+   This does not authorize changing recovery: new recovery staging before its
+   receipt exists still requires compatibility certification, not an exemption.
 2. Certify the full forward tail and actual Storage HTTP success/rejection/delete
    behavior in guarded disposable infrastructure with legitimate synthetic paid
    fixture receipts. Existing browser fixture accounts cannot be assumed funded.
@@ -99,3 +106,9 @@ subscription state remain entitlement evidence.
 **NO-GO for production release.** Local implementation and focused schema behavior
 are established; the gates above remain. No hosted migration, Stripe mutation,
 production deployment, media processing, or bandwidth experiment was performed.
+
+Final local migration SHA-256:
+`835312f662e5e2583f478a7b1c4eef9a174ce6b28baf4004c7aa8aed5c8a8d55`.
+Successor registration is exact-hash only and is not historical certification.
+No existing frozen SQL was changed. The isolated test also verifies that orphaned
+workspace references remain usage-incomplete after other unknown objects are removed.
