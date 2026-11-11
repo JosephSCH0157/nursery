@@ -1,3 +1,4 @@
+import { assertRecordingSize, boundedUploadMb, RecordingUploadAdmissionError, serializeRecordingRequest } from "./recording-upload-limits";
 import { appendForgeUserAuthorization } from './tongs-user-auth';
 
 type WrittenBy = {
@@ -167,8 +168,8 @@ const LARGE_UPLOAD_WARN_MB_KEY = "ANVIL_LARGE_UPLOAD_WARN_MB";
 const CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
 const CHUNK_SIZE_MB_KEY = "ANVIL_CHUNK_SIZE_MB";
 const DEFAULT_LARGE_UPLOAD_WARN_MB = 100;
-const DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 32;
-const DEFAULT_CHUNK_SIZE_MB = 8;
+const DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 3;
+const DEFAULT_CHUNK_SIZE_MB = 3;
 const CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
 const CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
 
@@ -287,9 +288,9 @@ type UploadStrategyConfig = {
 
 function resolveUploadStrategyConfig(): UploadStrategyConfig {
   const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
-  const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
+  const chunkUploadThresholdMb = boundedUploadMb(readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
   const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
-  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
+  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(boundedUploadMb(chunkSizeMbRaw), chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
   return {
     largeUploadWarnMb,
     chunkUploadThresholdMb,
@@ -305,7 +306,7 @@ export function selectUploadStrategyForBytes(
     ...resolveUploadStrategyConfig(),
     ...config,
   };
-  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
+  const thresholdBytes = mbToBytes(boundedUploadMb(cfg.chunkUploadThresholdMb));
   return byteLength > thresholdBytes ? "chunked" : "single";
 }
 
@@ -595,10 +596,11 @@ async function commitFileToWorkpiece(
   payload: Record<string, unknown>,
   apiToken?: string,
 ): Promise<{ status: number; body: unknown; ok: boolean }> {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
     headers: await buildHeaders(apiToken),
-    body: JSON.stringify(payload),
+    body: requestBody,
   });
   const body = await readBodyAsJson(response);
   return { status: response.status, body, ok: response.ok && isCommitAck(body) };
@@ -622,10 +624,11 @@ async function beginChunkedRecordingUpload(
   payload: Record<string, unknown>,
   apiToken?: string,
 ): Promise<{ status: number; body: unknown; ok: boolean; data: ChunkedUploadBeginResponse | null }> {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/begin`, {
     method: "POST",
     headers: await buildHeaders(apiToken),
-    body: JSON.stringify(payload),
+    body: requestBody,
   });
   const body = await readBodyAsJson(response);
   const data = ((body as { data?: unknown })?.data ?? null) as ChunkedUploadBeginResponse | null;
@@ -638,12 +641,13 @@ async function uploadChunkToSession(
   payload: Record<string, unknown>,
   apiToken?: string,
 ): Promise<{ status: number; body: unknown; ok: boolean }> {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/chunk`,
     {
       method: "POST",
       headers: await buildHeaders(apiToken),
-      body: JSON.stringify(payload),
+      body: requestBody,
     },
   );
   const body = await readBodyAsJson(response);
@@ -656,12 +660,13 @@ async function finalizeChunkedRecordingUpload(
   payload: Record<string, unknown>,
   apiToken?: string,
 ): Promise<{ status: number; body: unknown; ok: boolean; data: ChunkedUploadFinalizeResponse | null }> {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/finalize`,
     {
       method: "POST",
       headers: await buildHeaders(apiToken),
-      body: JSON.stringify(payload),
+      body: requestBody,
     },
   );
   const body = await readBodyAsJson(response);
@@ -892,6 +897,7 @@ async function uploadRecordingWithStrategy(args: {
     errorMessage?: string | null;
   }) => void;
 }): Promise<{ status: number; body: unknown; ok: boolean }> {
+  assertRecordingSize(args.source.size);
   if (args.strategy === "single") {
     args.onStatus?.({
       phase: "uploading",
@@ -910,7 +916,7 @@ async function uploadRecordingWithStrategy(args: {
     );
   }
 
-  const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
+  const chunkSizeBytes = mbToBytes(boundedUploadMb(args.chunkSizeMb));
   const chunks = buildRecordingChunks(args.source.size, chunkSizeBytes);
   const begin = await beginChunkedRecordingUpload(
     args.workpieceId,
@@ -1222,6 +1228,9 @@ async function commitRecordingSourceToTongs(
           errorMessage: status.errorMessage ?? null,
         });
       },
+    }).catch((error: unknown) => {
+      if (!(error instanceof RecordingUploadAdmissionError)) throw error;
+      return { status: 413, ok: false, body: { error: { code: error.code, message: error.message } } };
     });
 
   if (!commit.ok) {
