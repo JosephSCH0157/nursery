@@ -48,6 +48,11 @@ test('the full suffix is withheld and restored before normal local migration exe
     '  Restore-PendingMigrations',
     '-DatabaseTarget local -Mode preflight',
     "Invoke-LocalSupabase @('migration','up','--local'",
+    'Assert-ExactHistory @($files | Where-Object',
+    'Assert-DisposableAuthUsers -AllowCompatibilityRepair',
+    '  Restore-PendingMigrations',
+    '-DatabaseTarget local -Mode preflight',
+    "Invoke-LocalSupabase @('migration','up','--local'",
     'Assert-ExactHistory @($files | ForEach-Object Name)',
     "'provider_request_financial_alignment.sql'",
     '-Stage successor',
@@ -124,4 +129,16 @@ test('Auth compatibility is restricted to the non-login synthetic principal afte
   assert.match(sql, /encrypted_password=''/);
   assert.match(sql, /where id='fe000000-0000-4000-8000-000000000001';/);
   assert.doesNotMatch(sql, /insert into|delete from|set encrypted_password|update tongs\./i);
+});
+
+
+test('Auth compatibility runs only at the pinned predecessor; later tails get read-only Auth verification', () => {
+  assert.match(setup, /\$authCompatibilityHead = '20261105025313'/);
+  assert.match(setup, /-gt \$authCompatibilityHead[\s\S]*Move-Item/);
+  assert.match(setup, /-le \$authCompatibilityHead[\s\S]*Assert-DisposableAuthUsers -AllowCompatibilityRepair/);
+  assert.equal((setup.match(/Assert-DisposableAuthUsers -AllowCompatibilityRepair/g) || []).length, 1);
+  assert.match(setup, /if \(-not \$AllowCompatibilityRepair -or/);
+  assert.match(setup, /-Stage successor[\s\S]*Assert-DisposableAuthUsers\n/);
+  const file = 'supabase/tests/fixtures/disposable_ci_luna_auth_compatibility.sql';
+  assert.equal(createHash('sha256').update(fs.readFileSync(path.join(root,file))).digest('hex'), 'ae76cbdf5c993809ba5deae7013e23e204b856e9390e81401677d1cc75b489b9');
 });

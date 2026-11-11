@@ -49,6 +49,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect Supabase migration up.' }
 & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget none -Mode bootstrap -RepositoryRoot $repo | Out-Null
 
 $prefixHead = '20261104071802'
+$authCompatibilityHead = '20261105025313'
 $target = Join-Path $selected 'supabase/migrations'
 $files = @(Get-ChildItem -LiteralPath $target -Filter '*.sql' -File | Sort-Object Name)
 $hashes = @{}
@@ -56,6 +57,9 @@ foreach ($file in $files) { $hashes[$file.Name] = (Get-FileHash -LiteralPath $fi
 $pending = @($files | Where-Object { $_.BaseName.Substring(0,14) -gt $prefixHead })
 if (-not ($pending.Name -contains '20261104143249_align_provider_requests_and_luna_financial_authority.sql')) {
   throw 'Reviewed Luna alignment migration is missing from the unchanged tail.'
+}
+if (-not ($files.BaseName -match "^${authCompatibilityHead}_")) {
+  throw 'Reviewed disposable Auth compatibility predecessor is missing.'
 }
 $staging = Join-Path $selected '.ci-pending-migrations'
 if (Test-Path -LiteralPath $staging) { throw 'Refusing to reuse a pending-migration staging directory.' }
@@ -83,6 +87,7 @@ function Assert-ExactHistory([string[]]$Names) {
 }
 
 function Assert-DisposableAuthUsers {
+  param([switch]$AllowCompatibilityRepair)
   # Keep status/keys and Auth logs private. Requests must target loopback only.
   $statusText = (& supabase status --workdir $selected --output json 2>$null | Out-String)
   if ($LASTEXITCODE -ne 0) { throw 'Unable to inspect disposable Auth status.' }
@@ -97,7 +102,7 @@ function Assert-DisposableAuthUsers {
     # Repair only the observed nullable-string scan incompatibility, never a
     # network/auth/configuration failure. Do not echo the underlying log/body.
     $authLogs = (& docker logs "supabase_auth_$expectedProject" --tail 100 2>&1 | Out-String)
-    if ($LASTEXITCODE -ne 0 -or $authLogs -notmatch 'converting NULL to string') {
+    if (-not $AllowCompatibilityRepair -or $LASTEXITCODE -ne 0 -or $authLogs -notmatch 'converting NULL to string') {
       throw 'Disposable Auth list failed without the reviewed null-string scan signature.'
     }
     Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/disposable_ci_luna_auth_compatibility.sql') 'forge.ci_luna_auth_fixture'
@@ -129,6 +134,17 @@ try {
   Invoke-SqlFile (Join-Path $repo 'supabase/tests/owner_hearth_aggregate_admission_enforcement.sql') 'forge.owner_request_certification'
   Invoke-SqlFile (Join-Path $repo 'supabase/tests/fixtures/canonical_luna_provider_alignment_authority.sql') 'forge.provider_alignment_fixture'
   & (Join-Path $repo 'scripts/test-forge-disposable-ci-guards.ps1') -Container $container -Workdir $selected -Stage alignment -RepositoryRoot $repo
+
+  Restore-PendingMigrations
+  & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget local -Mode preflight -RepositoryRoot $repo | Out-Null
+  # Preserve the fixture's exact-head guard: complete Auth preparation at its
+  # reviewed predecessor before applying any later shared-tail migration.
+  foreach ($file in @($files | Where-Object { $_.BaseName.Substring(0,14) -gt $authCompatibilityHead })) {
+    Move-Item -LiteralPath (Join-Path $target $file.Name) -Destination $staging
+  }
+  Invoke-LocalSupabase @('migration','up','--local','--workdir',$selected,'--yes','--agent=no')
+  Assert-ExactHistory @($files | Where-Object { $_.BaseName.Substring(0,14) -le $authCompatibilityHead } | ForEach-Object Name)
+  Assert-DisposableAuthUsers -AllowCompatibilityRepair
 
   Restore-PendingMigrations
   & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget local -Mode preflight -RepositoryRoot $repo | Out-Null
