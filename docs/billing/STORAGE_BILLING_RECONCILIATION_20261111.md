@@ -40,9 +40,9 @@ financial database functions are unchanged.
 
 ## Remaining discrepancies / decisions
 
-1. `Subscriptions.tsx` adds a hardcoded 500 GiB base allowance. No approved
-   backend base term or free-versus-subscribed eligibility was established.
-   Owner clarification requested; no allowance invented or changed.
+1. `Subscriptions.tsx` adds a hardcoded 500 GiB base allowance without a verified
+   backend term. The owner subsequently specified the proposed replacement rules
+   below. No production allowance has been activated or changed.
 2. The billing UI's used and remaining bytes are not surfaced. Canonical
    `tongs.account_balances` has entitlement bytes but no used-byte projection.
    Legacy `public` usage fields are not proof of current reconciled usage.
@@ -50,7 +50,7 @@ financial database functions are unchanged.
    Tongs write path. Completion requires authoritative usage/reservation and
    reconciliation semantics, including concurrent additions and delete-only
    access. **DB changes are required**, not a UI-only counter. The shared-workspace
-   charging owner must be confirmed before implementing that contract.
+   charging owner has now been specified as the workspace owner.
 4. Binary byte entitlements and decimal-looking GB/TB labels need consistent
    presentation without reducing existing purchased bytes.
 5. Catalog-retained one-time Test price aliases do not establish approved legacy
@@ -61,7 +61,7 @@ financial database functions are unchanged.
 
 ## Local verification
 
-- 23 focused tests pass: 11 storage resolver tests, 9 existing billing-interface
+- 25 focused tests pass: 13 storage resolver tests, 9 existing billing-interface
   checks, 3 invoice-compatibility tests. Both financial modes, upgrades/downgrades,
   legacy IDs, unknown prices and invalid shapes are covered. These are synthetic
   local tests, not actual Stripe payment or database/RLS lifecycle tests.
@@ -76,14 +76,57 @@ financial database functions are unchanged.
   lint pass. No full production build or database certification was run for this
   partial repair. No gate was disabled.
 
+## Owner clarification and follow-up verification
+
+The owner specified these proposed rules, conditional on checking existing terms:
+
+- No permanent included storage for free accounts; trials require separate policy.
+- 5 GiB base for subscribed accounts, plus purchased capacity.
+- Shared-workspace usage belongs to the workspace owner's billing account once.
+- Count retained files and revisions; exclude temporary processing files and DB rows.
+
+No conflicting numeric included-storage term was found in the reviewed approved
+billing documents or in read-only expanded Stripe Live product/price records for
+all six current membership offers and the two legacy membership products. Legacy
+Creator promises metadata storage but no numerical allowance. Existing add-on
+byte mappings remain unchanged. This review does not establish Test catalog or
+legacy one-time purchase equivalence.
+
+A read-only Test catalog request for product `prod_UFwW0QUSUgTyV8` failed:
+`No account found for the provided stripe_context and livemode` (HTTP 422).
+Only the Live account is connected. Test catalog access and authentic legacy
+purchase provenance are the remaining external verification prerequisite under
+the owner's instruction to establish rules across all three systems before
+implementing them. The two canceled Tongs rows cannot be assigned a financial
+environment merely because no matching Live subscriptions were found.
+
+Aggregate Storage metadata evidence (no file content retrieved): 2,856 objects,
+all with size metadata, totaling 4,238,715,596 bytes. This includes temporary and
+legacy paths and is **not customer-billable usage** under the clarified rules.
+The reconciliation must classify retained objects and map workspace ownership;
+counting collaborators or every physical object would be wrong.
+
+Additional lifecycle correction: storage subscription update/delete handlers
+retrieve current Stripe state rather than project the old webhook snapshot.
+Identity/mode mismatches and retrieval failures fail closed. Unit tests cover
+repeated stale deliveries and lookup failures. This is not proof of transactionally
+ordered concurrent webhook commits; database ordering certification remains open.
+
+The local Docker engine is available. Its existing B1 database is at
+`20261104071802`. The repository contains guarded local catalog certification and
+CI fixture procedures; no fixture guard was bypassed and no database was changed.
+Historical financial-state equivalence is not claimed or required as a substitute
+for ordinary schema-compatibility testing here.
+
 ## Next action
 
-Confirm the base allowance and eligibility for free/subscribed accounts, and
-whether shared-workspace usage is charged to its owner. Then complete the
-database-backed usage/enforcement integration and lifecycle certification using
-those terms. Resolve any legacy one-time obligations from authentic purchase
-evidence; do not manufacture them. Hosted migration, Edge-function deployment,
-and any live Stripe/customer correction remain separate approvals.
+Connect the matching Stripe Test/sandbox account for read-only catalog and legacy
+purchase reconciliation. Once that evidence confirms compatibility, implement the
+versioned base term, owner-attributed retained-byte reconciliation, concurrent
+capacity admission and delete-only enforcement, and complete disposable lifecycle
+and RLS tests. Do not infer historical terms or financial environments.
+Hosted migration, Edge-function deployment, and any live Stripe/customer correction
+remain separate approvals.
 
 No hosted writes, price changes, database migrations, media transfers, merge,
 deployment, or unrelated source changes were performed. This is **NO-GO for

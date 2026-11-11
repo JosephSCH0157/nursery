@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { STRIPE_CATALOG } from "../../../supabase/functions/_shared/stripe-catalog.ts";
 import { buildForgeCheckoutMetadata } from "../../../supabase/functions/_shared/forge-billing-metadata.ts";
-import { resolveStorageSubscriptionMetadata } from "../../../supabase/functions/_shared/storage-subscription-authority.ts";
+import { refreshStorageSubscription, resolveStorageSubscriptionMetadata } from "../../../supabase/functions/_shared/storage-subscription-authority.ts";
 
 const userId = "11111111-1111-4111-8111-111111111111";
 const packs = STRIPE_CATALOG.storage;
@@ -93,4 +93,28 @@ test("storage without stale metadata still resolves from the verified price", ()
   const input = subscription("150gb");
   input.metadata = {};
   assert.equal(resolveStorageSubscriptionMetadata(input, userId)?.itemId, "150gb");
+});
+
+test("duplicate and out-of-order storage events resolve current Stripe state", async () => {
+  const old = { ...subscription("500gb"), id: "sub_fixture", customer: "cus_fixture", status: "active" };
+  const current = { ...subscription("50gb_v2"), id: old.id, customer: old.customer, status: "canceled" };
+  for (let delivery = 0; delivery < 2; delivery++) {
+    const refreshed = await refreshStorageSubscription(old, async (id) => {
+      assert.equal(id, old.id);
+      return current;
+    });
+    assert.equal(refreshed.status, "canceled");
+    assert.equal(resolveStorageSubscriptionMetadata(refreshed, userId)?.itemId, "50gb_v2");
+  }
+  assert.equal(old.status, "active", "original event remains immutable evidence");
+});
+test("refresh failures and different customer, subscription, or mode fail closed", async () => {
+  const original = { ...subscription("500gb"), id: "sub_fixture", customer: "cus_fixture" };
+  for (const replacement of [
+    { ...original, id: "sub_other" }, { ...original, customer: "cus_other" },
+    { ...original, livemode: true },
+  ]) {
+    await assert.rejects(refreshStorageSubscription(original, async () => replacement), /identity mismatch/);
+  }
+  await assert.rejects(refreshStorageSubscription(original, async () => { throw new Error("Stripe unavailable"); }), /Stripe unavailable/);
 });

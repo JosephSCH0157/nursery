@@ -13,6 +13,33 @@ type Subscription = {
   };
 };
 
+function claimsStorage(subscription: Subscription, purchaseType?: string): boolean {
+  return purchaseType === "cloud_storage"
+    || subscription.metadata?.forge_purchase_type === "cloud_storage"
+    || subscription.metadata?.purchase_type === "cloud_storage"
+    || Boolean(subscription.metadata?.forge_storage_level);
+}
+
+/** Never project an older storage webhook snapshot over Stripe's current state. */
+export async function refreshStorageSubscription<T extends Subscription & {
+  id: string; customer: string | { id: string };
+}>(subscription: T, retrieve: (id: string) => Promise<T>): Promise<T> {
+  if (!claimsStorage(subscription) && !subscription.items.data.some(
+    (item) => findStripeCatalogPriceById(item.price.id)?.kind === "storage",
+  )) return subscription;
+  const current = await retrieve(subscription.id);
+  const customerId = (value: T["customer"]) => typeof value === "string" ? value : value.id;
+  if (current.id !== subscription.id || current.livemode !== subscription.livemode
+    || customerId(current.customer) !== customerId(subscription.customer)) {
+    throw new Error("Refreshed storage subscription identity mismatch");
+  }
+  if (!current.items.data.some((item) => findStripeCatalogPriceById(item.price.id)?.kind === "storage")) {
+    throw new Error("Refreshed storage subscription has no recognized storage price");
+  }
+  // Complete shape validation occurs with the resolved user before ledger writes.
+  return current;
+}
+
 /** Stripe price authority wins over stale Checkout/portal metadata for storage. */
 export function resolveStorageSubscriptionMetadata(
   subscription: Subscription,
@@ -21,11 +48,7 @@ export function resolveStorageSubscriptionMetadata(
 ) {
   const items = subscription.items.data;
   const matches = items.map((item) => findStripeCatalogPriceById(item.price.id));
-  const claimsStorage = purchaseType === "cloud_storage"
-    || subscription.metadata?.forge_purchase_type === "cloud_storage"
-    || subscription.metadata?.purchase_type === "cloud_storage"
-    || Boolean(subscription.metadata?.forge_storage_level);
-  if (!claimsStorage && !matches.some((match) => match?.kind === "storage")) return null;
+  if (!claimsStorage(subscription, purchaseType) && !matches.some((match) => match?.kind === "storage")) return null;
 
   // The current canonical ledger represents one pack per subscription, not
   // item quantities or mixed subscriptions. Never silently under/over-credit.

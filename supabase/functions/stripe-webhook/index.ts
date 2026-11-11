@@ -20,7 +20,7 @@ import {
   readTrustedFinancialEnvironment,
 } from "../_shared/financial-environment.ts";
 
-import { resolveStorageSubscriptionMetadata } from "../_shared/storage-subscription-authority.ts";
+import { refreshStorageSubscription, resolveStorageSubscriptionMetadata } from "../_shared/storage-subscription-authority.ts";
 
 type SupabaseAdminClient = ReturnType<typeof createClient>;
 
@@ -983,6 +983,9 @@ async function handleRecurringSubscriptionUpsert(
   event: Stripe.Event,
   subscription: Stripe.Subscription,
 ): Promise<void> {
+  subscription = await refreshStorageSubscription(
+    subscription, (id) => stripe.subscriptions.retrieve(id),
+  );
   const customerId = normalizeCustomerId(subscription.customer);
   if (!customerId) {
     throw new Error("customer.subscription event missing customer");
@@ -1020,6 +1023,9 @@ async function handleRecurringSubscriptionDelete(
   event: Stripe.Event,
   subscription: Stripe.Subscription,
 ): Promise<void> {
+  subscription = await refreshStorageSubscription(
+    subscription, (id) => stripe.subscriptions.retrieve(id),
+  );
   const customerId = normalizeCustomerId(subscription.customer);
   if (!customerId) {
     throw new Error("customer.subscription event missing customer");
