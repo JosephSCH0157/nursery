@@ -44,6 +44,7 @@ try{
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/a1000000-0000-4000-8000-000000000099/orphan.bin','{"size":2}','fixture');`);
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
  sql(readFileSync('supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql','utf8'));
+ sql(readFileSync('supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql','utf8'));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name='legacy-unattributed-fixture.bin';commit;`));
  assert.equal(capacity().usage_complete,false,'missing workspace must not be silently unbilled');

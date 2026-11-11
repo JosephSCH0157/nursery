@@ -20,7 +20,8 @@ import {
   readTrustedFinancialEnvironment,
 } from "../_shared/financial-environment.ts";
 
-import { refreshStorageSubscription, resolveStorageSubscriptionMetadata } from "../_shared/storage-subscription-authority.ts";
+import { fencedSubscriptionRefresh, paidSubscriptionServicePeriod, recurringPriceAuthority } from "../_shared/subscription-lifecycle.ts";
+import { resolveStorageSubscriptionMetadata } from "../_shared/storage-subscription-authority.ts";
 
 type SupabaseAdminClient = ReturnType<typeof createClient>;
 
@@ -57,21 +58,6 @@ type BillingOneTimePurchaseUpsertParams = {
   metadata?: Record<string, unknown>;
 };
 
-type BillingSubscriptionUpsertParams = {
-  userId: string;
-  customerId: string;
-  subscriptionId: string;
-  purchaseType: "subscription" | "cloud_storage";
-  itemId: string;
-  interval: "monthly" | "quarterly";
-  status: string;
-  priceId?: string | null;
-  currentPeriodStart?: string | null;
-  currentPeriodEnd?: string | null;
-  cancelAtPeriodEnd?: boolean;
-  canceledAt?: string | null;
-  metadata?: Record<string, unknown>;
-};
 
 type BillingEventRecordParams = {
   event: Stripe.Event;
@@ -464,26 +450,6 @@ async function upsertBillingOneTimePurchaseRecord(
   });
 }
 
-async function upsertBillingSubscriptionRecord(
-  supabase: SupabaseAdminClient,
-  params: BillingSubscriptionUpsertParams,
-): Promise<void> {
-  await runTongsRpc(supabase, "upsert_billing_subscription", {
-    p_user_id: params.userId,
-    p_stripe_customer_id: params.customerId,
-    p_stripe_subscription_id: params.subscriptionId,
-    p_purchase_type: params.purchaseType,
-    p_item_id: params.itemId,
-    p_interval: params.interval,
-    p_status: params.status,
-    p_price_id: params.priceId ?? null,
-    p_current_period_start: params.currentPeriodStart ?? null,
-    p_current_period_end: params.currentPeriodEnd ?? null,
-    p_cancel_at_period_end: params.cancelAtPeriodEnd ?? false,
-    p_canceled_at: params.canceledAt ?? null,
-    p_metadata: params.metadata ?? {},
-  });
-}
 
 async function recordBillingEventRecord(
   supabase: SupabaseAdminClient,
@@ -719,77 +685,43 @@ async function recordStripeAdjustmentAccounting(
 
 async function upsertCanonicalSubscriptionFromStripe(
   supabase: SupabaseAdminClient,
-  params: {
-    event: Stripe.Event;
-    subscription: Stripe.Subscription;
-    metadata: RecurringPurchaseMetadata;
-    customerEmail?: string | null;
-    customerName?: string | null;
-  },
-): Promise<void> {
-  const customerId = normalizeCustomerId(params.subscription.customer);
-  if (!customerId) {
-    throw new Error("customer.subscription event missing customer");
-  }
-
-  const subscriptionId = normalizeSubscriptionId(params.subscription);
-  if (!subscriptionId) {
-    throw new Error("customer.subscription event missing subscription id");
-  }
-
-  // Checkout metadata can describe the original purchase after a portal price
-  // change. Derive storage capacity from the actual subscription before writes.
-  const storageMetadata = resolveStorageSubscriptionMetadata(
-    params.subscription, params.metadata.supabaseUserId, params.metadata.purchaseType,
-  );
-  if (storageMetadata) params = { ...params, metadata: toRecurringPurchaseMetadata(storageMetadata) };
-
-  const stripeCustomer = (!params.customerEmail || !params.customerName)
-    ? await fetchStripeCustomerContext(customerId)
-    : null;
-
-  await upsertBillingCustomerRecord(supabase, {
-    userId: params.metadata.supabaseUserId,
-    customerId,
-    email: params.customerEmail ?? stripeCustomer?.email ?? null,
-    customerName: params.customerName ?? stripeCustomer?.customerName ?? null,
-    metadata: {
-      source: "stripe_webhook",
-      event_type: params.event.type,
-      forge_purchase_type: params.metadata.purchaseType,
-      forge_offer_id: params.metadata.offerId,
-      forge_item_id: params.metadata.itemId,
-      forge_interval: params.metadata.interval,
-      metadata_source: params.metadata.source,
+  params: {event: Stripe.Event; subscription: Stripe.Subscription; metadata: RecurringPurchaseMetadata; customerEmail?: string | null; customerName?: string | null},
+): Promise<{subscription: Stripe.Subscription; metadata: RecurringPurchaseMetadata}> {
+  const subscriptionId=params.subscription.id;
+  const expectedCustomer=normalizeCustomerId(params.subscription.customer);
+  return fencedSubscriptionRefresh({
+    begin: async () => await runTongsRpc(supabase,"begin_subscription_refresh",{
+      p_subscription_id:subscriptionId,p_livemode:params.event.livemode,p_event_id:params.event.id,
+    }) as {token:string},
+    retrieve: async () => {
+      const subscription=await stripe.subscriptions.retrieve(subscriptionId);
+      if(subscription.id!==subscriptionId || subscription.livemode!==params.event.livemode
+        || normalizeCustomerId(subscription.customer)!==expectedCustomer)throw new Error("Refreshed subscription identity mismatch");
+      const resolved=await resolveSubscriptionMetadata(supabase,subscription);
+      if(resolved.supabaseUserId!==params.metadata.supabaseUserId)throw new Error("Refreshed subscription owner mismatch");
+      const metadata=toRecurringPurchaseMetadata(recurringPriceAuthority(subscription,resolved.supabaseUserId));
+      return {subscription,metadata};
     },
-  });
-
-  await upsertBillingSubscriptionRecord(supabase, {
-    userId: params.metadata.supabaseUserId,
-    customerId,
-    subscriptionId,
-    purchaseType: params.metadata.purchaseType,
-    itemId: params.metadata.itemId,
-    interval: params.metadata.interval,
-    status: normalizeLowerString(params.subscription.status) ?? "unknown",
-    priceId: normalizeString(params.subscription.items.data[0]?.price?.id),
-    currentPeriodStart: normalizeUnixTimestampIso(params.subscription.current_period_start),
-    currentPeriodEnd: normalizeUnixTimestampIso(params.subscription.current_period_end),
-    cancelAtPeriodEnd: params.subscription.cancel_at_period_end ?? false,
-    canceledAt: normalizeUnixTimestampIso(params.subscription.canceled_at),
-    metadata: {
-      source: "stripe_webhook",
-      event_type: params.event.type,
-      forge_offer_id: params.metadata.offerId,
-      metadata_source: params.metadata.source,
+    commit: async (token,{subscription,metadata}) => {
+      const customerId=normalizeCustomerId(subscription.customer)!;
+      const latest=typeof subscription.latest_invoice==='string'?subscription.latest_invoice:subscription.latest_invoice?.id;
+      const invoice=latest?await stripe.invoices.retrieve(latest):null;
+      const servicePeriod=invoice?paidSubscriptionServicePeriod(invoice,subscription,metadata.itemId):null;
+      const customer=(!params.customerEmail || !params.customerName)?await fetchStripeCustomerContext(customerId):null;
+      await upsertBillingCustomerRecord(supabase,{userId:metadata.supabaseUserId,customerId,
+        email:params.customerEmail??customer?.email??null,customerName:params.customerName??customer?.customerName??null,
+        metadata:{source:"stripe_webhook",event_type:params.event.type}});
+      const result=await runTongsRpc(supabase,"commit_subscription_refresh",{
+        p_subscription_id:subscriptionId,p_livemode:params.event.livemode,p_token:token,p_service_period:servicePeriod,
+        p_snapshot:{id:subscriptionId,user_id:metadata.supabaseUserId,customer_id:customerId,purchase_type:metadata.purchaseType,
+          item_id:metadata.itemId,interval:metadata.interval,status:subscription.status,price_id:subscription.items.data[0]?.price.id,
+          period_start:normalizeUnixTimestampIso(subscription.current_period_start),period_end:normalizeUnixTimestampIso(subscription.current_period_end),
+          cancel_at_period_end:subscription.cancel_at_period_end,canceled_at:normalizeUnixTimestampIso(subscription.canceled_at),
+          metadata:{source:"stripe_webhook",event_type:params.event.type,forge_offer_id:metadata.offerId,metadata_source:metadata.source}},
+      }) as {outcome:string};
+      if(result.outcome==='committed')await recordBillingEventRecord(supabase,{event:params.event,userId:metadata.supabaseUserId,customerId,subscriptionId});
+      return result;
     },
-  });
-
-  await recordBillingEventRecord(supabase, {
-    event: params.event,
-    userId: params.metadata.supabaseUserId,
-    customerId,
-    subscriptionId,
   });
 }
 
@@ -983,9 +915,6 @@ async function handleRecurringSubscriptionUpsert(
   event: Stripe.Event,
   subscription: Stripe.Subscription,
 ): Promise<void> {
-  subscription = await refreshStorageSubscription(
-    subscription, (id) => stripe.subscriptions.retrieve(id),
-  );
   const customerId = normalizeCustomerId(subscription.customer);
   if (!customerId) {
     throw new Error("customer.subscription event missing customer");
@@ -1023,9 +952,6 @@ async function handleRecurringSubscriptionDelete(
   event: Stripe.Event,
   subscription: Stripe.Subscription,
 ): Promise<void> {
-  subscription = await refreshStorageSubscription(
-    subscription, (id) => stripe.subscriptions.retrieve(id),
-  );
   const customerId = normalizeCustomerId(subscription.customer);
   if (!customerId) {
     throw new Error("customer.subscription event missing customer");
@@ -1076,22 +1002,18 @@ async function handleInvoiceLifecycleEvent(
     const metadata = toRecurringPurchaseMetadata(
       await resolveSubscriptionMetadata(supabase, subscription),
     );
+    const refreshed=await upsertCanonicalSubscriptionFromStripe(supabase,{event,subscription,metadata});
     let accountingReceipt: Awaited<ReturnType<typeof recordSubscriptionReceiptAccounting>> = null;
     if (event.type === "invoice.paid") {
       accountingReceipt = await recordSubscriptionReceiptAccounting(supabase, {
         event,
         invoice,
-        subscription,
+        subscription: refreshed.subscription,
         userId: metadata.supabaseUserId,
         subscriptionId,
         metadata,
       });
     }
-    await upsertCanonicalSubscriptionFromStripe(supabase, {
-      event,
-      subscription,
-      metadata,
-    });
     if (accountingReceipt && metadata.purchaseType === "subscription") {
       await runTongsRpc(
         supabase,

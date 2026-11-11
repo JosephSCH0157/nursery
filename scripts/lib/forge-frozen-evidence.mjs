@@ -59,6 +59,8 @@ export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_PATH = "supabase/migrat
 export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_SHA256 = "1addbe643cd6a7543615c9e6a3f0b4952edc5ffc7a3a5ea72de3abfcbdb07631";
 export const SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH = "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql";
 export const SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256 = "838f14fdd5801bcb842fa628a8ca80700bd20bda201569faa56e9b3fa2d2d24a";
+export const STORAGE_SUBSCRIPTION_LIFECYCLE_PATH = "supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql";
+export const STORAGE_SUBSCRIPTION_LIFECYCLE_SHA256 = "8f50f8c3f6e3df22ae835bbf3a3cee0a7fe4cea7ee5449b938721bf15ecbb349";
 export const STORAGE_CAPACITY_STATEMENT_PATH = "supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql";
 export const STORAGE_CAPACITY_STATEMENT_SHA256 = "6f857b1cf4c971054cc01d268737496229b516048ed8119deb87d113f0f67080";
 export const STORAGE_CAPACITY_AUTHORITY_PATH = "supabase/migrations/20261111180013_storage_capacity_authority.sql";
@@ -1272,6 +1274,7 @@ export function verifyFrozenEvidence({
       ["hammer-canary-renewal-tooling-compatibility", "20261104212918", HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_PATH, HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_SHA256],
       ["scalable-forge-financial-admission", "20261105025313", SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH, SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256],
       ["storage-capacity-authority", "20261111180013", STORAGE_CAPACITY_AUTHORITY_PATH, STORAGE_CAPACITY_AUTHORITY_SHA256],
+      ["storage-subscription-lifecycle", "20261111192458", STORAGE_SUBSCRIPTION_LIFECYCLE_PATH, STORAGE_SUBSCRIPTION_LIFECYCLE_SHA256],
       ["storage-capacity-statement", "20261111185031", STORAGE_CAPACITY_STATEMENT_PATH, STORAGE_CAPACITY_STATEMENT_SHA256],
     ].map(([gate, version, path, sha256]) => ({ gate, contract: { sharedTailAddition: { version, path, sha256 } } })),
   ];
