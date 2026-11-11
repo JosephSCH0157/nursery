@@ -1,3 +1,4 @@
+import { findAccountStripePrice, type StripeCatalogContext } from "./stripe-account-catalog.ts";
 import { findStripeCatalogPriceById } from "./stripe-catalog.ts";
 import { buildForgeCheckoutMetadata, parseForgePurchaseMetadata } from "./forge-billing-metadata.ts";
 
@@ -45,9 +46,11 @@ export function resolveStorageSubscriptionMetadata(
   subscription: Subscription,
   userId: string,
   purchaseType?: string,
+  context?: StripeCatalogContext,
 ) {
   const items = subscription.items.data;
-  const matches = items.map((item) => findStripeCatalogPriceById(item.price.id));
+  if (context && context.environment !== (subscription.livemode ? "live" : "test")) throw new Error("Storage account/mode mismatch");
+  const matches = items.map((item) => context ? findAccountStripePrice(item.price.id, context) : findStripeCatalogPriceById(item.price.id));
   if (!claimsStorage(subscription, purchaseType) && !matches.some((match) => match?.kind === "storage")) return null;
 
   // The current canonical ledger represents one pack per subscription, not

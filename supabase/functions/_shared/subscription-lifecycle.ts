@@ -1,3 +1,4 @@
+import { findAccountStripePrice, type StripeCatalogContext } from "./stripe-account-catalog.ts";
 import { findStripeCatalogPriceById } from './stripe-catalog.ts';
 import { buildForgeCheckoutMetadata, parseForgePurchaseMetadata } from './forge-billing-metadata.ts';
 import { resolveInvoiceSubscriptionId } from './stripe-invoice-compat.ts';
@@ -6,10 +7,11 @@ const id=(v:unknown):string|null=>typeof v==='string'?v:typeof object(v).id==='s
 const integer=(v:unknown):v is number=>Number.isSafeInteger(v);
 const iso=(v:number)=>new Date(v*1000).toISOString();
 
-export function recurringPriceAuthority(input:unknown,userId:string) {
+export function recurringPriceAuthority(input:unknown,userId:string,context?:StripeCatalogContext) {
+ if(context && context.environment!==(object(input).livemode?"live":"test"))throw Error("Recurring account/mode mismatch");
  const sub=object(input),items=object(sub.items),data=items.data;
  if(items.has_more || !Array.isArray(data) || data.length!==1 || object(data[0]).quantity!==1)throw Error('Unsupported recurring subscription shape');
- const price=object(object(data[0]).price),match=findStripeCatalogPriceById(String(price.id));
+ const price=object(object(data[0]).price),match=context?findAccountStripePrice(String(price.id),context):findStripeCatalogPriceById(String(price.id));
  if(!match || (match.kind!=='storage' && match.kind!=='plan'))throw Error('Unsupported recurring price authority');
  const ids=sub.livemode?[match.livePriceId,...(match.legacyLivePriceIds??[])]:[match.testPriceId,...(match.legacyTestPriceIds??[])];
  if(typeof sub.livemode!=='boolean' || !ids.includes(String(price.id)))throw Error('Recurring price mode mismatch');
@@ -22,8 +24,9 @@ export function recurringPriceAuthority(input:unknown,userId:string) {
  * Cash collection is deliberately not required, nor is an invoice amount alone
  * sufficient. Trial, manual, mixed, truncated, credit-only, and unrelated periods
  * never manufacture paid storage capacity. */
-export function paidSubscriptionServicePeriod(invoiceInput:unknown,subscriptionInput:unknown,itemId:string) {
+export function paidSubscriptionServicePeriod(invoiceInput:unknown,subscriptionInput:unknown,itemId:string,context?:StripeCatalogContext) {
  const invoice=object(invoiceInput),sub=object(subscriptionInput);
+ if(context && context.environment!==(sub.livemode?"live":"test"))throw Error("Service period account/mode mismatch");
  if(sub.status!=='active' || invoice.status!=='paid' || invoice.paid===false
    || invoice.paid_out_of_band===true || invoice.amount_remaining!==0
    || !integer(invoice.amount_paid) || invoice.amount_paid<0
@@ -34,7 +37,7 @@ export function paidSubscriptionServicePeriod(invoiceInput:unknown,subscriptionI
  if(lines.has_more || !Array.isArray(data))throw Error('Complete invoice lines required');
  const subItems=object(sub.items).data;
  if(!Array.isArray(subItems)||subItems.length!==1)throw Error('Single recurring item required');
- const item=object(subItems[0]),price=object(item.price),match=findStripeCatalogPriceById(String(price.id));
+ const item=object(subItems[0]),price=object(item.price),match=context?findAccountStripePrice(String(price.id),context):findStripeCatalogPriceById(String(price.id));
  if(!match || (match.kind!=='plan' && match.kind!=='storage'))throw Error('Unknown service period price');
  if(!integer(price.unit_amount)||price.unit_amount<=0)return null;
  const start=sub.current_period_start??item.current_period_start,end=sub.current_period_end??item.current_period_end;

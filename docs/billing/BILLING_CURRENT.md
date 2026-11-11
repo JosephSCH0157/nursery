@@ -47,3 +47,18 @@ actually changes. Record the exact observed value, source or receipt, and
 verification timestamp. Do not update it for ordinary code changes that leave
 verified operational state unchanged, and do not store secrets or customer data
 here.
+
+## Isolated sandbox storage catalog — November 11, 2026
+
+Verified by connected Stripe API reads and sandbox-only creation receipts at
+21:32 UTC (16:32 America/New_York), with subsequent readback on the same day.
+Account `acct_1Spw8m0v1TAfIsgZ`, Test mode only, now has the three current
+storage add-ons at provisional USD $5/$10/$20 per month for 50/150/500 GiB.
+See [exact identifiers and provider attributes](stripe-sandbox-storage-catalog-20261111.json)
+and [local certification and boundaries](STRIPE_SANDBOX_STORAGE_CATALOG_CERTIFICATION_20261111.md).
+
+The approved user-facing offer names retain “GB”; existing binary byte accounting
+is unchanged. Source account `acct_1Spw8c1OSG3CCNl8` was read only; its Live/Test
+catalog and historical purchases were not modified. No legacy offers were copied.
+This observation establishes sandbox catalog availability only, not hosted
+entitlement activation, genuine webhook delivery, or production release readiness.
