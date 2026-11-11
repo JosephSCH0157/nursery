@@ -77,7 +77,7 @@ test("CLI summarizes a private file and keeps missing-file errors private", () =
     const missing = spawnSync(process.execPath, [script, join(directory, "private-missing-file"), migrations], { encoding: "utf8" });
     assert.equal(missing.status, 0);
     assert.equal(missing.stderr, "");
-    assert.deepEqual(JSON.parse(missing.stdout), { diagnosticRevision: 1, diagnosticUnavailable: true, rawOutputWithheld: true });
+    assert.deepEqual(JSON.parse(missing.stdout), { diagnosticRevision: 2, diagnosticUnavailable: true, rawOutputWithheld: true });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -125,4 +125,19 @@ test("workflow startup contract rejects a hosted or linked database target", () 
   );
   assert.notEqual(unsafe, workflow, "negative fixture must alter the startup command");
   assert.throws(() => approvedDisposableStartupShell(unsafe));
+});
+
+
+test("schema notices do not diagnose failed migrations; Auth fixture failures have a fixed safe code", () => {
+  const result = summarizeSupabaseStartup(`NOTICE: relation "old" does not exist, skipping
+NOTICE: relation "present" already exists, skipping
+ERROR: Auth compatibility requires the exact disposable Luna fixture
+postgresql://private:secret@host/db`, [migration]);
+  assert.deepEqual(result.errorCategories, []);
+  assert.deepEqual(result.setupFailureCodes, ["luna_auth_fixture_guard"]);
+  assert.ok(!JSON.stringify(result).includes("secret"));
+  const failures = summarizeSupabaseStartup(`ERROR: relation "hidden" does not exist
+ERROR: relation "hidden" already exists`, []);
+  assert.deepEqual(failures.errorCategories, ["sql_missing_relation", "sql_already_exists"]);
+  assert.ok(!JSON.stringify(failures).includes("hidden"));
 });
