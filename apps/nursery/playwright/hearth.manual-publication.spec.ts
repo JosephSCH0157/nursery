@@ -13,6 +13,7 @@ test("real Hearth manual Save publishes exact bytes before Approve and Ready", a
   const revised=original.replace("[/s1]","Manual publication certification, using synthetic local fixture content.\n[/s1]");
   expect(revised).not.toBe(original);
   const approve=page.getByRole("button",{name:"Approve Script",exact:true});
+  await expect(approve).toBeEnabled({timeout:30000});
   const publish=async(text:string)=>{
     await editor.fill(text);
     await expect(approve).toBeDisabled();

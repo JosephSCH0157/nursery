@@ -448,12 +448,15 @@ export async function verifyBrowserFixtureRecords(client: SupabaseClient, manife
   ]);
   const objects = new Map<string, Buffer>();
   for (const [workpieceId, requiredPaths] of required) {
-    const files = await userTongs.from("workpiece_files").select("workpiece_id,path,storage_bucket,storage_key,hash_algo,hash_value,bytes").eq("workpiece_id", workpieceId).in("path", requiredPaths);
+    const files = await userTongs.from("workpiece_files").select("workpiece_id,path,revision,storage_bucket,storage_key,hash_algo,hash_value,bytes").eq("workpiece_id", workpieceId).in("path", requiredPaths);
     if (files.error || files.data?.length !== requiredPaths.length) throw new Error("Required fixture artifact registry is incomplete through RLS.");
     for (const filePath of requiredPaths) {
       const row = files.data.find((file) => file.path === filePath);
       const key = `${workpieceId}:${filePath}`;
-      if (!row || row.workpiece_id !== workpieceId || row.storage_bucket !== "forge-workpieces" || row.storage_key !== `workpieces/${workpieceId}/${filePath}` || row.hash_algo !== "sha256" || !/^[a-f0-9]{64}$/.test(row.hash_value ?? "") || manifest.artifact_hashes[key] !== row.hash_value) throw new Error("Fixture registry/manifest identity or hash mismatch.");
+      const legacyKey = `workpieces/${workpieceId}/${filePath}`;
+      const immutableScriptKey = filePath === "script/script.md" && typeof row?.storage_key === "string"
+        && new RegExp(`^workpieces/${workpieceId}/script/publications/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/script\\.md$`).test(row.storage_key);
+      if (!row || row.workpiece_id !== workpieceId || row.storage_bucket !== "forge-workpieces" || (row.storage_key !== legacyKey && !immutableScriptKey) || row.hash_algo !== "sha256" || !/^[a-f0-9]{64}$/.test(row.hash_value ?? "") || manifest.artifact_hashes[key] !== row.hash_value) throw new Error("Fixture registry/manifest identity or hash mismatch.");
       const bytes = Buffer.from(await readArtifact(workpieceId, filePath));
       if (bytes.length !== row.bytes || sha256(bytes) !== row.hash_value) throw new Error(`Downloaded fixture bytes/hash mismatch: ${filePath}`);
       if (filePath.endsWith(".json")) JSON.parse(bytes.toString("utf8"));

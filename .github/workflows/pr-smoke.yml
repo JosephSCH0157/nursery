@@ -308,11 +308,11 @@ jobs:
           SUPABASE_DB_CONTAINER="supabase_db_forge-he3-browser-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" node scripts/certify-script-publication-isolated.mjs --upgraded-ci-source
       - run: pnpm gate:browser
       - name: Certify real Hearth manual Save Approve Ready
-        run: pnpm --filter nursery exec playwright test -c playwright.config.ts playwright/hearth.manual-publication.spec.ts --workers=1
+        run: pnpm --filter nursery test:playwright:hearth-publication
       - name: Clean exact browser fixture content through canonical lifecycle
         if: always()
         run: |
-          if [ -f apps/nursery/playwright/.cache/browser-fixtures.v1.json ]; then
+          if [ -n "$FORGE_BROWSER_FIXTURE_MANIFEST" ] && [ -f "$FORGE_BROWSER_FIXTURE_MANIFEST" ]; then
             pnpm --filter nursery exec tsx scripts/browser-fixtures.mts clean --confirm-fixture-destruction
           fi
       - name: Stop job-owned disposable Supabase

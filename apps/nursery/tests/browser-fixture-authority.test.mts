@@ -61,7 +61,7 @@ function verifierFixture() {
     const url = new URL(request.url);
     assert.equal(url.searchParams.get("encoding"), "binary");
     const workpieceId = url.pathname.split("/")[3];
-    const key = `workpieces/${workpieceId}/${url.searchParams.get("path")}`;
+    const key = tables.workpiece_files.find(row=>row.workpiece_id===workpieceId && row.path===url.searchParams.get("path"))?.storage_key ?? "missing";
     downloads.push(key);
     if (denied.has(key)) return new Response(null, { status: 403 });
     const bytes = objects.get(key);
@@ -198,4 +198,17 @@ test("canonical script fixtures use conditional publication and lifecycle cleanu
   assert.doesNotMatch(source, /uploadWorkpieceFile\(admin, config\.bucket, episode\.id, "script\/script\.md"/);
   assert.match(source, /service\.archiveWorkpiece/);assert.match(source, /service\.deleteWorkpiece/);
   assert.doesNotMatch(source, /auth\.admin\.deleteUser/);
+});
+
+
+test("registry-selected immutable script objects verify, and malformed/cross-workpiece publication keys fail", async () => {
+  const f = verifierFixture();
+  const row = f.tables.workpiece_files.find(row=>row.path === "script/script.md")!;
+  const bytes = f.objects.get(row.storage_key)!;
+  const original = row.storage_key;
+  row.storage_key = `workpieces/${row.workpiece_id}/script/publications/11000000-0000-4000-8000-000000000003/script.md`;
+  f.objects.set(row.storage_key, bytes); f.objects.delete(original);
+  await verifyBrowserFixtureRecords(f.client,f.manifest,f.readArtifact);
+  row.storage_key = `workpieces/${row.workpiece_id}/script/publications/../script.md`;
+  await assert.rejects(verifyBrowserFixtureRecords(f.client,f.manifest,f.readArtifact),/registry\/manifest/);
 });
