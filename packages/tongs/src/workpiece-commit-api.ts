@@ -18434,51 +18434,122 @@ export class TongsCommitService {
     );
   }
 
-  private async loadRecordingUploadSessionState(
+  // Only an explicit Storage status is authority to create/reload a session.
+  // In particular, a message containing "not found" is not a missing object.
+  private async recordingSessionStorageStatus(error: unknown): Promise<number> {
+    const details = await extractResponseDetails(error);
+    const outer = isRecord(error) ? Number(error.status) : NaN;
+    const responseStatus = Number(details?.status);
+    const body = details?.bodyJson;
+    const storageCode = readStringField(error, "code") ?? readStringField(error, "error")
+      ?? readStringField(body, "code") ?? readStringField(body, "error");
+    const objectMissing = !storageCode || ["NoSuchKey", "not_found"].includes(storageCode);
+    const objectExists = !storageCode || ["ResourceAlreadyExists", "KeyAlreadyExists", "Duplicate", "already_exists"].includes(storageCode);
+    const status = Number(isRecord(error) ? error.statusCode ?? error.status : NaN);
+    const bodyStatus = Number(isRecord(body) ? body.statusCode : NaN);
+    const statuses = [outer, responseStatus, status, bodyStatus].filter((value) => Number.isFinite(value) && value > 0);
+    if (statuses.some((value) => ![400, 404, 409].includes(value)) || (statuses.includes(404) && statuses.includes(409))) return 0;
+    if (objectMissing && (status === 404 || responseStatus === 404 || (responseStatus === 400 && bodyStatus === 404))) return 404;
+    if (objectExists && (status === 409 || responseStatus === 409 || (responseStatus === 400 && bodyStatus === 409))) return 409;
+    return 0;
+  }
+
+  private async findRecordingUploadSessionState(
     workpieceId: string,
     uploadId: string,
-  ): Promise<RecordingUploadSessionState> {
+  ): Promise<RecordingUploadSessionState | null> {
     const key = buildRecordingUploadSessionStorageKey(workpieceId, uploadId);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
-    if (!bytes) {
-      throw new HttpError(
-        404,
-        "upload_session_not_found",
-        "Recording upload session was not found",
-        {
-          workpiece_id: workpieceId,
-          upload_id: uploadId,
-        },
-      );
+    const { data, error } = await this.supabase.storage.from(this.bucket).download(key);
+    if (error) {
+      if (await this.recordingSessionStorageStatus(error) === 404) return null;
+      throw new HttpError(502, "storage_read_failed", "Unable to read recording upload session", { key });
     }
-    const parsed = parseJsonText(textDecoder.decode(bytes), key);
-    if (!isRecord(parsed)) {
-      throw new HttpError(
-        500,
-        "upload_session_invalid",
-        "Recording upload session state is invalid",
-      );
+    if (!data) throw new HttpError(502, "storage_read_failed", "Storage returned no recording upload session", { key });
+    const parsed = parseJsonText(textDecoder.decode(new Uint8Array(await data.arrayBuffer())), key);
+    const writer = isRecord(parsed) ? parsed.written_by : null;
+    const validDate = (value: unknown) => typeof value === "string" && Number.isFinite(Date.parse(value));
+    if (!isRecord(parsed) || parsed.schema !== RECORDING_UPLOAD_SESSION_SCHEMA ||
+      parsed.upload_id !== uploadId || parsed.workpiece_id !== workpieceId ||
+      typeof parsed.workspace_id !== "string" || !UUID_RE.test(parsed.workspace_id) ||
+      typeof parsed.capture_authority_id !== "string" || !UUID_RE.test(parsed.capture_authority_id) ||
+      typeof parsed.path !== "string" || !parsed.path ||
+      typeof parsed.content_type !== "string" || !parsed.content_type ||
+      typeof parsed.file_type !== "string" || !parsed.file_type ||
+      !isRecord(writer) || !["tool", "tool_version", "lane"].every((field) => typeof writer[field] === "string" && writer[field]) ||
+      ![parsed.total_bytes, parsed.total_chunks, parsed.chunk_size_bytes].every((value) => Number.isSafeInteger(value) && Number(value) > 0) ||
+      Number(parsed.total_chunks) * Number(parsed.chunk_size_bytes) < Number(parsed.total_bytes) ||
+      !isRecord(parsed.uploaded_chunks) || !validDate(parsed.created_at) || !validDate(parsed.updated_at) ||
+      (parsed.finalized_at != null && (!validDate(parsed.finalized_at) || !isRecord(parsed.final_result))) ||
+      (parsed.finalized_at == null && parsed.final_result != null)) {
+      throw new HttpError(500, "upload_session_invalid", "Recording upload session state is invalid");
     }
-    if (parsed.schema !== RECORDING_UPLOAD_SESSION_SCHEMA) {
-      throw new HttpError(
-        500,
-        "upload_session_invalid_schema",
-        "Recording upload session schema mismatch",
-      );
+    const state = parsed as RecordingUploadSessionState;
+    for (const [index, chunk] of Object.entries(state.uploaded_chunks)) {
+      const offset = Number(index);
+      if (!/^(0|[1-9][0-9]*)$/.test(index) || !Number.isSafeInteger(offset) || offset >= state.total_chunks ||
+        !isRecord(chunk) || !Number.isSafeInteger(chunk.bytes) || Number(chunk.bytes) <= 0 ||
+        Number(chunk.bytes) > Math.min(state.chunk_size_bytes, state.total_bytes - offset * state.chunk_size_bytes) ||
+        !validDate(chunk.updated_at) || (chunk.sha256 != null && (typeof chunk.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(chunk.sha256)))) {
+        throw new HttpError(500, "upload_session_invalid", "Recording upload chunk state is invalid");
+      }
     }
-    const parsedWorkpieceId =
-      typeof parsed.workpiece_id === "string" &&
-      UUID_RE.test(parsed.workpiece_id)
-        ? parsed.workpiece_id.toLowerCase()
-        : null;
-    if (parsedWorkpieceId !== workpieceId) {
-      throw new HttpError(
-        500,
-        "upload_session_workpiece_mismatch",
-        "Recording upload session workpiece mismatch",
-      );
+    return state;
+  }
+
+  private async loadRecordingUploadSessionState(workpieceId: string, uploadId: string): Promise<RecordingUploadSessionState> {
+    const state = await this.findRecordingUploadSessionState(workpieceId, uploadId);
+    if (!state) throw new HttpError(404, "upload_session_not_found", "Recording upload session was not found", {
+      workpiece_id: workpieceId, upload_id: uploadId,
+    });
+    return state;
+  }
+
+  private async resumeRecordingUploadSession(
+    state: RecordingUploadSessionState,
+    input: BeginRecordingUploadSessionRequest,
+    workspaceId: string,
+    path: string,
+    contentType: string,
+    fileType: string,
+  ): Promise<BeginRecordingUploadSessionResponse> {
+    if (state.workspace_id !== workspaceId || state.capture_authority_id !== input.capture_authority_id) {
+      throw new HttpError(409, "capture_authority_mismatch", "Upload session belongs to a different recording identity.");
     }
-    return parsed as RecordingUploadSessionState;
+    if (state.path !== path) throw new HttpError(409, "upload_session_path_mismatch", "Upload session path mismatch");
+    if (state.total_bytes !== input.total_bytes || state.total_chunks !== input.total_chunks ||
+      state.chunk_size_bytes !== input.chunk_size_bytes || state.content_type !== contentType || state.file_type !== fileType) {
+      throw new HttpError(409, "upload_session_shape_mismatch", "Upload session byte, chunk or media shape mismatch");
+    }
+    if (state.finalized_at) {
+      const result = state.final_result;
+      const storageKey = buildStorageKey(state.workpiece_id, path);
+      if (!result || result.workpiece_id !== state.workpiece_id || result.workspace_id !== workspaceId ||
+        result.path !== path || result.storage_key !== storageKey || result.bytes !== state.total_bytes ||
+        result.content_type !== contentType || !/^[a-f0-9]{64}$/.test(result.hash) ||
+        !isRecord(result.file_row) || result.file_row.workpiece_id !== state.workpiece_id || result.file_row.path !== path ||
+        result.file_row.storage_bucket !== this.bucket || result.file_row.storage_key !== storageKey ||
+        result.file_row.hash_algo !== SHA256_ALGO || result.file_row.hash_value !== result.hash ||
+        result.file_row.bytes !== result.bytes || result.file_row.content_type !== contentType ||
+        !Number.isSafeInteger(result.file_row.revision) || result.file_row.revision < 1 ||
+        parseUploadedChunkIndices(state).length !== state.total_chunks) {
+        throw new HttpError(409, "upload_session_receipt_mismatch", "Finalized recording receipt does not match the upload session");
+      }
+      const { data: current, error } = await this.supabase.schema("tongs").from("workpiece_files")
+        .select("revision,hash_algo,hash_value,bytes,content_type,storage_bucket,storage_key")
+        .eq("workpiece_id", state.workpiece_id).eq("path", path).maybeSingle();
+      if (error) throw new HttpError(502, "db_read_failed", "Unable to verify finalized recording authority");
+      if (!current || current.revision !== result.file_row.revision || current.hash_algo !== SHA256_ALGO ||
+        current.hash_value !== result.hash || current.bytes !== result.bytes || current.content_type !== contentType ||
+        current.storage_bucket !== this.bucket || current.storage_key !== storageKey) {
+        throw new HttpError(409, "upload_session_receipt_mismatch", "Finalized recording no longer matches canonical file authority");
+      }
+    }
+    return {
+      upload_id: state.upload_id, workpiece_id: state.workpiece_id, path: state.path,
+      total_bytes: state.total_bytes, total_chunks: state.total_chunks, chunk_size_bytes: state.chunk_size_bytes,
+      uploaded_chunks: parseUploadedChunkIndices(state),
+      ...(state.finalized_at ? { finalized_result: state.final_result! } : {}),
+    };
   }
 
   private async saveRecordingUploadSessionState(
@@ -18648,42 +18719,8 @@ export class TongsCommitService {
 
     const uploadId = input.upload_id || `upl_${createRequestId()}`;
     if (input.upload_id) {
-      const existing = await this.loadRecordingUploadSessionState(
-        workpieceId,
-        uploadId,
-      );
-      if (existing.finalized_at && existing.final_result) return {
-        upload_id: existing.upload_id, workpiece_id: existing.workpiece_id, path: existing.path,
-        total_bytes: existing.total_bytes, total_chunks: existing.total_chunks,
-        chunk_size_bytes: existing.chunk_size_bytes, uploaded_chunks: parseUploadedChunkIndices(existing),
-        finalized_result: existing.final_result,
-      };
-      if (existing.path !== path) {
-        throw new HttpError(
-          409,
-          "upload_session_path_mismatch",
-          "Upload session path mismatch",
-        );
-      }
-      if (existing.capture_authority_id !== input.capture_authority_id) {
-        throw new HttpError(
-          409,
-          "capture_authority_mismatch",
-          "Upload session belongs to a different recording identity.",
-        );
-      }
-      if (existing.total_bytes !== input.total_bytes || existing.total_chunks !== input.total_chunks || existing.chunk_size_bytes !== input.chunk_size_bytes) {
-        throw new HttpError(409, "upload_session_shape_mismatch", "Upload session byte or chunk shape mismatch");
-      }
-      return {
-        upload_id: existing.upload_id,
-        workpiece_id: existing.workpiece_id,
-        path: existing.path,
-        total_bytes: existing.total_bytes,
-        total_chunks: existing.total_chunks,
-        chunk_size_bytes: existing.chunk_size_bytes,
-        uploaded_chunks: parseUploadedChunkIndices(existing),
-      };
+      const existing = await this.findRecordingUploadSessionState(workpieceId, uploadId);
+      if (existing) return this.resumeRecordingUploadSession(existing, input, cradle.workspace_id, path, contentType, fileType);
     }
 
     const nowIso = new Date().toISOString();
@@ -18712,7 +18749,18 @@ export class TongsCommitService {
       finalized_at: null,
       final_result: null,
     };
-    await this.saveRecordingUploadSessionState(state);
+    const key = buildRecordingUploadSessionStorageKey(workpieceId, uploadId);
+    const { error } = await this.supabase.storage.from(this.bucket).upload(
+      key, uint8ToArrayBuffer(canonicalJsonBytes(state)), { upsert: false, contentType: "application/json" },
+    );
+    if (error) {
+      if (await this.recordingSessionStorageStatus(error) !== 409) {
+        throw new HttpError(502, "storage_write_failed", "Unable to create recording upload session", { key });
+      }
+      // Another begin won. Never replace its chunks or finalized receipt.
+      const winner = await this.loadRecordingUploadSessionState(workpieceId, uploadId);
+      return this.resumeRecordingUploadSession(winner, input, cradle.workspace_id, path, contentType, fileType);
+    }
 
     return {
       upload_id: state.upload_id,
