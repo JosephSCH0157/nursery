@@ -1,7 +1,8 @@
 import { spawnSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
+import { certifyStorageQuarantine } from './lib/certify-storage-quarantine.mjs';
 import { certifyStorageLifecycle } from './lib/certify-storage-lifecycle.mjs';
 import { certifyStorageHttp } from './lib/certify-storage-http.mjs';
 console.log(JSON.stringify({phase:'storage-cert-imports-loaded'}));
@@ -42,9 +43,16 @@ try{
  sql(`insert into auth.users(id) values('${owner}'),('${other}');insert into tongs.orgs(id,name,created_by) values('91000000-0000-4000-8000-000000000001','Storage adapter','${owner}');insert into tongs.workspaces(id,name,created_by,org_id) values('${workspace}','Storage adapter','${owner}','91000000-0000-4000-8000-000000000001');insert into tongs.episodes(id,workspace_id,label) values('${episode}','${workspace}','Storage adapter');insert into storage.buckets(id,name) values('forge-workpieces','forge-workpieces'),('bellows-capture','bellows-capture');`);
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','legacy-unattributed-fixture.bin','{"size":3}','fixture');`);
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/a1000000-0000-4000-8000-000000000099/orphan.bin','{"size":2}','fixture');`);
+ if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1') {
+  for(let i=1;i<=5;i++) sql(`insert into storage.objects(id,bucket_id,name,metadata,version,created_at,updated_at) values('e1000000-0000-4000-8000-00000000000${i}','forge-workpieces','${i===2?'workspaces/a1000000-0000-4000-8000-000000000088/retained.bin':`quarantine-synthetic-${i}.bin`}','{"size":${i*10}}','fixture',${i===4?'now()':"'2026-08-01T00:00:00Z'"},${i===4?'now()':"'2026-08-01T00:00:00Z'"});`);
+ }
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
  sql(readFileSync('supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql','utf8'));
  sql(readFileSync('supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql','utf8'));
+ const quarantineSql=readFileSync('supabase/migrations/20261111201029_storage_historical_quarantine.sql','utf8');
+ console.log(JSON.stringify({quarantineMigrationSha256:createHash('sha256').update(quarantineSql).digest('hex')}));
+ sql(quarantineSql);
+ if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name='legacy-unattributed-fixture.bin';commit;`));
  assert.equal(capacity().usage_complete,false,'missing workspace must not be silently unbilled');

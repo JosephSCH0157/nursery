@@ -139,6 +139,7 @@ try {
     "supabase/migrations/20261111180013_storage_capacity_authority.sql",
   "supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql",
     "supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql",
+    "supabase/migrations/20261111201029_storage_historical_quarantine.sql",
   ];
   assert.equal(published.successorFileCount, expectedSuccessorPaths.length);
   assert.deepEqual(
