@@ -29,6 +29,24 @@ const path=name=>`workpieces/${episode}/${name}`;
 const insert=(name,bytes)=>`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','${path(name)}','{"size":${bytes}}','${randomUUID()}');`;
 const fails=(query,pattern)=>assert.throws(()=>sql(query),pattern);
 const GiB=1024**3;
+const certifyReleaseStages=process.env.FORGE_STORAGE_RELEASE_CERT==='1';
+const releaseContractSql=certifyReleaseStages?readFileSync('supabase/tests/storage_billing_hosted_release_contract.sql','utf8').trim().replace(/;$/,''):null;
+function verifyReleaseStage(expected) {
+ if(!certifyReleaseStages)return;
+ // A server-enforced read-only transaction, not merely a client promise.
+ const state=JSON.parse(sql(`begin read only;select row_to_json(s) from (${releaseContractSql}) s;commit;`).trim());
+ assert.equal(state.storage_stage,expected);assert.equal(state.storage_contract_ok,true);
+ console.log(JSON.stringify({hostedReleaseContractStage:expected,result:'PASS',readOnly:true}));
+}
+
+function verifyInterruptedRelease(sqlText,previousStage) {
+ if(!certifyReleaseStages)return;
+ assert.match(sqlText,/commit;\s*$/i);
+ const interrupted=sqlText.replace(/commit;\s*$/i,'select 1/0; commit;');
+ fails(interrupted,/division by zero/);
+ verifyReleaseStage(previousStage);
+}
+
 function receipt(sub,item,type,live=false){const id=randomUUID();return service(`select tongs.record_subscription_cycle_receipt('${id}','${owner}','evt_${id}','in_${id}','${sub}',null,${live},'${type}','${item}',1000000,'USD',date_trunc('day',now())-interval '1 day',date_trunc('day',now())+interval '29 days',now(),'{}');`);}
 function subscription(sub,item,type,status='active'){return service(`select tongs.upsert_billing_subscription('${owner}','cus_storage_fixture','${sub}','${type}','${item}','monthly','${status}',null,now()-interval '1 day',now()+interval '29 days',false,null,'{}');`);}
 function concurrent(query){return new Promise(resolve=>{const p=spawn('docker',sqlArgs,{stdio:['pipe','pipe','pipe']});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',code=>resolve({code,out,err}));p.stdin.end(service(`begin;${query}select pg_sleep(0.1);commit;`));});}
@@ -46,12 +64,22 @@ try{
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1') {
   for(let i=1;i<=5;i++) sql(`insert into storage.objects(id,bucket_id,name,metadata,version,created_at,updated_at) values('e1000000-0000-4000-8000-00000000000${i}','forge-workpieces','${i===2?'workspaces/a1000000-0000-4000-8000-000000000088/retained.bin':`quarantine-synthetic-${i}.bin`}','{"size":${i*10}}','fixture',${i===4?'now()':"'2026-08-01T00:00:00Z'"},${i===4?'now()':"'2026-08-01T00:00:00Z'"});`);
  }
+ verifyReleaseStage(0);
+ verifyInterruptedRelease(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'),0);
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
+ verifyReleaseStage(1);
+ verifyReleaseStage(1);
+ verifyInterruptedRelease(readFileSync('supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql','utf8'),1);
  sql(readFileSync('supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql','utf8'));
+ verifyReleaseStage(2);
+ verifyInterruptedRelease(readFileSync('supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql','utf8'),2);
  sql(readFileSync('supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql','utf8'));
+ verifyReleaseStage(3);
  const quarantineSql=readFileSync('supabase/migrations/20261111201029_storage_historical_quarantine.sql','utf8');
  console.log(JSON.stringify({quarantineMigrationSha256:createHash('sha256').update(quarantineSql).digest('hex')}));
+ verifyInterruptedRelease(quarantineSql,3);
  sql(quarantineSql);
+ verifyReleaseStage(4);
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name='legacy-unattributed-fixture.bin';commit;`));
