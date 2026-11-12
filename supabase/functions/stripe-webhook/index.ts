@@ -11,7 +11,6 @@ import {
   type ForgePurchaseMetadata,
 } from "../_shared/forge-billing-metadata.ts";
 import {
-  resolveInvoiceServicePeriod,
   resolveInvoiceSubscriptionId,
 } from "../_shared/stripe-invoice-compat.ts";
 import {
@@ -19,7 +18,7 @@ import {
   readTrustedFinancialEnvironment,
 } from "../_shared/financial-environment.ts";
 
-import { fencedSubscriptionRefresh, paidSubscriptionServicePeriod, recurringPriceAuthority } from "../_shared/subscription-lifecycle.ts";
+import { fencedSubscriptionRefresh, paidSubscriptionServicePeriod, recurringPriceAuthority, invoiceReceiptAuthority } from "../_shared/subscription-lifecycle.ts";
 import { resolveStorageSubscriptionMetadata } from "../_shared/storage-subscription-authority.ts";
 
 type SupabaseAdminClient = ReturnType<typeof createClient>;
@@ -588,19 +587,17 @@ async function recordSubscriptionReceiptAccounting(
     subscription: Stripe.Subscription;
     userId: string;
     subscriptionId: string;
-    metadata: RecurringPurchaseMetadata;
+    catalogContext: StripeCatalogContext;
   },
-): Promise<{ receiptId: string; stripeMode: "live" | "test"; replay: boolean } | null> {
+): Promise<{ receiptId: string; stripeMode: "live" | "test"; replay: boolean; metadata: RecurringPurchaseMetadata } | null> {
   const amountPaid = params.invoice.amount_paid;
   const currency = normalizeLowerString(params.invoice.currency);
-  const servicePeriod = resolveInvoiceServicePeriod(
-    params.invoice,
-    params.subscription,
-    params.subscriptionId,
-  );
+  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || !currency) return null;
+  const authority = invoiceReceiptAuthority(params.invoice, params.subscription, params.userId, params.catalogContext);
+  const metadata = toRecurringPurchaseMetadata(authority.metadata);
+  const servicePeriod = authority.period;
   const periodStart = normalizeUnixTimestampIso(servicePeriod?.start);
   const periodEnd = normalizeUnixTimestampIso(servicePeriod?.end);
-  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || !currency) return null;
   if (!periodStart || !periodEnd) {
     throw new Error(`invoice.paid missing cycle period for invoice=${params.invoice.id}`);
   }
@@ -614,8 +611,8 @@ async function recordSubscriptionReceiptAccounting(
       params.invoice.payment_intent ?? null,
     ),
     p_livemode: params.event.livemode,
-    p_purchase_type: params.metadata.purchaseType,
-    p_plan_item_id: params.metadata.itemId,
+    p_purchase_type: metadata.purchaseType,
+    p_plan_item_id: metadata.itemId,
     p_gross_amount_micros: stripeMinorUnitsToCurrencyMicros(amountPaid, currency),
     p_currency: currency,
     p_period_start: periodStart,
@@ -625,8 +622,8 @@ async function recordSubscriptionReceiptAccounting(
     p_metadata_json: {
       source: "stripe_webhook",
       event_type: params.event.type,
-      forge_offer_id: params.metadata.offerId,
-      forge_interval: params.metadata.interval,
+      forge_offer_id: metadata.offerId,
+      forge_interval: metadata.interval,
     },
   });
   const record = result && typeof result === "object"
@@ -643,6 +640,7 @@ async function recordSubscriptionReceiptAccounting(
     receiptId,
     stripeMode,
     replay: record?.replay === true,
+    metadata,
   };
 }
 
@@ -1016,16 +1014,24 @@ async function handleInvoiceLifecycleEvent(
     const refreshed=await upsertCanonicalSubscriptionFromStripe(supabase,{event,subscription,metadata,catalogContext});
     let accountingReceipt: Awaited<ReturnType<typeof recordSubscriptionReceiptAccounting>> = null;
     if (event.type === "invoice.paid") {
+      // Refresh this invoice independently of the latest subscription invoice.
+      // Delayed deliveries must retain the offer and period actually purchased.
+      const paidInvoice = await stripe.invoices.retrieve(invoice.id);
+      if (paidInvoice.id !== invoice.id || paidInvoice.livemode !== event.livemode
+        || normalizeCustomerId(paidInvoice.customer) !== customerId
+        || resolveInvoiceSubscriptionId(paidInvoice) !== subscriptionId) {
+        throw new Error("Refreshed receipt invoice identity mismatch");
+      }
       accountingReceipt = await recordSubscriptionReceiptAccounting(supabase, {
         event,
-        invoice,
+        invoice: paidInvoice,
         subscription: refreshed.subscription,
         userId: metadata.supabaseUserId,
         subscriptionId,
-        metadata,
+        catalogContext,
       });
     }
-    if (accountingReceipt && metadata.purchaseType === "subscription") {
+    if (accountingReceipt && accountingReceipt.metadata.purchaseType === "subscription") {
       await runTongsRpc(
         supabase,
         "grant_subscription_allowance_from_receipt",
@@ -1035,7 +1041,7 @@ async function handleInvoiceLifecycleEvent(
     if (
       accountingReceipt
       && accountingReceipt.stripeMode === "live"
-      && metadata.purchaseType === "subscription"
+      && accountingReceipt.metadata.purchaseType === "subscription"
     ) {
       await runTongsRpc(supabase, "grant_legacy_plan_entitlement_compatibility", {
         p_compatibility_grant_id: crypto.randomUUID(),

@@ -77,3 +77,25 @@ export async function fencedSubscriptionRefresh<T>(deps:{
  }
  throw Error('Subscription refresh superseded; retry authoritative refresh');
 }
+
+/** Cash receipts belong to the invoiced offer, not the subscription's current
+ * offer. Only a freshly retrieved paid invoice with one positive subscription
+ * line can establish that historical identity. Credits never select an offer. */
+export function invoiceReceiptAuthority(invoiceInput: unknown, subscriptionInput: unknown, userId: string, context: StripeCatalogContext) {
+ const invoice=object(invoiceInput),sub=object(subscriptionInput);
+ if(invoice.status!=='paid' || invoice.paid!==true || invoice.amount_remaining!==0
+   || !integer(invoice.amount_paid) || invoice.amount_paid<=0
+   || !id(invoice.customer) || id(invoice.customer)!==id(sub.customer)
+   || invoice.livemode!==sub.livemode || resolveInvoiceSubscriptionId(invoice)!==sub.id
+   || context.environment!==(invoice.livemode?'live':'test'))throw Error('Paid receipt invoice identity/state mismatch');
+ const lines=object(invoice.lines),data=lines.data;
+ if(lines.has_more || !Array.isArray(data))throw Error('Complete receipt invoice lines required');
+ const positive=data.map(object).filter(line=>integer(line.amount) && line.amount>0);
+ if(positive.length!==1 || data.some(line=>!integer(object(line).amount)))throw Error('Unambiguous paid receipt line required');
+ const line=positive[0],details=object(object(line.parent).subscription_item_details);
+ if((id(line.subscription)??id(details.subscription))!==sub.id)throw Error('Paid receipt line subscription mismatch');
+ const metadata=recurringPriceAuthority({livemode:invoice.livemode,items:{data:[{quantity:line.quantity,price:line.price}]}},userId,context);
+ const period=object(line.period);
+ if(!integer(period.start)||!integer(period.end)||period.end<=period.start)throw Error('Paid receipt line period required');
+ return {metadata,period:{start:period.start,end:period.end}};
+}

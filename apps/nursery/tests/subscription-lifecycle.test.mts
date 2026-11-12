@@ -7,7 +7,7 @@ const user='11111111-1111-4111-8111-111111111111';
 const secret='whsec_disposable_synthetic_fixture';
 const stripe=new Stripe('sk_test_synthetic_no_network');
 function fixture() {
- const price={id:STRIPE_CATALOG.storage['50gb_v2'].testPriceId,type:'recurring',unit_amount:500,recurring:{interval:'month',interval_count:1}};
+ const price={id:String(STRIPE_CATALOG.storage['50gb_v2'].testPriceId),type:'recurring',unit_amount:500,recurring:{interval:'month',interval_count:1}};
  const subscription={id:'sub_synthetic',customer:'cus_synthetic',livemode:false,status:'active',current_period_start:1800000000,current_period_end:1802592000,trial_end:null as number|null,items:{has_more:false,data:[{quantity:1,price}]}};
  const invoice={id:'in_synthetic',subscription:subscription.id,customer:subscription.customer,livemode:false,status:'paid',paid:true,paid_out_of_band:false,amount_paid:0,amount_remaining:0,billing_reason:'subscription_cycle',lines:{has_more:false,data:[{subscription:subscription.id,price,quantity:1,amount:500,proration:false,period:{start:subscription.current_period_start,end:subscription.current_period_end}}]}};
  return {subscription,invoice};
@@ -74,4 +74,24 @@ test('failed provider reads and invalid acknowledgments never pass',async()=>{
  await assert.rejects(fencedSubscriptionRefresh({begin:async()=>({token:'t'}),retrieve:async()=>{throw Error('provider unavailable');},commit:async()=>{commits++;return {outcome:'committed'};}}),/provider unavailable/);
  assert.equal(commits,0);
  await assert.rejects(fencedSubscriptionRefresh({begin:async()=>({token:'t'}),retrieve:async()=>1,commit:async()=>({outcome:'unknown'})}),/acknowledgment/);
+});
+
+test('delayed paid invoice retains invoiced offer after a downgrade or cancellation', async()=>{
+ const {invoiceReceiptAuthority}=await import('../../../supabase/functions/_shared/subscription-lifecycle.ts');
+ const {FORGE_STRIPE_ACCOUNT}=await import('../../../supabase/functions/_shared/stripe-account-catalog.ts');
+ const {subscription:s,invoice:i}=fixture();
+ i.amount_paid=2000;
+ i.lines.data[0].price={...s.items.data[0].price,id:STRIPE_CATALOG.storage['500gb'].testPriceId,unit_amount:2000};
+ i.lines.data[0].amount=2000;
+ const context={accountId:FORGE_STRIPE_ACCOUNT,environment:'test' as const};
+ for(const status of ['active','canceled']) {
+  s.status=status;
+  const receipt=invoiceReceiptAuthority(i,s,user,context);
+  assert.equal(receipt.metadata.itemId,'500gb');
+  assert.deepEqual(receipt.period,i.lines.data[0].period);
+  assert.equal(s.items.data[0].price.id,STRIPE_CATALOG.storage['50gb_v2'].testPriceId);
+ }
+ for(const mutate of [(j:typeof i)=>{j.lines.has_more=true;},(j:typeof i)=>{j.customer='cus_other';},(j:typeof i)=>{j.lines.data.push(j.lines.data[0]);},(j:typeof i)=>{j.lines.data[0].price.id='price_unknown';},(j:typeof i)=>{j.lines.data[0].subscription='sub_other';},(j:typeof i)=>{j.status='open';},(j:typeof i)=>{j.lines.data[0].quantity=2;}]) {
+  const bad=structuredClone(i);mutate(bad);assert.throws(()=>invoiceReceiptAuthority(bad,s,user,context));
+ }
 });
