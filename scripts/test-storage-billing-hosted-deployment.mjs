@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFileSync,mkdtempSync,rmSync} from 'node:fs';
-import {execFileSync} from 'node:child_process';
+import {readFileSync,mkdtempSync,rmSync,existsSync} from 'node:fs';
+import {execFileSync,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
@@ -17,6 +17,18 @@ function recovery(r){
 }
 for(const r of STORAGE_RELEASES){
  const wrapper=readFileSync(`scripts/invoke-storage-billing-${r.number}-hosted-deployment.ps1`,'utf8');
+ test(`${r.number}: leading SQL comment remains one positional argument`,()=>{
+  const start=wrapper.indexOf('function Read-LinkedCsv('),end=wrapper.indexOf('function Assert-StaticPrerequisites',start);
+  const sql="-- Read-only contract\nselect '--not-an-option' as evidence;";
+  const q=s=>"'"+s.replaceAll("'","''")+"'";
+  const code=`$ErrorActionPreference='Stop';$repo='synthetic-workdir';
+function Invoke-Supabase { param([string[]]$Arguments) $script:captured=$Arguments; @{StandardOutput='synthetic'} }
+function ConvertFrom-ForgeSupabaseCsv { param($StandardOutput,$ExpectedColumns,$Context) }
+${wrapper.slice(start,end)}
+$null=Read-LinkedCsv ${q(sql)} @('evidence') 'fixture';ConvertTo-Json -Compress -InputObject $script:captured`;
+  const args=JSON.parse(execFileSync('pwsh',['-NoProfile','-Command',code],{encoding:'utf8'}));
+  assert.deepEqual(args,['db','query','--linked','--agent=no','--output','csv','--workdir','synthetic-workdir','--',sql]);
+ });
  test(`${r.number}: fixed payload and exact pre/post state`,()=>{
   assert.equal(hash(readFileSync(`supabase/migrations/${r.filename}`)),r.sha256);
   assert.equal(validateStorageState(r,state(r),{action:'Preflight',operator:'fixture'}),true);
@@ -80,4 +92,14 @@ $currentHead=$targetVersion;$currentFingerprint='${'b'.repeat(64)}';$denied=$fal
 test('unsupported migration cannot select another executor',()=>assert.throws(()=>releaseFor('20261111054816')));
 test('PowerShell AST is valid for all fixed wrappers',()=>{
  execFileSync('pwsh',['-NoProfile','-Command',`$errors=@();Get-ChildItem scripts/invoke-storage-billing-*-hosted-deployment.ps1|ForEach-Object{$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$t,[ref]$e)|Out-Null;$errors+=@($e)};if($errors.Count){throw ($errors|Out-String)}`]);
+});
+
+test('pinned Supabase CLI parses comment-led SQL only after option boundary (no connection)',()=>{
+ const cli=existsSync('node_modules/.bin/supabase')?'node_modules/.bin/supabase':'supabase';
+ assert.equal(execFileSync(cli,['--version'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim(),'2.84.2');
+ const sql="-- Read-only contract\nselect '--linked' as evidence;";
+ const rejected=spawnSync(cli,['db','query','--help',sql],{encoding:'utf8'});
+ assert.notEqual(rejected.status,0);assert.match(rejected.stderr,/unknown flag/);
+ const accepted=spawnSync(cli,['db','query','--help','--',sql],{encoding:'utf8'});
+ assert.equal(accepted.status,0,accepted.stderr);assert.match(accepted.stdout,/Usage:/);
 });

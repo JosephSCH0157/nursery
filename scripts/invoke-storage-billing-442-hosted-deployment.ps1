@@ -37,7 +37,7 @@ $releaseToolingPaths=@('scripts/invoke-storage-billing-441-hosted-deployment.ps1
 
 function Invoke-Supabase([string[]]$Arguments){Invoke-ForgeSupabaseCli -Arguments $Arguments}
 function Read-LinkedCsv([string]$Sql,[string[]]$Columns,[string]$Context){
-  $result=Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,$Sql)
+  $result=Invoke-Supabase @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,'--',$Sql)
   @(ConvertFrom-ForgeSupabaseCsv -StandardOutput $result.StandardOutput -ExpectedColumns $Columns -Context $Context)
 }
 function Assert-StaticPrerequisites {
