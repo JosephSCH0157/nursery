@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,copyFileSync,rmSync,readdirSync} from 'node:fs';
+import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,copyFileSync,rmSync,readdirSync,lstatSync} from 'node:fs';
 import {resolve,join,relative} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {PAYLOAD,PROJECT,releaseFor,STORAGE_RELEASES} from './lib/storage-hosted-release-contract.mjs';
@@ -18,11 +18,44 @@ function payloadFiles(repo,names) {
  assert.equal(offset,data.length);return files;
 }
 
+const TEMPLATE='supabase/templates/password_changed_notification.html';
+function certifiedConfiguration(repo) {
+ const paths=['supabase/config.toml',TEMPLATE];
+ const files=payloadFiles(repo,paths);
+ for(const path of paths){
+  assert.ok(lstatSync(join(repo,path)).isFile(),'configuration_source_regular_file');
+  const git=(...args)=>execFileSync('git',['-C',repo,...args],{encoding:'utf8'}).trim();
+  const expected=git('rev-parse',`${PAYLOAD}:${path}`);
+  assert.equal(git('rev-parse',`HEAD:${path}`),expected,'configuration_source_commit');
+  // Respect the repository's checkout EOL filters, while staging exact Git blob bytes.
+  assert.equal(git('hash-object',`--path=${path}`,join(repo,path)),expected,'configuration_source_bytes');
+ }
+ return files;
+}
+export function stageStorageTemplate(repo,dir) {
+ const files=certifiedConfiguration(repo);
+ mkdirSync(join(dir,'supabase/templates'),{mode:0o700});
+ writeFileSync(join(dir,TEMPLATE),files.get(TEMPLATE),{mode:0o600});
+ verifyStorageTemplate(repo,dir);
+}
+export function verifyStorageTemplate(repo,dir) {
+ const files=certifiedConfiguration(repo);
+ assert.ok(lstatSync(join(dir,'supabase/templates')).isDirectory() && !lstatSync(join(dir,'supabase/templates')).isSymbolicLink(),'template_directory');
+ assert.deepEqual(readdirSync(join(dir,'supabase/templates')),['password_changed_notification.html'],'unexpected_template_dependency');
+ assert.ok(lstatSync(join(dir,TEMPLATE)).isFile(),'template_regular_file');
+ assert.deepEqual(readFileSync(join(dir,TEMPLATE)),files.get(TEMPLATE),'template_bytes');
+ const config=readFileSync(join(dir,'supabase/config.toml'));
+ assert.deepEqual(config,readFileSync(join(repo,'supabase/config.toml')),'staged_config');
+ const dependencies=[...config.toString().matchAll(/^\s*content_path\s*=\s*"([^"]+)"/gm)].map(m=>m[1]);
+ assert.deepEqual(dependencies,['./templates/password_changed_notification.html'],'unexpected_template_reference');
+ return true;
+}
+
 export function prepareStorageWorkdir(repo,version) {
  const r=releaseFor(version); repo=resolve(repo);
  const git=(...args)=>execFileSync('git',['-C',repo,...args],{maxBuffer:32*1024*1024});
  git('merge-base','--is-ancestor',PAYLOAD,'HEAD');
- // This is a bounded SQL-only materialization, never a runnable source checkout.
+ // Bounded migration materialization plus its exact configuration dependency; no runnable source checkout.
  const list=ref=>git('ls-tree','-r','--name-only',ref,'--','supabase/migrations').toString().trim().split('\n').filter(p=>p.endsWith('.sql')).sort();
  const names=list(PAYLOAD);assert.equal(names.length,444,'certified_inventory_count');
  assert.deepEqual(list('HEAD'),names,'unexpected_migration_inventory');
@@ -36,6 +69,7 @@ export function prepareStorageWorkdir(repo,version) {
  try {
   mkdirSync(join(dir,'supabase/migrations'),{recursive:true,mode:0o700});mkdirSync(join(dir,'supabase/.temp'),{mode:0o700});
   copyFileSync(join(repo,'supabase/config.toml'),join(dir,'supabase/config.toml'));
+  stageStorageTemplate(repo,dir);
   // Existing linked connection descriptor only; never enroll/rotate a credential.
   for(const name of ['project-ref','pooler-url'])copyFileSync(join(repo,'supabase/.temp',name),join(dir,'supabase/.temp',name));
   const selected=names.filter(p=>p.split('/').at(-1).split('_')[0]<=r.version);
@@ -59,6 +93,7 @@ export function verifyStorageWorkdir(repo,version,dir) {
  const pooler=new URL(readFileSync(join(dir,'supabase/.temp/pooler-url'),'utf8').trim());
  assert.ok(!pooler.password && ((pooler.username===`postgres.${PROJECT}` && pooler.hostname.endsWith('.pooler.supabase.com')) || (pooler.username==='postgres' && pooler.hostname===`db.${PROJECT}.supabase.co`)),'linked_connection_project');
  assert.deepEqual(readFileSync(join(dir,'supabase/config.toml')),readFileSync(join(repo,'supabase/config.toml')),'staged_config');
+ verifyStorageTemplate(repo,dir);
  return true;
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href){

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFileSync,mkdtempSync,rmSync,existsSync} from 'node:fs';
+import {readFileSync,mkdtempSync,rmSync,existsSync,mkdirSync,copyFileSync,writeFileSync,unlinkSync,symlinkSync} from 'node:fs';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
 import {STORAGE_RELEASES,PROJECT,PAYLOAD,releaseFor,validateStorageAuthorization,validateStorageState,validateStorageRecovery} from './lib/storage-hosted-release-contract.mjs';
+import {stageStorageTemplate,verifyStorageTemplate} from './prepare-storage-hosted-workdir.mjs';
 const NOW=new Date('2026-11-12T02:00:00Z');
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const state=(r,post=false)=>({projectRef:PROJECT,lineage:'historical-v1',financialMode:'test',certifiedPayloadCommit:PAYLOAD,payloadProvenanceOk:true,
@@ -102,4 +103,37 @@ test('pinned Supabase CLI parses comment-led SQL only after option boundary (no 
  assert.notEqual(rejected.status,0);assert.match(rejected.stderr,/unknown flag/);
  const accepted=spawnSync(cli,['db','query','--help','--',sql],{encoding:'utf8'});
  assert.equal(accepted.status,0,accepted.stderr);assert.match(accepted.stdout,/Usage:/);
+});
+
+test('certified template packaging rejects missing, changed and unexpected dependencies',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'forge-storage-template-'));
+ const template=join(dir,'supabase/templates/password_changed_notification.html');
+ try{
+  mkdirSync(join(dir,'supabase'));
+  copyFileSync('supabase/config.toml',join(dir,'supabase/config.toml'));
+  stageStorageTemplate(process.cwd(),dir);
+  const certified=execFileSync('git',['show',`${PAYLOAD}:supabase/templates/password_changed_notification.html`]);
+  assert.deepEqual(readFileSync(template),certified);
+  assert.equal(verifyStorageTemplate(process.cwd(),dir),true);
+  unlinkSync(template);assert.throws(()=>verifyStorageTemplate(process.cwd(),dir));
+  writeFileSync(template,'changed');assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/template_bytes/);
+  writeFileSync(template,certified);
+  const extra=join(dir,'supabase/templates/unapproved.html');writeFileSync(extra,'unapproved');
+  assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/unexpected_template_dependency/);unlinkSync(extra);
+  writeFileSync(join(dir,'supabase/config.toml'),readFileSync('supabase/config.toml','utf8').replace('./templates/password_changed_notification.html','./templates/unapproved.html'));
+  assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/staged_config/);
+  copyFileSync('supabase/config.toml',join(dir,'supabase/config.toml'));
+  unlinkSync(template);symlinkSync(join(process.cwd(),'supabase/templates/password_changed_notification.html'),template);
+  assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/template_regular_file/);unlinkSync(template);writeFileSync(template,certified);
+  // Actual CLI configuration parsing, with an intentionally invalid target so no connection is possible.
+  const cli=existsSync('node_modules/.bin/supabase')?join(process.cwd(),'node_modules/.bin/supabase'):'supabase';
+  const args=['db','push','--dry-run','--db-url','not-a-database-url','--workdir',dir,'--agent=no'];
+  unlinkSync(template);
+  const missing=spawnSync(cli,args,{encoding:'utf8'});
+  assert.notEqual(missing.status,0);assert.match(missing.stderr,/password_changed_notification/);
+  writeFileSync(template,certified);
+  const loaded=spawnSync(cli,args,{encoding:'utf8'});
+  assert.notEqual(loaded.status,0);assert.doesNotMatch(loaded.stderr,/Invalid config|password_changed_notification/);
+  assert.match(loaded.stderr,/invalid|parse|connection/i);
+ }finally{rmSync(dir,{recursive:true,force:true});}
 });
