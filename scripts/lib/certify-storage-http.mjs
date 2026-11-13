@@ -7,19 +7,24 @@ import {TongsCommitService} from '../../packages/tongs/dist/workpiece-commit-api
 
 // Disposable Storage API using the already installed image. No shared volume,
 // no published non-loopback port, no hosted credentials, no image pulls.
-export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity}) {
+export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false,databaseContainer="supabase_db_forge-gate-e1-pre",databasePassword}) {
  const source=JSON.parse(run(['inspect','supabase_storage_forge-gate-e1-pre']))[0];
  const env=Object.fromEntries(source.Config.Env.map(s=>[s.slice(0,s.indexOf('=')),s.slice(s.indexOf('=')+1)]));
  const db=new URL(env.DATABASE_URL); assert.equal(db.hostname,'supabase_db_forge-gate-e1-pre');
+ assert.match(databaseContainer,/^supabase_db_forge-/);
+ const parent=JSON.parse(run(['inspect',databaseContainer]))[0];
+ const project=parent.Config.Labels['com.supabase.cli.project'];
+ assert.ok(project&&Object.hasOwn(parent.NetworkSettings.Networks,'supabase_network_'+project));
+ db.hostname=databaseContainer;if(databasePassword)db.password=databasePassword;
  assert.match(database,/^forge_storage_[a-f0-9]{12}$/);db.pathname='/'+database;
  const name='forge-storage-http-'+randomBytes(6).toString('hex');
  const secret=randomBytes(32).toString('hex');
- const jwt=role=>{const p=[{alg:'HS256',typ:'JWT'},{role,iss:'supabase',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600}].map(v=>Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');return p+'.'+createHmac('sha256',secret).update(p).digest('base64url');};
+ const jwt=(role,sub)=>{const p=[{alg:'HS256',typ:'JWT'},{role,...(sub?{sub}:{}),iss:'supabase',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600}].map(v=>Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');return p+'.'+createHmac('sha256',secret).update(p).digest('base64url');};
  const serviceKey=jwt('service_role');
  const settings={DATABASE_URL:db.href,AUTH_JWT_SECRET:secret,ANON_KEY:jwt('anon'),SERVICE_KEY:serviceKey,
  STORAGE_BACKEND:'file',FILE_STORAGE_BACKEND_PATH:'/data',TENANT_ID:'storage-cert',GLOBAL_S3_BUCKET:'storage-cert',REGION:'local',STORAGE_S3_REGION:'local',
  FILE_SIZE_LIMIT:'1048576',ENABLE_IMAGE_TRANSFORMATION:'false',S3_PROTOCOL_ENABLED:'false',DB_MIGRATIONS_FREEZE_AT:env.DB_MIGRATIONS_FREEZE_AT};
- const args=['run','--detach','--pull=never','--name',name,'--network','supabase_network_forge-gate-e1-pre','--publish','127.0.0.1::5000','--tmpfs','/data'];
+ const args=['run','--detach','--pull=never','--name',name,'--network','supabase_network_'+project,'--publish','127.0.0.1::5000','--tmpfs','/data'];
  for(const [k,v] of Object.entries(settings))if(v!=null)args.push('--env',`${k}=${v}`);
  let started=false;
  const keepAlive=setInterval(()=>{},1000);
@@ -36,11 +41,23 @@ export async function certifyStorageHttp({run,sql,database,workspace,episode,cap
     // Direct Storage server routes have no gateway /storage/v1 prefix.
     url.pathname=url.pathname.replace(/^\/storage\/v1/,'');
     const response=await fetch(url,{...init,signal:AbortSignal.timeout(10000)});
+    if(!response.ok && url.pathname.endsWith('/manifest.json'))console.log(JSON.stringify({manifestStorageFailure:await response.clone().text()}));
     observations.push({method:init?.method??'GET',status:response.status,route:url.pathname.split('/').slice(0,3).join('/')});return response;
   }}});
   // Only database lookup is adapted to the real disposable SQL connection.
   // Tongs serialization/upload/error handling and Storage HTTP are unmodified.
   const workspaceRow=JSON.parse(sql(`select row_to_json(w) from tongs.workspaces w where id='${workspace}';`).trim());
+  if(historicalAccounting) {
+   // All rows/bytes below belong solely to this random disposable database and
+   // tmpfs Storage instance. Seed a historical fixture, never a hosted identity.
+   const {certifyHistoricalStorageHttp}=await import('./certify-storage-historical-http.mjs');
+   const historical=await certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner:workspaceRow.created_by,capacity});
+   console.log(JSON.stringify({historicalHttp:historical}));
+  }
+  if(historicalAccounting) {
+   const {certifyManifestConcurrencyHttp}=await import('./certify-manifest-concurrency-http.mjs');
+   console.log(JSON.stringify({manifestConcurrency:await certifyManifestConcurrencyHttp({sql,client,workspace,episode,capacity})}));
+  }
   const service=new TongsCommitService({storage:client.storage,schema:s=>{assert.equal(s,'tongs');return{from:table=>{assert.equal(table,'workspaces');return{select:()=>({eq:(key,id)=>{assert.equal(key,'id');assert.equal(id,workspace);return{single:async()=>({data:workspaceRow,error:null})};}})}}};}});
   const commit=(path,json)=>service.commitWorkspaceFile(workspace,{path,json,written_by:{tool:'storage-cert',tool_version:'1',lane:'fixture'}});
   const a=await commit('billing-cert/a.json',{value:1});assert.equal(capacity().used_bytes,a.bytes);

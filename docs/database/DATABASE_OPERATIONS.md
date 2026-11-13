@@ -1467,3 +1467,13 @@ Emergency deactivation is also separately authorized. Keep application/server en
 ```
 
 Never retry an interrupted or ambiguous activation/deactivation blindly. Inspect hosted state read-only; do not use `--include-all`, migration repair, historical-root reset, direct migration-history writes, or an application rollback that removes guards before database deactivation.
+
+### Storage complete-tail certification through 446 (isolated only)
+
+Use [STORAGE_FULL_TAIL_CERTIFICATION.md](STORAGE_FULL_TAIL_CERTIFICATION.md) and
+its pinned 446-migration contract for PR #89's full-tail certification. This is a
+separate scope: existing version-specific exact-prefix guards remain unchanged.
+It distinguishes complete B1 operational-fixture results, the synthetic H
+prerequisite boundary, and unavailable authentic historical financial evidence.
+A blocked authentic H result never counts as complete lineage certification.
+No hosted execution or financial activation is authorized by these tests.

@@ -59,6 +59,8 @@ export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_PATH = "supabase/migrat
 export const HAMMER_CANARY_RENEWAL_TOOLING_COMPATIBILITY_SHA256 = "1addbe643cd6a7543615c9e6a3f0b4952edc5ffc7a3a5ea72de3abfcbdb07631";
 export const SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH = "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql";
 export const SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256 = "838f14fdd5801bcb842fa628a8ca80700bd20bda201569faa56e9b3fa2d2d24a";
+export const STORAGE_HISTORICAL_ACCOUNTING_PATH = "supabase/migrations/20261113175455_storage_historical_accounting.sql";
+export const STORAGE_HISTORICAL_ACCOUNTING_SHA256 = "ca369b18b67f6aaa555f17e90dd58a66cee9b2a512b38c2569717c3f0e3bb4fc";
 export const STORAGE_HISTORICAL_QUARANTINE_PATH = "supabase/migrations/20261111201029_storage_historical_quarantine.sql";
 export const STORAGE_HISTORICAL_QUARANTINE_SHA256 = "98fb99e3b5797d5266efe92d6e6b3cd8cb2e2e436fb4549cfaff1f1aa12563b6";
 export const STORAGE_SUBSCRIPTION_LIFECYCLE_PATH = "supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql";
@@ -1277,6 +1279,8 @@ export function verifyFrozenEvidence({
       ["scalable-forge-financial-admission", "20261105025313", SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH, SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256],
       ["storage-capacity-authority", "20261111180013", STORAGE_CAPACITY_AUTHORITY_PATH, STORAGE_CAPACITY_AUTHORITY_SHA256],
       ["storage-subscription-lifecycle", "20261111192458", STORAGE_SUBSCRIPTION_LIFECYCLE_PATH, STORAGE_SUBSCRIPTION_LIFECYCLE_SHA256],
+      ["workpiece-manifest-concurrency", "20261113214832", "supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql", "beb2d1dfe797666e8b11c7e62f89ce76450a87520b662100c12b7afb604291f0"],
+      ["storage-historical-accounting", "20261113175455", STORAGE_HISTORICAL_ACCOUNTING_PATH, STORAGE_HISTORICAL_ACCOUNTING_SHA256],
       ["storage-historical-quarantine", "20261111201029", STORAGE_HISTORICAL_QUARANTINE_PATH, STORAGE_HISTORICAL_QUARANTINE_SHA256],
       ["storage-capacity-statement", "20261111185031", STORAGE_CAPACITY_STATEMENT_PATH, STORAGE_CAPACITY_STATEMENT_SHA256],
     ].map(([gate, version, path, sha256]) => ({ gate, contract: { sharedTailAddition: { version, path, sha256 } } })),
