@@ -35,6 +35,7 @@ import {
   resumeHammerStudioRackNativePreview,
 } from "./hammerStudioRackNativePreview";
 export { useHammerPlaybackReadiness } from "./hammerPlaybackReadiness";
+export { useHammerTransportDurationAuthority } from "./hammerTransportDurationAuthority";
 
 export type HammerMediaPlaybackFailure = {
   name: string;
@@ -61,6 +62,21 @@ export function describeHammerMediaPlaybackFailure(
 }
 
 type PlaybackSelectionOrigin = "system" | "transcript" | "timeline" | "playhead";
+
+export function resolveHammerEndedTransportTime(
+  endedMediaTimeSec: number,
+  args: Pick<UseHammerWorkspaceShellPlaybackArgs,
+    "playbackMediaDurationSec" | "playbackTransportDurationSec" | "resolveTransportTimeForMediaTime">,
+): number {
+  // A native ended event can precede the accepted source duration by a few
+  // frames. Advance through that source's accepted end, not the whole program:
+  // intro/composition/outro mappings must still select the next phase.
+  const sourceEndSec = Math.max(endedMediaTimeSec, args.playbackMediaDurationSec ?? 0);
+  return Math.min(
+    args.playbackTransportDurationSec,
+    args.resolveTransportTimeForMediaTime(sourceEndSec) + 0.01,
+  );
+}
 
 export type UseHammerWorkspaceShellPlaybackArgs = {
   editableTranscriptSegments: HammerTranscriptSegment[];
@@ -316,7 +332,15 @@ export function useHammerWorkspaceShellPlayback(
   const reportPlaybackFailure = useCallback((media: HTMLMediaElement, reason: unknown, boundary: string): void => {
     const failure = describeHammerMediaPlaybackFailure(media, reason);
     console.error("[HammerPlayback:media_failure]", { boundary, ...failure });
-    setTranscriptTimingHint(`Playback could not start (${failure.name}). ${failure.message}`);
+    const crossOriginSource = (() => {
+      try { return new URL(media.currentSrc || media.src, window.location.href).origin !== window.location.origin; }
+      catch { return false; }
+    })();
+    const accessHint = crossOriginSource && media.error
+      ? " Signed media could not be loaded. Check URL expiry, network access, and Storage CORS authorization."
+      : "";
+    if (accessHint) console.error("[HammerPlayback:cross_origin_media_load_failed]", { crossOrigin: media.crossOrigin, ...failure });
+    setTranscriptTimingHint(`Playback could not start (${failure.name}). ${failure.message}${accessHint}`);
   }, [setTranscriptTimingHint]);
 
   useEffect(() => {
@@ -341,12 +365,13 @@ export function useHammerWorkspaceShellPlayback(
 
     const audibleTarget = resolveAudibleSeekTarget(args.playheadSec);
     if (audibleTarget == null) {
-      const terminalPlayheadSec = roundToTenth(args.playbackTransportDurationSec);
+      const terminalPlayheadSec = args.playbackTransportDurationSec;
       if (Math.abs(args.playheadSec - terminalPlayheadSec) >= SCRUB_SEEK_THRESHOLD_SEC) {
         args.setPlayheadSec(terminalPlayheadSec);
       }
       if (
         args.previewAudioRef.current
+        && !args.previewAudioRef.current.ended
         && Math.abs(
           args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec),
         ) > SCRUB_SEEK_THRESHOLD_SEC
@@ -456,10 +481,12 @@ export function useHammerWorkspaceShellPlayback(
       || args.isScrubbing
       || transportProgress.shouldSyncMediaTime
     );
-    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+    const targetAudioTime = clampHammerMediaSeekTime(targetMediaTime, previewAudio.duration, args.playbackMediaDurationSec);
+    const atNativeTerminal = previewAudio.ended && targetTransportTime >= args.playbackTransportDurationSec;
+    if (shouldSynchronizeCurrentTime && !atNativeTerminal && Math.abs(previewAudio.currentTime - targetAudioTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       seekPreviewAudioWithOptionalSeamFade({
         audio: previewAudio,
-        targetTime: targetMediaTime,
+        targetTime: targetAudioTime,
         applySeamFade: transportProgress.shouldSyncMediaTime,
       });
     }
@@ -705,21 +732,23 @@ export function useHammerWorkspaceShellPlayback(
   ]);
 
   const handlePlaybackEnded = useCallback((endedMediaTimeSec: number): void => {
-    const requestedTransportTime = Math.min(
-      args.playbackTransportDurationSec,
-      args.resolveTransportTimeForMediaTime(endedMediaTimeSec) + 0.01,
-    );
+    const requestedTransportTime = resolveHammerEndedTransportTime(endedMediaTimeSec, {
+      playbackMediaDurationSec: args.playbackMediaDurationSec,
+      playbackTransportDurationSec: args.playbackTransportDurationSec,
+      resolveTransportTimeForMediaTime: args.resolveTransportTimeForMediaTime,
+    });
     const transportProgress = resolvePlaybackTransportProgress(requestedTransportTime);
     if (transportProgress.shouldStop || transportProgress.nextPlayheadSec >= args.playbackTransportDurationSec) {
       args.setIsPlaybackActive(false);
       if (args.playbackWindow?.mode === "roll") {
         args.setPlaybackWindow(null);
       }
-      args.setPlayheadSec(roundToTenth(Math.min(transportProgress.nextPlayheadSec, args.playbackTransportDurationSec)));
+      args.setPlayheadSec(Math.min(transportProgress.nextPlayheadSec, args.playbackTransportDurationSec));
       return;
     }
     args.setPlayheadSec(roundToTenth(transportProgress.nextPlayheadSec));
   }, [
+    args.playbackMediaDurationSec,
     args.playbackTransportDurationSec,
     args.playbackWindow?.mode,
     args.resolveTransportTimeForMediaTime,
@@ -773,6 +802,29 @@ export function useHammerWorkspaceShellPlayback(
     previewAudio.muted = false;
     if (previewAudio.volume <= 0) previewAudio.volume = 1;
     claimGlobalPlaybackAuthority(previewAudio);
+    const atEnd = previewAudio.ended || args.playheadSec >= args.playbackTransportDurationSec;
+    const activationProgress = resolvePlaybackTransportProgress(atEnd ? 0 : args.playheadSec);
+    if (!activationProgress.shouldStop) {
+      const activationMediaTime = args.resolveMediaTimeForTransportTime(activationProgress.nextPlayheadSec);
+      if (Math.abs(previewAudio.currentTime - activationMediaTime) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        previewAudio.currentTime = clampHammerMediaSeekTime(
+          activationMediaTime,
+          previewAudio.duration,
+          args.playbackMediaDurationSec,
+        );
+      }
+      const previewVideo = args.previewVideoRef.current;
+      if (previewVideo && Math.abs(previewVideo.currentTime - activationMediaTime) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        previewVideo.currentTime = clampHammerMediaSeekTime(
+          activationMediaTime,
+          previewVideo.duration,
+          args.playbackMediaDurationSec,
+        );
+      }
+      if (Math.abs(args.playheadSec - activationProgress.nextPlayheadSec) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        args.setPlayheadSec(roundToTenth(activationProgress.nextPlayheadSec));
+      }
+    }
     args.setTranscriptTimingHint(null);
     args.setIsPlaybackActive(true);
     const request = primaryPlayRequestRef.current + 1;
@@ -819,7 +871,7 @@ export function useHammerWorkspaceShellPlayback(
         console.warn("[HammerPlayback:preview_video_play_rejected]", describeHammerMediaPlaybackFailure(previewVideo, reason));
       });
     }
-  }, [args.editableTranscriptSegments.length, args.isPlaybackActive, args.playbackMediaSrc, args.playbackPhase, args.playbackReady, args.playbackWindow?.mode, args.previewAudioRef, args.previewVideoRef, args.previewVideoSrc, args.segmentationVideoRef, args.setIsPlaybackActive, args.setPlaybackWindow, args.setTranscriptTimingHint, claimGlobalPlaybackAuthority, releaseGlobalPlaybackAuthority, reportPlaybackFailure]);
+  }, [args.editableTranscriptSegments.length, args.isPlaybackActive, args.playbackMediaDurationSec, args.playbackMediaSrc, args.playbackPhase, args.playbackReady, args.playbackWindow?.mode, args.playheadSec, args.previewAudioRef, args.previewVideoRef, args.previewVideoSrc, args.resolveMediaTimeForTransportTime, args.segmentationVideoRef, args.setIsPlaybackActive, args.setPlaybackWindow, args.setPlayheadSec, args.setTranscriptTimingHint, claimGlobalPlaybackAuthority, releaseGlobalPlaybackAuthority, reportPlaybackFailure, resolvePlaybackTransportProgress]);
 
   const seekPlayheadToTime = useCallback((
     nextTimeSec: number,
