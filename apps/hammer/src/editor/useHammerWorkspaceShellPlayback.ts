@@ -35,6 +35,7 @@ import {
   resumeHammerStudioRackNativePreview,
 } from "./hammerStudioRackNativePreview";
 export { useHammerPlaybackReadiness } from "./hammerPlaybackReadiness";
+export { useHammerTransportDurationAuthority } from "./hammerTransportDurationAuthority";
 
 export type HammerMediaPlaybackFailure = {
   name: string;
@@ -773,6 +774,28 @@ export function useHammerWorkspaceShellPlayback(
     previewAudio.muted = false;
     if (previewAudio.volume <= 0) previewAudio.volume = 1;
     claimGlobalPlaybackAuthority(previewAudio);
+    const activationProgress = resolvePlaybackTransportProgress(args.playheadSec);
+    if (!activationProgress.shouldStop) {
+      const activationMediaTime = args.resolveMediaTimeForTransportTime(activationProgress.nextPlayheadSec);
+      if (Math.abs(previewAudio.currentTime - activationMediaTime) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        previewAudio.currentTime = clampHammerMediaSeekTime(
+          activationMediaTime,
+          previewAudio.duration,
+          args.playbackMediaDurationSec,
+        );
+      }
+      const previewVideo = args.previewVideoRef.current;
+      if (previewVideo && Math.abs(previewVideo.currentTime - activationMediaTime) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        previewVideo.currentTime = clampHammerMediaSeekTime(
+          activationMediaTime,
+          previewVideo.duration,
+          args.playbackMediaDurationSec,
+        );
+      }
+      if (Math.abs(args.playheadSec - activationProgress.nextPlayheadSec) > PLAYHEAD_WINDOW_EPSILON_SEC) {
+        args.setPlayheadSec(roundToTenth(activationProgress.nextPlayheadSec));
+      }
+    }
     args.setTranscriptTimingHint(null);
     args.setIsPlaybackActive(true);
     const request = primaryPlayRequestRef.current + 1;
@@ -819,7 +842,7 @@ export function useHammerWorkspaceShellPlayback(
         console.warn("[HammerPlayback:preview_video_play_rejected]", describeHammerMediaPlaybackFailure(previewVideo, reason));
       });
     }
-  }, [args.editableTranscriptSegments.length, args.isPlaybackActive, args.playbackMediaSrc, args.playbackPhase, args.playbackReady, args.playbackWindow?.mode, args.previewAudioRef, args.previewVideoRef, args.previewVideoSrc, args.segmentationVideoRef, args.setIsPlaybackActive, args.setPlaybackWindow, args.setTranscriptTimingHint, claimGlobalPlaybackAuthority, releaseGlobalPlaybackAuthority, reportPlaybackFailure]);
+  }, [args.editableTranscriptSegments.length, args.isPlaybackActive, args.playbackMediaDurationSec, args.playbackMediaSrc, args.playbackPhase, args.playbackReady, args.playbackWindow?.mode, args.playheadSec, args.previewAudioRef, args.previewVideoRef, args.previewVideoSrc, args.resolveMediaTimeForTransportTime, args.segmentationVideoRef, args.setIsPlaybackActive, args.setPlaybackWindow, args.setPlayheadSec, args.setTranscriptTimingHint, claimGlobalPlaybackAuthority, releaseGlobalPlaybackAuthority, reportPlaybackFailure, resolvePlaybackTransportProgress]);
 
   const seekPlayheadToTime = useCallback((
     nextTimeSec: number,

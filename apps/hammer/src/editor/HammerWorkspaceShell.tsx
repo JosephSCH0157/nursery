@@ -90,7 +90,7 @@ import {
   type HammerScrubRate,
   type HammerTimelineMarker,
 } from "./hammerWorkspaceShellPlaybackUtils";
-import { useHammerPlaybackReadiness, useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
+import { useHammerPlaybackReadiness, useHammerTransportDurationAuthority, useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import { useHammerImagePlacementListScroll } from "./hammerImagePlacementListScroll";
@@ -883,7 +883,7 @@ function HammerWorkspaceShellWithContext(
       focusSegmentId: activeCandidatePrimarySegmentId,
     });
   }, [activeCandidatePrimarySegmentId, editableTranscriptSegments]);
-  const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments); const compositionDurationSec = (mediaRef?.duration_ms ?? 0) > 0 ? (mediaRef?.duration_ms ?? 0) / 1000 : transcriptDurationSec;
+  const transcriptDurationSec = resolveTranscriptDurationSec(editableTranscriptSegments); const transportDurationAuthority = useHammerTransportDurationAuthority({ mediaRef, transcriptDurationSec, canonicalRecordingId: props.canonicalRecordingId ?? null, recordingRevisionId: props.recordingRevisionId ?? null, rawPlaybackSource }); const compositionDurationSec = transportDurationAuthority.durationSec;
   const packagingTransport = useMemo(() => resolvePackagingTransport({
     introDurationSec: resolvePackagingClipDurationSec(introPackagingClip),
     outroDurationSec: resolvePackagingClipDurationSec(outroPackagingClip),
@@ -929,7 +929,7 @@ function HammerWorkspaceShellWithContext(
     ? (sourceDeskPreviewUrls[activePackagingMediaPath] ?? null)
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc; const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
-  const playbackReadiness = useHammerPlaybackReadiness({ mediaRef: previewAudioRef, source: effectivePlaybackMediaSrc, expectedDurationSec: activePackagingMediaPath ? (packagingTransport.phase === "intro" ? packagingTransport.introDurationSec : packagingTransport.outroDurationSec) : compositionDurationSec, verifiedDurationAuthority: !activePackagingMediaPath && effectivePlaybackMediaSrc && rawPlaybackSource?.kind === "canonical_signed" && rawPlaybackSource.url === effectivePlaybackMediaSrc && rawPlaybackSource.authority?.durationSec != null ? { source: effectivePlaybackMediaSrc, durationSec: rawPlaybackSource.authority.durationSec } : null });
+  const playbackReadiness = useHammerPlaybackReadiness({ mediaRef: previewAudioRef, source: activePackagingMediaPath || transportDurationAuthority.playbackSourceAccepted ? effectivePlaybackMediaSrc : null, expectedDurationSec: activePackagingMediaPath ? (packagingTransport.phase === "intro" ? packagingTransport.introDurationSec : packagingTransport.outroDurationSec) : compositionDurationSec, verifiedDurationAuthority: !activePackagingMediaPath && effectivePlaybackMediaSrc === transportDurationAuthority.verifiedDurationAuthority?.source ? transportDurationAuthority.verifiedDurationAuthority : null });
   const { resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime, resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime } = useHammerShortMediaTimeMapping(packagingTransport, props.canonicalTimingMap);
   const effectivePlaybackCutRegions = useMemo(
     () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec).map((region) => ({

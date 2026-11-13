@@ -14,6 +14,8 @@ test("primary Hammer transport retains synchronous audible play and explicit rej
   assert.match(toggle, /resumeHammerStudioRackNativePreview\(previewAudio\)/);
   assert.match(toggle, /const playRequest = previewAudio\.play\(\)/);
   assert.match(toggle, /user_activation_play/);
+  assert.match(toggle, /activationProgress = resolvePlaybackTransportProgress/);
+  assert.match(toggle, /PLAYHEAD_WINDOW_EPSILON_SEC/);
   assert.match(toggle, /previewAudio\.pause\(\)/);
   assert.match(toggle, /previewVideoRef\.current\?\.pause\(\)/);
   assert.match(toggle, /setIsPlaybackActive\(false\)/);

@@ -254,6 +254,7 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     await page.waitForFunction(() => document.querySelector('[data-testid="readiness"]')?.textContent === "playable", null, { timeout: 10_000 });
     assert.equal(await page.getByTestId("source-kind").textContent(), "canonical_signed");
     assert.equal(await page.getByTestId("duration-source").textContent(), "verified_authority");
+    assert.equal(await page.getByTestId("transport-duration").textContent(), "2.530");
     assert.equal(await page.getByTestId("native-duration").textContent(), "Infinity");
     assert.equal(await page.getByTestId("endpoint-calls").textContent(), "1");
     assert.equal(await page.getByTestId("binary-fallback-calls").textContent(), "0");
@@ -272,9 +273,18 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     await page.waitForTimeout(180);
     assert.ok(Math.abs(await page.locator("video").evaluate((media: HTMLVideoElement) => media.currentTime) - pausedAt) < 0.05, "Pause must hold native media time");
 
+    await page.getByRole("button", { name: "Seek transcript end" }).click();
+    await page.waitForFunction(() => Math.abs((document.querySelector("video") as HTMLVideoElement).currentTime - 2) < 0.11);
+    await page.getByRole("button", { name: "Play" }).click();
+    await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).currentTime > 2.12);
+    await page.waitForFunction(() => Number(document.querySelector('[data-testid="playhead"]')?.textContent) > 2);
+    assert.ok(Number(await page.getByTestId("playhead").textContent()) > 2, "Play at the transcript boundary must continue through the verified media tail");
+    await page.getByRole("button", { name: "Pause" }).click();
+    const boundaryPausedAt = await page.locator("video").evaluate((media: HTMLVideoElement) => media.currentTime);
+
     await page.getByTestId("shortcut-focus").click();
     await page.keyboard.press("Space");
-    await page.waitForFunction((time) => (document.querySelector("video") as HTMLVideoElement).currentTime > Number(time) + 0.1, pausedAt);
+    await page.waitForFunction((time) => (document.querySelector("video") as HTMLVideoElement).currentTime > Number(time) + 0.1, boundaryPausedAt);
     await page.keyboard.press("Space");
     await page.waitForFunction(() => {
       const media = document.querySelector("video") as HTMLVideoElement;
