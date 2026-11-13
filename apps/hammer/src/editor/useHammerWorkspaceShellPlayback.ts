@@ -480,10 +480,11 @@ export function useHammerWorkspaceShellPlayback(
       || args.isScrubbing
       || transportProgress.shouldSyncMediaTime
     );
-    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetMediaTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+    const targetAudioTime = clampHammerMediaSeekTime(targetMediaTime, previewAudio.duration, args.playbackMediaDurationSec);
+    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetAudioTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       seekPreviewAudioWithOptionalSeamFade({
         audio: previewAudio,
-        targetTime: targetMediaTime,
+        targetTime: targetAudioTime,
         applySeamFade: transportProgress.shouldSyncMediaTime,
       });
     }
@@ -799,7 +800,8 @@ export function useHammerWorkspaceShellPlayback(
     previewAudio.muted = false;
     if (previewAudio.volume <= 0) previewAudio.volume = 1;
     claimGlobalPlaybackAuthority(previewAudio);
-    const activationProgress = resolvePlaybackTransportProgress(previewAudio.ended ? 0 : args.playheadSec);
+    const atEnd = previewAudio.ended || args.playheadSec >= args.playbackTransportDurationSec;
+    const activationProgress = resolvePlaybackTransportProgress(atEnd ? 0 : args.playheadSec);
     if (!activationProgress.shouldStop) {
       const activationMediaTime = args.resolveMediaTimeForTransportTime(activationProgress.nextPlayheadSec);
       if (Math.abs(previewAudio.currentTime - activationMediaTime) > PLAYHEAD_WINDOW_EPSILON_SEC) {
