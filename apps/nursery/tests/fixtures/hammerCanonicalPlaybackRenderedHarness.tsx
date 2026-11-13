@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { HammerAudibleMedia } from "../../../hammer/src/editor/HammerAudibleMedia";
 import { bindLaunchContextToCanonicalRecording } from "../../../hammer/src/editor/hammerCanonicalMediaBinding";
 import type { CanonicalRecordingRecord, RecordingRevisionRecord } from "@forge/tongs/workpiece-commit-api";
 import { resolveHammerRawPlaybackSource, type HammerRawPlaybackSource } from "../../../hammer/src/editor/hammerCanonicalPlayback";
+import { resolveHammerTransportDurationAuthority } from "../../../hammer/src/editor/hammerTransportDurationAuthority";
 import { useHammerPlaybackReadiness } from "../../../hammer/src/editor/hammerPlaybackReadiness";
 import { useHammerWorkspaceShellPlayback } from "../../../hammer/src/editor/useHammerWorkspaceShellPlayback";
 import { applyHammerStudioRackNativePreview, inspectHammerStudioRackNativePreview } from "../../../hammer/src/editor/hammerStudioRackNativePreview";
@@ -14,7 +16,7 @@ const ids = {
   recording: "4cc846e3-187c-46d9-8733-e7402488236c",
   revision: "9c991aa7-f551-4f03-a4d6-41eb40ef81ec",
 };
-const durationSec = 2.53;
+const transcriptDurationSec = 2;
 const noop = (): void => undefined;
 
 function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -118,13 +120,20 @@ export function Harness(): React.JSX.Element {
     return () => { active = false; };
   }, [canonicalMediaRef]);
 
+  const durationAuthority = useMemo(() => resolveHammerTransportDurationAuthority({
+    mediaRef: canonicalMediaRef,
+    transcriptDurationSec,
+    canonicalRecordingId: ids.recording,
+    recordingRevisionId: ids.revision,
+    rawPlaybackSource: source,
+  }), [canonicalMediaRef, source]);
+  const durationSec = durationAuthority.durationSec;
+
   const readiness = useHammerPlaybackReadiness({
     mediaRef,
     source: source?.url ?? null,
     expectedDurationSec: durationSec,
-    verifiedDurationAuthority: source?.authority?.durationSec
-      ? { source: source.url, durationSec: source.authority.durationSec }
-      : null,
+    verifiedDurationAuthority: durationAuthority.verifiedDurationAuthority,
   });
 
   useEffect(() => {
@@ -132,7 +141,7 @@ export function Harness(): React.JSX.Element {
   }, [source?.url]);
 
   const transport = useHammerWorkspaceShellPlayback({
-    editableTranscriptSegments: [{ segment_id: "episode", speaker: "Speaker A", start_sec: 0, end_sec: durationSec, text: "Hammer canonical playback is working clearly." }],
+    editableTranscriptSegments: [{ segment_id: "episode", speaker: "Speaker A", start_sec: 0, end_sec: transcriptDurationSec, text: "Hammer canonical playback is working clearly." }],
     effectivePlaybackCutRegions: [],
     timelineDurationSec: durationSec,
     playbackTransportDurationSec: durationSec,
@@ -188,8 +197,9 @@ export function Harness(): React.JSX.Element {
     <button type="button" onClick={togglePlayback}>{playing ? "Pause" : "Play"}</button>
     <button type="button" onClick={() => transport.seekPlayheadToTime(0.35, "timeline")}>Seek early</button>
     <button type="button" onClick={() => transport.seekPlayheadToTime(2.35, "timeline")}>Seek late</button>
+    <button type="button" onClick={() => transport.seekPlayheadToTime(transcriptDurationSec, "timeline")}>Seek transcript end</button>
     <div tabIndex={0} data-testid="shortcut-focus">Keyboard shortcut focus</div>
-    <video
+    <HammerAudibleMedia
       ref={mediaRef}
       src={source?.url ?? undefined}
       preload="auto"
@@ -204,6 +214,7 @@ export function Harness(): React.JSX.Element {
     />
     <output data-testid="readiness">{readiness.status}</output>
     <output data-testid="duration-source">{readiness.durationSource ?? "none"}</output>
+    <output data-testid="transport-duration">{durationSec.toFixed(3)}</output>
     <output data-testid="native-duration">{nativeDuration}</output>
     <output data-testid="playhead">{playhead.toFixed(3)}</output>
     <output data-testid="hint">{hint ?? ""}</output>
