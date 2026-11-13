@@ -9,6 +9,15 @@ type RawRecorderSettings = {
   recordingMode?: string;
 };
 
+export type SavedRecordingConfiguration = {
+  engine: RecordingEngine;
+  mode: RecordingMode;
+};
+
+export type SavedRecordingConfigurationResult =
+  | { ok: true; configuration: SavedRecordingConfiguration }
+  | { ok: false; reason: 'missing' | 'invalid' };
+
 function readRawSettings(): RawRecorderSettings | null {
   try {
     if (typeof window === 'undefined') return null;
@@ -55,4 +64,23 @@ export function isAudioOnlyRecording(): boolean {
 
 export function isObsEngineSelected(): boolean {
   return getRecordingEngine() === 'obs';
+}
+
+export function readSavedRecordingConfiguration(): SavedRecordingConfigurationResult {
+  const raw = readRawSettings();
+  if (!raw) return { ok: false, reason: 'missing' };
+
+  const selected = normalizeSelected(raw.selected);
+  const mode = String(raw.mode || '').toLowerCase();
+  const recordingMode = String(raw.recordingMode || '').toLowerCase();
+  if ((mode !== 'single' && mode !== 'multi') || (recordingMode !== 'av' && recordingMode !== 'audio')) {
+    return { ok: false, reason: 'invalid' };
+  }
+  if (selected.length === 0 || selected.some((id) => id !== 'core' && id !== 'obs')) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  const engine: RecordingEngine = selected.includes('obs') && !selected.includes('core') ? 'obs' : 'core';
+  if (engine === 'obs' && recordingMode === 'audio') return { ok: false, reason: 'invalid' };
+  return { ok: true, configuration: { engine, mode: recordingMode } };
 }
