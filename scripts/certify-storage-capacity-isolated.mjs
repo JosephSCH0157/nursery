@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { certifyStorageQuarantine } from './lib/certify-storage-quarantine.mjs';
 import { certifyStorageLifecycle } from './lib/certify-storage-lifecycle.mjs';
 import { certifyStorageHttp } from './lib/certify-storage-http.mjs';
+import { seedHistoricalAccounting, approveHistoricalAccounting, certifyHistoricalAccounting } from './lib/certify-storage-historical-accounting.mjs';
 console.log(JSON.stringify({phase:'storage-cert-imports-loaded'}));
 const container=process.env.SUPABASE_DB_CONTAINER;
 if(!container || !/^supabase_db_forge-/.test(container)) throw Error('Explicit existing disposable Forge container required');
@@ -64,6 +65,7 @@ try{
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1') {
   for(let i=1;i<=5;i++) sql(`insert into storage.objects(id,bucket_id,name,metadata,version,created_at,updated_at) values('e1000000-0000-4000-8000-00000000000${i}','forge-workpieces','${i===2?'workspaces/a1000000-0000-4000-8000-000000000088/retained.bin':`quarantine-synthetic-${i}.bin`}','{"size":${i*10}}','fixture',${i===4?'now()':"'2026-08-01T00:00:00Z'"},${i===4?'now()':"'2026-08-01T00:00:00Z'"});`);
  }
+ if(process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT==='1') seedHistoricalAccounting(sql);
  verifyReleaseStage(0);
  verifyInterruptedRelease(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'),0);
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
@@ -80,6 +82,11 @@ try{
  verifyInterruptedRelease(quarantineSql,3);
  sql(quarantineSql);
  verifyReleaseStage(4);
+ let historical;
+ if(process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT==='1') {
+  sql(readFileSync('supabase/migrations/20261113175455_storage_historical_accounting.sql','utf8'));
+  historical=approveHistoricalAccounting({sql,authenticated,service,owner,other});
+ }
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name='legacy-unattributed-fixture.bin';commit;`));
@@ -99,6 +106,7 @@ try{
  sql(baseReceipt);const receiptCount=sql('select count(*) from tongs.subscription_cycle_receipts;');
  sql(baseReceipt);assert.equal(sql('select count(*) from tongs.subscription_cycle_receipts;'),receiptCount,'duplicate receipt remains idempotent');
  assert.equal(capacity().base_bytes,5*GiB);
+ if(historical)console.log(JSON.stringify({historicalAccounting:await certifyHistoricalAccounting({sql,sqlArgs,authenticated,service,owner,other,workspace,episode,capacity,historical})}));
  if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
  sql(subscription('sub_base','creator','subscription','trialing'));assert.equal(capacity().base_bytes,0,'no unapproved permanent trial allowance');
  sql(subscription('sub_base','creator','subscription','past_due'));assert.equal(capacity().base_bytes,5*GiB,'paid-through period preserved');
