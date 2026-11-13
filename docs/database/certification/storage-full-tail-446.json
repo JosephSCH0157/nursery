@@ -1,0 +1,2253 @@
+{
+  "schema": "forge.storage-full-tail-contract.v1",
+  "sourceCandidate": "674011bf88f8f6d179e362fd394dda49b38e155f",
+  "target": "20261113214832",
+  "historicalCount": 446,
+  "baselineCount": 33,
+  "historicalSyntheticStop": "20261104071802",
+  "baselineFixtureHead": "20261104071802",
+  "baselineCatalogHead": "20261104143249",
+  "storagePredecessor": "20261105025313",
+  "templatesAndFixtures": {
+    "scripts/certify-canonical-baseline-v1.ps1": "906664e63af10c8b033ee47c18c779f9b61b6db81511789d50235d9f980ac6c3",
+    "scripts/certify-hammer-owner-funded-first-transcription-historical-successor.ps1": "0fc56fde96153a058fdd1ad8906c592a7c86960e61fb504df6f27ae2db342b5c",
+    "supabase/tests/fixtures/canonical_luna_provider_alignment_authority.sql": "b9bc6486a6158f09ea2c0089457366c4cd1c10ef3df57fd6378e9d1ad752f0d0",
+    "supabase/tests/fixtures/canonical_owner_hearth_aggregate_policy_prerequisites.sql": "664de0e24e943c562b565f55ff45b6a1757fe8e119ff3dfab706f53135257dfe",
+    "database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e",
+    "docs/database/baseline/v1-gate5d/authentic-history-contract.json": "0c8245b8fa707c28f49043d2b40f255bade67d1a5b7137cb7e1fd223a5a25a7f"
+  },
+  "migrations": [
+    {
+      "version": "20260131120000",
+      "path": "supabase/migrations/20260131120000_000001_tongs_calendar_events.sql",
+      "sha256": "cf0b0faa31533ba143b2f2fd13767eabac0720e61825fd2836f863197b042e39"
+    },
+    {
+      "version": "20260201120001",
+      "path": "supabase/migrations/20260201120001_000001_tongs_core_workspaces.sql",
+      "sha256": "2b3303024ad4d6e50b50a5e9428225843b7adafb806c64ba1b96b082db655b64"
+    },
+    {
+      "version": "20260201182712",
+      "path": "supabase/migrations/20260201182712_my_migration.sql",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "version": "20260201184500",
+      "path": "supabase/migrations/20260201184500_tongs_workspaces_insert_policy_fix.sql",
+      "sha256": "ff6b5d281beca6131afad2b2b4deee456a3facbe288da0c52140e06c991f5680"
+    },
+    {
+      "version": "20260201193000",
+      "path": "supabase/migrations/20260201193000_tongs_workspaces_canonical_insert.sql",
+      "sha256": "841afe0b43d6219cddf5a8d27729cc09d45fd2b9d384fa7e72c5d851ad510dfe"
+    },
+    {
+      "version": "20260201194500",
+      "path": "supabase/migrations/20260201194500_tongs_workspaces_add_name.sql",
+      "sha256": "2dd4fbae1445bfa5e03b57b74e6f596021307044b61f42490e4c0626ca82e3a1"
+    },
+    {
+      "version": "20260202120002",
+      "path": "supabase/migrations/20260202120002_000001_tongs_calendar_events_add_session_id.sql",
+      "sha256": "0e83588a35a91aa1528ef9bf01573b0768bcdf9869ed52213e93d90b82fbfb8f"
+    },
+    {
+      "version": "20260203120003",
+      "path": "supabase/migrations/20260203120003_000001_tongs_workspaces_rls.sql",
+      "sha256": "ab7580f8e2f0197f9a8630d045fcec3d12232053a96a649d5b77e2aae6114160"
+    },
+    {
+      "version": "20260204120004",
+      "path": "supabase/migrations/20260204120004_000001_tongs_workspaces_created_by.sql",
+      "sha256": "324902d04735609a6bbd55596236c7c0244bdb00cf20a0df196728d85c2c42ea"
+    },
+    {
+      "version": "20260205120005",
+      "path": "supabase/migrations/20260205120005_000001_tongs_workspaces_insert_policy.sql",
+      "sha256": "0d96acf843883780acbf85a81bcbb2bf55aeb9a5c1a355c1cf332db5543e1b24"
+    },
+    {
+      "version": "20260206120006",
+      "path": "supabase/migrations/20260206120006_000001_tongs_workspaces_add_name.sql",
+      "sha256": "2dd4fbae1445bfa5e03b57b74e6f596021307044b61f42490e4c0626ca82e3a1"
+    },
+    {
+      "version": "20260206120007",
+      "path": "supabase/migrations/20260206120007_000002_public_workspaces_view.sql",
+      "sha256": "7e4186d5e35464b35c52562bdf7aea357eae230ab4e1517bc85fae1e723a8e2a"
+    },
+    {
+      "version": "20260207",
+      "path": "supabase/migrations/20260207_forge_workspace_and_calendar_link.sql",
+      "sha256": "cc154c9abcd2481826fa4cd2d11f7eaf8aadceba8373c98fbcc70cbe464721d1"
+    },
+    {
+      "version": "20260220183000",
+      "path": "supabase/migrations/20260220183000_tongs_workpiece_commit_api.sql",
+      "sha256": "22eb706d81c1da8ef30ab74adc9552dfba19118e275782070a32f6a9bf306b25"
+    },
+    {
+      "version": "20260224120000",
+      "path": "supabase/migrations/20260224120000_tongs_workspaces_membership_only.sql",
+      "sha256": "e2b321c6f377ef82fffcfb7dc53525eb4e26f3082b322aa271c4887da35415a5"
+    },
+    {
+      "version": "20260224121500",
+      "path": "supabase/migrations/20260224121500_tongs_can_access_workspace_membership_only.sql",
+      "sha256": "a47e4b8bd7ff8d33ccd76afb23d122ce38df988ffcb1aa084f720a9b1d3671bd"
+    },
+    {
+      "version": "20260224123000",
+      "path": "supabase/migrations/20260224123000_tongs_episodes_cradle_alignment.sql",
+      "sha256": "9bcc707257e2dfeeda3f703762e2470c5e27822947487a27233e0a64b87c9e41"
+    },
+    {
+      "version": "20260225120000",
+      "path": "supabase/migrations/20260225120000_tongs_workspace_members_policy_recursion_fix.sql",
+      "sha256": "9f5b40ee7231bf1848b6886e2e2e547f057b1bdafc2cd8e46ab8675a1480a43d"
+    },
+    {
+      "version": "20260225133000",
+      "path": "supabase/migrations/20260225133000_tongs_workspaces_policy_recursion_fix.sql",
+      "sha256": "29dae5af6fa5f51234a2295555d4a4982ecb2950a9967a3082750ab6c3485c1a"
+    },
+    {
+      "version": "20260225153000",
+      "path": "supabase/migrations/20260225153000_tongs_workspace_create_rpc.sql",
+      "sha256": "9650d4a9f726406257d307cb6879ac582937008d877f881c5148822e8fed38ae"
+    },
+    {
+      "version": "20260225190000",
+      "path": "supabase/migrations/20260225190000_tongs_rls_recursion_hard_break.sql",
+      "sha256": "1a67837492d617b651ca65277c9fb15aa339183fa8e87e931b2f673a3eacecd6"
+    },
+    {
+      "version": "20260225224500",
+      "path": "supabase/migrations/20260225224500_tongs_ai_credits_rpc.sql",
+      "sha256": "2e951b1517bd5f91e79218a9002b60d19e75ba3b596d6032da0d7b7f2b2afb30"
+    },
+    {
+      "version": "20260227163000",
+      "path": "supabase/migrations/20260227163000_tongs_hearth_creator_learning.sql",
+      "sha256": "0607a43c466e45e18382d74b901bbc4a41c4bc4753857d7466e17c877e98941e"
+    },
+    {
+      "version": "20260228143000",
+      "path": "supabase/migrations/20260228143000_tongs_recording_sessions.sql",
+      "sha256": "b6b50f2d5ad7aac916ce36fb68869b069af134ddef67b5b522ab154e8b34d463"
+    },
+    {
+      "version": "20260228170000",
+      "path": "supabase/migrations/20260228170000_tongs_assets_table.sql",
+      "sha256": "14bf9e363bbf162957713271868685d2d18161122548893d639302d883e9750b"
+    },
+    {
+      "version": "20260228193000",
+      "path": "supabase/migrations/20260228193000_tongs_service_role_schema_grants.sql",
+      "sha256": "a8b89df89d8fe650eab2768b7eaa50b6daa1d78e2ffbb890a8af94e2fe1c5dff"
+    },
+    {
+      "version": "20260301101500",
+      "path": "supabase/migrations/20260301101500_tongs_recording_session_items.sql",
+      "sha256": "cdfa96abada1aec9229900b2dfc8d0d4543f37ce23eb5989e085bcefe53f9e1f"
+    },
+    {
+      "version": "20260301113000",
+      "path": "supabase/migrations/20260301113000_tongs_authenticated_schema_grants.sql",
+      "sha256": "3d7386faef37f4aa6383efae5a1b6a0838b2389498d41f147795f0365230e492"
+    },
+    {
+      "version": "20260302110000",
+      "path": "supabase/migrations/20260302110000_tongs_barstock_projects_and_links.sql",
+      "sha256": "7ec1eb31cea3d3e187880c2eca9603641a7937a17ed5c8d4c7d257dfd324ac57"
+    },
+    {
+      "version": "20260302133000",
+      "path": "supabase/migrations/20260302133000_tongs_project_link_uniqueness_enforcement.sql",
+      "sha256": "446bd66268297d7b4e37071da40bbf3639eb5b267fda08994a6eddec84b95b03"
+    },
+    {
+      "version": "20260302153000",
+      "path": "supabase/migrations/20260302153000_tongs_workspace_delete_rpc.sql",
+      "sha256": "9dd25a85e00c2dbbb30498829e022acdc6f36174ed7af0cc9b2536c3562add53"
+    },
+    {
+      "version": "20260302170000",
+      "path": "supabase/migrations/20260302170000_tongs_workspace_delete_rpc_result.sql",
+      "sha256": "ce4003e162ba636997ccc17506762a8ebe844425b309ced3ebf8520a4b3a2d56"
+    },
+    {
+      "version": "20260302183000",
+      "path": "supabase/migrations/20260302183000_tongs_workspace_roles_authoritative.sql",
+      "sha256": "6f2a229557864844fa87e849bd4d9bd109f3bfedcf82dbb6adfb7ce9c6f00e4e"
+    },
+    {
+      "version": "20260302184500",
+      "path": "supabase/migrations/20260302184500_tongs_workspace_invites.sql",
+      "sha256": "00b590c48328b019d2a9ebd433aba3dd0cde2324cb1146a9afc6841804402e4f"
+    },
+    {
+      "version": "20260302190000",
+      "path": "supabase/migrations/20260302190000_tongs_barstock_workspace_role_gates.sql",
+      "sha256": "f89e90ccc3fcd461e960f641a87af934ebe6fd308ace2fbe8ac833f1d4cefdd0"
+    },
+    {
+      "version": "20260302191000",
+      "path": "supabase/migrations/20260302191000_tongs_workspace_invite_accept_fix.sql",
+      "sha256": "0316ba4db7a30882ac8df709b03b46af07d579508cb8561c861c5703082c176d"
+    },
+    {
+      "version": "20260302200000",
+      "path": "supabase/migrations/20260302200000_tongs_workspace_and_barstock_policy_canonical_cleanup.sql",
+      "sha256": "28e6ea7ed283f961b957bd88c959d093169e7a6372c36e98414834332b744e73"
+    },
+    {
+      "version": "20260302203000",
+      "path": "supabase/migrations/20260302203000_tongs_calendar_event_assignments_and_role_gates.sql",
+      "sha256": "a115ea217370fb882817366b8530d22076477ac96b6968cbd7668b5aaf3021ae"
+    },
+    {
+      "version": "20260302214500",
+      "path": "supabase/migrations/20260302214500_tongs_recording_session_items_integrity_backstop.sql",
+      "sha256": "9de27f9fa368673ab6a6031dc74721c0ccaa28a9fda2276d690fa3b72f021a70"
+    },
+    {
+      "version": "20260302231500",
+      "path": "supabase/migrations/20260302231500_tongs_barstock_workspace_consistency_backstops.sql",
+      "sha256": "bfa25524dc79e09dee893167153efe9f3fada0c16a3c6e0cb96934b33901e324"
+    },
+    {
+      "version": "20260302232500",
+      "path": "supabase/migrations/20260302232500_tongs_barstock_legacy_episode_id_nullable.sql",
+      "sha256": "837ffcf58e5952a001c819970a40731ae5d737bd34dfcf8a884cce47abbfc87a"
+    },
+    {
+      "version": "20260303001500",
+      "path": "supabase/migrations/20260303001500_tongs_hearth_workpiece_presence.sql",
+      "sha256": "b256520857cff139a197389157f7f77c3d9cc649ed8544cfc100b3e4b3585bb2"
+    },
+    {
+      "version": "20260303013000",
+      "path": "supabase/migrations/20260303013000_tongs_ready_script_meta.sql",
+      "sha256": "77b3f6365e080befaa0b84063cd1091d17eade3b589a357558f92d26f90faf47"
+    },
+    {
+      "version": "20260303020000",
+      "path": "supabase/migrations/20260303020000_tongs_workspace_team_rpcs.sql",
+      "sha256": "30eb6d247c29078e3ce5fc07fd5b5c803deecb768157ba423eb5736377593a95"
+    },
+    {
+      "version": "20260303023000",
+      "path": "supabase/migrations/20260303023000_tongs_workspace_team_list_rpcs.sql",
+      "sha256": "a66dcd993a08d92b35ade6db57a8fbdea2105212ff509d33eabbb6e72b98cd95"
+    },
+    {
+      "version": "20260303030000",
+      "path": "supabase/migrations/20260303030000_tongs_workspace_team_hardening.sql",
+      "sha256": "32a81fd75c4e00cbeb0fb6a7b4d7829ad08b3a79e4c75be3ef7b7d787cb17867"
+    },
+    {
+      "version": "20260303103000",
+      "path": "supabase/migrations/20260303103000_tongs_adaptive_style_alignment_flags_and_profile.sql",
+      "sha256": "5d6ed2cf63fe60b9787d45d16c29b69506bdc01eda5bd19af6f7c5a93a08f177"
+    },
+    {
+      "version": "20260303114500",
+      "path": "supabase/migrations/20260303114500_tongs_workspace_feature_toggle_audit.sql",
+      "sha256": "27554f3a66806b08cc67a4b5f9f608927074507b5b628bc60213c6f4ff4e41e0"
+    },
+    {
+      "version": "20260303130000",
+      "path": "supabase/migrations/20260303130000_tongs_orgs_teams_workspace_org_slice1.sql",
+      "sha256": "40b398c5e17b236567e922bfdfe3d265a298afbcd329f0d1482db5186940c3f4"
+    },
+    {
+      "version": "20260303153000",
+      "path": "supabase/migrations/20260303153000_tongs_org_teams_slice2_rpcs.sql",
+      "sha256": "766ad81105edbe8d1d653cd3f7754bc66a415f9ae5e23684625dc25f9eba0e43"
+    },
+    {
+      "version": "20260303170000",
+      "path": "supabase/migrations/20260303170000_tongs_org_team_member_email_rpcs.sql",
+      "sha256": "3d83cd5c6ae629555f4e7eba38c5abbe5968f01cc39dd5d18f7aa27ee6b8cd1e"
+    },
+    {
+      "version": "20260303173000",
+      "path": "supabase/migrations/20260303173000_tongs_org_team_member_ambiguity_fix.sql",
+      "sha256": "5af0d12668623baa9a2baf9b8cc1e7873b5eda8dc7942e0e6c68fa71fb33cf2a"
+    },
+    {
+      "version": "20260303210000",
+      "path": "supabase/migrations/20260303210000_tongs_hearth_creator_user_id_ambiguity_fix.sql",
+      "sha256": "f3030722be7116227c52ed8ada685bfff6827333a2c6cbf86781b175bbd178b5"
+    },
+    {
+      "version": "20260303224000",
+      "path": "supabase/migrations/20260303224000_tongs_org_membership_invariant_and_repair.sql",
+      "sha256": "70570374007f1cd799d6118f93e259ad83c49b353ab6a427770a329e157e6ea0"
+    },
+    {
+      "version": "20260303233000",
+      "path": "supabase/migrations/20260303233000_tongs_workspace_writing_profiles.sql",
+      "sha256": "aa6fe202185011a079fde554f6824fa3700706b77e312574eca32bf07d8b3811"
+    },
+    {
+      "version": "20260304101500",
+      "path": "supabase/migrations/20260304101500_tongs_workspace_style_samples.sql",
+      "sha256": "b48097f4a9321ff63e8b42abd2de2011648b44b952a724afb356216a01a04a5b"
+    },
+    {
+      "version": "20260305143000",
+      "path": "supabase/migrations/20260305143000_tongs_ai_credit_purchases_grant_rpc.sql",
+      "sha256": "bea86be4d20266f3d16e1a6f77023d2ae397e255d394c2249f0d908099a49496"
+    },
+    {
+      "version": "20260306224500",
+      "path": "supabase/migrations/20260306224500_fix_signup_workspace_provisioning_drift.sql",
+      "sha256": "c0a2fd1a7cf60d047200e3171ace6d781073a7d389bca13a4b9c494e1b394c6d"
+    },
+    {
+      "version": "20260310143000",
+      "path": "supabase/migrations/20260310143000_tongs_workspace_ready_queue_state.sql",
+      "sha256": "f59af5db736a2686f01cfecd3c61f11c4dbc301c530e0b11b6829c72f1f23003"
+    },
+    {
+      "version": "20260310170000",
+      "path": "supabase/migrations/20260310170000_tongs_assets_image_map_slice1.sql",
+      "sha256": "0d162398a24a8b6dbeaa78759b6f3e50d3e704508c70a1dba4f54ab9c0abdca5"
+    },
+    {
+      "version": "20260311153000",
+      "path": "supabase/migrations/20260311153000_tongs_episodes_archive_state.sql",
+      "sha256": "4b368f18308db96082f35f25a3bda6d976ed69f500ab0003259fd397e1c7bfc0"
+    },
+    {
+      "version": "20260311190000",
+      "path": "supabase/migrations/20260311190000_tongs_assets_image_map_candidate_images.sql",
+      "sha256": "4a3ed34922444560a9ae5483ad788afc7081723091d81536a6765e403925460e"
+    },
+    {
+      "version": "20260313130000",
+      "path": "supabase/migrations/20260313130000_tongs_hammer_workpiece_state.sql",
+      "sha256": "4800c34d88304c48dec7a41e5afb08f7d3fdacf9f73e598804f38295b5ebb431"
+    },
+    {
+      "version": "20260314120000",
+      "path": "supabase/migrations/20260314120000_tongs_hammer_prep_status_runtime_alignment.sql",
+      "sha256": "afcc9380dce9b617d05cd8d8909f2b44a8621babdf12a8d5b75fc152fc776cf5"
+    },
+    {
+      "version": "20260314194500",
+      "path": "supabase/migrations/20260314194500_tongs_workspace_thumbnail_brand_templates.sql",
+      "sha256": "cf92118b42c805b56efd6bf505c3c2a27b23f1b7c710def2883d12d7d9730c53"
+    },
+    {
+      "version": "20260317024500",
+      "path": "supabase/migrations/20260317024500_raise_forge_workpieces_limit.sql",
+      "sha256": "94c9ba8f8e041ead2bbd7e0936d469c73dbbcf2ed6b6c9bfaa969b25c651089b"
+    },
+    {
+      "version": "20260319173000",
+      "path": "supabase/migrations/20260319173000_tongs_bellows_runtime_sessions.sql",
+      "sha256": "7370c50b90626b8991365dcb68ec19153f0a3d1dcaf25664dff63b9c384cf9ed"
+    },
+    {
+      "version": "20260319203000",
+      "path": "supabase/migrations/20260319203000_tongs_bellows_join_links.sql",
+      "sha256": "510d7478b08b30712f639de63494728be29924ef9fa0f1130dd1ff9e5120915a"
+    },
+    {
+      "version": "20260320153000",
+      "path": "supabase/migrations/20260320153000_tongs_billing_canonical_contract.sql",
+      "sha256": "e4d00fa4e7ebeab2bf88970d2bb9ae5ec43ba3eeea870a10250226e87a3a312b"
+    },
+    {
+      "version": "20260320170000",
+      "path": "supabase/migrations/20260320170000_tongs_postgrest_schema_exposure.sql",
+      "sha256": "6af48535215cac89f69405428ae093c0831290bcb08444ccfc7d90606c907691"
+    },
+    {
+      "version": "20260325103000",
+      "path": "supabase/migrations/20260325103000_tongs_workspace_rls_recursion_hotfix.sql",
+      "sha256": "11f135d949980917fcdf8d4ba839930eb2a75e2d5c5974cc1640b290a367cf53"
+    },
+    {
+      "version": "20260325111500",
+      "path": "supabase/migrations/20260325111500_auth_signup_fail_open_and_workspace_rpc.sql",
+      "sha256": "982e217c901e32c5a4d70d023bde4da8163a35e8ec1e54bae4918fc4bd0a9e78"
+    },
+    {
+      "version": "20260325114000",
+      "path": "supabase/migrations/20260325114000_auth_user_create_unblock.sql",
+      "sha256": "7dc5f07fe6f3f00a7ad4ae8e54ab779fc15f9bdaf80114b83d598a9fb9560f7f"
+    },
+    {
+      "version": "20260325120000",
+      "path": "supabase/migrations/20260325120000_debug_auth_users_triggers.sql",
+      "sha256": "27bb4f4af5531eb124c108113f029e90f0562610fdf735a17ef7d788ce07b0cb"
+    },
+    {
+      "version": "20260325121000",
+      "path": "supabase/migrations/20260325121000_auth_users_disable_legacy_bootstrap_triggers.sql",
+      "sha256": "90c779c656c90c8b3abdecfecd99450720574be37d6e71c4aa8e57809a844a09"
+    },
+    {
+      "version": "20260325123000",
+      "path": "supabase/migrations/20260325123000_drop_debug_auth_users_triggers.sql",
+      "sha256": "724dde502aa9a8ea68d3a885c69c635eb2f73c3d6a7f27c411a55b1f42e4024b"
+    },
+    {
+      "version": "20260325153000",
+      "path": "supabase/migrations/20260325153000_tongs_henry_v1_orientation_layer.sql",
+      "sha256": "fa2b7370f242fe91cf011a4900dc26e611c624b3718e2922fc7fd6b93953cd3e"
+    },
+    {
+      "version": "20260325174500",
+      "path": "supabase/migrations/20260325174500_tongs_henry_rpc_ambiguity_fix.sql",
+      "sha256": "5f16002a414e482aec593d18d16806cd9a350a79bd022a8b676afa14b0dd35a5"
+    },
+    {
+      "version": "20260326183000",
+      "path": "supabase/migrations/20260326183000_tongs_hammer_pass_orchestrator_state.sql",
+      "sha256": "8e6368abb8a19ceb403d6b1e5938126a2151fccb1765881594d0d6d00c5b0dab"
+    },
+    {
+      "version": "20260327170000",
+      "path": "supabase/migrations/20260327170000_tongs_ai_policy_foundation_milestone_a.sql",
+      "sha256": "81f74d9bc735ac2c387b7dfc90023fd09db17e6e85c1dcdf854333ba798a8472"
+    },
+    {
+      "version": "20260327184500",
+      "path": "supabase/migrations/20260327184500_tongs_ai_usage_events_telemetry.sql",
+      "sha256": "18d7ee054340f37d318e966d47969b06558f9e4b155c6c03f5f4cba7ec23d43e"
+    },
+    {
+      "version": "20260327213000",
+      "path": "supabase/migrations/20260327213000_tongs_ai_usage_events_lane_provider.sql",
+      "sha256": "3f30edeeab532ad1f444a5eb0659b320b31cdf34e07950bd994357a7c167b219"
+    },
+    {
+      "version": "20260328233000",
+      "path": "supabase/migrations/20260328233000_tongs_ai_usage_spend_rollups.sql",
+      "sha256": "9c11e5a197f79b1d95e0f38219c7703f37baf6493eb3f330bc5009af0ddd18da"
+    },
+    {
+      "version": "20260329103000",
+      "path": "supabase/migrations/20260329103000_tongs_thumbnail_brand_template_rpc_ambiguity_fix.sql",
+      "sha256": "2bc7372df6f6e8b11726fa97c061d0a249c936c5c376b8044b969308fa981670"
+    },
+    {
+      "version": "20260401120000",
+      "path": "supabase/migrations/20260401120000_tongs_billing_pro_membership_and_ai_credits.sql",
+      "sha256": "5ca62ce5a2e635c860b833ef05ab956502b5d2bdbd713af79021bc9847ff3093"
+    },
+    {
+      "version": "20260402153000",
+      "path": "supabase/migrations/20260402153000_tongs_ai_usage_events_policy_enforced.sql",
+      "sha256": "c0747a1e495d6687fc0cc596c7a40af48c08e77a1a47a6898e67ef01a6462e0b"
+    },
+    {
+      "version": "20260403110000",
+      "path": "supabase/migrations/20260403110000_tongs_user_ai_keys.sql",
+      "sha256": "28370c5f88ab237c1d26b5aa9718cfcc13d7565b584d36eb02c1f3acbc2d016c"
+    },
+    {
+      "version": "20260403143000",
+      "path": "supabase/migrations/20260403143000_tongs_ai_usage_events_attribution_snapshot.sql",
+      "sha256": "e591bc9253d4f3db5185623a159b41e5f8a5741c77da0d736f57f6e6c742e144"
+    },
+    {
+      "version": "20260403190000",
+      "path": "supabase/migrations/20260403190000_tongs_episode_deletion_modes.sql",
+      "sha256": "36304fa9b7c10bd4edc35fddab6726418eb8268822cf971b4f2580a6667eb00f"
+    },
+    {
+      "version": "20260404103000",
+      "path": "supabase/migrations/20260404103000_tongs_asset_variant_contract.sql",
+      "sha256": "6e586206d6932ef5cbc05dcda1113597f0de2db86275e9cacd181c07859abe54"
+    },
+    {
+      "version": "20260404121500",
+      "path": "supabase/migrations/20260404121500_tongs_admin_panel_v1.sql",
+      "sha256": "760e222911f135ff09fdf6024c07443cebd28876d1f302816b1b7301e3beb1e4"
+    },
+    {
+      "version": "20260404133000",
+      "path": "supabase/migrations/20260404133000_tongs_admin_panel_exports.sql",
+      "sha256": "cd2baaf75b374d81cecaf129a44344a5dcdcc9396de151fbf5695782b14476ed"
+    },
+    {
+      "version": "20260404151500",
+      "path": "supabase/migrations/20260404151500_tongs_workspace_access_union_rpc.sql",
+      "sha256": "d8acfdbc26e992fdd467863679c2c253230a64d17f3b55aa953932d121f0f868"
+    },
+    {
+      "version": "20260408123000",
+      "path": "supabase/migrations/20260408123000_tongs_canonical_recordings_and_revisions_phase1.sql",
+      "sha256": "01efe16a13705a15aa674a0de3f6d5fd5e4a514282ab40535ddebafbb9c54f08"
+    },
+    {
+      "version": "20260414203147",
+      "path": "supabase/migrations/20260414203147_tongs_workpiece_jobs.sql",
+      "sha256": "5dc5b69266c8b05cb9f152dc144a3b559520a39fd9f0d6e779f45884fae0dcce"
+    },
+    {
+      "version": "20260426120000",
+      "path": "supabase/migrations/20260426120000_tongs_hammer_transcript_versions_path.sql",
+      "sha256": "a3574aaefc43f7255ba7e3b62db08bdc1a43512b8ab80bc3a3bcde593a45a1a2"
+    },
+    {
+      "version": "20260505113000",
+      "path": "supabase/migrations/20260505113000_tongs_hearth_attachments.sql",
+      "sha256": "865b5954a87d38d455e550d50e538bbb81664967b4003157cf423143dbb5c5d0"
+    },
+    {
+      "version": "20260505150000",
+      "path": "supabase/migrations/20260505150000_tongs_hearth_attachments_v2.sql",
+      "sha256": "9d78907d0047bcb7fafd09cebfff3af9dcf02800c05e7489640cd9bc613c6990"
+    },
+    {
+      "version": "20260708165000",
+      "path": "supabase/migrations/20260708165000_tongs_workspace_delete_requires_archived_episodes.sql",
+      "sha256": "b2b07fa78155bedeecbee6d3025f19a4c918574fd2b6b2bb704f2659e1a4409a"
+    },
+    {
+      "version": "20260713023000",
+      "path": "supabase/migrations/20260713023000_tongs_hammer_composition_v2.sql",
+      "sha256": "c851ef074b71a0c5087e812c05141a8544f26ef082fbf6dc3449a3a4a5934b90"
+    },
+    {
+      "version": "20260713043000",
+      "path": "supabase/migrations/20260713043000_tongs_hammer_composition_v2_concurrency.sql",
+      "sha256": "712bca47f47240f47a2948e6e23c98fa0880469094153037b76449df2178a872"
+    },
+    {
+      "version": "20260713170000",
+      "path": "supabase/migrations/20260713170000_tongs_barstock_persistence_authority.sql",
+      "sha256": "1b37f7facb5f1f0e2dabbce99201b044cc943eca7c96c19bc6f5b78249ee026c"
+    },
+    {
+      "version": "20260713190000",
+      "path": "supabase/migrations/20260713190000_tongs_hearth_ready_transition_authority.sql",
+      "sha256": "0093d9ab4d374622c31c0da9d9ed8336bc6454a839915d3463a748e8e03db63e"
+    },
+    {
+      "version": "20260713210000",
+      "path": "supabase/migrations/20260713210000_tongs_anvil_recording_completion_authority.sql",
+      "sha256": "49c3f1b7371e54a9073beec323c55cad4e1670b2de48eb46351aeada45427b0f"
+    },
+    {
+      "version": "20260714190000",
+      "path": "supabase/migrations/20260714190000_tongs_generation_allowance_banks.sql",
+      "sha256": "1527e1d7cf45ea28954f1ad9a16acf6f09ec46725da899a97bd51dc336c411ea"
+    },
+    {
+      "version": "20260715153000",
+      "path": "supabase/migrations/20260715153000_tongs_thumbnail_asset_lifecycle.sql",
+      "sha256": "32b129cda86dc57bf4227ec71e08aa47a01322e33c11697e125f93e30c984e15"
+    },
+    {
+      "version": "20260715170000",
+      "path": "supabase/migrations/20260715170000_tongs_remove_incomplete_generation_allowances.sql",
+      "sha256": "b0b053a2cc7106a9b1ad14b859eba9583433418b811c6a05710171e8ad7a37d9"
+    },
+    {
+      "version": "20260717090000",
+      "path": "supabase/migrations/20260717090000_tongs_thumbnail_editorial_memory.sql",
+      "sha256": "45328767181a954f8281d94b1c36b68237945052363bd77dc14a65e2cfe69654"
+    },
+    {
+      "version": "20260717093000",
+      "path": "supabase/migrations/20260717093000_tongs_thumbnail_memory_workspace_delete.sql",
+      "sha256": "285d9918648704ec174efb5c62848b229b622fc6454367cab86dae82577c24f4"
+    },
+    {
+      "version": "20260717130000",
+      "path": "supabase/migrations/20260717130000_tongs_thumbnail_ledger_intelligence.sql",
+      "sha256": "d97bc2c65fe28e62046fdaa63ec8e1fb5505059cc6c06d140df0557e68e4dc0c"
+    },
+    {
+      "version": "20260717133000",
+      "path": "supabase/migrations/20260717133000_tongs_thumbnail_ledger_cursor_authority.sql",
+      "sha256": "a19f87a627f9da17d6a1fac9d813a132d1e1a5aa2229d7b03196c1441792ce03"
+    },
+    {
+      "version": "20260717200000",
+      "path": "supabase/migrations/20260717200000_tongs_workspace_brand_library.sql",
+      "sha256": "13386625be387d37cb5b3ad5e77411141176b1056ad33c7df732de61da3ebc96"
+    },
+    {
+      "version": "20260717203000",
+      "path": "supabase/migrations/20260717203000_tongs_brand_bindability_and_resolution_hardening.sql",
+      "sha256": "433c6e45bdea9d47b9f78a2c915baff1b938bd447911a1cc426bcfc4fadd8a97"
+    },
+    {
+      "version": "20260717210000",
+      "path": "supabase/migrations/20260717210000_tongs_brand_asset_storage_policies.sql",
+      "sha256": "ad348975fc08cd3ff36c4a275656dea3a1b7d81648c3c227a7f64c28af64d538"
+    },
+    {
+      "version": "20260718090000",
+      "path": "supabase/migrations/20260718090000_tongs_brand_library_projection_contract.sql",
+      "sha256": "3cfbb028390673ea9a0982b3ae4764340d4ba27e9baeb61c11328694c8730c5b"
+    },
+    {
+      "version": "20260718130000",
+      "path": "supabase/migrations/20260718130000_tongs_thumbnail_candidate_sets.sql",
+      "sha256": "191f9b9a6257cceeee87e9a881d2ae30c8bc0f01cb1d53aafdf4006fa6c25b03"
+    },
+    {
+      "version": "20260718133000",
+      "path": "supabase/migrations/20260718133000_tongs_thumbnail_structural_fingerprint_execute.sql",
+      "sha256": "c6041e1ad834a91be32ef576ad2c5996f8f8971513e42237d8e420723c8f36d2"
+    },
+    {
+      "version": "20260718134500",
+      "path": "supabase/migrations/20260718134500_tongs_thumbnail_candidate_eligibility_states.sql",
+      "sha256": "33d8f43c510074cecf2e0908cf7e11db045043e5fd9bd0db6a8936bac802f649"
+    },
+    {
+      "version": "20260718140000",
+      "path": "supabase/migrations/20260718140000_tongs_thumbnail_candidate_identity_verification.sql",
+      "sha256": "8b77882eec9db4a9d571682d1207ac15662ba6ad03ead4a3912982b5f1078655"
+    },
+    {
+      "version": "20260718143000",
+      "path": "supabase/migrations/20260718143000_tongs_thumbnail_candidate_decision_projection.sql",
+      "sha256": "4883d874db3a0f9938f9eace3ce60ffca1a3751c7f647a25892b20c8332f3d02"
+    },
+    {
+      "version": "20260718160000",
+      "path": "supabase/migrations/20260718160000_tongs_quench_release_decisions.sql",
+      "sha256": "ca9e64ad4fd9b40349f20d8cea10f72d4a1d0ffd39527024f14eba26b76255e7"
+    },
+    {
+      "version": "20260720120000",
+      "path": "supabase/migrations/20260720120000_tongs_brand_media_roles.sql",
+      "sha256": "a0820b3008b5fa6ad4c666b70b7dd2f748bfa405e4eda65904e6d5b6e6393f9a"
+    },
+    {
+      "version": "20260720123000",
+      "path": "supabase/migrations/20260720123000_tongs_brand_asset_media_inspection.sql",
+      "sha256": "e6651ae1228d65063283eb4a64da84c4373062e2c8a0559cdc15843165444cf6"
+    },
+    {
+      "version": "20260720130000",
+      "path": "supabase/migrations/20260720130000_tongs_thumbnail_style_source_provenance.sql",
+      "sha256": "80c25c7b7872c9c08c3608392f9fee9cc8571999412f640e265c52b2ab340a8a"
+    },
+    {
+      "version": "20260721120000",
+      "path": "supabase/migrations/20260721120000_tongs_script_approval_image_map_revision_authority.sql",
+      "sha256": "bf8c19ab9583346504e328dc3ab75457cd2dd033a98f95620354081dd9a6e0b1"
+    },
+    {
+      "version": "20260802120000",
+      "path": "supabase/migrations/20260802120000_tongs_thumbnail_brand_setup_operations.sql",
+      "sha256": "ff8c6bd2922382d500834dd2591c62411aa195c9fe483eba8c6ebeefe001e5c3"
+    },
+    {
+      "version": "20260802130000",
+      "path": "supabase/migrations/20260802130000_tongs_image_map_prompt_authority.sql",
+      "sha256": "262c6a972a10f0cf4fb80b30e81f7e08591efbac81f272b9e689d54578645118"
+    },
+    {
+      "version": "20260803153000",
+      "path": "supabase/migrations/20260803153000_tongs_image_map_candidate_selection_authority.sql",
+      "sha256": "9e3cba3d01f08c3854d7ca565b1d468f9cdbdd336961982eb7ed5d9c6661a72d"
+    },
+    {
+      "version": "20260803170000",
+      "path": "supabase/migrations/20260803170000_tongs_broll_v2_authority.sql",
+      "sha256": "299e937b3c0a2150b311ffd727b531698278133aa8cac56c5dba26efb12233a2"
+    },
+    {
+      "version": "20260803190000",
+      "path": "supabase/migrations/20260803190000_tongs_broll_acquisition_bridge.sql",
+      "sha256": "8993aeac8675752bb87d8649aaca02cdfdffffbfec95d23cefc9c0cb68eed6cd"
+    },
+    {
+      "version": "20260803210000",
+      "path": "supabase/migrations/20260803210000_tongs_broll_motion_prompt_authority.sql",
+      "sha256": "41969cf1c80dc32a65991056f6db74a796fd19c46df90e9ab76e2071d338c2a8"
+    },
+    {
+      "version": "20260803213000",
+      "path": "supabase/migrations/20260803213000_tongs_broll_motion_prompt_replay_order.sql",
+      "sha256": "711c92ea6a3c518e12a4ce7da6f5808a1bfe25ebcbc5704835b72032e2026f25"
+    },
+    {
+      "version": "20260803214500",
+      "path": "supabase/migrations/20260803214500_cleanup_broll_motion_hosted_smoke_fixture.sql",
+      "sha256": "8c2f07812dac41badb96c11f64c6967fb36d22034f1c9ec37d36548a2c97657d"
+    },
+    {
+      "version": "20260803220000",
+      "path": "supabase/migrations/20260803220000_tongs_broll_runway_fail_closed.sql",
+      "sha256": "3d8a9ecb839329788a11c12b05c4015f2d4da132ba3b62dcfec87ead14867b1a"
+    },
+    {
+      "version": "20260804010000",
+      "path": "supabase/migrations/20260804010000_tongs_broll_runway_rejection_evidence.sql",
+      "sha256": "455aee3b06a208f2f8116425b805469ad335dfbbeee077969a53ec9d226856d0"
+    },
+    {
+      "version": "20260804011000",
+      "path": "supabase/migrations/20260804011000_tongs_broll_runway_operator_reconciliation.sql",
+      "sha256": "f45fadb807e342873f3cca5b2d4cbf60b9f79111789ae24ab17c8f273af3afcd"
+    },
+    {
+      "version": "20260804113000",
+      "path": "supabase/migrations/20260804113000_tongs_broll_runway_clear_resolved_failure.sql",
+      "sha256": "335c1138a3739ba7d4de540c49c414912e1f04fd9842bb7b125858fd15352ed7"
+    },
+    {
+      "version": "20260804130000",
+      "path": "supabase/migrations/20260804130000_tongs_broll_candidate_readback.sql",
+      "sha256": "ad9d9660f9efe0b220f3f3224d6c13b11e2036dd36076d678690297dc7eafeba"
+    },
+    {
+      "version": "20260804150000",
+      "path": "supabase/migrations/20260804150000_tongs_source_revision_authority.sql",
+      "sha256": "fc7574b4b3f6d0579f2b3c44f67d4afa6b6a56722c471ea296caa7bf7d501c6a"
+    },
+    {
+      "version": "20260804170000",
+      "path": "supabase/migrations/20260804170000_tongs_reference_clip_authority.sql",
+      "sha256": "a213db95df66117be69a9d0b08b5f6f38afd9182e7d0b9a2d592a86948f46c3b"
+    },
+    {
+      "version": "20260804180000",
+      "path": "supabase/migrations/20260804180000_tongs_reference_clip_acquisition_bridge.sql",
+      "sha256": "5922087c28b9a6a3874072e09c93d42bedc670055663d7e4e4fd5f1918f04aa4"
+    },
+    {
+      "version": "20260804200000",
+      "path": "supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",
+      "sha256": "8728073f07ae945630690c1f787a150d9ca7d065b258031063c782084793bc0e"
+    },
+    {
+      "version": "20260804210000",
+      "path": "supabase/migrations/20260804210000_tongs_reference_clip_hammer_evidence.sql",
+      "sha256": "36175b38b4790513fedef42aa0583616d7d4e67ebcce82b1355593bc07ab6ead"
+    },
+    {
+      "version": "20260805120000",
+      "path": "supabase/migrations/20260805120000_tongs_reference_visual_authority.sql",
+      "sha256": "42c9aff950016b638bf4b4ec885b1f2300ad3b0c3f2ed39260308cd3214ffad4"
+    },
+    {
+      "version": "20260805130000",
+      "path": "supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",
+      "sha256": "36609bf437c3570bcdafc0b48ed21e66e07cc395ebba72f0c86a0ae742ec4570"
+    },
+    {
+      "version": "20260805140000",
+      "path": "supabase/migrations/20260805140000_tongs_visual_plan_creator_amendments.sql",
+      "sha256": "c245eb79a4fd4393fb74210875e8ee67ae3c935ed1b2c3a06533bdf31631e723"
+    },
+    {
+      "version": "20260806120000",
+      "path": "supabase/migrations/20260806120000_tongs_reference_clip_retention_ordinals.sql",
+      "sha256": "0948902fc756a1c3e0a3ac193e5f49e919b7eb672150cafafa2f0ba773168467"
+    },
+    {
+      "version": "20260806121000",
+      "path": "supabase/migrations/20260806121000_tongs_unified_reference_visual_creator_supersession.sql",
+      "sha256": "5ecc1831d9a56cb6b87325a39d45a789fbdd2951e455bb586947c020db3a0581"
+    },
+    {
+      "version": "20260806122000",
+      "path": "supabase/migrations/20260806122000_tongs_unified_image_repair_successor.sql",
+      "sha256": "63f62da55c64180b307693d59614d8fc96e39f81c68a56ff2f4f0fdfa97ebbe6"
+    },
+    {
+      "version": "20260806130000",
+      "path": "supabase/migrations/20260806130000_tongs_visual_opportunity_dispositions.sql",
+      "sha256": "3252c5cd5754eaa19c0b5fbc545f67dc348771916481c0352cb90da00cadd8a5"
+    },
+    {
+      "version": "20260806131000",
+      "path": "supabase/migrations/20260806131000_tongs_restore_reference_visual_fulfillment_rpc.sql",
+      "sha256": "adba60dc1d8a59fe671cbe8dd04c7cd0f439bb6ef82271d3a74d1adc81db7afd"
+    },
+    {
+      "version": "20260806132000",
+      "path": "supabase/migrations/20260806132000_tongs_reference_visual_source_use_authority.sql",
+      "sha256": "984ca75087ad36c7d6cacdf4a1bc43f5243c2b1642962966a14aa89b4b809e8c"
+    },
+    {
+      "version": "20260806133000",
+      "path": "supabase/migrations/20260806133000_tongs_reference_visual_recipe_ambiguity.sql",
+      "sha256": "b6e3d2b608cba64fe8807a331c496dbffa0b31a603e909190e243274f1c5488f"
+    },
+    {
+      "version": "20260806134000",
+      "path": "supabase/migrations/20260806134000_tongs_restore_reference_visual_asset_kind.sql",
+      "sha256": "c1196c5b287c5f47ba0881da56b5f4447d52aaa5f944ed148eb6abed1ef4ca18"
+    },
+    {
+      "version": "20260806135000",
+      "path": "supabase/migrations/20260806135000_tongs_restore_reference_visual_selection_rpc.sql",
+      "sha256": "5a4610847bb78abd247b1cb68c20d197f5960852ce27fd8742310662ca721685"
+    },
+    {
+      "version": "20260806136000",
+      "path": "supabase/migrations/20260806136000_tongs_restore_reference_visual_selection_errors.sql",
+      "sha256": "d832d2a87c87dce90764625db15bfc620380e1804fbf70b192a3fdc45ab5c5bd"
+    },
+    {
+      "version": "20260806140000",
+      "path": "supabase/migrations/20260806140000_tongs_visual_source_reassignment.sql",
+      "sha256": "67ccc0d8ca4880795d20d28d88ac994dbf4fbc81a579970a354f80a990260bdb"
+    },
+    {
+      "version": "20260806141000",
+      "path": "supabase/migrations/20260806141000_tongs_reference_visual_source_projection.sql",
+      "sha256": "339bf5b57b252e0b21a42392edd41a859ce190d78e4521325ee75b74e8164ae6"
+    },
+    {
+      "version": "20260807120000",
+      "path": "supabase/migrations/20260807120000_tongs_reference_visual_evidence_proposal_origin.sql",
+      "sha256": "05d366a3537f7bbe97d6ce9239966f265a5b1c0d9a0a4ddcbd0bd49e0cd06668"
+    },
+    {
+      "version": "20260807130000",
+      "path": "supabase/migrations/20260807130000_tongs_ai_credit_reservation_integrity.sql",
+      "sha256": "036b419f1c03cf69aef69f9a425bfa056df6c626af802a458c647727709dbac7"
+    },
+    {
+      "version": "20260807131000",
+      "path": "supabase/migrations/20260807131000_tongs_ai_pricing_quote_authority.sql",
+      "sha256": "009a632560ca57eeed65e4df929fbdcf80a678bb2c4e910b31dad82e5f66ee2b"
+    },
+    {
+      "version": "20260807132000",
+      "path": "supabase/migrations/20260807132000_tongs_compound_ai_pricing.sql",
+      "sha256": "bf559419d2c9819526b08767bf760a2df29541f0c165452fb128b7003b52bd8b"
+    },
+    {
+      "version": "20260807133000",
+      "path": "supabase/migrations/20260807133000_tongs_paid_image_authorization_ceiling.sql",
+      "sha256": "fc65bdb0468d044afbc01ea4d263f8fc2494654af56ed24530c99024ebde02b9"
+    },
+    {
+      "version": "20260808130000",
+      "path": "supabase/migrations/20260808130000_tongs_paid_media_video_usage.sql",
+      "sha256": "3b39357ee5158f333b0913cc3aa4c3e239fb9d23d88d014a012843633d51157c"
+    },
+    {
+      "version": "20260808131000",
+      "path": "supabase/migrations/20260808131000_tongs_runway_gen45_pricing.sql",
+      "sha256": "85be35f45d67fbbd2754af9d98ab09d28b39fd0dd1625f8adb8abebf0ed37120"
+    },
+    {
+      "version": "20260808132000",
+      "path": "supabase/migrations/20260808132000_tongs_paid_media_authorization_quote.sql",
+      "sha256": "981eee51307e17bc0940340e164871f7b99821826c7ad46bdcde3754339ab42e"
+    },
+    {
+      "version": "20260810120000",
+      "path": "supabase/migrations/20260810120000_tongs_reference_clip_selection_sets.sql",
+      "sha256": "1d6093a7769baa26c155b02ae027ae1f31c2b169fb0dcfb98f319768a5fe647e"
+    },
+    {
+      "version": "20260810130000",
+      "path": "supabase/migrations/20260810130000_tongs_reference_visual_source_sets.sql",
+      "sha256": "6d97d6e990ccf3e0b93b874432e610d0398ce702ee0c17a669aeb0cbd57f96d5"
+    },
+    {
+      "version": "20260811120000",
+      "path": "supabase/migrations/20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",
+      "sha256": "981a7be662ad648f43032e3a59a64f409f8176cf05393c3ed2376a2d9b603a41"
+    },
+    {
+      "version": "20260811130000",
+      "path": "supabase/migrations/20260811130000_tongs_restore_collection_aware_reference_visual_acquisition.sql",
+      "sha256": "a17c47a6d43c3cbab93abddf78b5d022c50fcc5ecf607d5272bc994ff2921756"
+    },
+    {
+      "version": "20260811135000",
+      "path": "supabase/migrations/20260811135000_tongs_reference_visual_sequence_policy_clean_init_bridge.sql",
+      "sha256": "7547f3de3a04f2484c7d7445221ea22296918527c4a4ca0998fde467c71266f7"
+    },
+    {
+      "version": "20260811140000",
+      "path": "supabase/migrations/20260811140000_tongs_restore_reference_visual_archival_completion_rpcs.sql",
+      "sha256": "7a1725ff4d287347c0c2286707b6978de78038bafabaee162c328ea5ccd2aeeb"
+    },
+    {
+      "version": "20260811150000",
+      "path": "supabase/migrations/20260811150000_tongs_allow_paid_media_quote_contract.sql",
+      "sha256": "47fc8a4aebe60bafdf698b27b183c65237c23e899b061d516559982a0d2c8b6d"
+    },
+    {
+      "version": "20260811160000",
+      "path": "supabase/migrations/20260811160000_tongs_fix_paid_video_quote_shape.sql",
+      "sha256": "e7fe13d8198b39dd2b7f50cdab467503b1e5fbd6206c09fa77dce77aea309934"
+    },
+    {
+      "version": "20260811170000",
+      "path": "supabase/migrations/20260811170000_tongs_paid_media_video_operation_identity.sql",
+      "sha256": "4a54e9e01db3be753ba2a45c379d45b472047779919c21919dd75ecadb86169a"
+    },
+    {
+      "version": "20260811173000",
+      "path": "supabase/migrations/20260811173000_tongs_creator_uploaded_image_map_candidate_shape.sql",
+      "sha256": "20559b2ce510e8161d84be079a631f65cb355063f9be10549683ab6ed392c9b2"
+    },
+    {
+      "version": "20260811180000",
+      "path": "supabase/migrations/20260811180000_tongs_allow_paid_video_actual_usage_component.sql",
+      "sha256": "fa0fcd159f3471e79d6a5d6b859eb60e9820771a4d7fb12b84f92fba51a8925e"
+    },
+    {
+      "version": "20260811190000",
+      "path": "supabase/migrations/20260811190000_tongs_collection_aware_reference_visual_source_use.sql",
+      "sha256": "a1e6693e5224fdb27844e9f7af8f4e33e272530f1cd5240ea62a326cf63fc9c5"
+    },
+    {
+      "version": "20260811200000",
+      "path": "supabase/migrations/20260811200000_tongs_youtube_reference_clip_authority.sql",
+      "sha256": "3e938c75918aa9c2a58c75152cba45f06218f7be9197adad4c0dff3a31f84298"
+    },
+    {
+      "version": "20260812143000",
+      "path": "supabase/migrations/20260812143000_tongs_reference_visual_evidence_reset.sql",
+      "sha256": "d2e880fee95b4b4925925f1b41c6453c2542f41bdbb07e998b246dd968a22004"
+    },
+    {
+      "version": "20260812150000",
+      "path": "supabase/migrations/20260812150000_tongs_reference_visual_reset_readback_repair.sql",
+      "sha256": "e850ba633fc4e91f385beebe2207b9e61695ca47a33d2769265850bd91e0cd08"
+    },
+    {
+      "version": "20260812153000",
+      "path": "supabase/migrations/20260812153000_tongs_reference_visual_post_reset_selection.sql",
+      "sha256": "4981ce73fe91b0e00f9bd50289986946b0cb56712bbeb4961872913bfc977e2f"
+    },
+    {
+      "version": "20260812190000",
+      "path": "supabase/migrations/20260812190000_tongs_recording_workflow_minimal_repair.sql",
+      "sha256": "08c7154d4ee2af6283c069a629afbc5800a68ee1598dec70d83ad816162bfda7"
+    },
+    {
+      "version": "20260816190000",
+      "path": "supabase/migrations/20260816190000_tongs_hammer_editorial_authority_revision.sql",
+      "sha256": "fbf8a810ff38814a871dddcc94e4f4f80efaa3f0ec760718b852c1818154d07e"
+    },
+    {
+      "version": "20260819120000",
+      "path": "supabase/migrations/20260819120000_tongs_hammer_editorial_authority_terminal_conflict.sql",
+      "sha256": "1b85cd592c9705bf6a374c185e8f208afd73ba85616f31ed8f2881f32c16dd5a"
+    },
+    {
+      "version": "20260819130000",
+      "path": "supabase/migrations/20260819130000_tongs_hammer_history_epochs.sql",
+      "sha256": "451ab7715e700378ba705db50b6889a26bd075310208c7707252490135ac5700"
+    },
+    {
+      "version": "20260819140000",
+      "path": "supabase/migrations/20260819140000_tongs_hammer_history_epoch_heads.sql",
+      "sha256": "1b6561f6fe1cc7654b91e403062ad3010b0f04bbe4d5db07153368047c6cb988"
+    },
+    {
+      "version": "20260821120000",
+      "path": "supabase/migrations/20260821120000_tongs_hammer_history_atomic_components.sql",
+      "sha256": "685b94076bc0968a5a49aeb18708d3771d8c867f6def46e442c501226f0560af"
+    },
+    {
+      "version": "20260821130000",
+      "path": "supabase/migrations/20260821130000_tongs_hammer_history_atomic_readback_completion.sql",
+      "sha256": "59843954956754578ceb57539be047a972b825fc6af6333eb0c346e6ba200fdf"
+    },
+    {
+      "version": "20260825180000",
+      "path": "supabase/migrations/20260825180000_tongs_hearth_project_intake_authority.sql",
+      "sha256": "312c260bba13d6fd52e8e6cfb0e25a930a747ab6afc37da1b1d67d45f0df1ac7"
+    },
+    {
+      "version": "20260825190000",
+      "path": "supabase/migrations/20260825190000_tongs_anvil_take_decision_authority.sql",
+      "sha256": "99456b089e382b2a73fdaac1e5c521c1ac0203995213e54c15b7e491e762c36a"
+    },
+    {
+      "version": "20260826120000",
+      "path": "supabase/migrations/20260826120000_tongs_source_desk_timed_media_authority.sql",
+      "sha256": "1ca66cf995693de7fa645ac01c127e3349a9ea4daf11dfb8e20df36690c590e0"
+    },
+    {
+      "version": "20260826150000",
+      "path": "supabase/migrations/20260826150000_tongs_project_episode_identity_isolation.sql",
+      "sha256": "b4b9f2a4b95c24cfc1db9aa08b473333b7fe0e68fd2210de5b58d12995fb4952"
+    },
+    {
+      "version": "20260826170000",
+      "path": "supabase/migrations/20260826170000_tongs_episode_split_recovery.sql",
+      "sha256": "253cfb84bf94f32244d77a88508faab71992a60c5eda3cf2f496581a38d8a22f"
+    },
+    {
+      "version": "20260826171000",
+      "path": "supabase/migrations/20260826171000_tongs_project_episode_link_primary_key.sql",
+      "sha256": "989ec5eef71bf981496416535e3ad10a2cd0745c99fcb261f8de045a15ac5044"
+    },
+    {
+      "version": "20260826190000",
+      "path": "supabase/migrations/20260826190000_repair_recovered_episode_ready_transition.sql",
+      "sha256": "c1b3baf5a17c4f3b731164b3f5efbdbddfce3e35120ac2085a243e01f98d0bda"
+    },
+    {
+      "version": "20260826210000",
+      "path": "supabase/migrations/20260826210000_tongs_anvil_capture_identity_authority.sql",
+      "sha256": "d0eea90e38b5da3233e395567e204d9d747b3528165588962cb5b32cd6ef4764"
+    },
+    {
+      "version": "20260826211000",
+      "path": "supabase/migrations/20260826211000_tongs_anvil_capture_relationship_constraints.sql",
+      "sha256": "b71fef8d954bdcf28b270fe930414236908f48bd8c4ec187bc78a819fee0260b"
+    },
+    {
+      "version": "20260827120000",
+      "path": "supabase/migrations/20260827120000_tongs_hammer_preparation_authority.sql",
+      "sha256": "3895d1638b7b04183e7c0910b7a9864f43fa0ae479f8d244cab080efb74182fe"
+    },
+    {
+      "version": "20260827150000",
+      "path": "supabase/migrations/20260827150000_tongs_approved_script_production_authority.sql",
+      "sha256": "a113462b1b19654197afbae53e44da918bc80de3e12f7838b3abeea46fb9ada7"
+    },
+    {
+      "version": "20260827160000",
+      "path": "supabase/migrations/20260827160000_tongs_hammer_explicit_take_adoption.sql",
+      "sha256": "0d38f99539f7d965e2367025cc7e669c8990ac43f7eae55a249db9fd0844f15f"
+    },
+    {
+      "version": "20260827190000",
+      "path": "supabase/migrations/20260827190000_tongs_canonical_asset_authority_s4_1.sql",
+      "sha256": "43c19a2fa32f96461b1e77076d6126f86259346e22465994530097bc1006acf0"
+    },
+    {
+      "version": "20260827210000",
+      "path": "supabase/migrations/20260827210000_tongs_quench_open_authority_s5_1.sql",
+      "sha256": "3dd4473780e621d441098d5c1f657e753cc84452dbea0474afb524e45bf51407"
+    },
+    {
+      "version": "20260827230000",
+      "path": "supabase/migrations/20260827230000_tongs_publishing_destination_authority_s5_2b.sql",
+      "sha256": "b7f1a3ca9928d3c86051c8f2f6dc7468dd2b3e3bb42eb6c951c29c2323d12b9e"
+    },
+    {
+      "version": "20260828100000",
+      "path": "supabase/migrations/20260828100000_tongs_youtube_connection_vertical_s5_2c.sql",
+      "sha256": "20cc2ea8e4ec097b25f6b768b1fb2a262b71d7db509c2087e7c5194626b0901b"
+    },
+    {
+      "version": "20260828120000",
+      "path": "supabase/migrations/20260828120000_tongs_publication_operation_authority_s5_3b.sql",
+      "sha256": "6441e23e7f861b8fd144cea12dc58d0b549f0b7d96cd5cc99d8e296a962c2b33"
+    },
+    {
+      "version": "20260828130000",
+      "path": "supabase/migrations/20260828130000_tongs_hammer_audio_master_authority.sql",
+      "sha256": "7959f7465d174b6f9882ed597374699f1cfce7c1ac772e834bb918c3e12e8467"
+    },
+    {
+      "version": "20260828140000",
+      "path": "supabase/migrations/20260828140000_tongs_hammer_video_master_authority.sql",
+      "sha256": "37de44df3193749aa35316e929e587e83c58903defee788d759e61155fa7d287"
+    },
+    {
+      "version": "20260828150000",
+      "path": "supabase/migrations/20260828150000_tongs_hammer_take_lineage_reset.sql",
+      "sha256": "365c498c8b8a955538b959e72d524b47517f2f1abafa80932cf49e5cead0c39e"
+    },
+    {
+      "version": "20260828160000",
+      "path": "supabase/migrations/20260828160000_tongs_hammer_take_lineage_idle_reset.sql",
+      "sha256": "69f22d77ac7d204f30e3f81a55601c6e730a8eb55a18d6b46af77875f0215b14"
+    },
+    {
+      "version": "20260828170000",
+      "path": "supabase/migrations/20260828170000_tongs_hammer_take_lineage_revision_authority_fix.sql",
+      "sha256": "19c75771cd5b397f5373ea7714066436cbb2318c1bdc34d62813735492b1cbe4"
+    },
+    {
+      "version": "20260829120000",
+      "path": "supabase/migrations/20260829120000_tongs_venue_neutral_recording_authority.sql",
+      "sha256": "7f04c13fea39dd0d8930f711482f036ae3b77de17e05a253ff8e58f5e8c26d1d"
+    },
+    {
+      "version": "20260829130000",
+      "path": "supabase/migrations/20260829130000_tongs_recording_canonical_media_verification.sql",
+      "sha256": "1874f1320226148f20ab4dba351a6b69fec3b8015d2913cb0128eb397f376c45"
+    },
+    {
+      "version": "20260830090000",
+      "path": "supabase/migrations/20260830090000_tongs_quench_open_manifest_timestamp_repair.sql",
+      "sha256": "01c3b5602e398021f29d62aac039c1bf075b5e27d4e765958c116d3aa5478234"
+    },
+    {
+      "version": "20260830160000",
+      "path": "supabase/migrations/20260830160000_tongs_spark_hearth_episode_authority.sql",
+      "sha256": "6665288f944d8ef66f051eff0eadc2fe35ca912dec06476813da6e71b88f5041"
+    },
+    {
+      "version": "20260831090000",
+      "path": "supabase/migrations/20260831090000_tongs_hammer_import_adoptable_take.sql",
+      "sha256": "2b758b88803a3800b4a90fae20a2109a379f31cb1c31644f60932864a20b9ddb"
+    },
+    {
+      "version": "20260901110000",
+      "path": "supabase/migrations/20260901110000_tongs_personal_org_workspace_source.sql",
+      "sha256": "ad403771369b36396d0f92ecd8a5d1900197b4311521c4dd07b57fcb51610ca6"
+    },
+    {
+      "version": "20260901113000",
+      "path": "supabase/migrations/20260901113000_tongs_membership_entitlement_without_legacy_profiles.sql",
+      "sha256": "1a56384ec1af86aba1e13d07b8c7c0612800861ad44fab9ae1afa657fa2fcc46"
+    },
+    {
+      "version": "20260901150000",
+      "path": "supabase/migrations/20260901150000_tongs_hammer_shorts_derivative_authority.sql",
+      "sha256": "6deefad52fe6079c8ddd1d4ad03d68b6f00f917a104d21045286399991f47a58"
+    },
+    {
+      "version": "20260901153000",
+      "path": "supabase/migrations/20260901153000_tongs_hammer_shorts_usable_child.sql",
+      "sha256": "d78784f6091d484022089414c23e72c4c3beb8ba1820fb71775fbaee7d7fc4f6"
+    },
+    {
+      "version": "20260901154000",
+      "path": "supabase/migrations/20260901154000_tongs_hammer_shorts_discovery_failure.sql",
+      "sha256": "ab5a4cb1a32ca7c892b5563d0bde96cb67969d2851d1137694a67cf1d070fa70"
+    },
+    {
+      "version": "20260901155000",
+      "path": "supabase/migrations/20260901155000_tongs_hammer_shorts_preparation_authority.sql",
+      "sha256": "ca60e14ce10659748064547dabb814b0cc6dbf3a9b39f2594e60739f7d8428f7"
+    },
+    {
+      "version": "20260902090000",
+      "path": "supabase/migrations/20260902090000_tongs_visual_source_attribution.sql",
+      "sha256": "c904978fbf6c6dc99daef4074e99e6b633922007f9af2b4cf70e6ee3c819c441"
+    },
+    {
+      "version": "20260902120000",
+      "path": "supabase/migrations/20260902120000_tongs_chat_source_reconciliation.sql",
+      "sha256": "5abff6bda47e504c58b116b51febe1d8d620f55fb873fced1e1b0068e743357c"
+    },
+    {
+      "version": "20260902150000",
+      "path": "supabase/migrations/20260902150000_tongs_reconciliation_editorial_invariant_fix.sql",
+      "sha256": "f08f6fb0266b6114ce8b4c4209ad758fa32c8389f93dc649b5e024cefd1f27b5"
+    },
+    {
+      "version": "20260902153000",
+      "path": "supabase/migrations/20260902153000_tongs_scout_canonical_lineage_repair.sql",
+      "sha256": "f02fa60a6bc26e2143c064f4b7f42e98f54d1532f3c2f4907cfc2dcf4de70206"
+    },
+    {
+      "version": "20260902154500",
+      "path": "supabase/migrations/20260902154500_tongs_scout_spark_lineage_readback_fix.sql",
+      "sha256": "59d2225133a26b1151641a38e8e0fecfc98fff109a80de7d1a6f0fd5e971aca2"
+    },
+    {
+      "version": "20260902163000",
+      "path": "supabase/migrations/20260902163000_tongs_unified_visual_coverage_exclusivity.sql",
+      "sha256": "c04393c1c6861e94e45a8870fc2b892403179d24c7e7216d11b2d95b593f2d60"
+    },
+    {
+      "version": "20260902170000",
+      "path": "supabase/migrations/20260902170000_tongs_unified_image_retention_no_append.sql",
+      "sha256": "f424626990b1afd78050bb1af2735cd1d6abe943b50a6afb81e20c205f8d5b71"
+    },
+    {
+      "version": "20260902173000",
+      "path": "supabase/migrations/20260902173000_tongs_broll_prompt_assertion_execute_repair.sql",
+      "sha256": "84385bc199abde08950cb7fa81c916f98ced1952a1004c1dbb3301e1537ac8e3"
+    },
+    {
+      "version": "20260903120000",
+      "path": "supabase/migrations/20260903120000_tongs_reference_review_operation_attempts.sql",
+      "sha256": "587497ce133b5f3e1e955bfc0fdda173827a52fdf9985c736b099e0979a30e77"
+    },
+    {
+      "version": "20260903150000",
+      "path": "supabase/migrations/20260903150000_tongs_reference_material_rollout_gate.sql",
+      "sha256": "6133215c1e809ecf5a6c0a97b4b2595f7a3bbb95ac1b182edae5272c0cd34aa7"
+    },
+    {
+      "version": "20260904120000",
+      "path": "supabase/migrations/20260904120000_tongs_quench_destination_packages_youtube_jobs.sql",
+      "sha256": "fbea63b6dafd8ff272b569f4129c55e209eadbf50c9018c6e8ee20b691912391"
+    },
+    {
+      "version": "20260904130000",
+      "path": "supabase/migrations/20260904130000_tongs_quench_podcast_host_boundary.sql",
+      "sha256": "79965ab64278463d9acb39f3f8d71faff980bba9758d1423d36658a7c2984bae"
+    },
+    {
+      "version": "20260904150000",
+      "path": "supabase/migrations/20260904150000_tongs_quench_manual_handoff_authority.sql",
+      "sha256": "b8ddab3b48a290ce66b15e4a207bfa3dd87ff434f5cbac5abeb4390f37a5aab7"
+    },
+    {
+      "version": "20260905120000",
+      "path": "supabase/migrations/20260905120000_tongs_bellows_record_only_foundation.sql",
+      "sha256": "9017e0e28b7bc8cc56c8148a5bff5b423a0eba2527b664bf4ce09ebef935b848"
+    },
+    {
+      "version": "20260905130000",
+      "path": "supabase/migrations/20260905130000_tongs_bellows_record_only_hardening.sql",
+      "sha256": "bc070c99412a46430637338a66106772d1c1acbc9938dfd107dcf3bd277fc986"
+    },
+    {
+      "version": "20260905140000",
+      "path": "supabase/migrations/20260905140000_tongs_bellows_sealed_hammer_handoffs.sql",
+      "sha256": "8242b1eeb7986aa55be7d8195d5b32f93515eb73e37f1edff588e22da5b2c01f"
+    },
+    {
+      "version": "20260906120000",
+      "path": "supabase/migrations/20260906120000_tongs_barstock_topic_discovery.sql",
+      "sha256": "e4d6114b24dfe2e113a508c9bbb18cf2f44cc091e7652f18d9eb498ba829ff65"
+    },
+    {
+      "version": "20260907120000",
+      "path": "supabase/migrations/20260907120000_tongs_hearth_conversation_history.sql",
+      "sha256": "40f927217982f7a208b32f82423d38b0ed358870874be7bd270f585bf68466c1"
+    },
+    {
+      "version": "20260908120000",
+      "path": "supabase/migrations/20260908120000_tongs_broll_generation_references.sql",
+      "sha256": "7cc82e1d08e1843063aa0636daa3df3163c3bb65b802ba325b13a0abb82bdf70"
+    },
+    {
+      "version": "20260908180000",
+      "path": "supabase/migrations/20260908180000_tongs_hearth_research_preflight_authority.sql",
+      "sha256": "1849bfed23f6b62930f9da1b817ad25d8cbd35fc522bb71253993e05f2b255d6"
+    },
+    {
+      "version": "20260908180100",
+      "path": "supabase/migrations/20260908180100_tongs_hearth_ready_current_file_coherence.sql",
+      "sha256": "73a870ce86b592c1afe269980fa43ea99ed0d69147b0316a978ec6d0c28e36d3"
+    },
+    {
+      "version": "20260908180200",
+      "path": "supabase/migrations/20260908180200_tongs_hearth_authority_readback_integrity.sql",
+      "sha256": "ed38921284f6b71a0854bb2753a18f4b1292363fab80e99be8423f91e9d07270"
+    },
+    {
+      "version": "20260908180300",
+      "path": "supabase/migrations/20260908180300_tongs_hearth_authority_payload_bounds.sql",
+      "sha256": "8152ea444bf37387c187c7faffc73612ee265560164d862f037485e5bcf81051"
+    },
+    {
+      "version": "20260908180400",
+      "path": "supabase/migrations/20260908180400_tongs_hearth_approval_preflight_revision_binding.sql",
+      "sha256": "a573fb6d13cc4239415b6574529534615e18cb647c827d66d5796ae95ff338f0"
+    },
+    {
+      "version": "20260908180500",
+      "path": "supabase/migrations/20260908180500_tongs_hearth_approval_preflight_receipts.sql",
+      "sha256": "b93753904bcc6f17a15561c51cb0e8e1d0ccb4103549c0e626538605ccb7e9af"
+    },
+    {
+      "version": "20260908180600",
+      "path": "supabase/migrations/20260908180600_tongs_hearth_ready_full_proof_coherence.sql",
+      "sha256": "d8884b522284aec97969e86cde4cd299fc4855be059b0fe17a8475ac57e6efe3"
+    },
+    {
+      "version": "20260908180700",
+      "path": "supabase/migrations/20260908180700_tongs_hearth_stale_preflight_decision_guard.sql",
+      "sha256": "05d7a5be9bf9bd7db4e72e928ad2754fb48c43b65657c8e38069e20b15ecc3c8"
+    },
+    {
+      "version": "20260909120000",
+      "path": "supabase/migrations/20260909120000_tongs_workspace_cost_ledger.sql",
+      "sha256": "fd29ac2b6677a8bd086b173d307dd4e1edaddcde30215a4f37b948ce17c10df2"
+    },
+    {
+      "version": "20260909130000",
+      "path": "supabase/migrations/20260909130000_tongs_workspace_cost_ledger_paid_media_grouping.sql",
+      "sha256": "4028d49a757d8be9097e39c36114898f0e7ca1eaf1d9d776c6173ceba964848b"
+    },
+    {
+      "version": "20260909140000",
+      "path": "supabase/migrations/20260909140000_tongs_billing_privacy_containment.sql",
+      "sha256": "6ddcac2d6305d3889225e657e7b7d41ea1e13ad31a167aa6848c8d161c79eb06"
+    },
+    {
+      "version": "20260909141000",
+      "path": "supabase/migrations/20260909141000_tongs_billing_privacy_admin_inspection_compat.sql",
+      "sha256": "32d5a43928aca9cd2b0f924d2062af6c689d721323f86d004e9993769e34923f"
+    },
+    {
+      "version": "20260909142000",
+      "path": "supabase/migrations/20260909142000_tongs_billing_privacy_admin_inspection_policy_compat.sql",
+      "sha256": "08a9db36723a2836867c2165f8812103090ec2f4702c7aacc35ea552de0e092d"
+    },
+    {
+      "version": "20260910120000",
+      "path": "supabase/migrations/20260910120000_tongs_accounting_foundation.sql",
+      "sha256": "48b1bc8f6aa8f66fe488941aed70e4e8414af4cc20234e2a552067e272c10b96"
+    },
+    {
+      "version": "20260911120000",
+      "path": "supabase/migrations/20260911120000_tongs_private_pricing_reservations_shadow.sql",
+      "sha256": "3bfd6413764aaa0e8a888a5b22692bc43d6102e70b1fb59e394d1b671a3777a0"
+    },
+    {
+      "version": "20260912120000",
+      "path": "supabase/migrations/20260912120000_tongs_owner_budget_reservations_shadow.sql",
+      "sha256": "ad98a8c74a01ef2ef7093270d25c57ea96ba318289ff4b6da2bceaebd559b498"
+    },
+    {
+      "version": "20260913120000",
+      "path": "supabase/migrations/20260913120000_tongs_owner_purchase_activity.sql",
+      "sha256": "8d0f2949942c5a9d6f81f456ba83b62c0b1a29cca09c7485958698f140df0d3a"
+    },
+    {
+      "version": "20260914120000",
+      "path": "supabase/migrations/20260914120000_tongs_live_subscription_compatibility.sql",
+      "sha256": "581d486e6b73f45d236a540c5c4011b2465cfd4af599d9b2d1e540478d9cbcbf"
+    },
+    {
+      "version": "20260915120000",
+      "path": "supabase/migrations/20260915120000_tongs_runway_paid_execution_boundary.sql",
+      "sha256": "23c965d53fb86a50b46492aabfbfa0f2df95f5acc7d8df63a1124cf220d95a8b"
+    },
+    {
+      "version": "20260916110806",
+      "path": "supabase/migrations/20260916110806_tongs_forge_credit_economy.sql",
+      "sha256": "e5dc137d677d935896542d7ba7879355648ef584275a8723cb2aed956350a000"
+    },
+    {
+      "version": "20260916113132",
+      "path": "supabase/migrations/20260916113132_tongs_standard_customer_luna_catalog.sql",
+      "sha256": "42ea235c458ef2d2c6af417e15c2c771195491a7b4b6b03ae6d06b927ae3abec"
+    },
+    {
+      "version": "20260916113500",
+      "path": "supabase/migrations/20260916113500_tongs_settled_customer_price_quote.sql",
+      "sha256": "e636586e636bca032fc66cee6f50df8307e31e268080fb0e72020a0ffc02cd05"
+    },
+    {
+      "version": "20260916113753",
+      "path": "supabase/migrations/20260916113753_tongs_standard_customer_aggregate_admission.sql",
+      "sha256": "3d828ece23b3b2b819ca46ed1d18f185b48324233d1015490a1db31043dcee97"
+    },
+    {
+      "version": "20260916114619",
+      "path": "supabase/migrations/20260916114619_tongs_standard_customer_certification_aggregate.sql",
+      "sha256": "fd798b0a1f1e4c48bb0c24872248b84ee7ec8e432a9f6cb77521a4d91629aaf8"
+    },
+    {
+      "version": "20260916114739",
+      "path": "supabase/migrations/20260916114739_tongs_standard_customer_certification_scope_price.sql",
+      "sha256": "88a3459d02d02f1993b1d217b6071c6e7347ab755844dc05f7c53d068c195e61"
+    },
+    {
+      "version": "20260916114943",
+      "path": "supabase/migrations/20260916114943_tongs_aggregate_financial_environment_selection.sql",
+      "sha256": "9d43dda90bbb7b66209b63a83b96afa1abd426629ef114fb9019a84b62c5e044"
+    },
+    {
+      "version": "20260916115105",
+      "path": "supabase/migrations/20260916115105_tongs_deposit_fee_allocation_catchup.sql",
+      "sha256": "fe65013e086dc15ec9a7459d404fb7f96b2735e82c242c085470447b0fc513d8"
+    },
+    {
+      "version": "20260916120000",
+      "path": "supabase/migrations/20260916120000_tongs_runway_owner_pilot_activation.sql",
+      "sha256": "fa1508bec5abfdced06f60184489251fa2d855e4a06f0fb7bd409299bb468a0d"
+    },
+    {
+      "version": "20260916130700",
+      "path": "supabase/migrations/20260916130700_tongs_standard_customer_rollout.sql",
+      "sha256": "8dc53c864d2619bec74385612580e0fa424e7a3b3ca994aaa766af1119daba18"
+    },
+    {
+      "version": "20260916130706",
+      "path": "supabase/migrations/20260916130706_tongs_beta_credit_controls.sql",
+      "sha256": "045276f447fe29b9dbc92040809d40133f94cfa9c4c696715049f67da6d1ec7e"
+    },
+    {
+      "version": "20260916130712",
+      "path": "supabase/migrations/20260916130712_tongs_credit_pack_purchase_availability.sql",
+      "sha256": "86f73705b2d727b1cc7116e576d2d83b062e62503967b9f7ec816c758c8f98c8"
+    },
+    {
+      "version": "20260916131208",
+      "path": "supabase/migrations/20260916131208_tongs_internal_quote_credit_units.sql",
+      "sha256": "5b0a0b275197dcff2018aa80f49e1cbb9ce79032e873e89196ead0ba14bf406c"
+    },
+    {
+      "version": "20260916131632",
+      "path": "supabase/migrations/20260916131632_tongs_normal_customer_provider_authority.sql",
+      "sha256": "3760931f64f1b3dc110e9d87f8417b00092dbeaca6583691575a66eac80c12fb"
+    },
+    {
+      "version": "20260916132017",
+      "path": "supabase/migrations/20260916132017_tongs_credit_pack_availability_caller_role.sql",
+      "sha256": "c1178d0d1fa1e955d950458143431465623dfa5a1efef8dfe8e75f76c1e8eb5d"
+    },
+    {
+      "version": "20260916154851",
+      "path": "supabase/migrations/20260916154851_standard_customer_hearth_research.sql",
+      "sha256": "57b56b70de8327642321bccfaf172357cbdabbf0ffe0f5053d8ef3ef174178ad"
+    },
+    {
+      "version": "20260916160541",
+      "path": "supabase/migrations/20260916160541_standard_customer_hearth_research_failure_loss.sql",
+      "sha256": "e3c633d3b6aff6bdec3e8e381953973949cbb901f663253b2e8845c8edc20e16"
+    },
+    {
+      "version": "20260916161021",
+      "path": "supabase/migrations/20260916161021_standard_customer_hearth_research_full_failure_exposure.sql",
+      "sha256": "e3858f732925bdb9fd45654b126d104329866f50a3730acdda8ec1d9258948c0"
+    },
+    {
+      "version": "20260916162248",
+      "path": "supabase/migrations/20260916162248_customer_operation_relief_balance_restoration.sql",
+      "sha256": "04a0f3dfb0a3749f393d289c3d3eb9fd1056240125869b13f7d4bf409ea38d75"
+    },
+    {
+      "version": "20260916180205",
+      "path": "supabase/migrations/20260916180205_tongs_existing_openai_funding_handle_environment.sql",
+      "sha256": "d833131e9372cd8889b47369f1e0f5c6db6fc78c3e5dcae0ab4dd0333b39bee9"
+    },
+    {
+      "version": "20260916181807",
+      "path": "supabase/migrations/20260916181807_settled_openai_replay_relief_safety.sql",
+      "sha256": "7e8c40d8e5bb32ef459028232a52d07e8037998fd2fb7c3ba9adc435eb5b9dc9"
+    },
+    {
+      "version": "20260916184248",
+      "path": "supabase/migrations/20260916184248_customer_operation_relief_corrections.sql",
+      "sha256": "84c6833d6c4956e7efff84a70f8cbf85352ea67be6c605cd4c4c89215f703d67"
+    },
+    {
+      "version": "20260916184526",
+      "path": "supabase/migrations/20260916184526_customer_operation_relief_canonical_binding_evidence.sql",
+      "sha256": "b0ade991f3343069adfbc3f6b756b35fde6de53025c76244febb9e6112804c3d"
+    },
+    {
+      "version": "20260916195559",
+      "path": "supabase/migrations/20260916195559_openai_failure_loss_environment_isolation.sql",
+      "sha256": "3a95ddadd2daa4229fd02861ed1fda415beb72f0fe4ddba6bf97b6719f2780d4"
+    },
+    {
+      "version": "20260916202804",
+      "path": "supabase/migrations/20260916202804_operator_controlled_openai_failure_loss.sql",
+      "sha256": "08a1afcdaf8c291291b8c6c776b86b3573752a7e2d88b298a975bcc5f811229b"
+    },
+    {
+      "version": "20260917012316",
+      "path": "supabase/migrations/20260917012316_openai_realized_loss_corrections.sql",
+      "sha256": "e445b078099b849d7647f7f68a46bae39d8635644092f8f91f1608c7bf3614b0"
+    },
+    {
+      "version": "20260917012424",
+      "path": "supabase/migrations/20260917012424_hearth_script_generation_test_canary.sql",
+      "sha256": "efff6301ac2257deb16714cff69c0276d6d06106d2b86638df19550ec2d35f2e"
+    },
+    {
+      "version": "20260917012533",
+      "path": "supabase/migrations/20260917012533_hearth_script_canary_private_table_hardening.sql",
+      "sha256": "636d707153fdb5d9ed9f7837ee7ec03309677ca6b0c10e70c7fd6e1955ee29de"
+    },
+    {
+      "version": "20260917024621",
+      "path": "supabase/migrations/20260917024621_hearth_script_paid_result_persistence_boundary.sql",
+      "sha256": "db7722b8b8ed3516fc3a6e801a6e75db507aa5aadcd226487fefd032e1e376df"
+    },
+    {
+      "version": "20260917094105",
+      "path": "supabase/migrations/20260917094105_hearth_script_proposal_lifecycle.sql",
+      "sha256": "df1f8a1abd432a49a7258665a20bc264176b5976740c234eddb3a0aa07fd82fa"
+    },
+    {
+      "version": "20260917095336",
+      "path": "supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sql",
+      "sha256": "8c70472cad2a8db702e067c706ac0cfa9bcc26a4381d2c73394ec32fb3400317"
+    },
+    {
+      "version": "20260917120000",
+      "path": "supabase/migrations/20260917120000_tongs_pricing_customer_interface.sql",
+      "sha256": "faeff837843661d6b36a7ef2cf32088d285581d4ea1254d49f2fd16a4e8bb058"
+    },
+    {
+      "version": "20260917225047",
+      "path": "supabase/migrations/20260917225047_tongs_hearth_creator_readiness_authority.sql",
+      "sha256": "f86b3c99a30dfda2bcdb23375ff8e35f8f3290086b085f6f8772fd8050a7a8ad"
+    },
+    {
+      "version": "20260918055813",
+      "path": "supabase/migrations/20260918055813_hearth_optional_review_persistence.sql",
+      "sha256": "60b42ffcbd9cfd06f26aa5b3a5f9d4536485359dae4e21ac17bbf8e01ec5f7c8"
+    },
+    {
+      "version": "20260918120000",
+      "path": "supabase/migrations/20260918120000_tongs_failure_relief_openai_text_shadow.sql",
+      "sha256": "2cd19aae5cb6334eefd25d94f4a502c0966b7cc0e6f58ed6322bcb20d673cf2f"
+    },
+    {
+      "version": "20260919120000",
+      "path": "supabase/migrations/20260919120000_tongs_openai_text_enforcement_foundation.sql",
+      "sha256": "21c041a5efa0b8abcb1b89061c5e377eaa9a3526a2dfc0c9f7e18923aa9994d8"
+    },
+    {
+      "version": "20260920120000",
+      "path": "supabase/migrations/20260920120000_tongs_hearth_chat_paid_execution.sql",
+      "sha256": "3571bc7911be0c364e04bef76478b515d77d4315647a67ab858f78c59ce8ce5d"
+    },
+    {
+      "version": "20260921120000",
+      "path": "supabase/migrations/20260921120000_tongs_openai_hearth_owner_pilot_control.sql",
+      "sha256": "64e5bf091a6e09d5568f174a2f205f3535bd098cd1ac81065c6ed33c4686a98b"
+    },
+    {
+      "version": "20260922120000",
+      "path": "supabase/migrations/20260922120000_tongs_openai_hearth_luna_pilot_proposal.sql",
+      "sha256": "15843d61d08d58a6d92c97ac00e00ea2d6c9437dd15156406259f6fd6e7a1f9a"
+    },
+    {
+      "version": "20260922130000",
+      "path": "supabase/migrations/20260922130000_tongs_openai_hearth_luna_pilot_control.sql",
+      "sha256": "3c15513caff41078ab82ff353975e5320fb8281e953718b686e12b83c318cb27"
+    },
+    {
+      "version": "20260922140000",
+      "path": "supabase/migrations/20260922140000_tongs_openai_hearth_luna_pilot_emergency_halt.sql",
+      "sha256": "4bd832c5bf8a36911244840fd806bac17c4587764850260130ff1a7456f317e8"
+    },
+    {
+      "version": "20260922150000",
+      "path": "supabase/migrations/20260922150000_tongs_openai_loss_policy_scope_and_preprovider_rearm.sql",
+      "sha256": "0269bda0418cddece71cd2c3d97d257304683edf3d6e2e29a58fefca28b3bcea"
+    },
+    {
+      "version": "20260922160000",
+      "path": "supabase/migrations/20260922160000_tongs_failure_class_corrections_and_luna_retest.sql",
+      "sha256": "9e88f37f8b016c3c2524a0d86d0fdf3ae4afe63575d6d63ccc0ba6e6db74ba93"
+    },
+    {
+      "version": "20260922170000",
+      "path": "supabase/migrations/20260922170000_tongs_precise_forge_failure_classes.sql",
+      "sha256": "6ccfb03fc6cf8697c2676d3981fee67d2b1cc5184e9c16f26c9b910559993f6d"
+    },
+    {
+      "version": "20260923120000",
+      "path": "supabase/migrations/20260923120000_tongs_customer_hearth_luna_canary.sql",
+      "sha256": "a1f52768ec50c8a290424650b9fa18a8413a4da52e25e41ce9f640a9f9d3a68b"
+    },
+    {
+      "version": "20260923140000",
+      "path": "supabase/migrations/20260923140000_tongs_owner_pricing_rounded_customer_ceiling.sql",
+      "sha256": "4ca4a6e75f882098fc2963357fe9f277bc15281daf6893d2adc21bb2d280883e"
+    },
+    {
+      "version": "20260923150000",
+      "path": "supabase/migrations/20260923150000_tongs_owner_pricing_nullable_markup_fix.sql",
+      "sha256": "d4938f6c12734eb4c9f4be0f356fd72a50f96aec048af26da2840441c55b48d1"
+    },
+    {
+      "version": "20260923160000",
+      "path": "supabase/migrations/20260923160000_tongs_owner_pricing_nullable_markup_short_circuit.sql",
+      "sha256": "95b136e9c4966b42becac7cdc5929cc1fc3681d010a1d55bf119d51ac9296bbe"
+    },
+    {
+      "version": "20260924120000",
+      "path": "supabase/migrations/20260924120000_tongs_test_customer_paid_execution.sql",
+      "sha256": "ba5dc425fdbf5c9bc5eee940e0cd43da0c78ba8c7ef99efd6d96571f04368e0b"
+    },
+    {
+      "version": "20260924174757",
+      "path": "supabase/migrations/20260924174757_reference_visual_source_transition_authority.sql",
+      "sha256": "ca68d84881ac728cedcdf0b3edcb3a0b860d3e901b24f55dd695dfb96a8b95f6"
+    },
+    {
+      "version": "20260925120000",
+      "path": "supabase/migrations/20260925120000_tongs_openai_text_route_execution_adapters.sql",
+      "sha256": "aa6f57d9c38959ec939bd41ec171478194ced45ad76fa6088e3b59d82aa3a089"
+    },
+    {
+      "version": "20260926120000",
+      "path": "supabase/migrations/20260926120000_tongs_openai_text_test_certification.sql",
+      "sha256": "01a0de9e97f222d10bec14f08c912f5492b867061318f4f6e4bb39f76550e902"
+    },
+    {
+      "version": "20260927120000",
+      "path": "supabase/migrations/20260927120000_tongs_openai_text_domain_results.sql",
+      "sha256": "672ddc7d0fbec74d0473a6776c97cc5afeb2242cd74093380a1b3dd569704577"
+    },
+    {
+      "version": "20260928120000",
+      "path": "supabase/migrations/20260928120000_tongs_openai_text_ordinary_customer_funding.sql",
+      "sha256": "ba8973e62902e1e42c3c225edb1ce8802d45350d1ea7f04a48367ce276111a00"
+    },
+    {
+      "version": "20260929120000",
+      "path": "supabase/migrations/20260929120000_tongs_openai_text_model_catalog.sql",
+      "sha256": "df7f9cb64ee79a15d023caf73140ed91fe66ec21b113522eae2172c62fc5bf89"
+    },
+    {
+      "version": "20260930120000",
+      "path": "supabase/migrations/20260930120000_tongs_openai_evidence_and_support_proposal.sql",
+      "sha256": "db31a90c52d7c13c881b308dda10c4336c1629339c2914aed4fb8826ef68cfa3"
+    },
+    {
+      "version": "20260930130000",
+      "path": "supabase/migrations/20260930130000_tongs_openai_text_test_recovery_handle.sql",
+      "sha256": "fe38da7483d4be2dfd6ceb2a701ffa7351efff18bec5a49a3dd1b390f4547ed9"
+    },
+    {
+      "version": "20261001120000",
+      "path": "supabase/migrations/20261001120000_tongs_restricted_beta_financial_policy.sql",
+      "sha256": "d059473306cf5d8f484da9afaeced05fa024ed968006bd341eb346d088c78b60"
+    },
+    {
+      "version": "20261002120000",
+      "path": "supabase/migrations/20261002120000_tongs_aggregate_paid_execution_connection.sql",
+      "sha256": "2ad444c69538952aadc38911ebdb1b9367895f8d544d873f898ed2662208075c"
+    },
+    {
+      "version": "20261003120000",
+      "path": "supabase/migrations/20261003120000_tongs_openai_cost_reconciliation_connection.sql",
+      "sha256": "9c07e382772c3e2b9ee63b14a677496b1ee07d08022c02a9672a42cc0c16e0ea"
+    },
+    {
+      "version": "20261004120000",
+      "path": "supabase/migrations/20261004120000_tongs_openai_transcription_financial_coordination.sql",
+      "sha256": "9db6809f7301e3659cecbb16f6f4e49ad3d378ed28ed21e0e894ddaee216d859"
+    },
+    {
+      "version": "20261005120000",
+      "path": "supabase/migrations/20261005120000_tongs_customer_funding_read_model.sql",
+      "sha256": "00c9807b3763d682b486d094e007d86ec9a7089a856b5c1a60bbda20fe22cdbf"
+    },
+    {
+      "version": "20261006120000",
+      "path": "supabase/migrations/20261006120000_tongs_owner_org_funding_authority.sql",
+      "sha256": "aabc132568e34fb28109349d204fb3d0f2d5c89bbcf029ebafcfcc5dd8d7062e"
+    },
+    {
+      "version": "20261006130000",
+      "path": "supabase/migrations/20261006130000_tongs_openai_model_catalog_revision_2.sql",
+      "sha256": "7558b47e5976e3cda7a01626b42e54b24ba9db5c5d9b30510ec44ee7b03abfee"
+    },
+    {
+      "version": "20261007120000",
+      "path": "supabase/migrations/20261007120000_tongs_non_spending_financial_repairs.sql",
+      "sha256": "4c72affcac23b48aa39072f7b4fe9f755fe5d1dae89590bd25644ade73a76732"
+    },
+    {
+      "version": "20261008120000",
+      "path": "supabase/migrations/20261008120000_tongs_owner_funded_hearth_activation.sql",
+      "sha256": "a75d6b4ddced8e708f84157ee74bd90c61ce79bbb1dfe9ac497613d320980f52"
+    },
+    {
+      "version": "20261008130000",
+      "path": "supabase/migrations/20261008130000_tongs_owner_hearth_runway_commitment_repair.sql",
+      "sha256": "63628fae3e8dc12bcee624db767b4959634822b16707f06f9d743861ea5cdd79"
+    },
+    {
+      "version": "20261008140000",
+      "path": "supabase/migrations/20261008140000_tongs_owner_hearth_attempt_signature_repair.sql",
+      "sha256": "0143a5c3ab0e686a141b56be736f82eaae6302675ca7c85fd7dac165a9898469"
+    },
+    {
+      "version": "20261008150000",
+      "path": "supabase/migrations/20261008150000_tongs_owner_hearth_definitive_rejection_recovery.sql",
+      "sha256": "796d7a58fc3775c1474dcf167950f57671d1cd6423cfb08d9af20b892b6e65ee"
+    },
+    {
+      "version": "20261008160000",
+      "path": "supabase/migrations/20261008160000_tongs_owner_hearth_compatibility_result_corrections.sql",
+      "sha256": "c87f02d623f606ae9ed01dafc2a6302c4b209a20ab4b3a30d0699beacfb02413"
+    },
+    {
+      "version": "20261008170000",
+      "path": "supabase/migrations/20261008170000_tongs_owner_hearth_compatibility_rpc_alias.sql",
+      "sha256": "c3bb239f4cc21e1bf8b06f05bc5828c6667346cd2efc9a655d81ab42eeee74c5"
+    },
+    {
+      "version": "20261008180000",
+      "path": "supabase/migrations/20261008180000_tongs_owner_hearth_fresh_compatibility_retry.sql",
+      "sha256": "c0462d2748127ddf3fbfdc6213b7852a31e254339369c919c517fe0ef4a0d96e"
+    },
+    {
+      "version": "20261008190000",
+      "path": "supabase/migrations/20261008190000_tongs_owner_hearth_terminal_concurrency_recovery.sql",
+      "sha256": "a1d99e1e4ebb40b59d628f2f71ea0844be269c8b80f15d073b9c490d9d9b47d7"
+    },
+    {
+      "version": "20261008200000",
+      "path": "supabase/migrations/20261008200000_tongs_owner_hearth_preprovider_recovery_expiry.sql",
+      "sha256": "9550a4a09110609002eca6bdd5c3dcf59f978ad3c15417880acc5d97b7ed0b78"
+    },
+    {
+      "version": "20261008210000",
+      "path": "supabase/migrations/20261008210000_tongs_owner_hearth_recovery_renewal.sql",
+      "sha256": "b20915b0fe0724ddad3686a5e6c51694f60f20fe77fa1fb90a6e2abab9962d50"
+    },
+    {
+      "version": "20261008220000",
+      "path": "supabase/migrations/20261008220000_tongs_owner_hearth_model_choice_view.sql",
+      "sha256": "46e0b68cffab1092703842b22dd87f0e36592c7ed99a858d026390f0e62cec97"
+    },
+    {
+      "version": "20261009120000",
+      "path": "supabase/migrations/20261009120000_tongs_openai_coordinated_cutover.sql",
+      "sha256": "bd3cadc83fb126c9765fa6476ca40ab30de442113d3ecb15858c80827906bb60"
+    },
+    {
+      "version": "20261010120000",
+      "path": "supabase/migrations/20261010120000_tongs_owner_funded_hearth_research.sql",
+      "sha256": "a53c65232c4dbc44cb1f3c46ac5022d877fec2ad4d8e290dbe0653daaf75d809"
+    },
+    {
+      "version": "20261010130000",
+      "path": "supabase/migrations/20261010130000_tongs_owner_hearth_research_permissions.sql",
+      "sha256": "35b9a2575594f17151feb02531876ae8841ad641a25b531cdeb4907c38d9f741"
+    },
+    {
+      "version": "20261011120000",
+      "path": "supabase/migrations/20261011120000_tongs_hammer_cleanup_review_decisions.sql",
+      "sha256": "a2edc9bb892f5c0079d21fc8177610edd8b2e3c42a302de087df30b7931c63d1"
+    },
+    {
+      "version": "20261011130000",
+      "path": "supabase/migrations/20261011130000_tongs_barstock_discovery_context_fallback.sql",
+      "sha256": "c75395dcf0b6c5aea7c9cee1ca7bbeadd0798e71dd2745e9ccfb39552b765fcc"
+    },
+    {
+      "version": "20261011140000",
+      "path": "supabase/migrations/20261011140000_tongs_unified_financial_environment.sql",
+      "sha256": "4334055af650823d1aa2a5df928f4bc80b208f29f77e1dfe0e96e42f8e77b052"
+    },
+    {
+      "version": "20261011150000",
+      "path": "supabase/migrations/20261011150000_tongs_historical_backfill_link_repair.sql",
+      "sha256": "20837988f9fc18f522ce8d2ae4609282d93e3b3262299d776c69c9822ec2be27"
+    },
+    {
+      "version": "20261011460000",
+      "path": "supabase/migrations/20261011460000_reassert_settled_customer_price_quote.sql",
+      "sha256": "880a4845d781adb300a13e5117cf40f728384298454387ab40726a96fdb48dd9"
+    },
+    {
+      "version": "20261011470000",
+      "path": "supabase/migrations/20261011470000_reassert_standard_customer_aggregate_admission.sql",
+      "sha256": "4ad3b62703f51473d45a3cedad74161a81574f7e3364e0c407381e9fd30b1eb1"
+    },
+    {
+      "version": "20261011480000",
+      "path": "supabase/migrations/20261011480000_hearth_title_generation_test_product.sql",
+      "sha256": "97d9bac948f58270052ad0ed371fe74dafeb82aa68b5fbe6ba28f8dbe3193aeb"
+    },
+    {
+      "version": "20261011490000",
+      "path": "supabase/migrations/20261011490000_hearth_title_generation_episode_titles_v2.sql",
+      "sha256": "e184dd47fe41bc2f13c79d339281b72aaac69bd16168b2cc94b66609debfe99c"
+    },
+    {
+      "version": "20261011500000",
+      "path": "supabase/migrations/20261011500000_hearth_tag_generation_test_product.sql",
+      "sha256": "c8d048f2abc159a86f27efc448828f846785fc5fa74cd8d6bffb2af9a67af7d5"
+    },
+    {
+      "version": "20261011510000",
+      "path": "supabase/migrations/20261011510000_hearth_tag_validation_evidence_v2.sql",
+      "sha256": "41ca7099dc9c93d872fa617363d58bd0c887c1c5377ba7c8647e272749ede4cb"
+    },
+    {
+      "version": "20261011520000",
+      "path": "supabase/migrations/20261011520000_hearth_framing_pack_generation_test_product.sql",
+      "sha256": "9701c877660eef0ad9ef41d8c5cdefd2d04b6ca87ea9f4f360c6b0f23df86e80"
+    },
+    {
+      "version": "20261011530000",
+      "path": "supabase/migrations/20261011530000_visual_unified_plan_test_product.sql",
+      "sha256": "211f35d98f749c757060fb7380249651f0bfb4d0539848d6656d91141754cf8c"
+    },
+    {
+      "version": "20261011540000",
+      "path": "supabase/migrations/20261011540000_visual_unified_plan_canary_repair.sql",
+      "sha256": "60c02da3e3ac6bcac6a7b20da6bb99bd8215ef836c7b3d2963a96caa64f42d93"
+    },
+    {
+      "version": "20261011550000",
+      "path": "supabase/migrations/20261011550000_visual_unified_plan_v5_compatibility_authority.sql",
+      "sha256": "ccd666253f2ed81510c608269e04524728ef85762fdb2c765725286baabc7d59"
+    },
+    {
+      "version": "20261011560000",
+      "path": "supabase/migrations/20261011560000_visual_unified_plan_v5_canary_risk_authorization.sql",
+      "sha256": "910257c2d7c285694ea9c5ce58b8e780caa308892a5d4cb3787be86d30ed4155"
+    },
+    {
+      "version": "20261011570000",
+      "path": "supabase/migrations/20261011570000_visual_unified_plan_transport_lease_recovery.sql",
+      "sha256": "ac8bc0c6612ae66aa6d9c8f301398b25d958e6253eaef69ea121b21c075d37dd"
+    },
+    {
+      "version": "20261011580000",
+      "path": "supabase/migrations/20261011580000_visual_plan_submission_unknown_concurrency_repair.sql",
+      "sha256": "9ecf26f3809287bcf5a9bbca9dc1ea129dc74b003b0a11a9d9c7479049b12007"
+    },
+    {
+      "version": "20261011590000",
+      "path": "supabase/migrations/20261011590000_visual_plan_submission_unknown_paid_scope_concurrency_repair.sql",
+      "sha256": "7989994ad4e51d035eced020d87bd4e3a359deca82aad509b49b05f4f8278664"
+    },
+    {
+      "version": "20261011600000",
+      "path": "supabase/migrations/20261011600000_visual_plan_reference_visual_state_repair.sql",
+      "sha256": "02639eb445971dbff73ef8227b25c6fcf159f18d7e2ed3f862d6ed02793c785b"
+    },
+    {
+      "version": "20261011610000",
+      "path": "supabase/migrations/20261011610000_visual_plan_reconciliation_replay_path_repair.sql",
+      "sha256": "5cc7a7dc0a9eb5dc2f947015434632e8c8353ae5e457aa9b77c4ae9afc4e7f51"
+    },
+    {
+      "version": "20261011620000",
+      "path": "supabase/migrations/20261011620000_hearth_thumbnail_direction_generation_test_product.sql",
+      "sha256": "06d55b4c141a18d6831a963cfb1798df3fab16c5d7e9e44abcb687f914f21eb8"
+    },
+    {
+      "version": "20261011630000",
+      "path": "supabase/migrations/20261011630000_hearth_thumbnail_base_generation_test_product.sql",
+      "sha256": "ada4f5196b4fec5e41879ab6d66eef5222118aa46d937a10d64c12d052698986"
+    },
+    {
+      "version": "20261011640000",
+      "path": "supabase/migrations/20261011640000_thumbnail_base_quote_model_resolution_repair.sql",
+      "sha256": "9637993d061166109af9313ee0ef6216b45d009135e7b3b47a559541d4da33d4"
+    },
+    {
+      "version": "20261011650000",
+      "path": "supabase/migrations/20261011650000_thumbnail_base_quote_creation_sku_repair.sql",
+      "sha256": "e09aeda6496e97a36f5575c033b237d7e12bdd16a7aa5cedb7c11a1194123c76"
+    },
+    {
+      "version": "20261011660000",
+      "path": "supabase/migrations/20261011660000_visual_narrative_interpretation_test_product.sql",
+      "sha256": "757d078d19ba42bccce0fedcd283f4818856269e71b4c88abffe8c9692aea30f"
+    },
+    {
+      "version": "20261011670000",
+      "path": "supabase/migrations/20261011670000_hearth_timeline_image_generation_test_product.sql",
+      "sha256": "9cdaeec19aba1f0ba9652125eeb8edbece08f07f667e27836ab36c0aa89e3871"
+    },
+    {
+      "version": "20261011675000",
+      "path": "supabase/migrations/20261011675000_reference_visual_acquisition_order_compatibility.sql",
+      "sha256": "689401007bab57d0ba1a5858e89c23a4b2759f7caf2de55f58de1638e6331e1b"
+    },
+    {
+      "version": "20261011680000",
+      "path": "supabase/migrations/20261011680000_reference_material_rights_acquisition_boundary_repair.sql",
+      "sha256": "c53f271b0fc1c7a94de620d69633657c2f2c37785c02be04938e4cfefd182cae"
+    },
+    {
+      "version": "20261011690000",
+      "path": "supabase/migrations/20261011690000_reference_visual_evidence_claim_identity.sql",
+      "sha256": "dc11603e069646192cf9e847fc359b16e81830ad25cfaed6b4432bc1863aeb2d"
+    },
+    {
+      "version": "20261011700000",
+      "path": "supabase/migrations/20261011700000_reference_visual_evidence_reset_claim_compatibility.sql",
+      "sha256": "3916aaf9bfb5571d219fd995e9501a5c858dc07e1a1dffb07899ca3f8a698a2d"
+    },
+    {
+      "version": "20261011710000",
+      "path": "supabase/migrations/20261011710000_reference_visual_source_transition_authority_reassert.sql",
+      "sha256": "8991946d47da0ef42ef3cf999dbbfece4c2b844e6ed7516a649f2bc2872e1efa"
+    },
+    {
+      "version": "20261011720000",
+      "path": "supabase/migrations/20261011720000_motion_broll_interpretation_test_product.sql",
+      "sha256": "adc7411d5da6ab5133d65bd67b0960da80979a7c0d95a3c209ea965474f576b5"
+    },
+    {
+      "version": "20261011730000",
+      "path": "supabase/migrations/20261011730000_runway_gen45_customer_test_product.sql",
+      "sha256": "28e3bd776dbb2364662cebc3b66e10bdac9f2e9298c6480e000faacf26284f8f"
+    },
+    {
+      "version": "20261011740000",
+      "path": "supabase/migrations/20261011740000_runway_customer_quote_expiry_replay.sql",
+      "sha256": "478fc574c90b829ea47bab7da0bd34c5901c8690bfe689d313bca81b688e7354"
+    },
+    {
+      "version": "20261011750000",
+      "path": "supabase/migrations/20261011750000_runway_customer_canary_preprovider_terminalization.sql",
+      "sha256": "b30755b2caf687f4e57ea1f2653d0a85495d6cbe926a449ea4e0c36989fd29bd"
+    },
+    {
+      "version": "20261011760000",
+      "path": "supabase/migrations/20261011760000_test_aggregate_exposure_reconciliation.sql",
+      "sha256": "027a34e3328ab0d013875d3f64be3679eb81544c016458f1481031e46a47962e"
+    },
+    {
+      "version": "20261011770000",
+      "path": "supabase/migrations/20261011770000_broll_terminal_replay_generation_attempt.sql",
+      "sha256": "6075fce093bc0ec91d3c6a286498858998bf905b4f2d7404c0c2d564b775bf87"
+    },
+    {
+      "version": "20261011780000",
+      "path": "supabase/migrations/20261011780000_runway_aggregate_attempt_smallint_resolution.sql",
+      "sha256": "83f82dbef197a35ab9b7d6bee9382ab8434fa5fe454be03afea4517ebd40f744"
+    },
+    {
+      "version": "20261011790000",
+      "path": "supabase/migrations/20261011790000_runway_preboundary_recovery_reconciliation.sql",
+      "sha256": "1fa3bd04919f201fb09309fb8f8c8d6f7736320fcbb8210e798a949eafbcf065"
+    },
+    {
+      "version": "20261011800000",
+      "path": "supabase/migrations/20261011800000_broll_generation_attempt_readback.sql",
+      "sha256": "9f95994c4a6165cd51d8186969434aa5b4f758e12143004c4c29833fac1c3111"
+    },
+    {
+      "version": "20261011810000",
+      "path": "supabase/migrations/20261011810000_runway_success_financial_finalization.sql",
+      "sha256": "a8c23c332e85283c0fb79d2047033e3185c3d8891b5c49883140340f0fff4c8d"
+    },
+    {
+      "version": "20261011820000",
+      "path": "supabase/migrations/20261011820000_tongs_owner_cost_accounting_authority.sql",
+      "sha256": "ad13f456356fac19b144a2c39eff7a44f682d9c98027b1c1c7827bbed264c0dc"
+    },
+    {
+      "version": "20261011830000",
+      "path": "supabase/migrations/20261011830000_index_owner_cost_relations.sql",
+      "sha256": "8c03ab68e8e0f0408f96ecd55a5df276821b388907a5c90c130207921665e4c9"
+    },
+    {
+      "version": "20261011840000",
+      "path": "supabase/migrations/20261011840000_allow_definitive_provider_rejection.sql",
+      "sha256": "6623afa66d0afd4d63800de285ebc554b0ae08ae42ec7755292fe2b46e511661"
+    },
+    {
+      "version": "20261011850000",
+      "path": "supabase/migrations/20261011850000_hearth_owner_result_persistence_authority.sql",
+      "sha256": "7afaa51972167a84d483628fc72f8aad139fb4a662e97feabb0b8b12b0b90c97"
+    },
+    {
+      "version": "20261011860000",
+      "path": "supabase/migrations/20261011860000_owner_hearth_result_fingerprint_authority_fix.sql",
+      "sha256": "21bcaa28cef2aa284279cda1da8014d1fb44badcbbd4faa75e3635311969c292"
+    },
+    {
+      "version": "20261011870000",
+      "path": "supabase/migrations/20261011870000_grandfather_historical_hearth_authority.sql",
+      "sha256": "442752fdf8b743ca26a2cb00e2478fbcff588bb73f81fac3157b8eb14e7c67b3"
+    },
+    {
+      "version": "20261011880000",
+      "path": "supabase/migrations/20261011880000_owner_hearth_image_result_persistence_authority.sql",
+      "sha256": "b54cf848b728eb69ad52ec374c10eac7e139427ace4363f4632632a66ffe3d08"
+    },
+    {
+      "version": "20261011890000",
+      "path": "supabase/migrations/20261011890000_index_owner_hearth_image_customer_authority.sql",
+      "sha256": "b353815dd9ca30c6abe3c7a5fe206de0d519129b52152c576ea7035797983b13"
+    },
+    {
+      "version": "20261011900000",
+      "path": "supabase/migrations/20261011900000_forge_credential_lifecycle.sql",
+      "sha256": "d42ceef7c8ac5055d6587a1989856aabe13703b07b3cd33c2c7d16e65f8dee83"
+    },
+    {
+      "version": "20261011910000",
+      "path": "supabase/migrations/20261011910000_credential_lifecycle_secret_key_role.sql",
+      "sha256": "62031eb8dbe49f915c1501dfc980cb5b3beab2b102d8d46dbe976be52d5309e5"
+    },
+    {
+      "version": "20261011920000",
+      "path": "supabase/migrations/20261011920000_accept_owner_narrative_prompt_operation_keys.sql",
+      "sha256": "b8d6889b88a5f69e547f3e14383938ac56724161c0f7165b67aa450b3c58b74a"
+    },
+    {
+      "version": "20261011930000",
+      "path": "supabase/migrations/20261011930000_credential_lifecycle_activation_ordering.sql",
+      "sha256": "e01c0448c70236af564ffdfaf95bf4916509d3c30c41a1998870acdd7ea8d398"
+    },
+    {
+      "version": "20261011940000",
+      "path": "supabase/migrations/20261011940000_canonical_account_owner_authority.sql",
+      "sha256": "8ad7acd7a4ed8d86f30aeb61747ccdb232c57b8844001c43748f05ecef582184"
+    },
+    {
+      "version": "20261011950000",
+      "path": "supabase/migrations/20261011950000_dual_read_canonical_owner_authority.sql",
+      "sha256": "0c21721af227455fe168ac152bab2f7650208d51fab276dd5ae65c582f3daa1d"
+    },
+    {
+      "version": "20261011960000",
+      "path": "supabase/migrations/20261011960000_transition_owner_authority_service_role_gate.sql",
+      "sha256": "fdf73661ccd872f92b956d4d710b28665b031a66e6ff0ec01c1024c9a743df40"
+    },
+    {
+      "version": "20261011970000",
+      "path": "supabase/migrations/20261011970000_owner_unified_visual_plan_persistence_authority.sql",
+      "sha256": "e49d3af267bef2afc1a22ce8b4c8ce4673c2a81175bd7719ffeb292581eebf7f"
+    },
+    {
+      "version": "20261011980000",
+      "path": "supabase/migrations/20261011980000_owner_unified_visual_plan_captured_failure_recovery.sql",
+      "sha256": "d377165204f5bfd225a622d182f4b584295615b353facf5e344a232600403736"
+    },
+    {
+      "version": "20261012000000",
+      "path": "supabase/migrations/20261012000000_allow_zero_beat_unified_broll_plan.sql",
+      "sha256": "e97fa7e9df8ba938f4697dffbb0d0381a91d1b2a24b1ea879e7e7ee95c6f13fa"
+    },
+    {
+      "version": "20261012010000",
+      "path": "supabase/migrations/20261012010000_tongs_route_scoped_openai_model_preferences.sql",
+      "sha256": "66ba3a306c8c4ad6ac7441ccf9a00ef9e8ea5d5a1ee572d7f9e43428a11e7354"
+    },
+    {
+      "version": "20261012020000",
+      "path": "supabase/migrations/20261012020000_forge_ai_global_model_preference_and_hammer_authority.sql",
+      "sha256": "8173122d7902f27fd4cc818a9c90e90884d4df5d35bca759bc57967180b0673c"
+    },
+    {
+      "version": "20261012030000",
+      "path": "supabase/migrations/20261012030000_shared_owner_only_execution_authority.sql",
+      "sha256": "f9408d33c16f713fe1ec99f0134edf10a33ab300d456d5a40fbc843505f5b9e5"
+    },
+    {
+      "version": "20261012040000",
+      "path": "supabase/migrations/20261012040000_hammer_test_canary_prerequisites.sql",
+      "sha256": "cad5cc676172781081b3b48b2d20d66f43435ab7f78e14a3a01826dc2b7d9342"
+    },
+    {
+      "version": "20261012050000",
+      "path": "supabase/migrations/20261012050000_owner_only_test_canary_scoped_activation.sql",
+      "sha256": "0506e260372ba13234fe1086ef35ceba9982b8297575c9ded8f7e32d17d44774"
+    },
+    {
+      "version": "20261012060000",
+      "path": "supabase/migrations/20261012060000_scoped_owner_canary_execution_context_activation.sql",
+      "sha256": "2537c46a16910cbfc16552088e0a1397818e90ad540895f26a8a2c553628e3ae"
+    },
+    {
+      "version": "20261012070000",
+      "path": "supabase/migrations/20261012070000_return_paid_funding_environment.sql",
+      "sha256": "bd7678fe52a4a49fb4d52e9e9ba333a6f2fc6f0d66c9aac3fcd329bbc84bbb47"
+    },
+    {
+      "version": "20261012075000",
+      "path": "supabase/migrations/20261012075000_hammer_canary_eligibility_verified_zero_support.sql",
+      "sha256": "7404f086bf974e780e86ec3f51bee88991af455826218da843a60aa546721e99"
+    },
+    {
+      "version": "20261012080000",
+      "path": "supabase/migrations/20261012080000_hearth_luna_operation_only_model_authority.sql",
+      "sha256": "df90b9df70841f6961507b8afad5c285336846e6c18236bf5f5cc64ee040b016"
+    },
+    {
+      "version": "20261014205219",
+      "path": "supabase/migrations/20261014205219_hammer_6c_financial_contract_repair.sql",
+      "sha256": "9c2cbe64d470bd5e63f1c2b78e9c9103a2141c91be69b62ba56450de57b1a3d7"
+    },
+    {
+      "version": "20261015090533",
+      "path": "supabase/migrations/20261015090533_align_customer_funding_v4_authority.sql",
+      "sha256": "4ddb04a9eeba6b203f75f01df40a6d0f8dca9a5f6389b987514063d34a97b057"
+    },
+    {
+      "version": "20261017201640",
+      "path": "supabase/migrations/20261017201640_hammer_customer_test_acceptance.sql",
+      "sha256": "9df65d6e7099426971909281705df22ca75a547edc6adcd0ed621f7cf197a1c4"
+    },
+    {
+      "version": "20261018120000",
+      "path": "supabase/migrations/20261018120000_tongs_approved_script_recording_readiness.sql",
+      "sha256": "4c23e1694661966537f9770c7b2c5f5ff9798b69a28886e676271c20af70700c"
+    },
+    {
+      "version": "20261020171517",
+      "path": "supabase/migrations/20261020171517_public_slice_a1_identity_profile_access_baseline.sql",
+      "sha256": "da604a19a73984d730a943dd5fc312285f5b32faa728cbf4f17e453400bf47bc"
+    },
+    {
+      "version": "20261020171519",
+      "path": "supabase/migrations/20261020171519_public_slice_a2_legacy_financial_baseline.sql",
+      "sha256": "414050336e111447efdfae878eae7a38eee4c8bf6ba6b6452272806ce260fa04"
+    },
+    {
+      "version": "20261020171522",
+      "path": "supabase/migrations/20261020171522_public_slice_a3_tongs_compatibility_surfaces.sql",
+      "sha256": "fd0f74697b7935d759d2abcacba3ea03157a8b84befc5c30204df771dc76b0c9"
+    },
+    {
+      "version": "20261022000000",
+      "path": "supabase/migrations/20261022000000_establish_database_lineage.sql",
+      "sha256": "d9e41755bca6be4026d5faac6eb9e0be86ceb4b371d2b850b6a9028ed3c0b53e"
+    },
+    {
+      "version": "20261024164519",
+      "path": "supabase/migrations/20261024164519_barstock_project_archive_atomic_graduation.sql",
+      "sha256": "aeaea192f5a2787b4cdbd2ff0ad02f2e3fb4a11d35baa2da092b334b5a71d49c"
+    },
+    {
+      "version": "20261025070300",
+      "path": "supabase/migrations/20261025070300_tongs_episode_storage_tier_parity.sql",
+      "sha256": "8d7747338663dc46143096a7f5a55ebb60405c5e3879a36b9fb70dd0fe022a1f"
+    },
+    {
+      "version": "20261025080943",
+      "path": "supabase/migrations/20261025080943_provision_required_storage_buckets.sql",
+      "sha256": "88705e86648a5e5171e2c86ee63302433f4a3e38e27cd521d6e108609029ba15"
+    },
+    {
+      "version": "20261027030139",
+      "path": "supabase/migrations/20261027030139_anvil_recording_authority_repair.sql",
+      "sha256": "876278448329ff5a8900923e309d3489bf7cce590c157526e054ff3433b3c8fa"
+    },
+    {
+      "version": "20261028092438",
+      "path": "supabase/migrations/20261028092438_hammer_h2c_inactive_assemblyai_transcription.sql",
+      "sha256": "df8988b8bb12e17cc7113d116e3cbc89397b7d9dec6de4c2ec92f979bbf1dcf1"
+    },
+    {
+      "version": "20261029004958",
+      "path": "supabase/migrations/20261029004958_hammer_first_transcription_activation.sql",
+      "sha256": "318c81bf74cef3c3124641b2b9f62c240a55dd4b3d375d5ac61bf1a588659803"
+    },
+    {
+      "version": "20261029033827",
+      "path": "supabase/migrations/20261029033827_hammer_scoped_live_funding.sql",
+      "sha256": "d395a843a9ab29029404749d187236d3a40efddbf6eb96cd6560c3a46b20f0d2"
+    },
+    {
+      "version": "20261029110858",
+      "path": "supabase/migrations/20261029110858_hammer_trigger_acl_hardening.sql",
+      "sha256": "e28ea66618cb681a06323174f6390cd8eeb7afb1d5c744d9ea6cd12290949a7a"
+    },
+    {
+      "version": "20261029154824",
+      "path": "supabase/migrations/20261029154824_hammer_brad_first_transcription_authority_bundle.sql",
+      "sha256": "b3699ef0f621f3630671402a278f9b178ebe9c42bdc746d3bf9e3ed8a3ee3850"
+    },
+    {
+      "version": "20261029172356",
+      "path": "supabase/migrations/20261029172356_hammer_owner_funded_first_transcription.sql",
+      "sha256": "9452f6e722d60c8e440cd432655305156534a09b293d5a37060a105d794a6488"
+    },
+    {
+      "version": "20261030090719",
+      "path": "supabase/migrations/20261030090719_hammer_owner_sponsorship_reservation_compatibility.sql",
+      "sha256": "de27e8ff38279fdb6c9d33cb45a4cd53d6e5189427fb6aab81ebfd120226b27c"
+    },
+    {
+      "version": "20261030224605",
+      "path": "supabase/migrations/20261030224605_hammer_owner_sponsorship_authority_renewal.sql",
+      "sha256": "ae6bbd4c37407ef2c34dd4762827e27c41241c1e8801f328bf2d9aeb6ec330b1"
+    },
+    {
+      "version": "20261031123320",
+      "path": "supabase/migrations/20261031123320_forge_beta_admission_foundation.sql",
+      "sha256": "d59bc289ccd2b14f39e811586b9588e3fedc76bcdd9336c318b9c87453689d0d"
+    },
+    {
+      "version": "20261101084703",
+      "path": "supabase/migrations/20261101084703_forge_beta_invitation_provisioning.sql",
+      "sha256": "12989ba74c00c2bdc8a9d4c5d38ee4e3be3f1f4d23b9b0f8d2a1b145c7b7dbc7"
+    },
+    {
+      "version": "20261101201817",
+      "path": "supabase/migrations/20261101201817_forge_inactive_admission_enforcement.sql",
+      "sha256": "ed35a3138ba4b15f63a50b5b8e8624ad45dcb9fdd2a6a9d990d52db42017c1bb"
+    },
+    {
+      "version": "20261102032722",
+      "path": "supabase/migrations/20261102032722_forge_admission_activation_preparation.sql",
+      "sha256": "12c3688094eeb00bb294339d6ee738c1b52421cb99204df4af32d92fa3f32cbb"
+    },
+    {
+      "version": "20261103173603",
+      "path": "supabase/migrations/20261103173603_hammer_assemblyai_aggregate_cost_evidence_renewal.sql",
+      "sha256": "9ccf6395fe4fcd4959729a6399c3c28196fc14cf2b0bd2ef724ea7c4ad18a18a"
+    },
+    {
+      "version": "20261103185024",
+      "path": "supabase/migrations/20261103185024_hammer_assemblyai_aggregate_envelope_alignment.sql",
+      "sha256": "a155d915aed1c0407754c6e1f14159c3cf6cd953706b5a0bbebf3e2375384aa7"
+    },
+    {
+      "version": "20261103193845",
+      "path": "supabase/migrations/20261103193845_repair_hammer_transcription_integrated_recovery.sql",
+      "sha256": "a7500091e0f2d77c641725c27b2505c688b902e71eaf27dbc742b28cbe3b19b0"
+    },
+    {
+      "version": "20261103234636",
+      "path": "supabase/migrations/20261103234636_repair_shared_spending_quote_financial_environment.sql",
+      "sha256": "9e37ee8a3db64c10613f445cb15be3a22089b7518221e69ff6179d7acd12dd54"
+    },
+    {
+      "version": "20261104003358",
+      "path": "supabase/migrations/20261104003358_repair_hammer_aggregate_attempt_smallint_signature.sql",
+      "sha256": "c91c26b46f507cd920e1be9e7f9e639b6eba2e157a64d525c64eab71f466478a"
+    },
+    {
+      "version": "20261104071802",
+      "path": "supabase/migrations/20261104071802_repair_owner_hearth_aggregate_admission_enforcement.sql",
+      "sha256": "8203199edd0a9b87efd390e3eec64f569f19626715d9c0fe3b8fd7e18f2af9e3"
+    },
+    {
+      "version": "20261104143249",
+      "path": "supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql",
+      "sha256": "11fe8d8dbc08189c06887f1d14ff423f08b71704cdb85460158adde5752e76d4"
+    },
+    {
+      "version": "20261104212918",
+      "path": "supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql",
+      "sha256": "1addbe643cd6a7543615c9e6a3f0b4952edc5ffc7a3a5ea72de3abfcbdb07631"
+    },
+    {
+      "version": "20261105025313",
+      "path": "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql",
+      "sha256": "838f14fdd5801bcb842fa628a8ca80700bd20bda201569faa56e9b3fa2d2d24a"
+    },
+    {
+      "version": "20261111180013",
+      "path": "supabase/migrations/20261111180013_storage_capacity_authority.sql",
+      "sha256": "835312f662e5e2583f478a7b1c4eef9a174ce6b28baf4004c7aa8aed5c8a8d55"
+    },
+    {
+      "version": "20261111185031",
+      "path": "supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql",
+      "sha256": "6f857b1cf4c971054cc01d268737496229b516048ed8119deb87d113f0f67080"
+    },
+    {
+      "version": "20261111192458",
+      "path": "supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql",
+      "sha256": "8f50f8c3f6e3df22ae835bbf3a3cee0a7fe4cea7ee5449b938721bf15ecbb349"
+    },
+    {
+      "version": "20261111201029",
+      "path": "supabase/migrations/20261111201029_storage_historical_quarantine.sql",
+      "sha256": "98fb99e3b5797d5266efe92d6e6b3cd8cb2e2e436fb4549cfaff1f1aa12563b6"
+    },
+    {
+      "version": "20261113175455",
+      "path": "supabase/migrations/20261113175455_storage_historical_accounting.sql",
+      "sha256": "ca369b18b67f6aaa555f17e90dd58a66cee9b2a512b38c2569717c3f0e3bb4fc"
+    },
+    {
+      "version": "20261113214832",
+      "path": "supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql",
+      "sha256": "beb2d1dfe797666e8b11c7e62f89ce76450a87520b662100c12b7afb604291f0"
+    }
+  ],
+  "historicalAnchor": "20261018120000",
+  "historicalAnchorCount": 411
+}

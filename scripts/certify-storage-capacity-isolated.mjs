@@ -122,7 +122,7 @@ try{
  sql(baseReceipt);assert.equal(sql('select count(*) from tongs.subscription_cycle_receipts;'),receiptCount,'duplicate receipt remains idempotent');
  assert.equal(capacity().base_bytes,5*GiB);
  if(historical&&!historical.inventoryOnly)console.log(JSON.stringify({historicalAccounting:await certifyHistoricalAccounting({sql,sqlArgs,authenticated,service,owner,other,workspace,episode,capacity,historical})}));
- if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting:!!historical});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
+ if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting:!!historical,databaseContainer:container,databasePassword:dbPassword});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
  sql(subscription('sub_base','creator','subscription','trialing'));assert.equal(capacity().base_bytes,0,'no unapproved permanent trial allowance');
  sql(subscription('sub_base','creator','subscription','past_due'));assert.equal(capacity().base_bytes,5*GiB,'paid-through period preserved');
  sql(`update tongs.billing_subscriptions set current_period_end=now()-interval '1 second' where stripe_subscription_id='sub_base';`);

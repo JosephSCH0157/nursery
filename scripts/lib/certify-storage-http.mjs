@@ -7,10 +7,15 @@ import {TongsCommitService} from '../../packages/tongs/dist/workpiece-commit-api
 
 // Disposable Storage API using the already installed image. No shared volume,
 // no published non-loopback port, no hosted credentials, no image pulls.
-export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false}) {
+export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false,databaseContainer="supabase_db_forge-gate-e1-pre",databasePassword}) {
  const source=JSON.parse(run(['inspect','supabase_storage_forge-gate-e1-pre']))[0];
  const env=Object.fromEntries(source.Config.Env.map(s=>[s.slice(0,s.indexOf('=')),s.slice(s.indexOf('=')+1)]));
  const db=new URL(env.DATABASE_URL); assert.equal(db.hostname,'supabase_db_forge-gate-e1-pre');
+ assert.match(databaseContainer,/^supabase_db_forge-/);
+ const parent=JSON.parse(run(['inspect',databaseContainer]))[0];
+ const project=parent.Config.Labels['com.supabase.cli.project'];
+ assert.ok(project&&Object.hasOwn(parent.NetworkSettings.Networks,'supabase_network_'+project));
+ db.hostname=databaseContainer;if(databasePassword)db.password=databasePassword;
  assert.match(database,/^forge_storage_[a-f0-9]{12}$/);db.pathname='/'+database;
  const name='forge-storage-http-'+randomBytes(6).toString('hex');
  const secret=randomBytes(32).toString('hex');
@@ -19,7 +24,7 @@ export async function certifyStorageHttp({run,sql,database,workspace,episode,cap
  const settings={DATABASE_URL:db.href,AUTH_JWT_SECRET:secret,ANON_KEY:jwt('anon'),SERVICE_KEY:serviceKey,
  STORAGE_BACKEND:'file',FILE_STORAGE_BACKEND_PATH:'/data',TENANT_ID:'storage-cert',GLOBAL_S3_BUCKET:'storage-cert',REGION:'local',STORAGE_S3_REGION:'local',
  FILE_SIZE_LIMIT:'1048576',ENABLE_IMAGE_TRANSFORMATION:'false',S3_PROTOCOL_ENABLED:'false',DB_MIGRATIONS_FREEZE_AT:env.DB_MIGRATIONS_FREEZE_AT};
- const args=['run','--detach','--pull=never','--name',name,'--network','supabase_network_forge-gate-e1-pre','--publish','127.0.0.1::5000','--tmpfs','/data'];
+ const args=['run','--detach','--pull=never','--name',name,'--network','supabase_network_'+project,'--publish','127.0.0.1::5000','--tmpfs','/data'];
  for(const [k,v] of Object.entries(settings))if(v!=null)args.push('--env',`${k}=${v}`);
  let started=false;
  const keepAlive=setInterval(()=>{},1000);
