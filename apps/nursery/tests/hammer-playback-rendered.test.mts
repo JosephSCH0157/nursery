@@ -343,6 +343,11 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     await page.getByTestId("shortcut-focus").click();
     await page.keyboard.press("Space");
     await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).currentTime > 2.4);
+    await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).ended);
+    await page.waitForFunction(() => document.querySelector("button")?.textContent === "Play");
+    await page.getByRole("button", { name: "Play" }).click();
+    await page.waitForFunction(() => { const v = document.querySelector("video") as HTMLVideoElement; return !v.paused && v.currentTime > 0.1 && v.currentTime < 1; });
+    await page.getByRole("button", { name: "Pause" }).click();
   };
 
   try {

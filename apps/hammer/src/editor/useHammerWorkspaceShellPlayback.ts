@@ -782,7 +782,7 @@ export function useHammerWorkspaceShellPlayback(
     previewAudio.muted = false;
     if (previewAudio.volume <= 0) previewAudio.volume = 1;
     claimGlobalPlaybackAuthority(previewAudio);
-    const activationProgress = resolvePlaybackTransportProgress(args.playheadSec);
+    const activationProgress = resolvePlaybackTransportProgress(previewAudio.ended ? 0 : args.playheadSec);
     if (!activationProgress.shouldStop) {
       const activationMediaTime = args.resolveMediaTimeForTransportTime(activationProgress.nextPlayheadSec);
       if (Math.abs(previewAudio.currentTime - activationMediaTime) > PLAYHEAD_WINDOW_EPSILON_SEC) {
