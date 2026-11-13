@@ -465,6 +465,14 @@ export function initRecPillsMain(store?: AppStore | null): void {
   } catch {}
 
   try {
+    window.addEventListener('tp:recording:arm-state', (ev: Event) => {
+      const state = String((ev as CustomEvent)?.detail?.state || '').toLowerCase();
+      recordingEnabled = state === 'armed' || state === 'recording';
+      recompute();
+    });
+  } catch {}
+
+  try {
     window.addEventListener('tp:recording:transcript-state', (ev: Event) => {
       const detail = (ev as CustomEvent)?.detail || {};
       const status = String(detail.status || 'idle') as TranscriptRecState;

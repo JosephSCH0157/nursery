@@ -1,3 +1,5 @@
+import { authorizeFirstPartyUserRequest } from "../../server/tongs/first-party-user-request";
+export { authorizeFirstPartyUserRequest } from "../../server/tongs/first-party-user-request";
 import { createTongsCommitApiHandler } from "../../../../packages/tongs/src/workpiece-commit-api.ts";
 import { resolveNurseryTongsProviderBoundary } from "../../scripts/mw-tongs-commit-api";
 import { runWithOwnerRuntimeEnvironment } from "../../server/accounting/owner-runtime-environment";
@@ -7,24 +9,6 @@ import { resolveTongsRuntimeConfig } from "../../server/tongs/tongs-runtime-conf
 const config = resolveTongsRuntimeConfig();
 const providerBoundary = config.missing.length ? null : resolveNurseryTongsProviderBoundary(config);
 const handler = providerBoundary ? createTongsCommitApiHandler(providerBoundary.options) : null;
-
-const USER_AUTH_HEADERS = ["x-forge-user-authorization", "x-forge-user-token"] as const;
-
-export function authorizeFirstPartyUserRequest(
-  request: Request,
-  apiToken: string | undefined,
-): Request {
-  if (!apiToken || request.headers.has("authorization")) return request;
-  const hasUserAuthorization = USER_AUTH_HEADERS.some((name) => {
-    const value = request.headers.get(name)?.trim();
-    return Boolean(value && /^Bearer\s+\S+$/i.test(value));
-  });
-  if (!hasUserAuthorization) return request;
-
-  const headers = new Headers(request.headers);
-  headers.set("authorization", `Bearer ${apiToken}`);
-  return new Request(request, { headers });
-}
 
 function remapTongsPath(pathname: string, routePrefix: string): string {
   const functionPrefix = "/.netlify/functions/tongs";

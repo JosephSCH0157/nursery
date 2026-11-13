@@ -1,3 +1,4 @@
+import { authorizeRecordingWorkpieceRequest } from "../server/tongs/first-party-user-request";
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createClient } from "@supabase/supabase-js";
@@ -398,7 +399,7 @@ export async function createNurseryTongsMiddleware(opts?: {
             ?? new Response(JSON.stringify({ ok: false, error: { code: "hammer_shorts_route_not_found" } }), { status: 404 });
         }
       } else {
-        response = await handler(request);
+        response = await handler(authorizeRecordingWorkpieceRequest(request, config.options.apiToken));
       }
       await writeFetchResponse(res, response);
     } catch (error) {

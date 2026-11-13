@@ -70,7 +70,7 @@ try {
   } elseif($Mode -eq 'CertifiedChain') {
     if($ProjectRef -or $ScopeAttestationPath -or $AuthorizeAuthenticHistoryTransfer){throw 'Authentic inputs are forbidden during certified-chain certification.'}
     if(-not[string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('FORGE_GATE5D_DATABASE_READ_TOKEN','Process'))){throw 'A real Gate 5D token must not be loaded during certified-chain certification.'}
-    $twoLane=& (Join-Path $PSScriptRoot 'certify-anvil-recording-authority-historical-successor.ps1') -HistoryMode CertifiedChain -RepositoryRoot $repo|ConvertFrom-Json
+    $twoLane=& (Join-Path $PSScriptRoot 'certify-anvil-recording-authority-historical-current.ps1') -HistoryMode CertifiedChain -RepositoryRoot $repo|ConvertFrom-Json
     if(-not $twoLane.ok -or $twoLane.historyMode -cne 'CertifiedChain' -or -not $twoLane.certifiedAuthenticFoundation -or
        $twoLane.authenticRequestMade -or $twoLane.predecessorHistoryRows -ne 418 -or $twoLane.successorHistoryRows -ne 419 -or @($twoLane.lanes).Count -ne 2){
       throw 'Recording-authority certified-chain two-lane certification failed.'
