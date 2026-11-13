@@ -20,6 +20,7 @@ function harness(options: {
   obsArmed?: boolean;
   obsArmResult?: boolean;
   obsConnectResult?: boolean;
+  obsConnected?: boolean;
 } = {}) {
   const releaseMic = jest.fn();
   const stopCamera = jest.fn();
@@ -61,6 +62,7 @@ function harness(options: {
       armed: () => obsArmed,
       setArmed: setObsArmed,
       maybeConnect: maybeConnectObs,
+      isConnected: () => options.obsConnected ?? true,
       disconnect: disconnectObs,
       on: (_event, listener) => { disconnectListener = listener; return () => { disconnectListener = null; }; },
     }),
@@ -164,6 +166,31 @@ describe('recording device arming', () => {
     expect(failed.controller.getSnapshot().state).toBe('error');
   });
 
+  test('an enabled OBS preference is not proof of a successful connection', async () => {
+    const h = harness({ engine: 'obs', obsConnected: false });
+    await expect(h.controller.arm()).resolves.toEqual({ ok: false, failure: 'obs_failed' });
+    expect(h.setObsArmed).toHaveBeenLastCalledWith(false);
+    expect(h.setObsEnabled).toHaveBeenLastCalledWith(false);
+    expect(h.controller.getSnapshot().state).toBe('error');
+  });
+
+  test('a borrowed OBS arm still requires a live connection without taking ownership', async () => {
+    const h = harness({ engine: 'obs', obsArmed: true, obsConnected: false });
+    await expect(h.controller.arm()).resolves.toEqual({ ok: false, failure: 'obs_failed' });
+    expect(h.setObsArmed).not.toHaveBeenCalled();
+    expect(h.disconnectObs).not.toHaveBeenCalled();
+  });
+
+  test('OBS disconnect does not lose the ownership needed for later disarm', async () => {
+    const h = harness({ engine: 'obs' });
+    await h.controller.arm();
+    h.disconnectObsEvent();
+    await h.controller.disarm();
+    expect(h.setObsArmed).toHaveBeenLastCalledWith(false);
+    expect(h.disconnectObs).toHaveBeenCalledTimes(1);
+    expect(h.setObsEnabled).toHaveBeenLastCalledWith(false);
+  });
+
   test('OBS disconnect updates shared arm state and owned disarm uses the bridge', async () => {
     const h = harness({ engine: 'obs' });
     await h.controller.arm();
@@ -202,6 +229,17 @@ describe('recording device arming', () => {
     await h.controller.disarm();
     expect(h.requestMic).not.toHaveBeenCalled();
     expect(h.startCamera).not.toHaveBeenCalled();
+    expect(h.releaseMic).not.toHaveBeenCalled();
+    expect(h.stopCamera).not.toHaveBeenCalled();
+  });
+
+  test('recording stop preserves armed readiness when devices belong to another subsystem', async () => {
+    const h = harness({ micOpen: true, cameraOpen: true });
+    await h.controller.arm();
+    h.controller.setRecordingActive(true);
+    h.controller.setRecordingActive(false);
+    expect(h.controller.getSnapshot().state).toBe('armed');
+    await h.controller.disarm();
     expect(h.releaseMic).not.toHaveBeenCalled();
     expect(h.stopCamera).not.toHaveBeenCalled();
   });

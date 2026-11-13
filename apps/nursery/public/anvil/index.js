@@ -94878,6 +94878,7 @@ function defaultDependencies() {
       const events = window.__obsBridge;
       return {
         armed: typeof controller.armed === "function" ? () => controller.armed() : void 0,
+        isConnected: typeof events?.isConnected === "function" ? () => events.isConnected() : void 0,
         setArmed: typeof controller.setArmed === "function" ? (on3) => controller.setArmed(on3) : void 0,
         maybeConnect: typeof controller.maybeConnect === "function" ? () => controller.maybeConnect() : void 0,
         disconnect: typeof controller.disconnect === "function" ? () => controller.disconnect() : typeof events?.disconnect === "function" ? () => events.disconnect() : void 0,
@@ -94954,6 +94955,7 @@ function createRecordingArmController(overrides = {}) {
     },
     async arm() {
       if (snapshot.state === "armed" || snapshot.state === "recording") return { ok: true };
+      if (snapshot.state === "error") await cleanupOwnedMedia();
       const saved = deps.readConfiguration();
       if (!saved.ok) {
         return fail3(saved.reason === "missing" ? "configuration_missing" : "configuration_invalid", null);
@@ -94962,23 +94964,19 @@ function createRecordingArmController(overrides = {}) {
       publish({ state: "arming", configuration, failure: null });
       if (configuration.engine === "obs") {
         const obs = deps.getObsApi();
-        if (!obs?.setArmed || !obs.armed) return fail3("obs_unavailable", configuration);
-        if (obs.armed()) {
-          deps.setObsEnabled(true);
-          publish({ state: "armed", configuration, failure: null });
-          return { ok: true };
-        }
+        if (!obs?.setArmed || !obs.armed || !obs.isConnected) return fail3("obs_unavailable", configuration);
         try {
-          deps.setObsEnabled(true);
-          const armResult = await obs.setArmed(true);
-          if (armResult === false) return fail3("obs_failed", configuration);
-          ownsObsArm = obs.armed();
+          if (!obs.armed()) {
+            ownsObsArm = true;
+            deps.setObsEnabled(true);
+            const armResult = await obs.setArmed(true);
+            if (armResult === false) return fail3("obs_failed", configuration);
+          }
           const connectResult = await obs.maybeConnect?.();
-          if (connectResult === false || !obs.armed()) return fail3("obs_failed", configuration);
+          if (connectResult === false || !obs.armed() || !obs.isConnected()) return fail3("obs_failed", configuration);
           if (obs.on) {
             const cleanup = obs.on("disconnect", () => {
-              if (!ownsObsArm || snapshot.configuration?.engine !== "obs") return;
-              ownsObsArm = false;
+              if (snapshot.configuration?.engine !== "obs") return;
               publish({ state: "error", configuration, failure: "obs_disconnected" });
             });
             if (typeof cleanup === "function") removeObsDisconnectListener = cleanup;
@@ -95047,8 +95045,12 @@ function createRecordingArmController(overrides = {}) {
       if (active) {
         publish({ state: "recording", configuration: snapshot.configuration, failure: null });
       } else if (snapshot.state === "recording") {
+        const configuration = snapshot.configuration;
+        const browserReady = configuration?.engine === "core" && (ownsMic || !!deps.getMicApi()?.isOpen?.()) && (configuration.mode === "audio" || ownsCamera || !!deps.getCameraApi()?.isActive?.());
+        const obs = configuration?.engine === "obs" ? deps.getObsApi() : null;
+        const obsReady = !!obs?.armed?.() && !!obs?.isConnected?.();
         publish({
-          state: ownsMic || ownsCamera || ownsObsArm || snapshot.configuration?.engine === "obs" && !!deps.getObsApi()?.armed?.() ? "armed" : "idle",
+          state: browserReady || obsReady ? "armed" : "idle",
           configuration: snapshot.configuration,
           failure: null
         });
