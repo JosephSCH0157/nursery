@@ -62,7 +62,8 @@ function canonicalOpenFixtureService(signedUrl: () => string): TongsCommitServic
       media_hash: CANONICAL_SHA,
       media_bytes: 12_399,
       media_content_type: "video/webm;codecs=vp9,opus",
-      duration_ms: 2_530,
+      // Match the hosted failure: accepted duration exceeds native end by 59 ms.
+      duration_ms: 2_589,
     },
   };
   const schema = {
@@ -293,7 +294,7 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     assert.equal(await page.getByTestId("source-kind").textContent(), "canonical_signed");
     assert.equal(await page.locator("video").getAttribute("crossorigin"), "anonymous");
     assert.equal(await page.getByTestId("duration-source").textContent(), "verified_authority");
-    assert.equal(await page.getByTestId("transport-duration").textContent(), "2.530");
+    assert.equal(await page.getByTestId("transport-duration").textContent(), "2.589");
     assert.equal(await page.getByTestId("native-duration").textContent(), "Infinity");
     assert.equal(await page.getByTestId("endpoint-calls").textContent(), "1");
     assert.equal(await page.getByTestId("binary-fallback-calls").textContent(), "0");
@@ -345,6 +346,8 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).currentTime > 2.4);
     await page.waitForFunction(() => (document.querySelector("video") as HTMLVideoElement).ended);
     await page.waitForFunction(() => document.querySelector("button")?.textContent === "Play");
+    assert.equal(await page.getByTestId("playhead").textContent(), "2.589");
+    assert.ok(await page.locator("video").evaluate((media: HTMLVideoElement) => media.duration < 2.589), "native end must precede accepted duration in this regression");
     await page.getByRole("button", { name: "Play" }).click();
     await page.waitForFunction(() => { const v = document.querySelector("video") as HTMLVideoElement; return !v.paused && v.currentTime > 0.1 && v.currentTime < 1; });
     await page.getByRole("button", { name: "Pause" }).click();

@@ -63,6 +63,21 @@ export function describeHammerMediaPlaybackFailure(
 
 type PlaybackSelectionOrigin = "system" | "transcript" | "timeline" | "playhead";
 
+export function resolveHammerEndedTransportTime(
+  endedMediaTimeSec: number,
+  args: Pick<UseHammerWorkspaceShellPlaybackArgs,
+    "playbackMediaDurationSec" | "playbackTransportDurationSec" | "resolveTransportTimeForMediaTime">,
+): number {
+  // A native ended event can precede the accepted source duration by a few
+  // frames. Advance through that source's accepted end, not the whole program:
+  // intro/composition/outro mappings must still select the next phase.
+  const sourceEndSec = Math.max(endedMediaTimeSec, args.playbackMediaDurationSec ?? 0);
+  return Math.min(
+    args.playbackTransportDurationSec,
+    args.resolveTransportTimeForMediaTime(sourceEndSec) + 0.01,
+  );
+}
+
 export type UseHammerWorkspaceShellPlaybackArgs = {
   editableTranscriptSegments: HammerTranscriptSegment[];
   effectivePlaybackCutRegions: HammerEffectiveCutRegion[];
@@ -714,21 +729,23 @@ export function useHammerWorkspaceShellPlayback(
   ]);
 
   const handlePlaybackEnded = useCallback((endedMediaTimeSec: number): void => {
-    const requestedTransportTime = Math.min(
-      args.playbackTransportDurationSec,
-      args.resolveTransportTimeForMediaTime(endedMediaTimeSec) + 0.01,
-    );
+    const requestedTransportTime = resolveHammerEndedTransportTime(endedMediaTimeSec, {
+      playbackMediaDurationSec: args.playbackMediaDurationSec,
+      playbackTransportDurationSec: args.playbackTransportDurationSec,
+      resolveTransportTimeForMediaTime: args.resolveTransportTimeForMediaTime,
+    });
     const transportProgress = resolvePlaybackTransportProgress(requestedTransportTime);
     if (transportProgress.shouldStop || transportProgress.nextPlayheadSec >= args.playbackTransportDurationSec) {
       args.setIsPlaybackActive(false);
       if (args.playbackWindow?.mode === "roll") {
         args.setPlaybackWindow(null);
       }
-      args.setPlayheadSec(roundToTenth(Math.min(transportProgress.nextPlayheadSec, args.playbackTransportDurationSec)));
+      args.setPlayheadSec(Math.min(transportProgress.nextPlayheadSec, args.playbackTransportDurationSec));
       return;
     }
     args.setPlayheadSec(roundToTenth(transportProgress.nextPlayheadSec));
   }, [
+    args.playbackMediaDurationSec,
     args.playbackTransportDurationSec,
     args.playbackWindow?.mode,
     args.resolveTransportTimeForMediaTime,
