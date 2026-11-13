@@ -27,6 +27,7 @@
     "test:asr-smoke": "node tools/build_asr_smoke.mjs && node tools/asr_smoke.js",
     "test:rec-smoke": "node tools/rec_smoke.js",
     "test:recording-boundary-browser": "node tools/new_recording_boundary_browser.mjs",
+    "test:recording-arm-browser": "node tools/recording_arm_start_stop_browser.mjs",
     "lint:ts": "eslint \"**/*.{ts,tsx}\"",
     "lint:badchars": "node tools/check-bad-chars.mjs",
     "smoke:ci": "pnpm run build && node tools/teleprompter_e2e.js --runSmoke --stubObs --shimRecorder --headless",

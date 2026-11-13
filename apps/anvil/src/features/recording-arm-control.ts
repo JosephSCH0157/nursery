@@ -23,6 +23,9 @@ function failureMessage(failure: RecordingArmFailure): string {
     case 'camera_denied': return 'Camera permission was denied. Allow access, then arm again.';
     case 'media_unsupported': return 'This browser cannot initialize recording devices.';
     case 'camera_failed': return 'The camera could not be initialized. Check Recording Settings and device access.';
+    case 'obs_unavailable': return 'OBS control is unavailable. Check OBS in Recording Settings.';
+    case 'obs_disconnected': return 'OBS disconnected. Check OBS, then arm again.';
+    case 'obs_failed': return 'OBS could not be armed. Check its connection in Recording Settings.';
     default: return 'The microphone could not be initialized. Check Recording Settings and device access.';
   }
 }
