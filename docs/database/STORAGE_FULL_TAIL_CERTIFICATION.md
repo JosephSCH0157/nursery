@@ -6,7 +6,7 @@ The exact contract is `certification/storage-full-tail-446.json`: all 446 histor
 
 `scripts/certify-storage-full-tail.ps1` derives task-owned temporary runners from pinned Git objects. Original version-specific scripts and their exact-prefix assertions remain unchanged for their original scopes. The new entrypoint has its own explicit complete-tail contract. It stages migration files only in governed disposable CLI workdirs; it creates no repository clone, source snapshot or worktree. Supabase CLI remains exactly 2.84.2. Docker availability is checked before starting task-owned containers; user-owned Docker infrastructure is not restarted.
 
-Use an existing ACL-restricted evidence directory under the canonical repository's `.git`:
+Use a new ACL-restricted run directory under the canonical repository's `.git`. The entrypoint refuses to overwrite existing results for the selected lineage and records the candidate, contract, template and generated-runner hashes:
 
 ```powershell
 ./scripts/certify-storage-full-tail.ps1 -Lineage baseline -RepositoryRoot (Get-Location) -EvidenceDirectory $privateEvidence

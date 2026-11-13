@@ -57,12 +57,14 @@ foreach($file in @('scalable_forge_financial_admission.sql','public_slice_a_secu
 & (Join-Path $repo 'scripts/test-canonical-baseline-v1-data-api.ps1') -Workdir $Workdir
 if($LASTEXITCODE -ne 0){throw 'Full-tail Data API certification failed'}
 $acl=Sql @'
-select bool_and(c.relrowsecurity and c.relowner='postgres'::regrole
+select count(*)=6 and bool_and(c.relrowsecurity and c.relowner='postgres'::regrole
  and not has_table_privilege('anon',c.oid,'select')
  and not has_table_privilege('authenticated',c.oid,'insert')
  and not has_table_privilege('service_role',c.oid,'update'))
 from pg_class c join pg_namespace n on n.oid=c.relnamespace
-where n.nspname='tongs' and (c.relname like 'storage_historical_%' or c.relname='workpiece_manifest_publications');
+where n.nspname='tongs' and c.relkind='r' and c.relname in (
+ 'storage_historical_observations','storage_historical_approvals','storage_historical_objects',
+ 'storage_historical_retirements','storage_historical_revocations','workpiece_manifest_publications');
 '@
 if($acl -cne 't'){throw 'New private audit ACL/RLS contract failed'}
 Push-Location $Workdir
