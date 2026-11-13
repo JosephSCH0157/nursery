@@ -7,14 +7,14 @@ import {TongsCommitService} from '../../packages/tongs/dist/workpiece-commit-api
 
 // Disposable Storage API using the already installed image. No shared volume,
 // no published non-loopback port, no hosted credentials, no image pulls.
-export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity}) {
+export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false}) {
  const source=JSON.parse(run(['inspect','supabase_storage_forge-gate-e1-pre']))[0];
  const env=Object.fromEntries(source.Config.Env.map(s=>[s.slice(0,s.indexOf('=')),s.slice(s.indexOf('=')+1)]));
  const db=new URL(env.DATABASE_URL); assert.equal(db.hostname,'supabase_db_forge-gate-e1-pre');
  assert.match(database,/^forge_storage_[a-f0-9]{12}$/);db.pathname='/'+database;
  const name='forge-storage-http-'+randomBytes(6).toString('hex');
  const secret=randomBytes(32).toString('hex');
- const jwt=role=>{const p=[{alg:'HS256',typ:'JWT'},{role,iss:'supabase',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600}].map(v=>Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');return p+'.'+createHmac('sha256',secret).update(p).digest('base64url');};
+ const jwt=(role,sub)=>{const p=[{alg:'HS256',typ:'JWT'},{role,...(sub?{sub}:{}),iss:'supabase',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+600}].map(v=>Buffer.from(JSON.stringify(v)).toString('base64url')).join('.');return p+'.'+createHmac('sha256',secret).update(p).digest('base64url');};
  const serviceKey=jwt('service_role');
  const settings={DATABASE_URL:db.href,AUTH_JWT_SECRET:secret,ANON_KEY:jwt('anon'),SERVICE_KEY:serviceKey,
  STORAGE_BACKEND:'file',FILE_STORAGE_BACKEND_PATH:'/data',TENANT_ID:'storage-cert',GLOBAL_S3_BUCKET:'storage-cert',REGION:'local',STORAGE_S3_REGION:'local',
@@ -41,6 +41,13 @@ export async function certifyStorageHttp({run,sql,database,workspace,episode,cap
   // Only database lookup is adapted to the real disposable SQL connection.
   // Tongs serialization/upload/error handling and Storage HTTP are unmodified.
   const workspaceRow=JSON.parse(sql(`select row_to_json(w) from tongs.workspaces w where id='${workspace}';`).trim());
+  if(historicalAccounting) {
+   // All rows/bytes below belong solely to this random disposable database and
+   // tmpfs Storage instance. Seed a historical fixture, never a hosted identity.
+   const {certifyHistoricalStorageHttp}=await import('./certify-storage-historical-http.mjs');
+   const historical=await certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner:workspaceRow.created_by,capacity});
+   console.log(JSON.stringify({historicalHttp:historical}));
+  }
   const service=new TongsCommitService({storage:client.storage,schema:s=>{assert.equal(s,'tongs');return{from:table=>{assert.equal(table,'workspaces');return{select:()=>({eq:(key,id)=>{assert.equal(key,'id');assert.equal(id,workspace);return{single:async()=>({data:workspaceRow,error:null})};}})}}};}});
   const commit=(path,json)=>service.commitWorkspaceFile(workspace,{path,json,written_by:{tool:'storage-cert',tool_version:'1',lane:'fixture'}});
   const a=await commit('billing-cert/a.json',{value:1});assert.equal(capacity().used_bytes,a.bytes);

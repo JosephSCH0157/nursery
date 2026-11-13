@@ -16812,159 +16812,186 @@ export class TongsCommitService {
       args.contentType,
     );
 
-    await this.upsertWorkpieceFile([
-      {
-        workpiece_id: workpieceId,
-        path: args.path,
-        file_type: args.fileType,
-        content_type: args.contentType,
-        bytes: args.bytes.length,
-        hash_algo: SHA256_ALGO,
-        hash_value: hash,
-        storage_bucket: this.bucket,
-        storage_key: storageKey,
-        written_by_tool: args.writtenBy.tool,
-        written_by_tool_version: args.writtenBy.tool_version,
-        written_by_lane: args.writtenBy.lane,
-      },
-    ]);
-
-    const manifest = await this.loadManifestOrDefault(args.cradle);
-    manifest.updated_at = nowIso;
-    if (!manifest.status) {
-      manifest.status = "draft";
-    }
-    manifest.files[args.path] = buildManifestFileEntry(
-      args.fileType,
-      args.contentType,
-      args.bytes.length,
-      hash,
-      args.writtenBy,
-      nowIso,
-    );
-    applyPointerUpdates(manifest, args.path, args.pointer);
-
-    const finalized = await finalizeManifestTwoPass(
-      manifest,
-      args.writtenBy,
-      nowIso,
-    );
-
-    await uploadStorageObject(
-      this.supabase,
-      this.bucket,
-      buildStorageKey(workpieceId, MANIFEST_PATH),
-      finalized.manifestBytes,
-      "application/json",
-    );
-
-    await this.upsertWorkpieceFile([
-      {
-        workpiece_id: workpieceId,
-        path: MANIFEST_PATH,
-        file_type: "manifest",
-        content_type: "application/json",
-        bytes: finalized.finalBytes,
-        hash_algo: SHA256_ALGO,
-        hash_value: finalized.finalHash,
-        storage_bucket: this.bucket,
-        storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
-        written_by_tool: args.writtenBy.tool,
-        written_by_tool_version: args.writtenBy.tool_version,
-        written_by_lane: args.writtenBy.lane,
-      },
-    ]);
-
-    const eventName = args.eventName?.trim() || "workpiece.file.committed";
-    const eventPayload =
-      typeof args.eventPayload === "undefined"
-        ? ({
-            path: args.path,
-            content_type: args.contentType,
-            bytes: args.bytes.length,
-            hash,
-            mode: args.commitMode,
-          } as Json)
-        : args.eventPayload;
-
-    const event = await this.insertEvent({
-      workpieceId,
-      eventName,
-      payload: eventPayload,
-      writtenBy: args.writtenBy,
-      correlationId: normalizeCorrelationId(args.correlationId),
-    });
-    if (
-      args.path === HAMMER_ARTIFACT_PATHS.structured_transcript ||
-      args.path.startsWith("anvil/transcript/final/")
-    ) {
-      try {
-        console.info("[tongs:transcript:artifact_registered]", {
+    let incompleteStage = "file_registry";
+    try {
+      await this.upsertWorkpieceFile([
+        {
           workpiece_id: workpieceId,
           path: args.path,
-          event_name: eventName,
-          bytes: args.bytes.length,
+          file_type: args.fileType,
           content_type: args.contentType,
-          commit_mode: args.commitMode,
-          correlation_id: normalizeCorrelationId(args.correlationId),
-        });
-      } catch {
-        // ignore
+          bytes: args.bytes.length,
+          hash_algo: SHA256_ALGO,
+          hash_value: hash,
+          storage_bucket: this.bucket,
+          storage_key: storageKey,
+          written_by_tool: args.writtenBy.tool,
+          written_by_tool_version: args.writtenBy.tool_version,
+          written_by_lane: args.writtenBy.lane,
+        },
+      ]);
+
+      incompleteStage = "manifest_read";
+      const manifest = await this.loadManifestOrDefault(args.cradle);
+      manifest.updated_at = nowIso;
+      if (!manifest.status) {
+        manifest.status = "draft";
       }
-    }
+      manifest.files[args.path] = buildManifestFileEntry(
+        args.fileType,
+        args.contentType,
+        args.bytes.length,
+        hash,
+        args.writtenBy,
+        nowIso,
+      );
+      applyPointerUpdates(manifest, args.path, args.pointer);
 
-    const { data: fileRow, error: fileRowError } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_files")
-      .select("*")
-      .eq("workpiece_id", workpieceId)
-      .eq("path", args.path)
-      .single();
+      const finalized = await finalizeManifestTwoPass(
+        manifest,
+        args.writtenBy,
+        nowIso,
+      );
 
-    if (fileRowError || !fileRow) {
-      throw new HttpError(
-        502,
-        "db_read_failed",
-        "Failed to read committed workpiece_files row",
+      incompleteStage = "manifest_upload";
+      await uploadStorageObject(
+        this.supabase,
+        this.bucket,
+        buildStorageKey(workpieceId, MANIFEST_PATH),
+        finalized.manifestBytes,
+        "application/json",
+      );
+
+      incompleteStage = "manifest_registry";
+      await this.upsertWorkpieceFile([
         {
-          reason: fileRowError?.message,
+          workpiece_id: workpieceId,
+          path: MANIFEST_PATH,
+          file_type: "manifest",
+          content_type: "application/json",
+          bytes: finalized.finalBytes,
+          hash_algo: SHA256_ALGO,
+          hash_value: finalized.finalHash,
+          storage_bucket: this.bucket,
+          storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
+          written_by_tool: args.writtenBy.tool,
+          written_by_tool_version: args.writtenBy.tool_version,
+          written_by_lane: args.writtenBy.lane,
+        },
+      ]);
+
+      const eventName = args.eventName?.trim() || "workpiece.file.committed";
+      const eventPayload =
+        typeof args.eventPayload === "undefined"
+          ? ({
+              path: args.path,
+              content_type: args.contentType,
+              bytes: args.bytes.length,
+              hash,
+              mode: args.commitMode,
+            } as Json)
+          : args.eventPayload;
+
+      incompleteStage = "event";
+      const event = await this.insertEvent({
+        workpieceId,
+        eventName,
+        payload: eventPayload,
+        writtenBy: args.writtenBy,
+        correlationId: normalizeCorrelationId(args.correlationId),
+      });
+      if (
+        args.path === HAMMER_ARTIFACT_PATHS.structured_transcript ||
+        args.path.startsWith("anvil/transcript/final/")
+      ) {
+        try {
+          console.info("[tongs:transcript:artifact_registered]", {
+            workpiece_id: workpieceId,
+            path: args.path,
+            event_name: eventName,
+            bytes: args.bytes.length,
+            content_type: args.contentType,
+            commit_mode: args.commitMode,
+            correlation_id: normalizeCorrelationId(args.correlationId),
+          });
+        } catch {
+          // ignore
+        }
+      }
+
+      incompleteStage = "readback";
+      const { data: fileRow, error: fileRowError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .select("*")
+        .eq("workpiece_id", workpieceId)
+        .eq("path", args.path)
+        .single();
+
+      if (fileRowError || !fileRow) {
+        throw new HttpError(
+          502,
+          "db_read_failed",
+          "Failed to read committed workpiece_files row",
+          {
+            reason: fileRowError?.message,
+          },
+        );
+      }
+
+      const { data: manifestRow, error: manifestRowError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .select("*")
+        .eq("workpiece_id", workpieceId)
+        .eq("path", MANIFEST_PATH)
+        .single();
+
+      if (manifestRowError || !manifestRow) {
+        throw new HttpError(
+          502,
+          "db_read_failed",
+          "Failed to read manifest workpiece_files row",
+          {
+            reason: manifestRowError?.message,
+          },
+        );
+      }
+
+      return {
+        workpiece_id: workpieceId,
+        workspace_id: args.cradle.workspace_id,
+        path: args.path,
+        storage_key: storageKey,
+        hash,
+        bytes: args.bytes.length,
+        content_type: args.contentType,
+        manifest_hash: finalized.finalHash,
+        manifest_bytes: finalized.finalBytes,
+        file_row: fileRow,
+        manifest_row: manifestRow,
+        event,
+      };
+    } catch (error) {
+      // Storage and registry/manifest publication are separate transactions.
+      // Retained bytes remain subject to DB accounting even when publication
+      // fails. Never claim rollback or automatically overwrite a racing writer.
+      throw new HttpError(
+        error instanceof HttpError ? error.status : 502,
+        error instanceof HttpError ? error.code : "workpiece_commit_incomplete",
+        error instanceof Error ? error.message : "Workpiece commit incomplete",
+        {
+          ...(error instanceof HttpError && isRecord(error.details) ? error.details : {}),
+          commit_state: "incomplete",
+          incomplete_stage: incompleteStage,
+          retained_file_written: true,
+          retry_requires_reconciliation: true,
+          workpiece_id: workpieceId,
+          path: args.path,
+          attempted_sha256: hash,
         },
       );
     }
-
-    const { data: manifestRow, error: manifestRowError } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_files")
-      .select("*")
-      .eq("workpiece_id", workpieceId)
-      .eq("path", MANIFEST_PATH)
-      .single();
-
-    if (manifestRowError || !manifestRow) {
-      throw new HttpError(
-        502,
-        "db_read_failed",
-        "Failed to read manifest workpiece_files row",
-        {
-          reason: manifestRowError?.message,
-        },
-      );
-    }
-
-    return {
-      workpiece_id: workpieceId,
-      workspace_id: args.cradle.workspace_id,
-      path: args.path,
-      storage_key: storageKey,
-      hash,
-      bytes: args.bytes.length,
-      content_type: args.contentType,
-      manifest_hash: finalized.finalHash,
-      manifest_bytes: finalized.finalBytes,
-      file_row: fileRow,
-      manifest_row: manifestRow,
-      event,
-    };
   }
 
   async createCradle(

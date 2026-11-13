@@ -6,6 +6,7 @@ import { certifyStorageQuarantine } from './lib/certify-storage-quarantine.mjs';
 import { certifyStorageLifecycle } from './lib/certify-storage-lifecycle.mjs';
 import { certifyStorageHttp } from './lib/certify-storage-http.mjs';
 import { seedHistoricalAccounting, approveHistoricalAccounting, certifyHistoricalAccounting } from './lib/certify-storage-historical-accounting.mjs';
+import { seedPrivateHistoricalInventory, approvePrivateHistoricalInventory } from './lib/certify-storage-historical-inventory.mjs';
 console.log(JSON.stringify({phase:'storage-cert-imports-loaded'}));
 const container=process.env.SUPABASE_DB_CONTAINER;
 if(!container || !/^supabase_db_forge-/.test(container)) throw Error('Explicit existing disposable Forge container required');
@@ -52,6 +53,7 @@ function receipt(sub,item,type,live=false){const id=randomUUID();return service(
 function subscription(sub,item,type,status='active'){return service(`select tongs.upsert_billing_subscription('${owner}','cus_storage_fixture','${sub}','${type}','${item}','monthly','${status}',null,now()-interval '1 day',now()+interval '29 days',false,null,'{}');`);}
 function concurrent(query){return new Promise(resolve=>{const p=spawn('docker',sqlArgs,{stdio:['pipe','pipe','pipe']});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',code=>resolve({code,out,err}));p.stdin.end(service(`begin;${query}select pg_sleep(0.1);commit;`));});}
 let created=false;
+let privateHistoricalIds;
 try{
  run(['exec',container,'createdb','-U','postgres',database]);created=true;
  const dump=run(['exec',container,'pg_dump','-U','postgres','-d','postgres','--schema-only','--schema=tongs','--schema=auth','--schema=storage','--schema=extensions','--schema=public']).replace(/^CREATE SCHEMA public;\r?\n/m,'').replace(/^ALTER DEFAULT PRIVILEGES[\s\S]*?;\r?\n/gm,'');
@@ -65,7 +67,10 @@ try{
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1') {
   for(let i=1;i<=5;i++) sql(`insert into storage.objects(id,bucket_id,name,metadata,version,created_at,updated_at) values('e1000000-0000-4000-8000-00000000000${i}','forge-workpieces','${i===2?'workspaces/a1000000-0000-4000-8000-000000000088/retained.bin':`quarantine-synthetic-${i}.bin`}','{"size":${i*10}}','fixture',${i===4?'now()':"'2026-08-01T00:00:00Z'"},${i===4?'now()':"'2026-08-01T00:00:00Z'"});`);
  }
- if(process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT==='1') seedHistoricalAccounting(sql);
+ if(process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT==='1') {
+  if(process.env.FORGE_STORAGE_PRIVATE_INVENTORY)privateHistoricalIds=seedPrivateHistoricalInventory(sql,process.env.FORGE_STORAGE_PRIVATE_INVENTORY);
+  else seedHistoricalAccounting(sql);
+ }
  verifyReleaseStage(0);
  verifyInterruptedRelease(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'),0);
  sql(readFileSync('supabase/migrations/20261111180013_storage_capacity_authority.sql','utf8'));
@@ -84,8 +89,16 @@ try{
  verifyReleaseStage(4);
  let historical;
  if(process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT==='1') {
+  const functionContract=()=>parse(sql("select jsonb_object_agg(p.oid::regprocedure::text,jsonb_build_object('definition',pg_get_functiondef(p.oid),'acl',p.proacl,'owner',pg_get_userbyid(p.proowner))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','tongs','auth','storage') and p.prokind in ('f','p');"));
+  const accessContract=()=>sql("select jsonb_build_object('policies',(select jsonb_agg(to_jsonb(p) order by p.schemaname,p.tablename,p.policyname) from pg_policies p),'relations',(select jsonb_agg(jsonb_build_object('name',c.oid::regclass::text,'acl',c.relacl,'owner',c.relowner,'rls',c.relrowsecurity,'forced',c.relforcerowsecurity) order by c.oid::regclass::text) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','tongs','auth','storage') and c.relkind in ('r','v') and c.relname not like 'storage_historical_%'));");
+  const beforeFunctions=functionContract(),beforeAccess=accessContract();
   sql(readFileSync('supabase/migrations/20261113175455_storage_historical_accounting.sql','utf8'));
-  historical=approveHistoricalAccounting({sql,authenticated,service,owner,other});
+  const afterFunctions=functionContract();
+  const changed=Object.keys(beforeFunctions).filter(k=>JSON.stringify(beforeFunctions[k])!==JSON.stringify(afterFunctions[k])).sort();
+  assert.deepEqual(changed,['tongs._enforce_storage_capacity()','tongs._storage_capacity_usage(uuid,uuid)']);
+  assert.equal(accessContract(),beforeAccess,'existing RLS, relation grants and owners remain exact');
+  console.log(JSON.stringify({historicalCatalog:{result:'PASS',existingFunctionsChanged:changed,existingAccessContractSha256:createHash('sha256').update(beforeAccess).digest('hex')}}));
+  historical=privateHistoricalIds?approvePrivateHistoricalInventory({sql,authenticated,other,ids:privateHistoricalIds}):approveHistoricalAccounting({sql,authenticated,service,owner,other});
  }
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
@@ -106,8 +119,8 @@ try{
  sql(baseReceipt);const receiptCount=sql('select count(*) from tongs.subscription_cycle_receipts;');
  sql(baseReceipt);assert.equal(sql('select count(*) from tongs.subscription_cycle_receipts;'),receiptCount,'duplicate receipt remains idempotent');
  assert.equal(capacity().base_bytes,5*GiB);
- if(historical)console.log(JSON.stringify({historicalAccounting:await certifyHistoricalAccounting({sql,sqlArgs,authenticated,service,owner,other,workspace,episode,capacity,historical})}));
- if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
+ if(historical&&!historical.inventoryOnly)console.log(JSON.stringify({historicalAccounting:await certifyHistoricalAccounting({sql,sqlArgs,authenticated,service,owner,other,workspace,episode,capacity,historical})}));
+ if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting:!!historical});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
  sql(subscription('sub_base','creator','subscription','trialing'));assert.equal(capacity().base_bytes,0,'no unapproved permanent trial allowance');
  sql(subscription('sub_base','creator','subscription','past_due'));assert.equal(capacity().base_bytes,5*GiB,'paid-through period preserved');
  sql(`update tongs.billing_subscriptions set current_period_end=now()-interval '1 second' where stripe_subscription_id='sub_base';`);

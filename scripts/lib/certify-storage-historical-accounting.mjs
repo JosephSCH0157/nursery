@@ -41,7 +41,7 @@ export async function certifyHistoricalAccounting({sql,sqlArgs,authenticated,ser
  const accounting=()=>parse(sql(operator('select tongs.read_storage_historical_accounting();')));
  const fails=(q,re)=>assert.throws(()=>sql(q),re);
  const execute=q=>new Promise(resolve=>{const p=spawn('docker',sqlArgs,{stdio:['pipe','pipe','pipe']});let out='',err='';p.stdout.on('data',x=>out+=x);p.stderr.on('data',x=>err+=x);p.on('close',code=>resolve({code,out,err}));p.stdin.end(q);});
- const financial=()=>sql("select json_build_object('journals',(select count(*) from tongs.accounting_journal_events),'receipts',(select count(*) from tongs.subscription_cycle_receipts),'subscriptions',(select jsonb_agg(to_jsonb(s) order by s.id) from tongs.billing_subscriptions s));");
+ const financial=()=>sql("select json_build_object('journals',(select count(*) from tongs.accounting_journal_events),'receipts',(select count(*) from tongs.subscription_cycle_receipts),'subscriptions',(select jsonb_agg(to_jsonb(s) order by s.stripe_subscription_id) from tongs.billing_subscriptions s));");
  const before=financial(),initial=capacity();
  assert.equal(accounting().excluded_objects,5);assert.equal(accounting().unassigned_retained_bytes,510);
  assert.equal(initial.used_bytes,0);assert.equal(initial.usage_complete,true);
