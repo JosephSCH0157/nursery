@@ -88,7 +88,8 @@ test('100 concurrent-save rounds preserve every successful operation and registr
   const f=fixture();let arrivals=0,release;const barrier=new Promise(r=>release=r);
   const load=f.service.loadManifestOrDefault.bind(f.service);
   f.service.loadManifestOrDefault=async cradle=>{const value=await load(cradle);if(++arrivals===8)release();await barrier;return value;};
-  await Promise.all(Array.from({length:8},(_,i)=>f.commit(`metadata/${i}.json`)));
+  const results=await Promise.all(Array.from({length:8},(_,i)=>f.commit(`metadata/${i}.json`)));
+  for(const result of results){assert.equal(result.manifest_hash,result.manifest_row.hash_value);assert.equal(result.manifest_bytes,result.manifest_row.bytes);}
   const bytes=f.objects.get(f.prefix+'manifest.json'),manifest=JSON.parse(bytes);
   for(let i=0;i<8;i++)assert.ok(manifest.files[`metadata/${i}.json`]);
   assert.equal(f.events.length,8);assert.equal(f.publications.length,8);

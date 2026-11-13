@@ -61,7 +61,8 @@ publication.
 ## Certification and limits
 
 Private detailed evidence is under
-`.git/forge-storage-investigation-20261113/accounting-repair`, excluded from
+`.git/forge-storage-investigation-20261113/accounting-repair` and its sibling
+`accounting-repair-followup`, excluded from
 Git, application serving and deployment, with operator/SYSTEM access only.
 No private object IDs, body data, user identifiers, credentials or signed URLs
 belong in this document or its PR.
@@ -91,21 +92,60 @@ belong in this document or its PR.
 - Ordinary save/registry failure and reviewed retry regressions pass. The
   manifest registry identifies final serialized bytes, while the embedded
   self-entry intentionally hashes the first pass.
-- **The concurrent shared-manifest regression fails:** two interleaved file
-  saves can both report success while the final manifest drops one reference.
-  The accounting exception does not make that existing multi-transaction save
-  protocol atomic. The failing test is included in normal Tongs test commands,
-  not skipped or marked expected-to-fail. A reviewed serialization/fencing and
-  recovery contract is required before claiming concurrent episode saves are
-  certified. A process-local mutex is insufficient across servers/tabs.
-- **Full B1 bootstrap fails before this migration**, at immutable
-  `20261104143249_align_provider_requests_and_luna_financial_authority.sql`:
-  `reviewed Luna predecessor policy changed`. No frozen SQL or historical
-  evidence is changed to bypass that gate. A synthetic operational predecessor
-  is not equivalent to an empty, financially inactive B1 installation.
-- Authentic historical financial predecessor certification remains unresolved;
-  no complete H-through-445 upgrade or complete B1-through-445 pass is claimed.
-  Existing older historical receipts cannot certify this candidate.
+- The original concurrent-save regression is retained. The replacement protocol
+  uses provider-version compare-and-swap, not a process/browser mutex. Repeated
+  eight-writer unit rounds and forced stale reads over real disposable Storage
+  HTTP exercise successful reference retention. Exact-candidate receipts and
+  any failures are recorded in the follow-up evidence directory.
+- Empty B1 stops at immutable `20261104143249` with `reviewed Luna predecessor
+  policy changed`. That migration asserts operational rate, policy, published
+  price and rollout rows deliberately absent from a schema-only baseline.
+  `certify-canonical-baseline-v1.ps1 -CatalogStage provider-alignment` has an
+  existing guarded synthetic fixture for that separate operational-state lane.
+  A fixture-lane result is not proof that empty financially inactive B1 can
+  traverse this migration, nor authentic historical financial-state proof.
+- Complete H and B1 certification through both new migrations remains a release
+  gate. Older predecessor receipts cannot certify this candidate. No frozen
+  migration, policy assertion or catalog exception is weakened.
+
+## Manifest concurrency contract
+
+The additional forward migration is
+`20261113214832_workpiece_manifest_optimistic_concurrency.sql`. Existing 445
+accounting SQL remains byte-exact. There is no backfill, historical manifest
+rewrite, new ownership or entitlement. The service-only
+`read_workpiece_manifest_version` RPC binds a read to provider version and,
+for new publications, SHA-256. Tongs checks version before and after download
+and verifies published bytes before deriving a modification.
+
+Every managed manifest upload includes an operation ID, expected provider
+version (null only for creation), final-byte SHA-256 and writer attribution.
+The Storage transaction checks the precondition under its row lock, registers
+final bytes in `workpiece_files`, and appends an immutable publication receipt.
+Stale writes roll back. Tongs rebases only the requested delta onto the latest
+manifest, retaining disjoint successful changes. Conflicting same-entry changes
+or pointers return an explicit conflict; retry count is bounded. Late registry
+or capacity rejection does not publish a new manifest/receipt.
+
+Storage's rollback-only permission probe may temporarily change only an object
+version. A deferred constraint requires any durable changed version to have
+its matching publication receipt, so permitting the intermediate probe is not
+an enforcement bypass. Bookkeeping-only reads remain allowed, including old
+objects with no publication receipt. Direct stale registry upserts are rejected.
+The audit table has RLS, no direct application/service grants, and immutable
+update/delete guards; the new functions explicitly pin owner and execution ACLs.
+
+This transaction covers manifest publication and its registry, not the entire
+file-upload/event pipeline. A file may already be retained when publication or
+an event fails; that remains an explicit incomplete operation requiring
+reconciliation. Concurrent edits of the same source document still require
+that document's existing conflict/authority contract. No old content is
+restored over a newer writer to disguise a failed operation.
+
+Deployment must coordinate the new application writer with the forward schema:
+old writers lack required preconditions and fail closed. No standalone database
+apply, mixed-writer rollout, or downgrade to the old writer is authorized by
+this draft. Preserve receipts and use a reviewed forward repair on failure.
 
 ## Integrity and historical access
 
@@ -124,6 +164,26 @@ not reconcile the claims. Preserve the conflicting claims as evidence; never
 use the stale manifest hash in place of the actual observed provider identity.
 Any hosted approval must explicitly review these exceptions.
 
+The 29 exceptions are classified individually in private follow-up evidence:
+
+- 27 content-claim discrepancies have no surviving episode or registry. Ordinary
+  canonical reads cannot resolve them; preserved Storage bytes and manifest
+  claims remain available as evidence, not reconstructed authorized episodes.
+- One surviving draft snapshot has a stale manifest claim but a matching registry
+  hash and size. The current JSON reader verifies its bytes against the registry;
+  the stale manifest alone does not invalidate that read. Missing workspace
+  authority still blocks a claim of normal authorized edit/save operation.
+- One surviving manifest has a registry hash that fails the current JSON reader's
+  integrity check. Its embedded first-pass hash is valid but is not the registry's
+  final-byte hash. Correcting it requires an explicit reviewed historical repair.
+
+Tests feed the exact preserved bytes through the current Tongs JSON reader with
+recorded metadata adapters. They do not impersonate hosted users. All 29 are
+JSON documents, not audio/video; no linked recording/revision establishes a
+playback regression caused by these mismatches. Playback and user authorization
+remain separate acceptance requirements. The historical accounting identity
+uses actual provider metadata, not the stale application manifest claims.
+
 All six surviving historical episodes remain protected. Their missing
 workspaces/authority are not repaired or invented. No ordinary edit/save access
 is certified for them. The discovered Hammer playback case and disposable
@@ -134,7 +194,7 @@ not inferred from a service-role download or a different Storage policy.
 
 ## Rollout and recovery boundary
 
-Before any release: resolve the failing save-concurrency gate, approve the
+Before any release: verify the exact save-concurrency candidate, approve the
 empty-B1/real-H predecessor solution without rewriting frozen history, certify
 both lineages and the exact combined application candidate, and review exact
 migration/registration hashes. Coordinate with the pending Storage lifecycle

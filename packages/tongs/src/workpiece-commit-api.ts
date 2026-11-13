@@ -16740,7 +16740,7 @@ export class TongsCommitService {
     return data;
   }
 
-  private async readManifestVersion(workpieceId: string): Promise<string | null> {
+  private async readManifestVersion(workpieceId: string): Promise<{ version: string | null; sha256: string | null }> {
     const api = this.supabase.schema("tongs") as unknown as {
       rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }>;
     };
@@ -16749,7 +16749,8 @@ export class TongsCommitService {
         (data.exists && (typeof data.version !== "string" || !data.version))) {
       throw new HttpError(502, "manifest_version_read_failed", "Unable to verify manifest generation", { reason: error?.message });
     }
-    return data.exists ? data.version as string : null;
+    return { version: data.exists ? data.version as string : null,
+      sha256: typeof data.sha256 === "string" ? data.sha256 : null };
   }
 
   private async loadManifestOrDefault(cradle: EpisodeRow): Promise<WorkpieceManifest> {
@@ -16759,13 +16760,16 @@ export class TongsCommitService {
       const before = await this.readManifestVersion(cradle.id);
       const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
       const after = await this.readManifestVersion(cradle.id);
-      if (before !== after || (bytes === null) !== (after === null)) continue;
+      if (before.version !== after.version || (bytes === null) !== (after.version === null)) continue;
+      if (bytes && after.sha256 && await sha256Hex(bytes) !== after.sha256) {
+        throw new HttpError(409, "manifest_integrity_conflict", "Manifest bytes do not match the observed publication version");
+      }
       const manifest = bytes
         ? normalizeLoadedManifest(parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH), {
             workpieceId: cradle.id, workspaceId: cradle.workspace_id, status: "draft", createdAt,
           })
         : defaultManifest(cradle.id, cradle.workspace_id, "draft", createdAt);
-      manifestSnapshots.set(manifest, { base: structuredClone(manifest), version: after });
+      manifestSnapshots.set(manifest, { base: structuredClone(manifest), version: after.version });
       return manifest;
     }
     throw new HttpError(409, "manifest_version_conflict", "Manifest kept changing during read; retry after reconciliation");
@@ -16880,7 +16884,7 @@ export class TongsCommitService {
       applyPointerUpdates(manifest, args.path, args.pointer);
 
       incompleteStage = "manifest_publish";
-      const finalized = await this.publishManifest(
+      await this.publishManifest(
         manifest,
         args.writtenBy,
         nowIso,
@@ -16972,8 +16976,8 @@ export class TongsCommitService {
         hash,
         bytes: args.bytes.length,
         content_type: args.contentType,
-        manifest_hash: finalized.finalHash,
-        manifest_bytes: finalized.finalBytes,
+        manifest_hash: manifestRow.hash_value,
+        manifest_bytes: manifestRow.bytes,
         file_row: fileRow,
         manifest_row: manifestRow,
         event,

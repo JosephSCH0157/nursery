@@ -90,15 +90,16 @@ try{
  let historical;
  if(process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT==='1') {
   const functionContract=()=>parse(sql("select jsonb_object_agg(p.oid::regprocedure::text,jsonb_build_object('definition',pg_get_functiondef(p.oid),'acl',p.proacl,'owner',pg_get_userbyid(p.proowner))) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','tongs','auth','storage') and p.prokind in ('f','p');"));
-  const accessContract=()=>sql("select jsonb_build_object('policies',(select jsonb_agg(to_jsonb(p) order by p.schemaname,p.tablename,p.policyname) from pg_policies p),'relations',(select jsonb_agg(jsonb_build_object('name',c.oid::regclass::text,'acl',c.relacl,'owner',c.relowner,'rls',c.relrowsecurity,'forced',c.relforcerowsecurity) order by c.oid::regclass::text) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','tongs','auth','storage') and c.relkind in ('r','v') and c.relname not like 'storage_historical_%'));");
+  const accessContract=()=>sql("select jsonb_build_object('policies',(select jsonb_agg(to_jsonb(p) order by p.schemaname,p.tablename,p.policyname) from pg_policies p),'relations',(select jsonb_agg(jsonb_build_object('name',c.oid::regclass::text,'acl',c.relacl,'owner',c.relowner,'rls',c.relrowsecurity,'forced',c.relforcerowsecurity) order by c.oid::regclass::text) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','tongs','auth','storage') and c.relkind in ('r','v') and c.relname not like 'storage_historical_%' and c.relname<>'workpiece_manifest_publications'));");
   const beforeFunctions=functionContract(),beforeAccess=accessContract();
   sql(readFileSync('supabase/migrations/20261113175455_storage_historical_accounting.sql','utf8'));
+  sql(readFileSync('supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql','utf8'));
+  assert.equal(sql("select relrowsecurity and relowner='postgres'::regrole and not has_table_privilege('anon','tongs.workpiece_manifest_publications','select') and not has_table_privilege('authenticated','tongs.workpiece_manifest_publications','insert') and not has_table_privilege('service_role','tongs.workpiece_manifest_publications','update') from pg_class where oid='tongs.workpiece_manifest_publications'::regclass;").trim(),'t');
   const afterFunctions=functionContract();
   const changed=Object.keys(beforeFunctions).filter(k=>JSON.stringify(beforeFunctions[k])!==JSON.stringify(afterFunctions[k])).sort();
   assert.deepEqual(changed,['tongs._enforce_storage_capacity()','tongs._storage_capacity_usage(uuid,uuid)']);
   assert.equal(accessContract(),beforeAccess,'existing RLS, relation grants and owners remain exact');
   console.log(JSON.stringify({historicalCatalog:{result:'PASS',existingFunctionsChanged:changed,existingAccessContractSha256:createHash('sha256').update(beforeAccess).digest('hex')}}));
-  sql(readFileSync('supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql','utf8'));
   historical=privateHistoricalIds?approvePrivateHistoricalInventory({sql,authenticated,other,ids:privateHistoricalIds}):approveHistoricalAccounting({sql,authenticated,service,owner,other});
  }
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));

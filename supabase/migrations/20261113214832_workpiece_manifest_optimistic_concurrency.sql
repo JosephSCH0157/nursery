@@ -8,7 +8,7 @@ begin
  select * into o from storage.objects where bucket_id='forge-workpieces' and name='workpieces/'||p_workpiece_id::text||'/manifest.json';
  if not found then return jsonb_build_object('exists',false,'version',null); end if;
  if nullif(o.version,'') is null then raise exception 'unversioned manifest requires reconciliation' using errcode='PF003'; end if;
- return jsonb_build_object('exists',true,'version',o.version);
+ return jsonb_build_object('exists',true,'version',o.version,'sha256',o.user_metadata->'forge_manifest_publication'->>'sha256');
 end$$;
 
 create table tongs.workpiece_manifest_publications (

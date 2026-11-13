@@ -1279,7 +1279,7 @@ export function verifyFrozenEvidence({
       ["scalable-forge-financial-admission", "20261105025313", SCALABLE_FORGE_FINANCIAL_ADMISSION_PATH, SCALABLE_FORGE_FINANCIAL_ADMISSION_SHA256],
       ["storage-capacity-authority", "20261111180013", STORAGE_CAPACITY_AUTHORITY_PATH, STORAGE_CAPACITY_AUTHORITY_SHA256],
       ["storage-subscription-lifecycle", "20261111192458", STORAGE_SUBSCRIPTION_LIFECYCLE_PATH, STORAGE_SUBSCRIPTION_LIFECYCLE_SHA256],
-      ["workpiece-manifest-concurrency", "20261113214832", "supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql", "b1e079db6e7b8fd430e45b0a8bfab8ab59354b7109a862c838d3bdc9c192b80c"],
+      ["workpiece-manifest-concurrency", "20261113214832", "supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql", "beb2d1dfe797666e8b11c7e62f89ce76450a87520b662100c12b7afb604291f0"],
       ["storage-historical-accounting", "20261113175455", STORAGE_HISTORICAL_ACCOUNTING_PATH, STORAGE_HISTORICAL_ACCOUNTING_SHA256],
       ["storage-historical-quarantine", "20261111201029", STORAGE_HISTORICAL_QUARANTINE_PATH, STORAGE_HISTORICAL_QUARANTINE_SHA256],
       ["storage-capacity-statement", "20261111185031", STORAGE_CAPACITY_STATEMENT_PATH, STORAGE_CAPACITY_STATEMENT_SHA256],

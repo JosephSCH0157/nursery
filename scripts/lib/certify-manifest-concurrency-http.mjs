@@ -50,11 +50,23 @@ export async function certifyManifestConcurrencyHttp({sql,client,workspace,episo
  assert.equal(parsed(`select tongs.read_workpiece_manifest_version(${quote(episode)});`).version,version);
  const after=await client.storage.from('forge-workpieces').download(manifestKey);assert.deepEqual(Buffer.from(await after.data.arrayBuffer()),original);
  assert.equal(Number(sql(`select count(*) from tongs.workpiece_manifest_publications where workpiece_id=${quote(episode)};`).trim()),50);
+ assert.throws(()=>serviceSql(`update storage.objects set version=${quote(randomUUID())} where bucket_id='forge-workpieces' and name=${quote(manifestKey)};`),/manifest publication incomplete/);
+ const beforeRegistry=parsed(`select row_to_json(f) from tongs.workpiece_files f where workpiece_id=${quote(episode)} and path='manifest.json';`);
+ const remaining=5*1024**3-capacity().used_bytes-1;
+ const filler=`workpieces/${episode}/metadata/manifest-capacity-filler.bin`;
+ serviceSql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces',${quote(filler)},jsonb_build_object('size',${remaining}),${quote(randomUUID())});`);
+ const replacement=Buffer.from(JSON.stringify({...JSON.parse(original),capacity_test:'x'.repeat(1024)}));
+ const denied=await client.storage.from('forge-workpieces').upload(manifestKey,replacement,{upsert:true,contentType:'application/json',metadata:{forge_manifest_publication:{protocol:'forge.manifest-cas.v1',operation_id:randomUUID(),expected_version:version,sha256:hash(replacement),written_by:{tool:'storage-cert',tool_version:'1',lane:'fixture'}}}});
+ assert.ok(denied.error);assert.match(denied.error.message,/PF001/);
+ assert.deepEqual(parsed(`select row_to_json(f) from tongs.workpiece_files f where workpiece_id=${quote(episode)} and path='manifest.json';`),beforeRegistry,'late capacity failure rolls registry back');
+ assert.equal(Number(sql(`select count(*) from tongs.workpiece_manifest_publications where workpiece_id=${quote(episode)};`).trim()),50,'late capacity failure rolls receipt back');
+ const retained=await client.storage.from('forge-workpieces').download(manifestKey);assert.deepEqual(Buffer.from(await retained.data.arrayBuffer()),original,'late capacity failure preserves bytes');
+ serviceSql(`begin;set local storage.allow_delete_query='true';delete from storage.objects where bucket_id='forge-workpieces' and name=${quote(filler)};commit;`);
  assert.throws(()=>sql("set role authenticated; select tongs.read_workpiece_manifest_version('"+episode+"');"),/permission denied/);
  assert.throws(()=>serviceSql('select * from tongs.workpiece_manifest_publications;'),/permission denied/);
  assert.throws(()=>sql('update tongs.workpiece_manifest_publications set bytes=0;'),/immutable/);
  const cleanup=await client.storage.from('forge-workpieces').remove([manifestKey,...paths.map(p=>`workpieces/${episode}/${p}`)]);assert.equal(cleanup.error,null);
  serviceSql(`delete from tongs.workpiece_files where workpiece_id=${quote(episode)} and (path='manifest.json' or path like 'metadata/concurrency-%');`);
  assert.equal(capacity().used_bytes,0);
- return {result:'PASS',rounds:25,successfulOperations:50,casConflicts,registryAtomic:true,staleRegistryRejected:true,staleUploadBytesPreserved:true,receiptRlsAndImmutability:true};
+ return {result:'PASS',rounds:25,successfulOperations:50,casConflicts,registryAtomic:true,staleRegistryRejected:true,staleUploadBytesPreserved:true,receiptRlsAndImmutability:true,versionOnlyBypassDenied:true,lateCapacityRollback:true};
 }
