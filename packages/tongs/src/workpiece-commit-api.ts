@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { mergeManifestDelta, ManifestConflictError } from "./manifest-concurrency.js";
 import { evaluateReferenceVisualReadiness } from "@forge/shared/reference-visual-readiness";
 import { coordinateCleanupReview, CleanupReviewError } from "./hammer-cleanup-review-coordinator.js";
 import type { CleanupGenerator } from "./hammer-cleanup-review-contract.js";
@@ -5555,6 +5556,8 @@ function normalizeLoadedManifest(
   return normalized;
 }
 
+const manifestSnapshots = new WeakMap<WorkpieceManifest, { base: WorkpieceManifest; version: string | null }>();
+
 async function finalizeManifestTwoPass(
   manifest: WorkpieceManifest,
   manifestWrittenBy: WrittenBy,
@@ -5611,15 +5614,20 @@ async function uploadStorageObject(
   key: string,
   bytes: Uint8Array,
   contentType: string,
+  metadata?: Record<string, unknown>,
 ): Promise<string> {
   const { error } = await supabase.storage
     .from(bucket)
     .upload(key, uint8ToArrayBuffer(bytes), {
       upsert: true,
       contentType,
+      ...(metadata ? { metadata } : {}),
     });
 
   if (error) {
+    if (/\bPF003\b/.test(error.message)) {
+      throw new HttpError(409, "manifest_version_conflict", "Manifest changed during publication", { reason: error.message });
+    }
     logStorageError("upload", bucket, key, error);
     try {
       console.error("[tongs][storage:upload] failed", {
@@ -10156,17 +10164,10 @@ export class TongsCommitService {
         }
       }
 
-      const finalized = await finalizeManifestTwoPass(
+      const finalized = await this.publishManifest(
         manifest,
         DEFAULT_WRITTEN_BY,
         nowIso,
-      );
-      await uploadStorageObject(
-        this.supabase,
-        this.bucket,
-        buildStorageKey(cradle.id, MANIFEST_PATH),
-        finalized.manifestBytes,
-        "application/json",
       );
       await this.upsertWorkpieceFile([
         {
@@ -15474,17 +15475,10 @@ export class TongsCommitService {
     );
     manifest.updated_at = nowIso;
     delete manifest.files[expectedPath];
-    const finalized = await finalizeManifestTwoPass(
+    const finalized = await this.publishManifest(
       manifest,
       DEFAULT_WRITTEN_BY,
       nowIso,
-    );
-    await uploadStorageObject(
-      this.supabase,
-      this.bucket,
-      buildStorageKey(workpieceId, MANIFEST_PATH),
-      finalized.manifestBytes,
-      "application/json",
     );
     await this.upsertWorkpieceFile([
       {
@@ -15698,17 +15692,10 @@ export class TongsCommitService {
         }
       }
 
-      const finalized = await finalizeManifestTwoPass(
+      const finalized = await this.publishManifest(
         manifest,
         writtenBy,
         nowIso,
-      );
-      await uploadStorageObject(
-        this.supabase,
-        this.bucket,
-        buildStorageKey(cradle.id, MANIFEST_PATH),
-        finalized.manifestBytes,
-        "application/json",
       );
       await this.upsertWorkpieceFile([
         {
@@ -16679,6 +16666,10 @@ export class TongsCommitService {
   private async upsertWorkpieceFile(
     rows: Database["tongs"]["Tables"]["workpiece_files"]["Insert"][],
   ): Promise<void> {
+    // The Storage transaction registers manifests. A later app upsert could
+    // overwrite a newer publication's registry hash.
+    rows = rows.filter((row) => row.path !== MANIFEST_PATH);
+    if (rows.length === 0) return;
     const { error } = await this.supabase
       .schema("tongs")
       .from("workpiece_files")
@@ -16749,26 +16740,67 @@ export class TongsCommitService {
     return data;
   }
 
-  private async loadManifestOrDefault(
-    cradle: EpisodeRow,
-  ): Promise<WorkpieceManifest> {
-    const status = "draft";
+  private async readManifestVersion(workpieceId: string): Promise<string | null> {
+    const api = this.supabase.schema("tongs") as unknown as {
+      rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const { data, error } = await api.rpc("read_workpiece_manifest_version", { p_workpiece_id: workpieceId });
+    if (error || !isRecord(data) || typeof data.exists !== "boolean" ||
+        (data.exists && (typeof data.version !== "string" || !data.version))) {
+      throw new HttpError(502, "manifest_version_read_failed", "Unable to verify manifest generation", { reason: error?.message });
+    }
+    return data.exists ? data.version as string : null;
+  }
+
+  private async loadManifestOrDefault(cradle: EpisodeRow): Promise<WorkpieceManifest> {
     const createdAt = cradle.created_at ?? new Date().toISOString();
     const key = buildStorageKey(cradle.id, MANIFEST_PATH);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
-    const fallback = {
-      workpieceId: cradle.id,
-      workspaceId: cradle.workspace_id,
-      status,
-      createdAt,
-    };
-
-    if (!bytes) {
-      return defaultManifest(cradle.id, cradle.workspace_id, status, createdAt);
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const before = await this.readManifestVersion(cradle.id);
+      const bytes = await downloadStorageObject(this.supabase, this.bucket, key);
+      const after = await this.readManifestVersion(cradle.id);
+      if (before !== after || (bytes === null) !== (after === null)) continue;
+      const manifest = bytes
+        ? normalizeLoadedManifest(parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH), {
+            workpieceId: cradle.id, workspaceId: cradle.workspace_id, status: "draft", createdAt,
+          })
+        : defaultManifest(cradle.id, cradle.workspace_id, "draft", createdAt);
+      manifestSnapshots.set(manifest, { base: structuredClone(manifest), version: after });
+      return manifest;
     }
+    throw new HttpError(409, "manifest_version_conflict", "Manifest kept changing during read; retry after reconciliation");
+  }
 
-    const parsed = parseJsonText(textDecoder.decode(bytes), MANIFEST_PATH);
-    return normalizeLoadedManifest(parsed, fallback);
+  private async publishManifest(
+    desired: WorkpieceManifest, writtenBy: WrittenBy, nowIso: string,
+  ): Promise<Awaited<ReturnType<typeof finalizeManifestTwoPass>>> {
+    const snapshot = manifestSnapshots.get(desired);
+    const operationId = crypto.randomUUID();
+    let current = desired, version = snapshot?.version ?? null;
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const finalized = await finalizeManifestTwoPass(current, writtenBy, nowIso);
+      try {
+        await uploadStorageObject(this.supabase, this.bucket,
+          buildStorageKey(desired.workpiece_id, MANIFEST_PATH), finalized.manifestBytes, "application/json",
+          { forge_manifest_publication: { protocol: "forge.manifest-cas.v1", operation_id: operationId,
+              expected_version: version, sha256: finalized.finalHash, written_by: writtenBy } });
+        return finalized;
+      } catch (error) {
+        if (!(error instanceof HttpError) || error.code !== "manifest_version_conflict") throw error;
+        if (!snapshot) throw error; // New cradle must not overwrite existing data.
+        const latest = await this.loadManifestOrDefault({ id: desired.workpiece_id,
+          workspace_id: desired.workspace_id, created_at: desired.created_at } as EpisodeRow);
+        try { current = mergeManifestDelta(snapshot.base, desired, latest); }
+        catch (conflict) {
+          if (conflict instanceof ManifestConflictError) {
+            throw new HttpError(409, "manifest_entry_conflict", conflict.message, { operation_id: operationId });
+          }
+          throw conflict;
+        }
+        version = manifestSnapshots.get(latest)!.version;
+      }
+    }
+    throw new HttpError(409, "manifest_version_conflict", "Manifest contention exceeded retry bound", { operation_id: operationId });
   }
 
   private async commitFileBytes(args: {
@@ -16847,38 +16879,12 @@ export class TongsCommitService {
       );
       applyPointerUpdates(manifest, args.path, args.pointer);
 
-      const finalized = await finalizeManifestTwoPass(
+      incompleteStage = "manifest_publish";
+      const finalized = await this.publishManifest(
         manifest,
         args.writtenBy,
         nowIso,
       );
-
-      incompleteStage = "manifest_upload";
-      await uploadStorageObject(
-        this.supabase,
-        this.bucket,
-        buildStorageKey(workpieceId, MANIFEST_PATH),
-        finalized.manifestBytes,
-        "application/json",
-      );
-
-      incompleteStage = "manifest_registry";
-      await this.upsertWorkpieceFile([
-        {
-          workpiece_id: workpieceId,
-          path: MANIFEST_PATH,
-          file_type: "manifest",
-          content_type: "application/json",
-          bytes: finalized.finalBytes,
-          hash_algo: SHA256_ALGO,
-          hash_value: finalized.finalHash,
-          storage_bucket: this.bucket,
-          storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
-          written_by_tool: args.writtenBy.tool,
-          written_by_tool_version: args.writtenBy.tool_version,
-          written_by_lane: args.writtenBy.lane,
-        },
-      ]);
 
       const eventName = args.eventName?.trim() || "workpiece.file.committed";
       const eventPayload =
@@ -17114,11 +17120,6 @@ export class TongsCommitService {
       nowIso,
     );
 
-    const finalized = await finalizeManifestTwoPass(
-      manifest,
-      writtenBy,
-      nowIso,
-    );
 
     await uploadStorageObject(
       this.supabase,
@@ -17134,13 +17135,12 @@ export class TongsCommitService {
       assetsBytes,
       "application/json",
     );
-    await uploadStorageObject(
-      this.supabase,
-      this.bucket,
-      buildStorageKey(cradle.id, MANIFEST_PATH),
-      finalized.manifestBytes,
-      "application/json",
+    const finalized = await this.publishManifest(
+      manifest,
+      writtenBy,
+      nowIso,
     );
+
 
     await this.upsertWorkpieceFile([
       {
@@ -18365,7 +18365,7 @@ export class TongsCommitService {
           },
           nowIso,
         );
-        const manifestResult = await finalizeManifestTwoPass(
+        const manifestResult = await this.publishManifest(
           manifest,
           {
             tool: "hammer",
@@ -18373,13 +18373,6 @@ export class TongsCommitService {
             lane: "forge-managed",
           },
           nowIso,
-        );
-        await uploadStorageObject(
-          this.supabase,
-          this.bucket,
-          buildStorageKey(workpieceId, MANIFEST_PATH),
-          manifestResult.manifestBytes,
-          "application/json",
         );
         await this.upsertWorkpieceFile([
           {
@@ -19168,17 +19161,10 @@ export class TongsCommitService {
       }
     }
 
-    const finalized = await finalizeManifestTwoPass(
+    const finalized = await this.publishManifest(
       manifest,
       writtenBy,
       nowIso,
-    );
-    await uploadStorageObject(
-      this.supabase,
-      this.bucket,
-      buildStorageKey(workpieceId, MANIFEST_PATH),
-      finalized.manifestBytes,
-      "application/json",
     );
     await this.upsertWorkpieceFile([
       {

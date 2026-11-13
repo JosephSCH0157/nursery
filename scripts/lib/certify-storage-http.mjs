@@ -36,6 +36,7 @@ export async function certifyStorageHttp({run,sql,database,workspace,episode,cap
     // Direct Storage server routes have no gateway /storage/v1 prefix.
     url.pathname=url.pathname.replace(/^\/storage\/v1/,'');
     const response=await fetch(url,{...init,signal:AbortSignal.timeout(10000)});
+    if(!response.ok && url.pathname.endsWith('/manifest.json'))console.log(JSON.stringify({manifestStorageFailure:await response.clone().text()}));
     observations.push({method:init?.method??'GET',status:response.status,route:url.pathname.split('/').slice(0,3).join('/')});return response;
   }}});
   // Only database lookup is adapted to the real disposable SQL connection.
@@ -47,6 +48,10 @@ export async function certifyStorageHttp({run,sql,database,workspace,episode,cap
    const {certifyHistoricalStorageHttp}=await import('./certify-storage-historical-http.mjs');
    const historical=await certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner:workspaceRow.created_by,capacity});
    console.log(JSON.stringify({historicalHttp:historical}));
+  }
+  if(historicalAccounting) {
+   const {certifyManifestConcurrencyHttp}=await import('./certify-manifest-concurrency-http.mjs');
+   console.log(JSON.stringify({manifestConcurrency:await certifyManifestConcurrencyHttp({sql,client,workspace,episode,capacity})}));
   }
   const service=new TongsCommitService({storage:client.storage,schema:s=>{assert.equal(s,'tongs');return{from:table=>{assert.equal(table,'workspaces');return{select:()=>({eq:(key,id)=>{assert.equal(key,'id');assert.equal(id,workspace);return{single:async()=>({data:workspaceRow,error:null})};}})}}};}});
   const commit=(path,json)=>service.commitWorkspaceFile(workspace,{path,json,written_by:{tool:'storage-cert',tool_version:'1',lane:'fixture'}});

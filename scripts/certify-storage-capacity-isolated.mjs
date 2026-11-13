@@ -98,6 +98,7 @@ try{
   assert.deepEqual(changed,['tongs._enforce_storage_capacity()','tongs._storage_capacity_usage(uuid,uuid)']);
   assert.equal(accessContract(),beforeAccess,'existing RLS, relation grants and owners remain exact');
   console.log(JSON.stringify({historicalCatalog:{result:'PASS',existingFunctionsChanged:changed,existingAccessContractSha256:createHash('sha256').update(beforeAccess).digest('hex')}}));
+  sql(readFileSync('supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql','utf8'));
   historical=privateHistoricalIds?approvePrivateHistoricalInventory({sql,authenticated,other,ids:privateHistoricalIds}):approveHistoricalAccounting({sql,authenticated,service,owner,other});
  }
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));
