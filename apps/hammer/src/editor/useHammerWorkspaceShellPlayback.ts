@@ -365,12 +365,13 @@ export function useHammerWorkspaceShellPlayback(
 
     const audibleTarget = resolveAudibleSeekTarget(args.playheadSec);
     if (audibleTarget == null) {
-      const terminalPlayheadSec = roundToTenth(args.playbackTransportDurationSec);
+      const terminalPlayheadSec = args.playbackTransportDurationSec;
       if (Math.abs(args.playheadSec - terminalPlayheadSec) >= SCRUB_SEEK_THRESHOLD_SEC) {
         args.setPlayheadSec(terminalPlayheadSec);
       }
       if (
         args.previewAudioRef.current
+        && !args.previewAudioRef.current.ended
         && Math.abs(
           args.previewAudioRef.current.currentTime - args.resolveMediaTimeForTransportTime(args.playbackTransportDurationSec),
         ) > SCRUB_SEEK_THRESHOLD_SEC
@@ -481,7 +482,8 @@ export function useHammerWorkspaceShellPlayback(
       || transportProgress.shouldSyncMediaTime
     );
     const targetAudioTime = clampHammerMediaSeekTime(targetMediaTime, previewAudio.duration, args.playbackMediaDurationSec);
-    if (shouldSynchronizeCurrentTime && Math.abs(previewAudio.currentTime - targetAudioTime) > SCRUB_SEEK_THRESHOLD_SEC) {
+    const atNativeTerminal = previewAudio.ended && targetTransportTime >= args.playbackTransportDurationSec;
+    if (shouldSynchronizeCurrentTime && !atNativeTerminal && Math.abs(previewAudio.currentTime - targetAudioTime) > SCRUB_SEEK_THRESHOLD_SEC) {
       seekPreviewAudioWithOptionalSeamFade({
         audio: previewAudio,
         targetTime: targetAudioTime,
