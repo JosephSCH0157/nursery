@@ -1,5 +1,6 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HammerAudibleMedia } from "./HammerAudibleMedia";
 import BackgroundBlurPreviewLayer, { type HammerBackgroundBlurRuntimeStatus } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import FaceAnalysisPreviewLayer from "../features/eye-contact-assist/render/faceAnalysisPreviewLayer";
@@ -464,7 +465,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           ) : null}
           {/* The editor exposes the synchronized transcript beside this source preview. */}
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <video
+          <HammerAudibleMedia
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}
             preload="metadata"

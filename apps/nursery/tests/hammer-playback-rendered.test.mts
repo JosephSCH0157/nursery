@@ -168,8 +168,11 @@ test("normal canonical open plays real WebM whose container duration is unknown"
   const unknownDurationFixture = Buffer.from(fixture);
   unknownDurationFixture[durationElementOffset + 1] = 0x88;
   let origin = "";
+  let mediaOrigin = "";
+  let corsMode: "allowed" | "missing" | "rejected" = "allowed";
+  const rangeRequests: string[] = [];
   const fixtureService = canonicalOpenFixtureService(
-    () => `${origin}/signed/hammer-unknown-duration.webm`,
+    () => `${mediaOrigin}/signed/hammer-unknown-duration.webm?cors=${corsMode}`,
   );
   const signedMediaPlugin: Plugin = {
     name: "hammer-unknown-duration-signed-media",
@@ -206,6 +209,8 @@ test("normal canonical open plays real WebM whose container duration is unknown"
         });
       });
       server.middlewares.use("/signed/hammer-unknown-duration.webm", (request, response) => {
+        if (corsMode !== "missing") response.setHeader("access-control-allow-origin", corsMode === "allowed" ? origin : "https://rejected.invalid");
+        if (request.headers.range) rangeRequests.push(request.headers.range);
         response.setHeader("content-type", "video/webm;codecs=vp9,opus");
         response.setHeader("cache-control", "no-store");
         response.setHeader("accept-ranges", "bytes");
@@ -239,8 +244,41 @@ test("normal canonical open plays real WebM whose container duration is unknown"
   const address = server.httpServer?.address();
   assert.ok(address && typeof address !== "string");
   origin = `http://127.0.0.1:${address.port}`;
+  const mediaServer = await createServer({
+    root: new URL("../../..", import.meta.url).pathname,
+    configFile: false,
+    logLevel: "error",
+    plugins: [signedMediaPlugin],
+    server: { host: "127.0.0.1", port: 0, cors: false },
+  });
+  await mediaServer.listen();
+  const mediaAddress = mediaServer.httpServer?.address();
+  assert.ok(mediaAddress && typeof mediaAddress !== "string");
+  mediaOrigin = `http://127.0.0.1:${mediaAddress.port}`;
+  assert.notEqual(mediaOrigin, origin);
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
+  await page.addInitScript(() => {
+    const runtime = window as typeof window & { __audioPeak: number; __audioSamples: number };
+    runtime.__audioPeak = 0;
+    runtime.__audioSamples = 0;
+    const connect = AudioNode.prototype.connect;
+    // Observe the actual Studio Rack master output; never replace its source or graph.
+    AudioNode.prototype.connect = function (...args: Parameters<AudioNode["connect"]>) {
+      const destination = args[0];
+      if (destination instanceof AudioDestinationNode) {
+        const analyser = this.context.createAnalyser();
+        connect.call(this, analyser);
+        const samples = new Float32Array(analyser.fftSize);
+        window.setInterval(() => {
+          analyser.getFloatTimeDomainData(samples);
+          runtime.__audioSamples += samples.length;
+          for (const sample of samples) runtime.__audioPeak = Math.max(runtime.__audioPeak, Math.abs(sample));
+        }, 10);
+      }
+      return Reflect.apply(connect, this, args);
+    } as AudioNode["connect"];
+  });
   const consoleMessages: string[] = [];
   const providerRequests: string[] = [];
   page.on("console", (message) => consoleMessages.push(`${message.type()}: ${message.text()}`));
@@ -253,6 +291,7 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     await page.waitForLoadState("networkidle");
     await page.waitForFunction(() => document.querySelector('[data-testid="readiness"]')?.textContent === "playable", null, { timeout: 10_000 });
     assert.equal(await page.getByTestId("source-kind").textContent(), "canonical_signed");
+    assert.equal(await page.locator("video").getAttribute("crossorigin"), "anonymous");
     assert.equal(await page.getByTestId("duration-source").textContent(), "verified_authority");
     assert.equal(await page.getByTestId("transport-duration").textContent(), "2.530");
     assert.equal(await page.getByTestId("native-duration").textContent(), "Infinity");
@@ -267,6 +306,7 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     await page.waitForFunction(() => Number(document.querySelector('[data-testid="playhead"]')?.textContent) > 0.15);
     assert.ok(Number(await page.getByTestId("playhead").textContent()) > 0.15, "initial Play must advance the rendered playhead");
     assert.equal(await page.getByTestId("audio-context").textContent(), "running");
+    await page.waitForFunction(() => (window as typeof window & { __audioPeak: number }).__audioPeak > 0.001);
 
     await page.getByRole("button", { name: "Pause" }).click();
     const pausedAt = await page.locator("video").evaluate((media: HTMLVideoElement) => media.currentTime);
@@ -320,6 +360,22 @@ test("normal canonical open plays real WebM whose container duration is unknown"
     });
     await page.getByRole("button", { name: "Play" }).click();
     await page.waitForFunction(() => (window as typeof window & { __hammerReloadAdvanced?: boolean }).__hammerReloadAdvanced === true);
+    await page.waitForFunction(() => (window as typeof window & { __audioPeak: number }).__audioPeak > 0.001);
+    console.log("Cross-origin Studio Rack measured output", await page.evaluate(() => ({
+      peak: (window as typeof window & { __audioPeak: number }).__audioPeak,
+      samples: (window as typeof window & { __audioSamples: number }).__audioSamples,
+    })));
+    assert.ok(rangeRequests.some((range) => range.startsWith("bytes=")), "signed media retains range delivery");
+    for (const mode of ["missing", "rejected"] as const) {
+      corsMode = mode;
+      await page.reload({ waitUntil: "networkidle" });
+      await page.waitForFunction(() => document.querySelector('[data-testid="readiness"]')?.textContent === "failed");
+      await page.waitForFunction(() => document.querySelector('[data-testid="hint"]')?.textContent?.includes("Storage CORS authorization"));
+      assert.equal(await page.getByTestId("binary-fallback-calls").textContent(), "0");
+      assert.equal(await page.evaluate(() => (window as typeof window & { __audioPeak: number }).__audioPeak), 0);
+      assert.equal(await page.locator("video").evaluate((media: HTMLVideoElement) => media.paused), true);
+    }
+    assert.ok(consoleMessages.some((message) => message.includes("cross_origin_media_load_failed")));
     assert.deepEqual(providerRequests, []);
   } catch (error) {
     const mediaState = await page.locator("video").evaluate((media: HTMLVideoElement) => ({
@@ -334,6 +390,7 @@ test("normal canonical open plays real WebM whose container duration is unknown"
   } finally {
     await page.close();
     await browser.close();
+    await mediaServer.close();
     await server.close();
   }
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { HammerAudibleMedia } from "../../../hammer/src/editor/HammerAudibleMedia";
 import { bindLaunchContextToCanonicalRecording } from "../../../hammer/src/editor/hammerCanonicalMediaBinding";
 import type { CanonicalRecordingRecord, RecordingRevisionRecord } from "@forge/tongs/workpiece-commit-api";
 import { resolveHammerRawPlaybackSource, type HammerRawPlaybackSource } from "../../../hammer/src/editor/hammerCanonicalPlayback";
@@ -198,7 +199,7 @@ export function Harness(): React.JSX.Element {
     <button type="button" onClick={() => transport.seekPlayheadToTime(2.35, "timeline")}>Seek late</button>
     <button type="button" onClick={() => transport.seekPlayheadToTime(transcriptDurationSec, "timeline")}>Seek transcript end</button>
     <div tabIndex={0} data-testid="shortcut-focus">Keyboard shortcut focus</div>
-    <video
+    <HammerAudibleMedia
       ref={mediaRef}
       src={source?.url ?? undefined}
       preload="auto"

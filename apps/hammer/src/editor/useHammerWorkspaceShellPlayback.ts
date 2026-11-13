@@ -317,7 +317,15 @@ export function useHammerWorkspaceShellPlayback(
   const reportPlaybackFailure = useCallback((media: HTMLMediaElement, reason: unknown, boundary: string): void => {
     const failure = describeHammerMediaPlaybackFailure(media, reason);
     console.error("[HammerPlayback:media_failure]", { boundary, ...failure });
-    setTranscriptTimingHint(`Playback could not start (${failure.name}). ${failure.message}`);
+    const crossOriginSource = (() => {
+      try { return new URL(media.currentSrc || media.src, window.location.href).origin !== window.location.origin; }
+      catch { return false; }
+    })();
+    const accessHint = crossOriginSource && media.error
+      ? " Signed media could not be loaded. Check URL expiry, network access, and Storage CORS authorization."
+      : "";
+    if (accessHint) console.error("[HammerPlayback:cross_origin_media_load_failed]", { crossOrigin: media.crossOrigin, ...failure });
+    setTranscriptTimingHint(`Playback could not start (${failure.name}). ${failure.message}${accessHint}`);
   }, [setTranscriptTimingHint]);
 
   useEffect(() => {
