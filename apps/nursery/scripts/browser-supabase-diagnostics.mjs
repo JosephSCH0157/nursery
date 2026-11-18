@@ -11,10 +11,10 @@ export function summarizeSupabaseStartup(log, migrationNames) {
     .map((match) => match[1]).filter((name) => allowed.has(name));
   const signatures = [
     ["sql_syntax_error", /syntax error at or near/i],
-    ["sql_missing_relation", /relation [^\r\n]* does not exist/i],
+    ["sql_missing_relation", /^.*\bERROR:\s*[^\r\n]*relation [^\r\n]* does not exist/im],
     ["sql_missing_column", /column [^\r\n]* does not exist/i],
     ["sql_missing_function", /function [^\r\n]* does not exist/i],
-    ["sql_already_exists", /already exists/i],
+    ["sql_already_exists", /^.*\bERROR:\s*[^\r\n]*already exists/im],
     ["permission_denied", /permission denied/i],
     ["connection_refused", /connection refused/i],
     ["connection_reset", /connection reset|ECONNRESET/i],
@@ -27,7 +27,12 @@ export function summarizeSupabaseStartup(log, migrationNames) {
     ["out_of_memory", /out of memory|OOMKilled/i],
   ];
   return {
-    diagnosticRevision: 1,
+    diagnosticRevision: 2,
+    // Fixed categories only: do not emit matched log text or credentials.
+    setupFailureCodes: [
+      ["luna_auth_fixture_guard", /Auth compatibility requires the exact disposable Luna fixture/],
+      ["auth_null_string_scan", /converting NULL to string/],
+    ].filter(([, pattern]) => pattern.test(clean)).map(([code]) => code),
     lastReportedMigration: applied.at(-1) ?? null,
     // A migration being reported does not prove it completed successfully.
     sqlStates: [...new Set([...clean.matchAll(/\bSQLSTATE[ :]+([0-9A-Z]{5})\b/g)].map((match) => match[1]))].slice(0, 16),
@@ -44,6 +49,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.log(JSON.stringify(summarizeSupabaseStartup(log, migrations)));
   } catch {
     // Even filesystem error messages may contain private paths. Do not echo them.
-    console.log(JSON.stringify({ diagnosticRevision: 1, diagnosticUnavailable: true, rawOutputWithheld: true }));
+    console.log(JSON.stringify({ diagnosticRevision: 2, diagnosticUnavailable: true, rawOutputWithheld: true }));
   }
 }
