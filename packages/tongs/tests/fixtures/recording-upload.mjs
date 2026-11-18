@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import { TongsCommitService, createTongsCommitApiHandlerWithService } from '../../dist/workpiece-commit-api.js';
 
 export const ids = {
@@ -17,7 +18,7 @@ export const beginInput = {
 // Disposable in-memory Storage/DB transport, never a hosted client. Service,
 // route dispatch, role checks, assembly, hashes and registry writes stay real.
 export function recordingFixture() {
-  const objects = new Map(), calls = [], faults = {};
+  const objects = new Map(), versions = new Map(), calls = [], faults = {};
   const tables = {
     workspaces: [{ id: ids.workspace, created_by: ids.owner }],
     workspace_members: [{ workspace_id: ids.workspace, user_id: ids.other, role: 'viewer' }],
@@ -53,6 +54,7 @@ export function recordingFixture() {
   }
   const schema = { from, async rpc(name, args) {
     calls.push({ op: 'rpc', name, args: structuredClone(args) });
+    if (name === 'read_workpiece_manifest_version') {const version=versions.get(`workpieces/${args.p_workpiece_id}/manifest.json`);return {data:{exists:!!version,version:version??null},error:null};}
     if (name === 'establish_recording_capture_authority') {
       const authority = { ...tables.recording_capture_authorities[0], operation_key: args.p_operation_key,
         script_binding_kind: 'approved_canonical_script', ready_transition_id: ids.other,
@@ -81,6 +83,13 @@ export function recordingFixture() {
         if (faults.write) return { error: faults.write };
         if (faults.beforeCreate && !options.upsert) await faults.beforeCreate(key);
         if (!options.upsert && objects.has(key)) return { error: { statusCode: '409', message: 'The resource already exists' } };
+        if(key.endsWith('/manifest.json')) {
+          const proof=options.metadata.forge_manifest_publication;
+          if(proof.expected_version!==(versions.get(key)??null))return {error:{message:'PF003 manifest version conflict'}};
+          const registration=await from('workpiece_files').upsert([{workpiece_id:ids.workpiece,path:'manifest.json',file_type:'manifest',content_type:'application/json',bytes:data.byteLength,hash_algo:'sha256',hash_value:proof.sha256,storage_bucket:bucket,storage_key:key}]);
+          if(registration.error)return {error:registration.error};
+        }
+        versions.set(key,randomUUID());
         objects.set(key, Buffer.from(data)); return { data: { path: key }, error: null };
       },
       async remove(keys) { calls.push({ op: 'remove', bucket, keys }); keys.forEach(key => objects.delete(key)); return { error: null }; },

@@ -132,6 +132,17 @@ try {
 
   Restore-PendingMigrations
   & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget local -Mode preflight -RepositoryRoot $repo | Out-Null
+  # Auth's reviewed fixture is valid only at its exact predecessor. Validate the
+  # full manifest first, then apply that prefix without changing any SQL/guard.
+  $authHead = '20261105025313'
+  foreach ($file in @($files | Where-Object { $_.BaseName.Substring(0,14) -gt $authHead })) {
+    Move-Item -LiteralPath (Join-Path $target $file.Name) -Destination $staging
+  }
+  Invoke-LocalSupabase @('migration','up','--local','--workdir',$selected,'--yes','--agent=no')
+  Assert-ExactHistory @($files | Where-Object { $_.BaseName.Substring(0,14) -le $authHead } | ForEach-Object Name)
+  Assert-DisposableAuthUsers
+  Restore-PendingMigrations
+  & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget local -Mode preflight -RepositoryRoot $repo | Out-Null
   Invoke-LocalSupabase @('migration','up','--local','--workdir',$selected,'--yes','--agent=no')
   Assert-ExactHistory @($files | ForEach-Object Name)
   & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $selected -DatabaseTarget local -Mode upgrade -RepositoryRoot $repo | Out-Null
