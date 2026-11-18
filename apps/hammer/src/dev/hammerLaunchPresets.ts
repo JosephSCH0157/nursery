@@ -128,92 +128,96 @@ function createTongsStubEditPlan(): HammerEditPlan {
   };
 }
 
-const PRESET_INDEX: Record<HammerDevLaunchPresetId, HammerLaunchContext> = {
-  "dev-tone-basic": {
-    workspace_id: DEFAULT_WORKSPACE_ID,
-    workpiece_id: DEFAULT_WORKPIECE_ID,
-    session_id: DEFAULT_SESSION_ID,
-    source_mode: "dev",
-    transcript: {
-      kind: "fixture",
-      fixture_id: DEFAULT_TRANSCRIPT_FIXTURE_ID,
-    },
-    media: {
-      kind: "dev-tone",
-      media_id: "media_dev_tone_basic",
-      duration_sec: DEFAULT_DURATION_SEC,
-    },
-    preview_mode: DEFAULT_PREVIEW_MODE,
-  },
-  "mapped-media-missing": {
-    workspace_id: DEFAULT_WORKSPACE_ID,
-    workpiece_id: DEFAULT_WORKPIECE_ID,
-    session_id: "session_mapped_missing",
-    source_mode: "mapped",
-    transcript: {
-      kind: "fixture",
-      fixture_id: DEFAULT_TRANSCRIPT_FIXTURE_ID,
-    },
-    media: {
-      kind: "mapped-local",
-      ref: createMappedMediaRef("media_missing_local_01", "recordings/missing-episode014.mp4"),
-      label: "mapped:missing-local",
-    },
-    preview_mode: DEFAULT_PREVIEW_MODE,
-  },
-  "tongs-stub-with-edit-plan": {
-    workspace_id: DEFAULT_WORKSPACE_ID,
-    workpiece_id: DEFAULT_WORKPIECE_ID,
-    session_id: "session_tongs_stub_reloaded",
-    source_mode: "tongs",
-    transcript: {
-      kind: "tongs-stub",
-      transcript_id: TONGS_STUB_TRANSCRIPT_ID,
-      segments: getDevTranscriptSegments(DEFAULT_TRANSCRIPT_FIXTURE_ID),
-      label: TONGS_STUB_TRANSCRIPT_LABEL,
-    },
-    media: {
-      kind: "tongs-stub",
-      ref: createMappedMediaRef(TONGS_STUB_MEDIA_ID, DEFAULT_MEDIA_RELPATH),
-      workspace_mapping: {
-        workspace_id: DEFAULT_WORKSPACE_ID,
-        local_root_abs: DEFAULT_MEDIA_ROOT_ABS,
+// Build disposable fixtures only when a development launch actually requests them.
+let PRESET_INDEX: Record<HammerDevLaunchPresetId, HammerLaunchContext> | undefined;
+function getPresetIndex(): Record<HammerDevLaunchPresetId, HammerLaunchContext> {
+  return PRESET_INDEX ??= {
+    "dev-tone-basic": {
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      workpiece_id: DEFAULT_WORKPIECE_ID,
+      session_id: DEFAULT_SESSION_ID,
+      source_mode: "dev",
+      transcript: {
+        kind: "fixture",
+        fixture_id: DEFAULT_TRANSCRIPT_FIXTURE_ID,
       },
-      label: TONGS_STUB_MEDIA_LABEL,
-    },
-    edit_plan: createTongsStubEditPlan(),
-    preview_mode: "raw",
-  },
-  "tongs-stub-clean": {
-    workspace_id: DEFAULT_WORKSPACE_ID,
-    workpiece_id: DEFAULT_WORKPIECE_ID,
-    session_id: "session_tongs_stub_clean",
-    source_mode: "tongs",
-    transcript: {
-      kind: "tongs-stub",
-      transcript_id: TONGS_STUB_TRANSCRIPT_ID,
-      segments: getDevTranscriptSegments(DEFAULT_TRANSCRIPT_FIXTURE_ID),
-      label: TONGS_STUB_TRANSCRIPT_LABEL,
-    },
-    media: {
-      kind: "tongs-stub",
-      ref: createMappedMediaRef(TONGS_STUB_MEDIA_ID, DEFAULT_MEDIA_RELPATH),
-      workspace_mapping: {
-        workspace_id: DEFAULT_WORKSPACE_ID,
-        local_root_abs: DEFAULT_MEDIA_ROOT_ABS,
+      media: {
+        kind: "dev-tone",
+        media_id: "media_dev_tone_basic",
+        duration_sec: DEFAULT_DURATION_SEC,
       },
-      label: TONGS_STUB_MEDIA_LABEL,
+      preview_mode: DEFAULT_PREVIEW_MODE,
     },
-    preview_mode: DEFAULT_PREVIEW_MODE,
-  },
-};
+    "mapped-media-missing": {
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      workpiece_id: DEFAULT_WORKPIECE_ID,
+      session_id: "session_mapped_missing",
+      source_mode: "mapped",
+      transcript: {
+        kind: "fixture",
+        fixture_id: DEFAULT_TRANSCRIPT_FIXTURE_ID,
+      },
+      media: {
+        kind: "mapped-local",
+        ref: createMappedMediaRef("media_missing_local_01", "recordings/missing-episode014.mp4"),
+        label: "mapped:missing-local",
+      },
+      preview_mode: DEFAULT_PREVIEW_MODE,
+    },
+    "tongs-stub-with-edit-plan": {
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      workpiece_id: DEFAULT_WORKPIECE_ID,
+      session_id: "session_tongs_stub_reloaded",
+      source_mode: "tongs",
+      transcript: {
+        kind: "tongs-stub",
+        transcript_id: TONGS_STUB_TRANSCRIPT_ID,
+        segments: getDevTranscriptSegments(DEFAULT_TRANSCRIPT_FIXTURE_ID),
+        label: TONGS_STUB_TRANSCRIPT_LABEL,
+      },
+      media: {
+        kind: "tongs-stub",
+        ref: createMappedMediaRef(TONGS_STUB_MEDIA_ID, DEFAULT_MEDIA_RELPATH),
+        workspace_mapping: {
+          workspace_id: DEFAULT_WORKSPACE_ID,
+          local_root_abs: DEFAULT_MEDIA_ROOT_ABS,
+        },
+        label: TONGS_STUB_MEDIA_LABEL,
+      },
+      edit_plan: createTongsStubEditPlan(),
+      preview_mode: "raw",
+    },
+    "tongs-stub-clean": {
+      workspace_id: DEFAULT_WORKSPACE_ID,
+      workpiece_id: DEFAULT_WORKPIECE_ID,
+      session_id: "session_tongs_stub_clean",
+      source_mode: "tongs",
+      transcript: {
+        kind: "tongs-stub",
+        transcript_id: TONGS_STUB_TRANSCRIPT_ID,
+        segments: getDevTranscriptSegments(DEFAULT_TRANSCRIPT_FIXTURE_ID),
+        label: TONGS_STUB_TRANSCRIPT_LABEL,
+      },
+      media: {
+        kind: "tongs-stub",
+        ref: createMappedMediaRef(TONGS_STUB_MEDIA_ID, DEFAULT_MEDIA_RELPATH),
+        workspace_mapping: {
+          workspace_id: DEFAULT_WORKSPACE_ID,
+          local_root_abs: DEFAULT_MEDIA_ROOT_ABS,
+        },
+        label: TONGS_STUB_MEDIA_LABEL,
+      },
+      preview_mode: DEFAULT_PREVIEW_MODE,
+    },
+  };
+}
 
 export function isHammerDevLaunchPresetId(value: string): value is HammerDevLaunchPresetId {
   return HAMMER_DEV_LAUNCH_PRESET_IDS.includes(value as HammerDevLaunchPresetId);
 }
 
 export function getHammerDevLaunchPreset(presetId: HammerDevLaunchPresetId): HammerLaunchContext {
-  return cloneLaunchContext(PRESET_INDEX[presetId]);
+  return cloneLaunchContext(getPresetIndex()[presetId]);
 }
 
 function readTrimmed(params: URLSearchParams, key: string): string | null {
