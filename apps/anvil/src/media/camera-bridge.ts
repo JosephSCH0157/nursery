@@ -23,6 +23,7 @@ type CameraAPI = {
   applyCamOpacity?: () => void;
   applyCamMirror?: () => void;
   currentDeviceId?: string | null;
+  getLastStartFailure?: () => 'permission_denied' | 'failed' | null;
 };
 
 declare global {
@@ -77,6 +78,7 @@ let currentStream: MediaStream | null = null;
 let currentDeviceId: string | null = null;
 let isStarting = false;
 let applyingFromStore = false;
+let lastStartFailure: 'permission_denied' | 'failed' | null = null;
 
   function updateChip(text: string): void {
     if (camRtcChip) camRtcChip.textContent = text;
@@ -167,6 +169,7 @@ let applyingFromStore = false;
       return false;
     }
     isStarting = true;
+    lastStartFailure = null;
     setButtons(false, true);
     try {
       const id =
@@ -200,6 +203,9 @@ let applyingFromStore = false;
 
       // Fallback: if a specific device is selected and it is busy, retry with default device once.
       const name = (err as any)?.name || '';
+      lastStartFailure = name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError'
+        ? 'permission_denied'
+        : 'failed';
       const busy = name === 'NotReadableError' || name === 'TrackStartError';
       if (!attemptedFallback && currentDeviceId && busy) {
         try {
@@ -309,6 +315,7 @@ let applyingFromStore = false;
   api.setMirror = (on: boolean) => { if (mirrorInput) { mirrorInput.checked = on; applyCamMirror(); } };
   api.isActive = isActive;
   api.currentDeviceId = currentDeviceId;
+  api.getLastStartFailure = () => lastStartFailure;
   api.startCamera = doStart;
   api.stopCamera = doStop;
   api.switchCamera = (id: string) => setDevice(id);

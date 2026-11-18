@@ -120,6 +120,7 @@ import { initPrerollSession } from './features/preroll-session';
 import { initScrollSessionRouter } from './features/scroll-session';
 import { initRecordingSession } from './features/recording-session';
 import { initRecPillsDisplay, initRecPillsMain } from './features/rec-pills';
+import { initRecordingArmControl } from './features/recording-arm-control';
 import './recording/local-auto'; // ensure core recorder bridge is loaded
 import './recording/obs-finished-import'; // OBS StopRecord output -> authorized Tongs import
 import { ensurePageTabs } from './features/page-tabs';
@@ -2010,6 +2011,7 @@ export async function boot() {
 								try { initSingleMonitorRead(appStore); } catch {}
 								// Ensure Settings overlay content uses TS builder (single source of truth)
 								try { wireSettings({ store: appStore }); } catch {}
+          try { initRecordingArmControl(); } catch {}
                 if (isCiSmoke()) {
                   try { injectSettingsFolderForSmoke(); } catch {}
                 }

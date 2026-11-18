@@ -5,6 +5,7 @@ import { mountSettingsOverlay } from '../../src/ui/settings';
 import { wireSettingsDynamic } from '../../src/ui/settings/wire';
 import * as AutoSsot from '../../src/state/auto-record-ssot';
 import * as RecorderApi from '../../recorders';
+import * as SessionRecorder from '../../src/recording/recorderRegistry';
 
 jest.mock('../../src/state/auto-record-ssot');
 jest.mock('../../recorders');
@@ -119,5 +120,21 @@ describe('Settings recording UI (TS overlay)', () => {
     expect(RecorderApi.setMode).toHaveBeenCalledWith('single');
     expect(RecorderApi.setSelected).toHaveBeenCalledWith(['obs']);
     expect(RecorderApi.setRecordingMode).toHaveBeenCalledWith('av');
+  });
+
+  it('wires the Start and Stop controls each time Recording Settings mounts', async () => {
+    const start = jest.spyOn(SessionRecorder, 'startSessionRecording').mockResolvedValue();
+    const stop = jest.spyOn(SessionRecorder, 'stopSessionRecording').mockResolvedValue();
+    jest.spyOn(SessionRecorder, 'isSessionRecording').mockReturnValue(true);
+    mountSettingsOverlay();
+    const root = document.getElementById('settingsBody') as HTMLElement;
+
+    (root.querySelector('#startRecBtn') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ engine: 'core' }));
+
+    (root.querySelector('#stopRecBtn') as HTMLButtonElement).click();
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 });
