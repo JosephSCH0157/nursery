@@ -1,5 +1,5 @@
 import {readFileSync,writeFileSync,readdirSync,existsSync,unlinkSync,realpathSync} from 'node:fs';
-import {resolve,join,basename} from 'node:path';
+import {resolve,join,basename,sep} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -31,7 +31,7 @@ export function readPinned(root){
 }
 export function stage(root,workdir,lineage,through){
  const {contract:c,blobs}=readPinned(root);const real=realpathSync(workdir);
- if(!real.startsWith(realpathSync(tmpdir())+'/')||!/(forge-baseline-v1-cert-|forge-gate5d-lane-)/.test(real)||realpathSync(root)===real)throw Error('Only governed disposable migration workdirs are allowed');
+ if(!real.startsWith(realpathSync(tmpdir())+sep)||!/(forge-baseline-v1-cert-|forge-gate5d-lane-)/.test(real)||realpathSync(root)===real)throw Error('Only governed disposable migration workdirs are allowed');
  if(!['historical','baseline'].includes(lineage)||!c.migrations.some(f=>f.version===through))throw Error('Unpinned lineage/stage');
  const directory=join(real,'supabase/migrations');const baseline='database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql';
  const all=c.migrations.filter(f=>lineage==='historical'||f.version>='20261022000000');
