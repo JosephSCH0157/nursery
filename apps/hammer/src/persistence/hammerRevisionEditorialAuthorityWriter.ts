@@ -4,7 +4,7 @@ import {
   type EditorialAuthorityCommitAdapter,
   type EditorialAuthorityCommitState,
   type EditorialAuthorityPointerState,
-} from "@forge/tongs";
+} from "../../../../packages/tongs/src/hammer-editorial-authority-commit";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { tongsFetch } from "../lib/tongsFetch";
 import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";

@@ -114,38 +114,42 @@ function withRouteIdentity(
   return nextContext;
 }
 
-const SCENARIO_INDEX: Record<HammerStubLaunchScenarioId, HammerStubLaunchScenario> = {
-  "clean-workpiece": {
-    id: "clean-workpiece",
-    title: "Clean Workpiece",
-    summary: "Simulated Tongs launch with transcript and media resolved, but no existing edit plan.",
-    poster_label: "EP 014",
-    poster_tint: "linear-gradient(160deg, rgba(14, 116, 144, 0.72), rgba(15, 23, 42, 0.92))",
-    outputs: DEFAULT_OUTPUTS,
-    launchContext: withRouteIdentity(getHammerDevLaunchPreset("tongs-stub-clean"), "clean-workpiece"),
-    expectedOutcome: "Hammer opens in edit-aware preview with a clean plan state and no preloaded instructions.",
-  },
-  "existing-edit-plan": {
-    id: "existing-edit-plan",
-    title: "Existing Edit Plan",
-    summary: "Simulated Tongs launch with a stored edit plan and preserved preview mode.",
-    poster_label: "CUT B",
-    poster_tint: "linear-gradient(160deg, rgba(91, 33, 182, 0.7), rgba(15, 23, 42, 0.92))",
-    outputs: DEFAULT_OUTPUTS,
-    launchContext: withRouteIdentity(getHammerDevLaunchPreset("tongs-stub-with-edit-plan"), "existing-edit-plan"),
-    expectedOutcome: "Hammer opens in reloaded state, restores the stored instructions, and keeps the provided preview mode.",
-  },
-  "mapped-media-missing": {
-    id: "mapped-media-missing",
-    title: "Mapped Media Missing",
-    summary: "Simulated launch where Tongs points Hammer at mapped local media that cannot be resolved on this machine.",
-    poster_label: "MISSING",
-    poster_tint: "linear-gradient(160deg, rgba(153, 27, 27, 0.7), rgba(15, 23, 42, 0.92))",
-    outputs: DEFAULT_OUTPUTS,
-    launchContext: withRouteIdentity(getHammerDevLaunchPreset("mapped-media-missing"), "mapped-media-missing"),
-    expectedOutcome: "Hammer stays honest about missing media, resolves transcript state, and falls back to dev-tone preview audio.",
-  },
-};
+// Build disposable fixtures only when a development launch actually requests them.
+let SCENARIO_INDEX: Record<HammerStubLaunchScenarioId, HammerStubLaunchScenario> | undefined;
+function getScenarioIndex(): Record<HammerStubLaunchScenarioId, HammerStubLaunchScenario> {
+  return SCENARIO_INDEX ??= {
+    "clean-workpiece": {
+      id: "clean-workpiece",
+      title: "Clean Workpiece",
+      summary: "Simulated Tongs launch with transcript and media resolved, but no existing edit plan.",
+      poster_label: "EP 014",
+      poster_tint: "linear-gradient(160deg, rgba(14, 116, 144, 0.72), rgba(15, 23, 42, 0.92))",
+      outputs: DEFAULT_OUTPUTS,
+      launchContext: withRouteIdentity(getHammerDevLaunchPreset("tongs-stub-clean"), "clean-workpiece"),
+      expectedOutcome: "Hammer opens in edit-aware preview with a clean plan state and no preloaded instructions.",
+    },
+    "existing-edit-plan": {
+      id: "existing-edit-plan",
+      title: "Existing Edit Plan",
+      summary: "Simulated Tongs launch with a stored edit plan and preserved preview mode.",
+      poster_label: "CUT B",
+      poster_tint: "linear-gradient(160deg, rgba(91, 33, 182, 0.7), rgba(15, 23, 42, 0.92))",
+      outputs: DEFAULT_OUTPUTS,
+      launchContext: withRouteIdentity(getHammerDevLaunchPreset("tongs-stub-with-edit-plan"), "existing-edit-plan"),
+      expectedOutcome: "Hammer opens in reloaded state, restores the stored instructions, and keeps the provided preview mode.",
+    },
+    "mapped-media-missing": {
+      id: "mapped-media-missing",
+      title: "Mapped Media Missing",
+      summary: "Simulated launch where Tongs points Hammer at mapped local media that cannot be resolved on this machine.",
+      poster_label: "MISSING",
+      poster_tint: "linear-gradient(160deg, rgba(153, 27, 27, 0.7), rgba(15, 23, 42, 0.92))",
+      outputs: DEFAULT_OUTPUTS,
+      launchContext: withRouteIdentity(getHammerDevLaunchPreset("mapped-media-missing"), "mapped-media-missing"),
+      expectedOutcome: "Hammer stays honest about missing media, resolves transcript state, and falls back to dev-tone preview audio.",
+    },
+  };
+}
 
 export function isHammerStubLaunchScenarioId(value: string): value is HammerStubLaunchScenarioId {
   return HAMMER_STUB_LAUNCH_SCENARIO_IDS.includes(value as HammerStubLaunchScenarioId);
@@ -154,7 +158,7 @@ export function isHammerStubLaunchScenarioId(value: string): value is HammerStub
 export function getHammerStubLaunchScenario(
   scenarioId: HammerStubLaunchScenarioId,
 ): HammerStubLaunchScenario {
-  const scenario = SCENARIO_INDEX[scenarioId];
+  const scenario = getScenarioIndex()[scenarioId];
   return {
     ...scenario,
     outputs: scenario.outputs.map((output) => ({ ...output })),

@@ -36,10 +36,11 @@ export interface HammerOrchestrationStateContract {
   last_macro_run_ref: string | null;
 }
 
-const HAMMER_PREP_STATUS_SET = new Set<string>(HAMMER_PREP_STATUS_VALUES);
-const HAMMER_ALIGNMENT_STATUS_SET = new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
-const HAMMER_PASS_ID_SET = new Set<string>(HAMMER_PASS_ID_VALUES);
-const HAMMER_PASS_STATE_SET = new Set<string>(HAMMER_PASS_STATE_VALUES);
+// Static lookup allocation has no side effects; retain it whenever its validator is used.
+const HAMMER_PREP_STATUS_SET = /* @__PURE__ */ new Set<string>(HAMMER_PREP_STATUS_VALUES);
+const HAMMER_ALIGNMENT_STATUS_SET = /* @__PURE__ */ new Set<string>(HAMMER_ALIGNMENT_STATUS_VALUES);
+const HAMMER_PASS_ID_SET = /* @__PURE__ */ new Set<string>(HAMMER_PASS_ID_VALUES);
+const HAMMER_PASS_STATE_SET = /* @__PURE__ */ new Set<string>(HAMMER_PASS_STATE_VALUES);
 const DEFAULT_HAMMER_PASS_ID = HAMMER_PASS_ID_VALUES[0];
 
 function readString(value: unknown): string | null {

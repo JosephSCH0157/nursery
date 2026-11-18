@@ -43,8 +43,6 @@ export const PASS_ORDER: Array<{
   { id: "ready", shortLabel: "R", label: "Ready", toolId: "export", sourceTab: "transcript" },
 ];
 
-const PASS_BY_ID = new Map(PASS_ORDER.map((pass) => [pass.id, pass] as const));
-
 export function readHammerDebugFlag(flagName: string): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -64,7 +62,7 @@ export function isHammerVisualSelectionDebugEnabled(): boolean {
 }
 
 export function resolvePassMeta(passId: HammerPassId): (typeof PASS_ORDER)[number] {
-  return PASS_BY_ID.get(passId) ?? PASS_ORDER[0];
+  return PASS_ORDER.find((pass) => pass.id === passId) ?? PASS_ORDER[0];
 }
 
 export function resolveVisualToolRackFromPass(passId: HammerPassId): HammerVisualToolRackId {
