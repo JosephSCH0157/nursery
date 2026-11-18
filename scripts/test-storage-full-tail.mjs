@@ -3,8 +3,15 @@ import assert from 'node:assert/strict';
 import {readFileSync,mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {validateContract,pendingVersions,exactPending,readPinned,stage} from './lib/forge-storage-full-tail.mjs';
+import {validateContract,pendingVersions,exactPending,readPinned,stage,validateStorageCiProvenance} from './lib/forge-storage-full-tail.mjs';
 const contract=JSON.parse(readFileSync('docs/database/certification/storage-full-tail-446.json'));
+test('CI requires the exact six Storage migrations through 446 without expanding hosted authorization',()=>{
+ const p={lineage:'baseline-v1',head:contract.target,versions:pendingVersions(contract,'baseline','20261105025313')};
+ validateStorageCiProvenance(contract,p);
+ for(const change of [x=>x.lineage='historical-v1',x=>x.head='20261111201029',x=>x.versions.pop(),x=>x.versions.reverse(),x=>x.versions.push('20261119000000')]){
+  const wrong=structuredClone(p);change(wrong);assert.throws(()=>validateStorageCiProvenance(contract,wrong));
+ }
+});
 test('exact full tail and original scoped runner identities remain pinned',()=>{
  const verified=readPinned(process.cwd());assert.equal(verified.contract.migrations.length,446);
  assert.equal(pendingVersions(contract,'historical',contract.historicalAnchor,'20261104071802').length,26);

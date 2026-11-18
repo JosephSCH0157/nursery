@@ -17,6 +17,11 @@ export function pendingVersions(c,lineage,after,through=c.target){
  return c.migrations.filter(f=>f.version>after&&f.version<=through&&(lineage==='historical'||f.version>='20261022000000')).map(f=>f.version);
 }
 export function exactPending(actual,expected){if(JSON.stringify(actual)!==JSON.stringify(expected))throw Error('Full-tail pending prefix differs: '+actual.join(','));}
+export function validateStorageCiProvenance(c,p){
+ validateContract(c);
+ if(p.lineage!=='baseline-v1'||p.head!==c.target)throw Error('Wrong full-tail CI lineage/head');
+ exactPending(p.versions,pendingVersions(c,'baseline','20261105025313'));
+}
 export function readPinned(root){
  const git=(...a)=>execFileSync('git',['-C',root,...a],{env:{...process.env,GIT_OPTIONAL_LOCKS:'0'},maxBuffer:150*1024*1024});
  const c=validateContract(JSON.parse(readFileSync(join(root,'docs/database/certification/storage-full-tail-446.json'))));
