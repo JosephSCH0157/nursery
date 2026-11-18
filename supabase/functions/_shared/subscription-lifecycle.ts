@@ -12,7 +12,7 @@ export function recurringPriceAuthority(input:unknown,userId:string,context?:Str
  const sub=object(input),items=object(sub.items),data=items.data;
  if(items.has_more || !Array.isArray(data) || data.length!==1 || object(data[0]).quantity!==1)throw Error('Unsupported recurring subscription shape');
  const price=object(object(data[0]).price),match=context?findAccountStripePrice(String(price.id),context):findStripeCatalogPriceById(String(price.id));
- if(!match || (match.kind!=='storage' && match.kind!=='plan'))throw Error('Unsupported recurring price authority');
+ if(!match || (match.kind!=='storage' && match.kind!=='plan' && match.kind!=='addon'))throw Error('Unsupported recurring price authority');
  const ids=sub.livemode?[match.livePriceId,...(match.legacyLivePriceIds??[])]:[match.testPriceId,...(match.legacyTestPriceIds??[])];
  if(typeof sub.livemode!=='boolean' || !ids.includes(String(price.id)))throw Error('Recurring price mode mismatch');
  const recurring=object(price.recurring),months=match.interval==='quarterly'?3:1;
@@ -38,7 +38,7 @@ export function paidSubscriptionServicePeriod(invoiceInput:unknown,subscriptionI
  const subItems=object(sub.items).data;
  if(!Array.isArray(subItems)||subItems.length!==1)throw Error('Single recurring item required');
  const item=object(subItems[0]),price=object(item.price),match=context?findAccountStripePrice(String(price.id),context):findStripeCatalogPriceById(String(price.id));
- if(!match || (match.kind!=='plan' && match.kind!=='storage'))throw Error('Unknown service period price');
+ if(!match || (match.kind!=='plan' && match.kind!=='storage' && match.kind!=='addon'))throw Error('Unknown service period price');
  if(!integer(price.unit_amount)||price.unit_amount<=0)return null;
  const start=sub.current_period_start??item.current_period_start,end=sub.current_period_end??item.current_period_end;
  if(!integer(start)||!integer(end)||end<=start)throw Error('Authoritative subscription period required');

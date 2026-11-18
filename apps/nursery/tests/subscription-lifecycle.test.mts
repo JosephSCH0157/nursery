@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Stripe from 'stripe';
 import { STRIPE_CATALOG } from '../../../supabase/functions/_shared/stripe-catalog.ts';
-import { recurringPriceAuthority, paidSubscriptionServicePeriod, fencedSubscriptionRefresh } from '../../../supabase/functions/_shared/subscription-lifecycle.ts';
+import { recurringPriceAuthority, paidSubscriptionServicePeriod, fencedSubscriptionRefresh, invoiceReceiptAuthority } from '../../../supabase/functions/_shared/subscription-lifecycle.ts';
+import { FORGE_STRIPE_ACCOUNT, FORGE_STRIPE_SANDBOX } from '../../../supabase/functions/_shared/stripe-account-catalog.ts';
 const user='11111111-1111-4111-8111-111111111111';
 const secret='whsec_disposable_synthetic_fixture';
 const stripe=new Stripe('sk_test_synthetic_no_network');
@@ -18,6 +19,75 @@ function signedFixture() {
  const event=stripe.webhooks.constructEvent(payload,header,secret);
  return {payload,header,value:event.data.object as unknown as ReturnType<typeof fixture>};
 }
+
+for(const interval of ['monthly','quarterly'] as const)for(const environment of ['test','live'] as const){
+ const entry=STRIPE_CATALOG.addons.seat[interval];
+ const aliases=environment==='test' ? ('legacyTestPriceIds' in entry?entry.legacyTestPriceIds:[]) : ('legacyLivePriceIds' in entry?entry.legacyLivePriceIds:[]);
+ const ids=[environment==='test'?entry.testPriceId:entry.livePriceId,...aliases];
+ for(const priceId of ids)test(`configured seat ${interval} ${environment} ${priceId} projects lifecycle and paid period`,async()=>{
+  const {subscription:s,invoice:i}=fixture();
+  const context={accountId:FORGE_STRIPE_ACCOUNT,environment};
+  s.livemode=i.livemode=environment==='live';
+  s.items.data[0].price.id=priceId;
+  s.items.data[0].price.recurring.interval_count=interval==='quarterly'?3:1;
+  for(const status of ['active','trialing','past_due','canceled']){
+   s.status=status;
+   const projected=await fencedSubscriptionRefresh({begin:async()=>({token:'seat-fence'}),retrieve:async()=>({subscription:s,metadata:recurringPriceAuthority(s,user,context)}),commit:async(token,current)=>{
+    assert.equal(token,'seat-fence');assert.equal(current.metadata.itemId,'seat');
+    assert.equal(current.metadata.purchaseType,'subscription');assert.equal(current.metadata.offerId,entry.offerId);
+    assert.equal(current.metadata.interval,interval);
+    const period=paidSubscriptionServicePeriod(i,current.subscription,current.metadata.itemId,context);
+    if(status==='active'){assert.equal(period?.item_id,'seat');assert.equal(period?.price_id,priceId);assert.equal(period?.stripe_mode,environment);}
+    else assert.equal(period,null,'inactive status cannot manufacture paid service evidence');
+    return {outcome:'committed'};
+   }});
+   assert.equal(projected.subscription.status,status);
+  }
+  i.amount_paid=500;
+  const receipt=invoiceReceiptAuthority(i,s,user,context);
+  assert.equal(receipt.metadata.itemId,'seat');assert.equal(receipt.metadata.offerId,entry.offerId);
+ });
+}
+test('seat projection rejects unknown, pack, wrong account/mode, interval and subscription shape',()=>{
+ const context={accountId:FORGE_STRIPE_ACCOUNT,environment:'test' as const};
+ const seat=STRIPE_CATALOG.addons.seat.monthly;
+ for(const change of [
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data[0].price.id='price_unknown';},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data[0].price.id=Object.values(STRIPE_CATALOG.packs.ai_credits)[0].testPriceId;},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data[0].price.id=seat.livePriceId;},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.livemode=true;},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data[0].price.type='one_time';},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data[0].price.recurring.interval_count=3;},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data[0].quantity=2;},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.data.push(s.items.data[0]);},
+  (s:ReturnType<typeof fixture>['subscription'])=>{s.items.has_more=true;},
+ ]){const {subscription:s}=fixture();s.items.data[0].price.id=seat.testPriceId;change(s);assert.throws(()=>recurringPriceAuthority(s,user,context));}
+ const {subscription:s,invoice:i}=fixture();s.items.data[0].price.id=seat.testPriceId;
+ for(const accountId of ['acct_unknown',FORGE_STRIPE_SANDBOX]){
+  assert.throws(()=>recurringPriceAuthority(s,user,{...context,accountId}));
+  assert.throws(()=>paidSubscriptionServicePeriod(i,s,'seat',{...context,accountId}));
+ }
+ for(const priceId of ['price_unknown',seat.livePriceId,Object.values(STRIPE_CATALOG.packs.ai_credits)[0].testPriceId]){
+  s.items.data[0].price.id=priceId;assert.throws(()=>paidSubscriptionServicePeriod(i,s,'seat',context));
+ }
+});
+test('seat paid evidence preserves invoice identity, payment and line restrictions',()=>{
+ for(const condition of ['customer','mode','price','quantity','unpaid','manual','trial','truncated'] as const){
+  const {subscription:s,invoice:i}=fixture();s.items.data[0].price.id=STRIPE_CATALOG.addons.seat.monthly.testPriceId;
+  const context={accountId:FORGE_STRIPE_ACCOUNT,environment:'test' as const};
+  recurringPriceAuthority(s,user,context);
+  if(condition==='customer')i.customer='cus_other';
+  if(condition==='mode')i.livemode=true;
+  if(condition==='price')i.lines.data[0].price={...s.items.data[0].price,id:'price_unknown'};
+  if(condition==='quantity')i.lines.data[0].quantity=2;
+  if(condition==='unpaid')i.paid=false;
+  if(condition==='manual')i.billing_reason='manual';
+  if(condition==='trial')s.trial_end=s.current_period_end;
+  if(condition==='truncated')i.lines.has_more=true;
+  if(['customer','mode','truncated'].includes(condition))assert.throws(()=>paidSubscriptionServicePeriod(i,s,'seat',context));
+  else assert.equal(paidSubscriptionServicePeriod(i,s,'seat',context),null);
+ }
+});
 test('authenticated zero cash paid service period grants evidence without a cash receipt',()=>{
  const {value:{subscription,invoice},payload,header}=signedFixture();
  assert.throws(()=>stripe.webhooks.constructEvent(payload+' ',header,secret));

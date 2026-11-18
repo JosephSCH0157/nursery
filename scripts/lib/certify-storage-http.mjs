@@ -4,18 +4,13 @@ import { createRequire } from 'node:module';
 const require=createRequire(new URL('../../packages/tongs/package.json',import.meta.url));
 const {createClient}=require('@supabase/supabase-js');
 import {TongsCommitService} from '../../packages/tongs/dist/workpiece-commit-api.js';
+import {discoverStorageHttpSource} from './storage-http-source.mjs';
 
 // Disposable Storage API using the already installed image. No shared volume,
 // no published non-loopback port, no hosted credentials, no image pulls.
-export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false,databaseContainer="supabase_db_forge-gate-e1-pre",databasePassword}) {
- const source=JSON.parse(run(['inspect','supabase_storage_forge-gate-e1-pre']))[0];
- const env=Object.fromEntries(source.Config.Env.map(s=>[s.slice(0,s.indexOf('=')),s.slice(s.indexOf('=')+1)]));
- const db=new URL(env.DATABASE_URL); assert.equal(db.hostname,'supabase_db_forge-gate-e1-pre');
- assert.match(databaseContainer,/^supabase_db_forge-/);
- const parent=JSON.parse(run(['inspect',databaseContainer]))[0];
- const project=parent.Config.Labels['com.supabase.cli.project'];
- assert.ok(project&&Object.hasOwn(parent.NetworkSettings.Networks,'supabase_network_'+project));
- db.hostname=databaseContainer;if(databasePassword)db.password=databasePassword;
+export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false,databaseContainer,databasePassword}) {
+ const {source,env,db,project}=discoverStorageHttpSource(run,databaseContainer);
+ if(databasePassword)db.password=databasePassword;
  assert.match(database,/^forge_storage_[a-f0-9]{12}$/);db.pathname='/'+database;
  const name='forge-storage-http-'+randomBytes(6).toString('hex');
  const secret=randomBytes(32).toString('hex');
