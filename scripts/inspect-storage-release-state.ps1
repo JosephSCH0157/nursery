@@ -2,6 +2,7 @@
 param(
   [Parameter(Mandatory)][ValidateSet('historical')][string]$Lineage,
   [Parameter(Mandatory)][guid]$WorkspaceId,
+  [switch]$CertificationSnapshot,
   [string]$RepositoryRoot=(Split-Path -Parent $PSScriptRoot)
 )
 $ErrorActionPreference='Stop'
@@ -15,6 +16,16 @@ if((Invoke-ForgeSupabaseCli -Arguments @('--version')).StandardOutput.Trim() -cn
 Invoke-WithForgeManagedDatabaseCredential -Operation {
   & (Join-Path $PSScriptRoot 'verify-supabase-lineage.ps1') -Lineage historical -Workdir $repo -DatabaseTarget linked -Mode preflight -RepositoryRoot $repo | Out-Null
   Write-Verbose 'Historical linked lineage validated.'
+  if($CertificationSnapshot){
+    $observation=(Get-Content (Join-Path $repo 'supabase/tests/storage_authentic_predecessor.sql') -Raw).Trim().TrimEnd(';')
+    $contract=(Get-Content (Join-Path $repo 'supabase/tests/storage_successor_hosted_release_contract.sql') -Raw).Trim().TrimEnd(';')
+    $query="begin transaction isolation level repeatable read read only;`nwith o as (`n"+$observation+"`n), c as (`n"+$contract+"`n) select (o.observation::jsonb || jsonb_build_object('storageStage',c.storage_stage,'storageContractOk',c.storage_contract_ok))::text as observation from o cross join c;`nrollback;"
+    $result=Invoke-ForgeSupabaseCli -Arguments @('db','query','--linked','--agent=no','--output','csv','--workdir',$repo,'--',$query)
+    $rows=@(ConvertFrom-ForgeSupabaseCsv -StandardOutput $result.StandardOutput -ExpectedColumns @('observation') -Context 'Historical certification source observation')
+    if($rows.Count -ne 1){throw 'One source observation required.'}
+    $rows[0].observation
+    return
+  }
   # Fixed read-only query; no snapshot, export, impersonation, or custom SQL input.
   $sql=@'
 begin transaction read only;
