@@ -177,6 +177,61 @@ reconciliation complete; deletion remains governed by existing authorization.
 Authentic historical financial-state equivalence is not supplied by these tools.
 The release owner must resolve any policy requiring that certificate separately.
 
+### Storage successors 445–446: offline preparation only
+
+Status: **Release blocked; no hosted executor or authorization.** These helpers
+do not extend the operating scope of the 441–444 entrypoints above.
+
+The closed successor contract in `scripts/lib/storage-successor-release-contract.mjs`
+pins migration/configuration source commit
+`4de38126e51070ea4b5e90b418f1e66e5b7095f0`. This is a source identity, not a
+certification result. The only targets are:
+
+| Target / count | Exact predecessor / count | Predecessor receipt payload |
+|---|---|---|
+| `20261113175455` / 445 | `20261111201029` / 444 | `d3a481eaf5b688cbefe4ad1314a52446d5bd6a22` |
+| `20261113214832` / 446 | `20261113175455` / 445 | `4de38126e51070ea4b5e90b418f1e66e5b7095f0` |
+
+Offline package preparation and verification require no database or Docker:
+
+```powershell
+$package = node scripts/prepare-storage-successor-hosted-workdir.mjs (Get-Location).Path 20261113175455
+node scripts/prepare-storage-successor-hosted-workdir.mjs (Get-Location).Path 20261113175455 $package
+```
+
+Use `20261113214832` for the second target. Packages are bounded migration/config
+materializations under `.git/forge-private-evidence/storage-successor-release`,
+not source checkouts. They contain the exact Git-byte prefix and required email
+template. They are unlinked, contain no connection descriptors or credentials,
+and record `certification: BLOCKED`. Do not link or apply these packages. Package
+verification rejects added, missing, changed, or linked files and changed
+configuration dependencies.
+
+The two `verify-storage-billing-445-hosted-deployment-policy.mjs` and
+`verify-storage-billing-446-hosted-deployment-policy.mjs` tools validate supplied
+JSON only. They do not collect or authenticate hosted observations and cannot
+issue an Apply or verified-stage receipt. Their `policyInputOnly` output is not
+a hosted preflight/postverification certificate. Preflight inputs must include
+`--state`, `--operator`, `--predecessor`,
+`--predecessor-authorization-sha256`, `--recovery`, and `--observation`.
+All Apply requests fail on the checked-in historical-certification hold, even
+with a syntactically valid owner token. No environment variable or caller flag
+waives that hold.
+
+`supabase/tests/storage_successor_hosted_release_contract.sql` adds cumulative
+catalog/ACL/RLS/trigger checks for exact-version historical exclusions and
+manifest publication. The existing guarded CI collector checks it alongside the
+unchanged 441–444 contract. Adding that check does not mean it has run, and a
+synthetic B1 result cannot establish historical equivalence.
+
+The exact blocker and authentic predecessor requirements remain in
+[`STORAGE_FULL_TAIL_CERTIFICATION.md`](STORAGE_FULL_TAIL_CERTIFICATION.md).
+No known owner-approved, restorable authentic H444 snapshot is available.
+Completing authentic H certification through 446 and comparing H/B1 outcomes,
+then completing and certifying a hosted executor, requires a separately approved
+continuation. No snapshot acquisition, cloud infrastructure, entitlement
+activation, merge, or deployment is part of this offline procedure.
+
 ## 4. Create a disposable fresh database
 
 Choose an unused local port range and a destination that does not exist:

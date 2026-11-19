@@ -14,5 +14,8 @@ validateStorageCiProvenance(JSON.parse(readFileSync('docs/database/certification
 const sql=readFileSync('supabase/tests/storage_billing_hosted_release_contract.sql','utf8').trim().replace(/;$/,'');
 const contract=JSON.parse(query(`select row_to_json(s) from (${sql}) s`));
 assert.equal(contract.storage_stage,4);assert.equal(contract.storage_contract_ok,true);assert.equal(contract.financial_mode,'test');
+const successorSql=readFileSync('supabase/tests/storage_successor_hosted_release_contract.sql','utf8').trim().replace(/;$/,'');
+const successorContract=JSON.parse(query(`select row_to_json(s) from (${successorSql}) s`));
+assert.equal(successorContract.storage_stage,6);assert.equal(successorContract.storage_contract_ok,true);assert.equal(successorContract.financial_mode,'test');
 assert.equal(query("select current_setting('transaction_read_only')"),'on');
-console.log(JSON.stringify({result:'PASS',provenance,contract,readOnly:true,historicalStateEquivalence:false}));
+console.log(JSON.stringify({result:'PASS',provenance,contract,successorContract,readOnly:true,historicalStateEquivalence:false}));

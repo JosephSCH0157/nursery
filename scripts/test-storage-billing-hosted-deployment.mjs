@@ -9,6 +9,13 @@ import {STORAGE_RELEASES,PROJECT,PAYLOAD,releaseFor,validateStorageAuthorization
 import {stageStorageTemplate,verifyStorageTemplate} from './prepare-storage-hosted-workdir.mjs';
 const NOW=new Date('2026-11-12T02:00:00Z');
 const hash=v=>createHash('sha256').update(v).digest('hex');
+let approvedCli;
+function offlineCli(){
+ if(!approvedCli)approvedCli=process.platform==='win32'
+  ? execFileSync('pwsh',['-NoProfile','-Command',". ./scripts/lib/forge-supabase-cli.ps1; Resolve-ForgeSupabaseExecutable -RepositoryRoot (Get-Location).Path"],{encoding:'utf8'}).trim()
+  : existsSync('node_modules/.bin/supabase')?join(process.cwd(),'node_modules/.bin/supabase'):'supabase';
+ return approvedCli;
+}
 const state=(r,post=false)=>({projectRef:PROJECT,lineage:'historical-v1',financialMode:'test',certifiedPayloadCommit:PAYLOAD,payloadProvenanceOk:true,
  migrationSha256:r.sha256,databasePasswordAvailable:true,installedCount:r.number-(post?0:1),hostedHead:post?r.version:r.predecessor,pendingVersions:post?[]:[r.version],storageStage:r.stage-(post?0:1),storageContractOk:true,predecessorVerified:true,protectedAuthoritySha256:'a'.repeat(64)});
 function recovery(r){
@@ -96,7 +103,7 @@ test('PowerShell AST is valid for all fixed wrappers',()=>{
 });
 
 test('pinned Supabase CLI parses comment-led SQL only after option boundary (no connection)',()=>{
- const cli=existsSync('node_modules/.bin/supabase')?'node_modules/.bin/supabase':'supabase';
+ const cli=offlineCli();
  assert.equal(execFileSync(cli,['--version'],{encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim(),'2.84.2');
  const sql="-- Read-only contract\nselect '--linked' as evidence;";
  const rejected=spawnSync(cli,['db','query','--help',sql],{encoding:'utf8'});
@@ -123,10 +130,8 @@ test('certified template packaging rejects missing, changed and unexpected depen
   writeFileSync(join(dir,'supabase/config.toml'),readFileSync('supabase/config.toml','utf8').replace('./templates/password_changed_notification.html','./templates/unapproved.html'));
   assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/staged_config/);
   copyFileSync('supabase/config.toml',join(dir,'supabase/config.toml'));
-  unlinkSync(template);symlinkSync(join(process.cwd(),'supabase/templates/password_changed_notification.html'),template);
-  assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/template_regular_file/);unlinkSync(template);writeFileSync(template,certified);
   // Actual CLI configuration parsing, with an intentionally invalid target so no connection is possible.
-  const cli=existsSync('node_modules/.bin/supabase')?join(process.cwd(),'node_modules/.bin/supabase'):'supabase';
+  const cli=offlineCli();
   const args=['db','push','--dry-run','--db-url','not-a-database-url','--workdir',dir,'--agent=no'];
   unlinkSync(template);
   const missing=spawnSync(cli,args,{encoding:'utf8'});
@@ -135,5 +140,24 @@ test('certified template packaging rejects missing, changed and unexpected depen
   const loaded=spawnSync(cli,args,{encoding:'utf8'});
   assert.notEqual(loaded.status,0);assert.doesNotMatch(loaded.stderr,/Invalid config|password_changed_notification/);
   assert.match(loaded.stderr,/invalid|parse|connection/i);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('certified template packaging rejects file symlinks',t=>{
+ const dir=mkdtempSync(join(tmpdir(),'forge-storage-template-symlink-'));
+ const template=join(dir,'supabase/templates/password_changed_notification.html');
+ try{
+  mkdirSync(join(dir,'supabase'));
+  copyFileSync('supabase/config.toml',join(dir,'supabase/config.toml'));
+  stageStorageTemplate(process.cwd(),dir);
+  unlinkSync(template);
+  try{symlinkSync(join(process.cwd(),'supabase/templates/password_changed_notification.html'),template);}
+  catch(error){
+   if(process.platform==='win32' && error.code==='EPERM'){
+    t.skip('Windows file-symlink privilege is unavailable; Linux CI still requires this assertion.');return;
+   }
+   throw error;
+  }
+  assert.throws(()=>verifyStorageTemplate(process.cwd(),dir),/template_regular_file/);
  }finally{rmSync(dir,{recursive:true,force:true});}
 });
