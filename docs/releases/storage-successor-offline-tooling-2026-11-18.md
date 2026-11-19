@@ -1,5 +1,10 @@
 # Storage successors 445–446: bounded local closeout
 
+Historical record of the earlier bounded authorization. Later local preparation
+is recorded in the [November 19 checklist](pr92-morning-checklist-2026-11-19.md).
+Its wrapper and application changes supersede the tooling inventory below;
+the authentic historical certification hold remains in force.
+
 Status: **Local preparation complete; release blocked.**
 Recorded: 2026-11-18, America/New_York (checks completed 2026-11-19 00:44 UTC).
 Branch: `codex/legacy-storage-billing-exclusion-20261118`.

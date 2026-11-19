@@ -6,6 +6,7 @@ import {
   stripeCatalogEntryHasProductId,
 } from "../_shared/stripe-catalog.ts";
 import { buildForgeCheckoutMetadata } from "../_shared/forge-billing-metadata.ts";
+import { storageReleasePauseResponse } from "../_shared/storage-release-pause.ts";
 import {
   assertStripeModeMatchesEnvironment,
   readTrustedFinancialEnvironment,
@@ -145,6 +146,8 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return json(405, { error: "Method not allowed" });
   }
+  const paused = storageReleasePauseResponse(Deno.env.get("FORGE_STORAGE_RELEASE_MODE"), corsHeaders);
+  if (paused) return paused;
 
   if (!stripe || !supabaseUrl || !serviceRoleKey) {
     return json(500, {
@@ -277,6 +280,97 @@ serve(async (req) => {
       stage: "financial_environment_lookup",
       message: describeError(error).message,
       details: { userId: user.id, priceId, catalogKind: catalogPrice.kind, storageLevel },
+    });
+  }
+
+  let price: Stripe.Price;
+  try {
+    price = await stripe.prices.retrieve(priceId);
+    assertStripeModeMatchesEnvironment(financialEnvironment, price.livemode);
+  } catch (error) {
+    const described = describeError(error);
+    return errorResponse(500, {
+      code: "PRICE_LOOKUP_FAILED",
+      stage: "stripe_price_lookup",
+      message: described.message,
+      details: {
+        userId: user.id,
+        priceId,
+        catalogKind: catalogPrice.kind,
+        storageLevel,
+        ...described,
+      },
+    });
+  }
+
+  const stripeProductId = typeof price.product === "string"
+    ? price.product.trim()
+    : null;
+  logStage("stripe_price_resolved", {
+    userId: user.id,
+    priceId,
+    catalogKind: catalogPrice.kind,
+    forgeOfferId: catalogPrice.offerId,
+    forgeItemId: chosenItemId,
+    storageLevel,
+    stripeProductId,
+    isRecurringPrice: Boolean(price.recurring),
+    recurringInterval: price.recurring?.interval ?? null,
+  });
+  const matchesCatalogProduct = stripeCatalogEntryHasProductId(
+    catalogPrice,
+    stripeProductId,
+  );
+
+  if (!matchesCatalogProduct) {
+    return errorResponse(400, {
+      code: "PRICE_CATALOG_MISMATCH",
+      stage: "stripe_price_validate",
+      message: "Stripe price/product does not match the Forge catalog.",
+      details: {
+        userId: user.id,
+        priceId,
+        catalogKind: catalogPrice.kind,
+        forgeOfferId: catalogPrice.offerId,
+        storageLevel,
+        stripeProductId,
+        expectedLiveProductId: catalogPrice.liveProductId,
+        expectedTestProductId: catalogPrice.testProductId,
+      },
+    });
+  }
+
+  const packType = catalogPrice.kind === "pack"
+    ? catalogPrice.packType
+    : readMetadataString(price.metadata, "forge_pack_type");
+  const packId = catalogPrice.kind === "pack"
+    ? catalogPrice.packId
+    : readMetadataString(price.metadata, "forge_pack_id");
+  const isAiCreditPack = catalogPrice.kind === "pack"
+    && catalogPrice.packType === "ai_credits";
+  const isRecurringPrice = Boolean(price.recurring);
+
+  if (catalogPrice.kind === "storage" && !isRecurringPrice) {
+    return errorResponse(400, {
+      code: "STORAGE_PRICE_NOT_RECURRING",
+      stage: "storage_price_validate",
+      message: "Cloud storage checkout requires a recurring Stripe price.",
+      details: {
+        userId: user.id,
+        priceId,
+        storageLevel: catalogPrice.storageLevel,
+        stripeProductId,
+      },
+    });
+  }
+
+  if (catalogPrice.kind === "storage" && (price.active !== true || price.type !== "recurring"
+    || price.recurring?.interval !== "month" || price.recurring.interval_count !== 1
+    || price.recurring.usage_type !== "licensed")) {
+    return errorResponse(400, {
+      code: "STORAGE_PRICE_INVALID", stage: "storage_price_validate",
+      message: "Storage requires an active monthly licensed recurring price.",
+      details: { userId: user.id, priceId, storageLevel },
     });
   }
 
@@ -432,87 +526,6 @@ serve(async (req) => {
     stripeCustomerId,
     existingCustomerSource,
   });
-
-  let price: Stripe.Price;
-  try {
-    price = await stripe.prices.retrieve(priceId);
-    assertStripeModeMatchesEnvironment(financialEnvironment, price.livemode);
-  } catch (error) {
-    const described = describeError(error);
-    return errorResponse(500, {
-      code: "PRICE_LOOKUP_FAILED",
-      stage: "stripe_price_lookup",
-      message: described.message,
-      details: {
-        userId: user.id,
-        priceId,
-        catalogKind: catalogPrice.kind,
-        storageLevel,
-        ...described,
-      },
-    });
-  }
-
-  const stripeProductId = typeof price.product === "string"
-    ? price.product.trim()
-    : null;
-  logStage("stripe_price_resolved", {
-    userId: user.id,
-    priceId,
-    catalogKind: catalogPrice.kind,
-    forgeOfferId: catalogPrice.offerId,
-    forgeItemId: chosenItemId,
-    storageLevel,
-    stripeProductId,
-    isRecurringPrice: Boolean(price.recurring),
-    recurringInterval: price.recurring?.interval ?? null,
-  });
-  const matchesCatalogProduct = stripeCatalogEntryHasProductId(
-    catalogPrice,
-    stripeProductId,
-  );
-
-  if (!matchesCatalogProduct) {
-    return errorResponse(400, {
-      code: "PRICE_CATALOG_MISMATCH",
-      stage: "stripe_price_validate",
-      message: "Stripe price/product does not match the Forge catalog.",
-      details: {
-        userId: user.id,
-        priceId,
-        catalogKind: catalogPrice.kind,
-        forgeOfferId: catalogPrice.offerId,
-        storageLevel,
-        stripeProductId,
-        expectedLiveProductId: catalogPrice.liveProductId,
-        expectedTestProductId: catalogPrice.testProductId,
-      },
-    });
-  }
-
-  const packType = catalogPrice.kind === "pack"
-    ? catalogPrice.packType
-    : readMetadataString(price.metadata, "forge_pack_type");
-  const packId = catalogPrice.kind === "pack"
-    ? catalogPrice.packId
-    : readMetadataString(price.metadata, "forge_pack_id");
-  const isAiCreditPack = catalogPrice.kind === "pack"
-    && catalogPrice.packType === "ai_credits";
-  const isRecurringPrice = Boolean(price.recurring);
-
-  if (catalogPrice.kind === "storage" && !isRecurringPrice) {
-    return errorResponse(400, {
-      code: "STORAGE_PRICE_NOT_RECURRING",
-      stage: "storage_price_validate",
-      message: "Cloud storage checkout requires a recurring Stripe price.",
-      details: {
-        userId: user.id,
-        priceId,
-        storageLevel: catalogPrice.storageLevel,
-        stripeProductId,
-      },
-    });
-  }
 
   if (isAiCreditPack && isRecurringPrice) {
     return errorResponse(400, {

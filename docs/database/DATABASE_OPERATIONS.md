@@ -179,8 +179,21 @@ The release owner must resolve any policy requiring that certificate separately.
 
 ### Storage successors 445–446: offline preparation only
 
-Status: **Release blocked; no hosted executor or authorization.** These helpers
+Status: **Release blocked; fixed wrappers prepared with Apply disabled.** These helpers
 do not extend the operating scope of the 441–444 entrypoints above.
+
+The separate `invoke-storage-billing-445-hosted-deployment.ps1` and
+`invoke-storage-billing-446-hosted-deployment.ps1` wrappers now collect linked
+read-only Preflight/PostVerify observations, use the cumulative successor
+contract, and retain exact predecessor receipts, financial fingerprints,
+fresh backup evidence, durable single-use attempt records and one-version dry
+runs. The 444 predecessor receipt retains its original payload identity.
+Both wrappers reject Apply **before credentials or network access**, independently
+of the policy-level hold. Removing either hold is not tonight's authorization.
+Their migration-only linked staging helper is separate from the unlinked helper
+below; neither stager connects or creates a snapshot. No hosted run is claimed.
+See the [November 19 checklist](../releases/pr92-morning-checklist-2026-11-19.md)
+for preparation evidence, pause limitations and remaining release gates.
 
 The closed successor contract in `scripts/lib/storage-successor-release-contract.mjs`
 pins migration/configuration source commit

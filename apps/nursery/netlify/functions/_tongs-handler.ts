@@ -3,6 +3,7 @@ import { resolveNurseryTongsProviderBoundary } from "../../scripts/mw-tongs-comm
 import { runWithOwnerRuntimeEnvironment } from "../../server/accounting/owner-runtime-environment";
 import { withAdmissionEnforcement } from "../../server/auth/admission-enforcement";
 import { resolveTongsRuntimeConfig } from "../../server/tongs/tongs-runtime-config";
+import { storageReleasePauseResponse } from "../../../../supabase/functions/_shared/storage-release-pause.ts";
 
 const config = resolveTongsRuntimeConfig();
 const providerBoundary = config.missing.length ? null : resolveNurseryTongsProviderBoundary(config);
@@ -41,6 +42,8 @@ export function createNetlifyTongsFunction(routePrefix = "/tongs") {
     request: Request,
     context?: { deploy?: { context?: string } },
   ): Promise<Response> {
+    const paused = storageReleasePauseResponse(process.env.FORGE_STORAGE_RELEASE_MODE);
+    if (paused) return paused;
     return runWithOwnerRuntimeEnvironment(context?.deploy?.context, async () => {
       if (!handler) {
         return new Response(JSON.stringify({

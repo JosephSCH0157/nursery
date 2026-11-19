@@ -1,4 +1,5 @@
 import { findAccountStripePrice, verifyStripeWebhookAccount, type StripeCatalogContext } from "../_shared/stripe-account-catalog.ts";
+import { storageReleasePauseResponse } from "../_shared/storage-release-pause.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -1221,6 +1222,11 @@ serve(async (req) => {
     console.error("Webhook signature failed:", err);
     return new Response("Signature verification failed", { status: 400 });
   }
+
+  // Preserve Stripe's retry semantics: no 2xx acknowledgement, event receipt,
+  // provider lookup, or database write while admission is paused.
+  const paused = storageReleasePauseResponse(Deno.env.get("FORGE_STORAGE_RELEASE_MODE"));
+  if (paused) return paused;
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,

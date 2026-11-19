@@ -10,6 +10,7 @@ import * as billingMetadata from '../../../supabase/functions/_shared/forge-bill
 import * as invoiceCompat from '../../../supabase/functions/_shared/stripe-invoice-compat.ts';
 import * as storageAuthority from '../../../supabase/functions/_shared/storage-subscription-authority.ts';
 import * as financial from '../../../supabase/functions/_shared/financial-environment.ts';
+import { storageReleasePauseResponse } from '../../../supabase/functions/_shared/storage-release-pause.ts';
 import { recurringPriceAuthority, paidSubscriptionServicePeriod } from '../../../supabase/functions/_shared/subscription-lifecycle.ts';
 import { resolveStorageSubscriptionMetadata } from '../../../supabase/functions/_shared/storage-subscription-authority.ts';
 const { FORGE_STRIPE_ACCOUNT: original, FORGE_STRIPE_SANDBOX: sandbox, SANDBOX_STORAGE_PRICES: prices, findAccountStripePrice: find, verifyStripeWebhookAccount: verify } = accounts;
@@ -86,7 +87,7 @@ test('sandbox requires authenticated account identity, Test mode and a loopback 
 // This proves pre-dispatch rejection, not genuine Stripe webhook delivery.
 const source = readFileSync(new URL('../../../supabase/functions/stripe-webhook/index.ts', import.meta.url), 'utf8');
 const executable = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText.replace(/^import[\s\S]*?from ["'][^"']+["'];\s*/gm, '');
-async function dispatch(options: { account?: string; configured?: string; url?: string; live?: boolean; databaseMode?: string; failIdentity?: boolean; eventAccount?: string; subscriptionPrice?: string; eventType?: string; status?: string }) {
+async function dispatch(options: { account?: string; configured?: string; url?: string; live?: boolean; databaseMode?: string; failIdentity?: boolean; eventAccount?: string; subscriptionPrice?: string; eventType?: string; status?: string; pause?: string; invalidSignature?: boolean }) {
   let handler!: (request: Request) => Promise<Response>;
   const calls: string[] = [];
   const { sub, invoice } = fixture(options.subscriptionPrice);
@@ -94,9 +95,9 @@ async function dispatch(options: { account?: string; configured?: string; url?: 
   const commits: Record<string, unknown>[] = [];
   const event = { id: 'evt_synthetic', type: options.eventType ?? 'certification.unhandled', livemode: options.live ?? false, account: options.eventAccount, data: { object: sub } };
   runInNewContext(executable, {
-    ...accounts, ...financial, ...lifecycle, ...billingMetadata, ...invoiceCompat, ...storageAuthority, Response, console: { log() {}, error() {} },
-    Deno: { env: { get: (name: string) => ({ STRIPE_ACCOUNT_ID: options.configured ?? sandbox, SUPABASE_URL: options.url ?? valid.supabaseUrl, STRIPE_SECRET_KEY: 'sk_test_synthetic', STRIPE_WEBHOOK_SECRET: 'whsec_synthetic', SUPABASE_SERVICE_ROLE_KEY: 'synthetic' })[name] } },
-    Stripe: class { webhooks = { constructEventAsync: async () => event }; accounts = { retrieve: async () => { calls.push('stripe-account'); if (options.failIdentity) throw Error('unavailable'); return { id: options.account ?? sandbox }; } }; subscriptions = { retrieve: async () => sub }; invoices = { retrieve: async () => invoice }; customers = { retrieve: async () => ({ id: sub.customer, email: 'fixture@example.invalid', name: 'Synthetic' }) }; },
+    ...accounts, ...financial, ...lifecycle, ...billingMetadata, ...invoiceCompat, ...storageAuthority, storageReleasePauseResponse, Response, console: { log() {}, error() {} },
+    Deno: { env: { get: (name: string) => ({ FORGE_STORAGE_RELEASE_MODE: options.pause, STRIPE_ACCOUNT_ID: options.configured ?? sandbox, SUPABASE_URL: options.url ?? valid.supabaseUrl, STRIPE_SECRET_KEY: 'sk_test_synthetic', STRIPE_WEBHOOK_SECRET: 'whsec_synthetic', SUPABASE_SERVICE_ROLE_KEY: 'synthetic' })[name] } },
+    Stripe: class { webhooks = { constructEventAsync: async () => { if(options.invalidSignature) throw Error('invalid signature'); return event; } }; accounts = { retrieve: async () => { calls.push('stripe-account'); if (options.failIdentity) throw Error('unavailable'); return { id: options.account ?? sandbox }; } }; subscriptions = { retrieve: async () => sub }; invoices = { retrieve: async () => invoice }; customers = { retrieve: async () => ({ id: sub.customer, email: 'fixture@example.invalid', name: 'Synthetic' }) }; },
     createClient: () => ({ schema: () => ({ rpc: async (name: string, args: Record<string, unknown>) => { calls.push(name); if (name === 'read_financial_runtime_environment') return { data: { financial_environment: options.databaseMode ?? 'test' }, error: null }; if (name === 'begin_subscription_refresh') return { data: { token: 'synthetic-fence' }, error: null }; if (name === 'commit_subscription_refresh') { commits.push(args); return { data: { outcome: 'committed' }, error: null }; } assert.ok(['upsert_billing_customer', 'record_billing_event'].includes(name), name); return { data: null, error: null }; } }) }),
     serve: (callback: typeof handler) => { handler = callback; },
   });
@@ -117,6 +118,23 @@ test('real webhook retains database-mode guard after account verification', asyn
   const allowed = await dispatch({});
   assert.equal(allowed.response.status, 200);
   assert.deepEqual(allowed.calls, ['stripe-account', 'read_financial_runtime_environment']);
+});
+
+test('webhook pause defers valid deliveries without receipts and resumes through the same fence', async () => {
+  for (const pause of ['paused', 'invalid', '']) {
+    const result = await dispatch({pause, eventType:'customer.subscription.created'});
+    assert.equal(result.response.status,503);
+    assert.equal(result.response.headers.get('retry-after'),'60');
+    assert.deepEqual(result.calls,[]);
+    assert.deepEqual(result.commits,[]);
+  }
+  const invalid = await dispatch({pause:'paused',invalidSignature:true});
+  assert.equal(invalid.response.status,400);
+  const resumed = await dispatch({pause:'open',eventType:'customer.subscription.created'});
+  assert.equal(resumed.response.status,200);
+  assert.equal(resumed.commits.length,1);
+  assert.ok(resumed.calls.includes('begin_subscription_refresh'));
+  assert.ok(resumed.calls.includes('commit_subscription_refresh'));
 });
 
 for (const eventType of ['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted']) {

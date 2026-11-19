@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { storageReleasePauseResponse } from "../../../supabase/functions/_shared/storage-release-pause.ts";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createClient } from "@supabase/supabase-js";
 import { evaluateReferenceVisualReadiness } from "../../../packages/shared/reference-visual-readiness.ts";
@@ -357,6 +358,12 @@ export async function createNurseryTongsMiddleware(opts?: {
       const isTarget =
         pathname === routePrefix || pathname.startsWith(`${routePrefix}/`);
       if (!isTarget) return next();
+
+      const paused = storageReleasePauseResponse(process.env.FORGE_STORAGE_RELEASE_MODE);
+      if (paused) {
+        await writeFetchResponse(res, paused);
+        return;
+      }
 
       if (!handler) {
         res.statusCode = 503;

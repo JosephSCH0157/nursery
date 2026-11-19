@@ -1,5 +1,12 @@
 # PR #92 — November 19 controlled-release decision
 
+Historical observation at the time below. For the later implementation,
+validation and the single morning execution checklist, use
+[PR #92 morning checklist](pr92-morning-checklist-2026-11-19.md).
+Later application and held-executor work supersedes this report's missing-tooling
+inventory; its hosted observations and unresolved certification gates retain
+their stated dates and scope.
+
 **Decision as of November 18, 2026, 7:57 PM America/New_York: NO-GO.**
 A fresh November 19 backup alone will not make this release executable.
 Authentic historical certification, an enforceable write pause, certified
