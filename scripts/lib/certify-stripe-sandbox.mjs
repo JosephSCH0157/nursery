@@ -4,10 +4,13 @@ import { createServer } from 'node:http';
 import { createHmac, randomBytes, randomUUID, createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, openSync, closeSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {discoverDisposableDatabaseSource} from './storage-http-source.mjs';
 
 // Optional operator-driven stage of the existing guarded disposable DB runner.
 // No Stripe mutations here: a separate operator drives the sandbox after READY.
 export async function certifyStripeSandbox({ run, sql, database, sourceContainer }) {
+ const {parent:info,network}=discoverDisposableDatabaseSource(run,sourceContainer);
+ assert.match(database,/^forge_storage_[a-f0-9]{12}$/);
  const account='acct_1Spw8m0v1TAfIsgZ';
  const keyFile=process.env.FORGE_STRIPE_SANDBOX_KEY_FILE;
  const cli=process.env.FORGE_STRIPE_CERT_CLI, config=process.env.FORGE_STRIPE_CERT_CONFIG;
@@ -32,7 +35,6 @@ export async function certifyStripeSandbox({ run, sql, database, sourceContainer
  const payload=[{alg:'HS256',typ:'JWT'},{role:'service_role',iss:'forge-disposable',iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+7200}].map(x=>Buffer.from(JSON.stringify(x)).toString('base64url')).join('.');
  const jwt=payload+'.'+createHmac('sha256',secret).update(payload).digest('base64url');
  for(const id of manifest.users)sql(`insert into auth.users(id) values('${id}');`);
- const info=JSON.parse(run(['inspect',sourceContainer]))[0];
  const password=info.Config.Env.find(v=>v.startsWith('POSTGRES_PASSWORD='))?.slice(18);
  assert.ok(password);
  const dbUrl=new URL(`postgresql://supabase_admin@${sourceContainer}:5432/${database}`);dbUrl.password=password;
@@ -43,7 +45,7 @@ export async function certifyStripeSandbox({ run, sql, database, sourceContainer
  const gatewayCode=`import http from 'node:http';http.createServer((q,s)=>{if(!q.url.startsWith('/rest/v1/')){s.writeHead(404).end();return;}const p=http.request({host:'127.0.0.1',port:3000,path:q.url.slice(8),method:q.method,headers:q.headers},r=>{s.writeHead(r.statusCode,r.headers);r.pipe(s)});p.on('error',()=>s.writeHead(502).end());q.pipe(p)}).listen(8000,'127.0.0.1');`;
  writeFileSync(`${dir}/gateway.mjs`,gatewayCode,{mode:0o600});
  try {
-  start(rest,['--network','supabase_network_forge-gate-e1-pre','--publish','127.0.0.1::9000',
+  start(rest,['--network',network,'--publish','127.0.0.1::9000',
    '--env',`PGRST_DB_URI=${dbUrl.href}`,'--env','PGRST_DB_SCHEMAS=tongs','--env','PGRST_DB_ANON_ROLE=anon','--env',`PGRST_JWT_SECRET=${secret}`,'public.ecr.aws/supabase/postgrest:v13.0.5']);
   start(gateway,['--network',`container:${rest}`,'--mount',`type=bind,src=${dir}/gateway.mjs,dst=/gateway.mjs,readonly`,'node:20.20.0-bookworm-slim','node','/gateway.mjs']);
   const binding=JSON.parse(run(['inspect',rest]))[0].NetworkSettings.Ports['9000/tcp'][0];assert.equal(binding.HostIp,'127.0.0.1');

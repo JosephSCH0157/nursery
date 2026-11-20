@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)][string]$Workdir,
  [Parameter(Mandatory)][string]$Container,[Parameter(Mandatory)][ValidateSet('permissive','restrictive')][string]$Lane,
- [Parameter(Mandatory)][string]$EvidenceDirectory)
+ [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$ReviewRegressionOnly)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath($RepositoryRoot)
 $helper=Join-Path $repo 'scripts/lib/forge-storage-full-tail.mjs'
@@ -37,6 +37,19 @@ select jsonb_build_object(
 '@
 $before=Sql $financialSql
 Stage '20261105025313';Apply '20261104143249' '20261105025313'
+if($ReviewRegressionOnly){
+ $savedReview=@{}
+ foreach($key in @('SUPABASE_DB_CONTAINER','FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT','FORGE_STORAGE_HTTP_CERT','FORGE_STORAGE_PRIVATE_INVENTORY','FORGE_STRIPE_SANDBOX_CERT')){$savedReview[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+ try{
+  $env:SUPABASE_DB_CONTAINER=$Container;$env:FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT='1';$env:FORGE_STORAGE_HTTP_CERT='1'
+  $env:FORGE_STORAGE_PRIVATE_INVENTORY=$null;$env:FORGE_STRIPE_SANDBOX_CERT=$null
+  & node (Join-Path $repo 'scripts/certify-storage-capacity-isolated.mjs') --review-corrections *> (Join-Path $EvidenceDirectory "$Lane-review-regression.log")
+  if($LASTEXITCODE -ne 0){throw "Storage review regression failed; see $Lane-review-regression.log"}
+  Get-Content (Join-Path $EvidenceDirectory "$Lane-review-regression.log")
+ }finally{foreach($key in $savedReview.Keys){[Environment]::SetEnvironmentVariable($key,$savedReview[$key],'Process')}}
+ if((Sql $financialSql) -cne $before){throw 'Preexisting financial state changed during review regression'}
+ return
+}
 $saved=@{};foreach($key in @('SUPABASE_DB_CONTAINER','FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT','FORGE_STORAGE_HTTP_CERT','FORGE_STORAGE_PRIVATE_INVENTORY')){$saved[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
 try{
  $env:SUPABASE_DB_CONTAINER=$Container;$env:FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT='1';$env:FORGE_STORAGE_HTTP_CERT='1';$env:FORGE_STORAGE_PRIVATE_INVENTORY=$null

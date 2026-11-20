@@ -71,19 +71,27 @@ export async function certifyHistoricalAccounting({sql,sqlArgs,authenticated,ser
  sql(service(`insert into storage.objects(id,bucket_id,name,metadata,version,created_at) values('${ids[2]}','forge-workpieces','workspaces/${orphan}/history-2.json','{"size":102,"eTag":"synthetic-2"}','original-2','2026-08-01');`));
  assert.equal(capacity().used_bytes,404,'delete/recreate remains billable');
  const limit=initial.total_bytes;
- sql(service(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/${workspace}/accounting-filler.bin','{"size":${limit-404-103}}','filler');`));
+ sql(service(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/${workspace}/accounting-filler.bin','{"size":${limit-404-104}}','filler');`));
+ // Prove each writer fits alone before testing admission serialization. Each
+ // successful rehearsal rolls back its replacement and retirement evidence.
+ for(const [id,v,size] of [[ids[3],'race-a',103],[ids[4],'race-b',104]]) {
+  sql(service(`begin;update storage.objects set version='${v}',metadata=jsonb_build_object('size',${size},'eTag','${v}') where id='${id}';set constraints all immediate;rollback;`));
+ }
  const race=await Promise.all([execute(update(ids[3],'race-a',103)),execute(update(ids[4],'race-b',104))]);
  assert.equal(race.filter(x=>x.code===0).length,1,JSON.stringify(race));
  assert.match(race.find(x=>x.code!==0).err,/capacity_exceeded/);
- assert.equal(capacity().used_bytes,limit);
+ const winner=race.findIndex(x=>x.code===0),loser=winner===0?1:0;
+ assert.equal(capacity().used_bytes,limit-104+[103,104][winner]);
  assert.equal(accounting().excluded_objects,1);
  assert.equal(accounting().retired_objects,4);
- const revoke=`select tongs.revoke_storage_historical_accounting('${historical.last.id}','Reviewed disposable revocation');`;
- const beforeRevoke=sql(`select row_to_json(o) from storage.objects o where id='${ids[4]}';`);
+ const remainingId=ids[3+loser],remainingObservation=loser===0?historical.o:historical.last;
+ assert.equal(sql(`select tongs._storage_historical_matches(o) from storage.objects o where id='${remainingId}';`).trim(),'t');
+ const revoke=`select tongs.revoke_storage_historical_accounting('${remainingObservation.id}','Reviewed disposable revocation');`;
+ const beforeRevoke=sql(`select row_to_json(o) from storage.objects o where id='${remainingId}';`);
  const revoked=parse(sql(operator(revoke)));assert.deepEqual(parse(sql(operator(revoke))),revoked);
- assert.equal(sql(`select row_to_json(o) from storage.objects o where id='${ids[4]}';`),beforeRevoke,'revocation changes no object');
+ assert.equal(sql(`select row_to_json(o) from storage.objects o where id='${remainingId}';`),beforeRevoke,'revocation changes no object');
  assert.equal(accounting().excluded_objects,0);
- fails(operator(approve(historical.last)),/revoked/);
+ fails(operator(approve(remainingObservation)),/revoked/);
  assert.equal(financial(),before,'no financial journal, receipt or subscription mutations');
  sql(service(`begin;set local storage.allow_delete_query='true';delete from storage.objects where id=any(array[${ids.map(x=>`'${x}'::uuid`).join(',')}]) or name in ('${moved}','workspaces/${workspace}/accounting-filler.bin');commit;`));
  assert.equal(capacity().used_bytes,0);assert.equal(capacity().total_bytes,initial.total_bytes);

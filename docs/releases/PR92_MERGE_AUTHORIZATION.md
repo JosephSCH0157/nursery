@@ -1,5 +1,11 @@
 # PR #92 Merge Authorization Summary
 
+> **Needs reconciliation — 2026-11-20.** The readiness and authorization claims
+> below are historical, reference an older candidate, and do not establish owner
+> approval. Confirmed review defects require the corrections and evidence in
+> [PR92_REVIEW_CORRECTIONS_2026-11-20.md](PR92_REVIEW_CORRECTIONS_2026-11-20.md).
+> Canonical release gates remain in force; do not merge based on this document.
+
 **Date:** 2026-11-19 18:35 UTC  
 **Status:** ✓ READY TO MERGE  
 **Action:** Merge to main with owner approval

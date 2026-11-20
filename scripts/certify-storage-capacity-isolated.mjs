@@ -9,6 +9,9 @@ import { seedHistoricalAccounting, approveHistoricalAccounting, certifyHistorica
 import { seedPrivateHistoricalInventory, approvePrivateHistoricalInventory } from './lib/certify-storage-historical-inventory.mjs';
 console.log(JSON.stringify({phase:'storage-cert-imports-loaded'}));
 const container=process.env.SUPABASE_DB_CONTAINER;
+const reviewCorrections=process.argv.includes('--review-corrections');
+if(reviewCorrections && (process.env.FORGE_STORAGE_PRIVATE_INVENTORY || process.env.FORGE_STRIPE_SANDBOX_CERT==='1'
+ || process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT!=='1'))throw Error('Review regression requires synthetic accounting only; no private inventory or Stripe stage');
 if(!container || !/^supabase_db_forge-/.test(container)) throw Error('Explicit existing disposable Forge container required');
 const database=`forge_storage_${randomUUID().replaceAll('-','').slice(0,12)}`;
 function run(args,input){const r=spawnSync('docker',args,{input,encoding:'utf8',maxBuffer:100*1024*1024});if(r.status!==0)throw Error(r.stderr||r.stdout);return r.stdout;}
@@ -100,7 +103,7 @@ try{
   assert.deepEqual(changed,['tongs._enforce_storage_capacity()','tongs._storage_capacity_usage(uuid,uuid)']);
   assert.equal(accessContract(),beforeAccess,'existing RLS, relation grants and owners remain exact');
   console.log(JSON.stringify({historicalCatalog:{result:'PASS',existingFunctionsChanged:changed,existingAccessContractSha256:createHash('sha256').update(beforeAccess).digest('hex')}}));
-  historical=privateHistoricalIds?approvePrivateHistoricalInventory({sql,authenticated,other,ids:privateHistoricalIds}):approveHistoricalAccounting({sql,authenticated,service,owner,other});
+  historical=privateHistoricalIds?approvePrivateHistoricalInventory({sql,authenticated,other,evidence:privateHistoricalIds}):approveHistoricalAccounting({sql,authenticated,service,owner,other});
  }
  if(process.env.FORGE_STORAGE_QUARANTINE_CERT==='1')console.log(JSON.stringify({quarantine:await certifyStorageQuarantine({sql,sqlArgs,authenticated,service,owner,other})}));
  assert.equal(capacity().usage_complete,false,'legacy objects without ownership are not silently unbilled');
@@ -121,8 +124,9 @@ try{
  sql(baseReceipt);const receiptCount=sql('select count(*) from tongs.subscription_cycle_receipts;');
  sql(baseReceipt);assert.equal(sql('select count(*) from tongs.subscription_cycle_receipts;'),receiptCount,'duplicate receipt remains idempotent');
  assert.equal(capacity().base_bytes,5*GiB);
+ if(reviewCorrections){const {certifyStorageReviewAdmission}=await import('./lib/certify-storage-review-admission.mjs');console.log(JSON.stringify({reviewAdmission:certifyStorageReviewAdmission({sql,service,authenticated,owner,other,workspace,capacity})}));}
  if(historical&&!historical.inventoryOnly)console.log(JSON.stringify({historicalAccounting:await certifyHistoricalAccounting({sql,sqlArgs,authenticated,service,owner,other,workspace,episode,capacity,historical})}));
- if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting:!!historical,databaseContainer:container,databasePassword:dbPassword});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
+ if(process.env.FORGE_STORAGE_HTTP_CERT==='1'){console.log(JSON.stringify({phase:'storage-http-start'}));const http=await certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting:!!historical,databaseContainer:container,databasePassword:dbPassword,reviewCorrections});console.log(JSON.stringify({http}));if(http.result!=='PASS')process.exitCode=1;}
  sql(subscription('sub_base','creator','subscription','trialing'));assert.equal(capacity().base_bytes,0,'no unapproved permanent trial allowance');
  sql(subscription('sub_base','creator','subscription','past_due'));assert.equal(capacity().base_bytes,5*GiB,'paid-through period preserved');
  sql(`update tongs.billing_subscriptions set current_period_end=now()-interval '1 second' where stripe_subscription_id='sub_base';`);

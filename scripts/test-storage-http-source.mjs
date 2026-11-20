@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {discoverStorageHttpSource} from './lib/storage-http-source.mjs';
+import {discoverStorageHttpSource,discoverDisposableDatabaseSource} from './lib/storage-http-source.mjs';
 
 function fixture(project='forge-baseline-v1-012345abcdef') {
  const databaseContainer='supabase_db_'+project,storage='supabase_storage_'+project,network='supabase_network_'+project;
@@ -19,6 +19,11 @@ function fixture(project='forge-baseline-v1-012345abcdef') {
  return {databaseContainer,storage,network,parent,source,inspected,run};
 }
 for(const project of ['forge-baseline-v1-012345abcdef','forge-baseline-v1-fedcba543210','forge-gate-e1-pre']) {
+ test(`PostgREST uses the inspected database network: ${project}`,()=>{
+  const f=fixture(project),r=discoverDisposableDatabaseSource(f.run,f.databaseContainer);
+  assert.equal(r.network,f.network);assert.deepEqual(r.parent,f.parent);
+  assert.deepEqual(f.inspected,[f.databaseContainer]);
+ });
  test(`discovers only the supplied stack: ${project}`,()=>{
   const f=fixture(project),r=discoverStorageHttpSource(f.run,f.databaseContainer);
   assert.deepEqual(f.inspected,[f.databaseContainer,f.storage]);

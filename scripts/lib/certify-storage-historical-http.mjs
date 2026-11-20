@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 
-export async function certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner,capacity}) {
+export async function certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner,capacity,reviewCorrections=false}) {
  const other='11000000-0000-4000-8000-000000000004';
  // Existing authenticated Storage policy covers STT workpiece artifacts. Other
  // workspace paths require the Tongs-mediated signing route, not a new grant.
@@ -46,11 +46,30 @@ export async function certifyHistoricalStorageHttp({sql,client,origin,jwt,worksp
  assert.deepEqual((await read(jwt('authenticated',owner))).bytes,bytes,'failed replacement preserves provider bytes');
  sql(`update tongs.workspaces set created_by='${owner}' where id='${workspace}';`);
  assert.equal(capacity().used_bytes,0,'original generation stays unassigned');
- const next=Buffer.from('{"replacement":true}');
+ const unauthorized=await fetch(`${origin}/object/forge-workpieces/${key}`,{method:'POST',
+  headers:{authorization:`Bearer ${jwt('authenticated',other)}`,'x-upsert':'true','content-type':'application/json'},body:'{}'});
+ assert.notEqual(unauthorized.status,200,'unrelated user cannot overwrite');
+ assert.deepEqual((await read(jwt('authenticated',owner))).bytes,bytes,'unauthorized write preserves original');
+ if(reviewCorrections){
+  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','workspaces/${workspace}/historical-http-filler.bin','{"size":${capacity().total_bytes-10}}','fixture');`);
+ }
+ const next=Buffer.from(reviewCorrections?'small':'{"replacement":true}');
  assert.equal((await client.storage.from('forge-workpieces').upload(key,next,{upsert:true,contentType:'application/json'})).error,null);
- assert.equal(capacity().used_bytes,next.length);
+ assert.equal(capacity().used_bytes,reviewCorrections?capacity().total_bytes-10+next.length:next.length);
  assert.deepEqual((await read(jwt('authenticated',owner))).bytes,next);
  assert.equal(sql(`select tongs._storage_historical_matches(o) from storage.objects o where id='${row.id}';`).trim(),'f');
+ if(reviewCorrections){
+  const large=await client.storage.from('forge-workpieces').upload(key,Buffer.alloc(11,65),{upsert:true,contentType:'application/json'});
+  assert.ok(large.error,'oversized replacement must report failure');
+  assert.deepEqual((await read(jwt('authenticated',owner))).bytes,next,'capacity failure retains replacement bytes');
+  assert.equal((await client.storage.from('forge-workpieces').upload(key,Buffer.alloc(10,66),{upsert:true,contentType:'application/json'})).error,null,'capacity increase fitting exactly is allowed');
+  assert.equal(capacity().used_bytes,capacity().total_bytes);
+  assert.deepEqual((await read(jwt('authenticated',owner))).bytes,Buffer.alloc(10,66));
+  const fresh=await client.storage.from('forge-workpieces').upload(key+'.new',Buffer.from('x'),{contentType:'application/json'});
+  assert.ok(fresh.error,'new billable object cannot inherit exclusion or exceed capacity');
+  assert.equal(sql(`select count(*) from storage.objects where name='${key}.new';`).trim(),'0','failed new upload is not published');
+  sql(`begin;set local storage.allow_delete_query='true';delete from storage.objects where name='workspaces/${workspace}/historical-http-filler.bin';commit;`);
+ }
  assert.equal((await client.storage.from('forge-workpieces').remove([key])).error,null);
  return {result:'PASS',historicalBytesSha256:digest,checks:['existing STT-policy authenticated GET before/after','unrelated user denial','anon denial','signed URL bytes','provider read bookkeeping','unknown owner replacement denial','failed overwrite retains bytes','entitled successor billed in full'],limitation:'Synthetic fixture with SQL-seeded historical timestamps; STT read policy only, no hosted actor impersonation, Tongs signing authorization, historical episode editing or media playback claim'};
 }

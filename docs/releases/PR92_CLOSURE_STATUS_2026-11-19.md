@@ -1,5 +1,11 @@
 # PR #92 Closure Status Report
 
+> **Needs reconciliation — 2026-11-20.** The readiness and authorization claims
+> below are historical, reference an older candidate, and omit confirmed review
+> defects. See [PR92_REVIEW_CORRECTIONS_2026-11-20.md](PR92_REVIEW_CORRECTIONS_2026-11-20.md)
+> for their disposition and validation. This report is not merge or release
+> authorization; canonical certification and coordinated deployment gates remain.
+
 **Investigation Date:** 2026-11-19 18:30 UTC  
 **Scope:** Complete pre-merge readiness assessment for PR #92 (Storage Recovery & Controlled Release)  
 **Author:** VS Code AI Agent  

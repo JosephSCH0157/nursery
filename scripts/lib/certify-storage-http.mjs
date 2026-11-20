@@ -8,7 +8,7 @@ import {discoverStorageHttpSource} from './storage-http-source.mjs';
 
 // Disposable Storage API using the already installed image. No shared volume,
 // no published non-loopback port, no hosted credentials, no image pulls.
-export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false,databaseContainer,databasePassword}) {
+export async function certifyStorageHttp({run,sql,database,workspace,episode,capacity,historicalAccounting=false,databaseContainer,databasePassword,reviewCorrections=false}) {
  const {source,env,db,project}=discoverStorageHttpSource(run,databaseContainer);
  if(databasePassword)db.password=databasePassword;
  assert.match(database,/^forge_storage_[a-f0-9]{12}$/);db.pathname='/'+database;
@@ -46,7 +46,7 @@ export async function certifyStorageHttp({run,sql,database,workspace,episode,cap
    // All rows/bytes below belong solely to this random disposable database and
    // tmpfs Storage instance. Seed a historical fixture, never a hosted identity.
    const {certifyHistoricalStorageHttp}=await import('./certify-storage-historical-http.mjs');
-   const historical=await certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner:workspaceRow.created_by,capacity});
+   const historical=await certifyHistoricalStorageHttp({sql,client,origin,jwt,workspace,episode,owner:workspaceRow.created_by,capacity,reviewCorrections});
    console.log(JSON.stringify({historicalHttp:historical}));
   }
   if(historicalAccounting) {
