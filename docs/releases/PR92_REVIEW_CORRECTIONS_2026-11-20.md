@@ -69,9 +69,9 @@ Authentic historical predecessor restoration/certification, final H/B1 catalog
 parity, financially inactive fresh-B1 initialization, approved physical-backup
 recovery, global writer fencing/drain, retained Storage-byte and Stripe-event
 reconciliation, coordinated application/Edge Function deployment, and genuine
-Stripe Test paid receipts remain distinct mandatory gates. A new successor also
-needs its reviewed lineage/catalog and hosted execution contract; the existing
-445/446 executors remain held and cannot apply it.
+Stripe Test paid receipts remain distinct mandatory gates. The adopted 447 source
+and verification contract do not authorize hosted execution; the existing
+445/446 executors remain held and cannot apply 447.
 
 The November 19 closure/merge documents' immediate-merge recommendations are
 historical claims needing reconciliation, not owner approval or current-state

@@ -60,5 +60,5 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).hr
  if(args.action==='stage')console.log(JSON.stringify(stage(root,args.workdir,args.lineage,args.through)));
  else if(args.action==='template'){const p=readPinned(root);if(!Object.hasOwn(p.contract.templatesAndFixtures,args.path))throw Error('Unpinned template');writeFileSync(args.output,p.blobs.get(args.path));}
  else if(args.action==='pending'){const c=readPinned(root).contract;console.log(JSON.stringify(pendingVersions(c,args.lineage,args.after,args.through)));}
- else {const p=readPinned(root);console.log(JSON.stringify({ok:true,head:p.head,target:p.contract.target,historicalCount:446,baselineCount:33}));}
+ else {const p=readPinned(root);console.log(JSON.stringify({ok:true,head:p.head,scope:'legacy-through-446',target:p.contract.target,historicalCount:446,baselineCount:33,repositoryTarget:p.admission.migration.version,repositoryHistoricalCount:p.admission.historicalCount,repositoryBaselineCount:p.admission.baselineCount}));}
 }
