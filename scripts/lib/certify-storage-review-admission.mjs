@@ -51,7 +51,11 @@ export function certifyStorageReviewAdmission({sql,service,authenticated,owner,o
  // version changes and growth still require admission. Use a rollback fixture.
  sql(service(`begin;${recover}${update("version='billable',metadata='{\"size\":5,\"eTag\":\"billable\"}'")}set constraints all immediate;
   update tongs.billing_subscriptions set status='canceled' where stripe_subscription_id='sub_base';
-  ${update("user_metadata='{\"description\":\"valid edit\"}'")}set constraints all immediate;rollback;`));
+  ${update("user_metadata='{\"description\":\"valid edit\"}'")}
+  ${update("metadata=metadata || '{\"mimetype\":\"application/json\",\"cacheControl\":\"60\"}'::jsonb")}set constraints all immediate;rollback;`));
+ assert.throws(()=>sql(service(`begin;${recover}${update("version='billable',metadata='{\"size\":5,\"eTag\":\"billable\"}'")}set constraints all immediate;
+  update tongs.billing_subscriptions set status='canceled' where stripe_subscription_id='sub_base';
+  ${update("metadata=metadata || '{\"size\":6}'::jsonb")}rollback;`)),/storage_capacity_exceeded/);
  return {result:'PASS',proposalSha256:createHash('sha256').update(proposal).digest('hex'),checks:[
   'both predecessor defects reproduced with rollback','transactional correction','unchanged RLS/ACL/owners',
   'all pinned identity fields admitted','bookkeeping allowed','over-capacity metadata retirement denied',

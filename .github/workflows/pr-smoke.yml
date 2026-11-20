@@ -190,6 +190,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build Storage HTTP client dependencies
         run: pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build
+      - name: Verify subscription lifecycle and Storage authority regressions
+        run: pnpm --filter nursery exec tsx --test tests/subscription-lifecycle.test.mts tests/storage-subscription-authority.test.mts tests/storage-capacity.test.mts tests/storage-release-pause.test.mts tests/storage-checkout-release.test.mts
       - name: Verify synthetic Storage review corrections
         shell: pwsh
         run: |
