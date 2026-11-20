@@ -3,6 +3,10 @@
 Status: implementation and regression record; **not release authorization**.
 Starting candidate: `b357538b74e49c862ceb6de810fce36948a6d1b6`.
 
+Follow-up: the owner authorized adoption from candidate `930063de537619c995edcee7efbb1f1016c91c08`.
+The [447 successor record](../database/certification/storage-admission-447.md)
+governs that adoption; earlier proposal evidence remains retained.
+
 ## Review inventory
 
 | Finding | Latest-code assessment | Correction / evidence |
@@ -37,12 +41,11 @@ of existing restricted evidence checks all 475 retained bodies without executing
 SQL or acquiring new data. Private identities and bodies are not test fixtures
 or CI artifacts.
 
-`scripts/test-storage-review-database.ps1 -Lineage baseline` derives a disposable
-runner from the unchanged pinned baseline template, certifies its predecessor,
-applies the exact 439–440 prefix, and runs the synthetic Storage adapter through
-446 plus the proposed correction. Both privilege modes are included in PR CI.
-It never runs the historical certification lane, seeds private inventory, or
-contacts Stripe. The task-owned database and Storage tmpfs are cleaned up.
+`scripts/test-storage-review-database.ps1 -Lineage baseline` now runs the adopted
+447 correction in a synthetic adapter, using an existing explicit disposable
+source or a pinned synthetic predecessor fixture. Both privilege modes are in
+CI. It does not invoke H/B1 certification, seed private inventory or contact
+Stripe. The task-owned database and Storage tmpfs are cleaned up.
 
 The SQL regression first reproduces both defects on unchanged predecessor SQL.
 It then verifies interruption rollback, unchanged RLS/ACL/owners, metadata

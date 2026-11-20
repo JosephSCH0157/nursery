@@ -1283,6 +1283,7 @@ export function verifyFrozenEvidence({
       ["storage-historical-accounting", "20261113175455", STORAGE_HISTORICAL_ACCOUNTING_PATH, STORAGE_HISTORICAL_ACCOUNTING_SHA256],
       ["storage-historical-quarantine", "20261111201029", STORAGE_HISTORICAL_QUARANTINE_PATH, STORAGE_HISTORICAL_QUARANTINE_SHA256],
       ["storage-capacity-statement", "20261111185031", STORAGE_CAPACITY_STATEMENT_PATH, STORAGE_CAPACITY_STATEMENT_SHA256],
+      ["storage-accounting-identity-admission", "20261120161347", "supabase/migrations/20261120161347_storage_accounting_identity_admission.sql", "0b4d5a53bf73ca3f10f1b6dc90ab91ecd74c0e58c6bb0dbf714e7d3814040eda"],
     ].map(([gate, version, path, sha256]) => ({ gate, contract: { sharedTailAddition: { version, path, sha256 } } })),
   ];
   return verifyAnchoredFileSet({ root, head, anchor, trustSuccessor, successors, scope, requireExactWorktreeBytes });

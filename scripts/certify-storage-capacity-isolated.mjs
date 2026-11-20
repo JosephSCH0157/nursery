@@ -10,6 +10,8 @@ import { seedPrivateHistoricalInventory, approvePrivateHistoricalInventory } fro
 console.log(JSON.stringify({phase:'storage-cert-imports-loaded'}));
 const container=process.env.SUPABASE_DB_CONTAINER;
 const reviewCorrections=process.argv.includes('--review-corrections');
+const privilegeMode=process.env.FORGE_STORAGE_REVIEW_PRIVILEGES??'permissive';
+if(reviewCorrections&&!['permissive','restrictive'].includes(privilegeMode))throw Error('Explicit supported review privilege mode required');
 if(reviewCorrections && (process.env.FORGE_STORAGE_PRIVATE_INVENTORY || process.env.FORGE_STRIPE_SANDBOX_CERT==='1'
  || process.env.FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT!=='1'))throw Error('Review regression requires synthetic accounting only; no private inventory or Stripe stage');
 if(!container || !/^supabase_db_forge-/.test(container)) throw Error('Explicit existing disposable Forge container required');
@@ -63,6 +65,12 @@ try{
  sql('create schema extensions; create extension pgcrypto with schema extensions; create extension "uuid-ossp" with schema extensions;');
  console.log(JSON.stringify({phase:'schema-copy'}));
  sql(dump.replace(/^CREATE SCHEMA extensions;\r?\n/m,''));
+ if(reviewCorrections){
+  for(const role of ['postgres','supabase_admin'])for(const schema of ['tongs','storage']){
+   for(const kind of ['tables','sequences','functions'])sql(`alter default privileges for role ${role} in schema ${schema} ${privilegeMode==='permissive'?'grant all on '+kind+' to':'revoke all on '+kind+' from'} anon,authenticated,service_role;`);
+  }
+  console.log(JSON.stringify({reviewDefaultPrivileges:privilegeMode,scope:'synthetic adapter only'}));
+ }
  sql(run(['exec',container,'pg_dump','-U','postgres','-d','postgres','--data-only','--table=storage.migrations']));
  sql(`insert into auth.users(id) values('${owner}'),('${other}');insert into tongs.orgs(id,name,created_by) values('91000000-0000-4000-8000-000000000001','Storage adapter','${owner}');insert into tongs.workspaces(id,name,created_by,org_id) values('${workspace}','Storage adapter','${owner}','91000000-0000-4000-8000-000000000001');insert into tongs.episodes(id,workspace_id,label) values('${episode}','${workspace}','Storage adapter');insert into storage.buckets(id,name) values('forge-workpieces','forge-workpieces'),('bellows-capture','bellows-capture');`);
  sql(`insert into storage.objects(bucket_id,name,metadata,version) values('forge-workpieces','legacy-unattributed-fixture.bin','{"size":3}','fixture');`);

@@ -1,0 +1,37 @@
+{
+  "schema": "forge.storage-admission-successor.v1",
+  "sourceCandidate": "930063de537619c995edcee7efbb1f1016c91c08",
+  "predecessor": {
+    "version": "20261113214832",
+    "historicalCount": 446,
+    "baselineCount": 33,
+    "contractPath": "docs/database/certification/storage-full-tail-446.json",
+    "contractSha256": "6c101ad50695d99364a593087680e13c009678fb36069da282ce8b1cdc74cde5"
+  },
+  "migration": {
+    "version": "20261120161347",
+    "path": "supabase/migrations/20261120161347_storage_accounting_identity_admission.sql",
+    "sha256": "0b4d5a53bf73ca3f10f1b6dc90ab91ecd74c0e58c6bb0dbf714e7d3814040eda"
+  },
+  "historicalCount": 447,
+  "baselineCount": 34,
+  "proposal": {
+    "path": "database/proposals/20261120161347_storage_accounting_identity_admission.sql",
+    "sha256": "a6dd4ff13a86acc92e933b0515e80aadeca03993f56fcdc7287258cbd7e69406"
+  },
+  "catalogDelta": {
+    "added": [
+      "trigger|storage.objects.forge_storage_capacity_identity_guard"
+    ],
+    "changed": [
+      "function|tongs._enforce_storage_capacity()",
+      "trigger|storage.objects.forge_storage_capacity_statement_guard"
+    ],
+    "removed": []
+  },
+  "executionContract": "supabase/tests/storage_admission_447_contract.sql",
+  "executionContractSha256": "07ea6c20f716ba589d495d47535b594fc443ba8589d1c36470929614cbd4635f",
+  "hostedExecution": "held-no-executor",
+  "historicalCertification": "not-performed",
+  "releaseAuthorization": false
+}

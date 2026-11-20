@@ -120,7 +120,7 @@ jobs:
       - name: Verify disposable CI database setup contract
         run: node --test scripts/tests/disposable-ci-database.test.mjs
       - name: Verify exact-version Storage deployment policies
-        run: node --test scripts/test-storage-billing-hosted-deployment.mjs scripts/test-storage-successor-hosted-deployment.mjs scripts/test-storage-successor-executors.mjs scripts/test-storage-http-source.mjs scripts/test-storage-historical-inventory-evidence.mjs
+        run: node --test scripts/test-storage-billing-hosted-deployment.mjs scripts/test-storage-successor-hosted-deployment.mjs scripts/test-storage-successor-executors.mjs scripts/test-storage-http-source.mjs scripts/test-storage-historical-inventory-evidence.mjs scripts/test-storage-full-tail.mjs scripts/test-storage-admission-successor.mjs
       - name: Verify hosted smoke isolation
         run: node --test scripts/tests/hosted-smoke-authorization.test.mjs
       - name: Certify fresh baseline and shared tail

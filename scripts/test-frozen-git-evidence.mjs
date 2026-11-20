@@ -142,6 +142,7 @@ try {
     "supabase/migrations/20261111201029_storage_historical_quarantine.sql",
     "supabase/migrations/20261113175455_storage_historical_accounting.sql",
     "supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql",
+    "supabase/migrations/20261120161347_storage_accounting_identity_admission.sql",
   ];
   assert.equal(published.successorFileCount, expectedSuccessorPaths.length);
   assert.deepEqual(
