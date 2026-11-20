@@ -23,7 +23,9 @@ unchanged cumulative contracts through 444 and 446.
 `forge-storage-full-tail.mjs` verifies the exact 446-prefix plus this one
 successor; legacy callers retain their original through-446 scope. Explicit
 staging may select 447 for either lineage. Current CI requires the exact seven
-Storage migrations and the stage-7 execution contract. Old hosted executors
+Storage migrations and the stage-7 execution contract. Legacy packaging verifies
+the pinned 447 repository suffix but materializes only its original 445/446
+payload; it still rejects 447 as a requested target. Old hosted executors
 remain limited to their original versions and retain their hard Apply hold.
 There is no hosted 447 executor or authorization in this change.
 

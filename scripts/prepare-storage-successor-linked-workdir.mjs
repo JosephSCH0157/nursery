@@ -5,6 +5,7 @@ import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,copyFileSync,rmSync,rea
 import {resolve,join,dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {PAYLOAD,PROJECT,releaseFor,STORAGE_RELEASES} from './lib/storage-successor-release-contract.mjs';
+import {validateSuccessorPayload} from './prepare-storage-successor-hosted-workdir.mjs';
 
 // Local CLI material only; never connects or obtains credentials. Apply remains
 // held in both fixed wrappers and policy. Offline preparation remains available
@@ -67,13 +68,7 @@ export function prepareStorageWorkdir(repo,version) {
  const git=(...args)=>execFileSync('git',['-C',repo,...args],{maxBuffer:32*1024*1024});
  git('merge-base','--is-ancestor',PAYLOAD,'HEAD');
  // Bounded migration materialization plus its exact configuration dependency; no runnable source checkout.
- const list=ref=>git('ls-tree','-r','--name-only',ref,'--','supabase/migrations').toString().trim().split('\n').filter(p=>p.endsWith('.sql')).sort();
- const names=list(PAYLOAD);assert.equal(names.length,446,'certified_inventory_count');
- assert.deepEqual(list('HEAD'),names,'unexpected_migration_inventory');
- const working=readdirSync(join(repo,'supabase/migrations')).filter(p=>p.endsWith('.sql')).map(p=>'supabase/migrations/'+p).sort();
- assert.deepEqual(working,names,'untracked_migration');
- git('diff','--exit-code',PAYLOAD,'HEAD','--','supabase/migrations');
- git('diff','--exit-code','HEAD','--','supabase/migrations');
+ const {names}=validateSuccessorPayload(repo);
  assert.equal(readFileSync(join(repo,'supabase/.temp/project-ref'),'utf8').trim(),PROJECT,'linked_project');
  for(const s of STORAGE_RELEASES)assert.equal(createHash('sha256').update(git('show',`${PAYLOAD}:supabase/migrations/${s.filename}`)).digest('hex'),s.sha256,'payload_hash');
  const base=join(repo,'.git/forge-private-evidence/storage-successor-linked-release');mkdirSync(base,{recursive:true,mode:0o700});

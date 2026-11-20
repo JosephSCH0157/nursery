@@ -6,6 +6,8 @@ import {tmpdir} from 'node:os';
 import {admissionSuccessor as successor,readAdmissionSuccessor,validateAdmissionContract,sha256} from './lib/storage-admission-successor.mjs';
 import {readPinned,stage,pendingVersions,validateStorageCiProvenance} from './lib/forge-storage-full-tail.mjs';
 import {releaseFor,assertStorageSuccessorReleaseReady} from './lib/storage-successor-release-contract.mjs';
+import {validateSuccessorPayload,prepareSuccessorWorkdir} from './prepare-storage-successor-hosted-workdir.mjs';
+import {prepareStorageWorkdir} from './prepare-storage-successor-linked-workdir.mjs';
 const predecessor=JSON.parse(readFileSync(successor.predecessor.contractPath));
 
 test('adopts precisely the byte-tested SQL without changing the proposal or predecessor catalog',()=>{
@@ -52,6 +54,11 @@ test('repository membership and both migration-only lineage stages include the s
 });
 test('adoption does not enable or broaden any hosted executor',()=>{
  assert.throws(()=>releaseFor(successor.migration.version),/unsupported_storage_successor/);
+ assert.throws(()=>prepareSuccessorWorkdir(process.cwd(),successor.migration.version),/unsupported_storage_successor/);
+ assert.throws(()=>prepareStorageWorkdir(process.cwd(),successor.migration.version),/unsupported_storage_successor/);
+ const legacy=validateSuccessorPayload(process.cwd());
+ assert.equal(legacy.names.length,446);
+ assert.ok(!legacy.names.includes(successor.migration.path),'adopted suffix is excluded from all legacy packages');
  assert.throws(()=>assertStorageSuccessorReleaseReady('Apply'),/storage_successor_release_hold/);
  assert.equal(successor.hostedExecution,'held-no-executor');
 });

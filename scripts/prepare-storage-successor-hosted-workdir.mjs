@@ -5,6 +5,7 @@ import {mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatS
 import {resolve, join, dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {PAYLOAD, PROJECT, releaseFor, STORAGE_RELEASES} from './lib/storage-successor-release-contract.mjs';
+import {readAdmissionSuccessor} from './lib/storage-admission-successor.mjs';
 
 const CONFIGURATION = ['supabase/config.toml', 'supabase/templates/password_changed_notification.html'];
 const PRIVATE_BASE = '.git/forge-private-evidence/storage-successor-release';
@@ -44,10 +45,16 @@ export function validateSuccessorPayload(repo) {
     .toString().trim().split('\n').filter(p => p.endsWith('.sql')).sort();
   const names = list(PAYLOAD);
   assert.equal(names.length, 446, 'payload_inventory_count');
-  assert.deepEqual(list('HEAD'), names, 'committed_migration_inventory');
+  const {contract:admission}=readAdmissionSuccessor(repo);
+  git(repo,'merge-base','--is-ancestor',admission.sourceCandidate,'HEAD');
+  const repositoryNames=[...names,admission.migration.path];
+  assert.deepEqual(list('HEAD'), repositoryNames, 'committed_migration_inventory');
   assert.deepEqual(readdirSync(join(repo, 'supabase/migrations')).filter(p => p.endsWith('.sql'))
-    .map(p => `supabase/migrations/${p}`).sort(), names, 'working_migration_inventory');
-  git(repo, 'diff', '--exit-code', PAYLOAD, 'HEAD', '--', 'supabase/migrations', ...CONFIGURATION);
+    .map(p => `supabase/migrations/${p}`).sort(), repositoryNames, 'working_migration_inventory');
+  assert.equal(sha256(git(repo,'show',`HEAD:${admission.migration.path}`)),admission.migration.sha256,'adopted_suffix_hash');
+  // Recognize only the pinned repository suffix. Legacy packages still select
+  // exclusively from the unchanged 446-file payload; 447 is never included.
+  git(repo, 'diff', '--exit-code', PAYLOAD, 'HEAD', '--', 'supabase/migrations', ...CONFIGURATION, `:(exclude)${admission.migration.path}`);
   git(repo, 'diff', '--exit-code', 'HEAD', '--', 'supabase/migrations', ...CONFIGURATION);
   const files = payloadFiles(repo, [...names, ...CONFIGURATION]);
   for (const path of files.keys()) {
