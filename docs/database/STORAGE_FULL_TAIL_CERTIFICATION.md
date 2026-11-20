@@ -29,7 +29,59 @@ It does not invent Luna financial rows. If the four required operational predece
 
 Authentic continuation requires a separately reviewed, restorable predecessor containing actual schema, lineage marker, full six-column migration history and necessary financial data, with source identity, exact version/hash commitments, extraction provenance, confidentiality/retention controls and owner-authorized transfer scope. A 411-row migration-history capsule alone is insufficient: it does not contain the later operational financial state. The old authentic closeout states its confidential capsule was removed and its token revoked; a closeout or consumed migration-440 authorization is not a reusable snapshot or credential.
 
-Once such evidence is available, validate and restore it only to an isolated task-owned environment through an approved restoration procedure. Verify schema/catalog, migration-history prefix, financial fingerprints and exact remaining versions before applying any pending SQL. Apply the identical shared-tail bytes through 446, retaining before/after original history and financial fingerprints; run the same Storage HTTP/accounting/concurrency/RLS/application checks and compare the final normalized H/B1 catalog. Any mismatch remains a hold. No hosted export or new restoration mechanism is authorized implicitly by this runbook.
+For the existing physical-provider path, restore the reviewed predecessor only to an isolated task-owned environment through its approved restoration procedure. Verify schema/catalog, migration-history prefix, financial fingerprints and exact remaining versions before applying any pending SQL. Apply the identical shared-tail bytes through 446, retaining before/after original history and financial fingerprints; run the same Storage HTTP/accounting/concurrency/RLS/application checks and compare the final normalized H/B1 catalog. Any mismatch remains a hold. This logical evidence contract does not alter that physical path or authorize a hosted export or restoration.
+
+## Logical-restoration evidence contract (v1)
+
+The additional `forge.storage-h444-logical-restoration-approval.v1` method can
+substantiate the H444 source and H full-tail evidence using an authentic,
+independently verified logical snapshot imported into an isolated target. Its
+offline validator is
+[`storage-logical-restoration-certification.mjs`](../../scripts/lib/storage-logical-restoration-certification.mjs).
+It validates supplied evidence only: it does not export, import, connect to a
+database, run migrations, or grant hosted certification. An `OFFLINE_EVIDENCE_VALID`
+result is not a release receipt.
+
+The owner-approved evidence package must bind the exact current candidate and
+the complete pinned 446-migration manifest, including the exact 445–446 bytes.
+The logical artifact directory contains exactly the schema, data, migration
+schema/data, role/ACL manifest, and `snapshot-consistency.json` artifacts. The
+validator streams and verifies every artifact's SHA-256 and size. The
+consistency proof must bind the same source project and snapshot identifier,
+transaction-snapshot method, start/completion times, six-column migration
+history, financial observation, Storage metadata observation, source
+observation digest, and digest set of the other export artifacts. The source
+and target observations must preserve the complete six-column history and
+matching lineage, financial, and Storage fingerprints at 444, 445, and 446.
+The source must retain the required Test-mode predecessor authorities; no
+synthetic history-only capsule substitutes for them.
+
+The Storage manifest must reconcile exactly 475 original object identities
+with source and target metadata digests, byte counts, independently recorded
+source/target byte hashes, and read receipts. The required behavior receipt
+still covers the complete physical-path acceptance set, including Storage HTTP
+and retained-byte behavior, ownership/RLS, concurrency, stale-writer rejection,
+global fencing/drain, and delayed/duplicate Stripe events. Final H/B1 catalog
+parity remains mandatory.
+
+Isolation evidence must inventory every required external-effect category on
+both source and target, with explicit per-category coverage, counts, evidence
+hashes, and inventory fingerprints. Every active source mechanism must have one
+exact-identity neutralization; all target mechanisms must be inactive.
+Catalog fingerprints must cover the complete supplied source and target
+catalogs. Every catalog difference must be an exact exception tied to the
+matching neutralized identity. Wildcards, unexplained differences, unclassified
+effects, and incomplete inventories fail closed. Timestamped isolation and
+trigger-suppression evidence must precede import. Production secrets and Vault
+root keys must not be transferred.
+
+The owner-approved digest must be independently captured and supplied to the
+validator; valid JSON or a self-computed digest is not owner approval. Any
+actual production export, logical restoration, or hosted certification requires
+separate authorization and handling of restricted evidence. This method does
+not weaken or replace the unchanged physical-provider restoration contract and
+tests. A successful logical H444 certification also does not satisfy the
+separate mandatory production physical-backup recovery certification gate.
 
 ## Acceptance and release boundary
 

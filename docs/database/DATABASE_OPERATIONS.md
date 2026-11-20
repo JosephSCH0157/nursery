@@ -245,6 +245,17 @@ then completing and certifying a hosted executor, requires a separately approved
 continuation. No snapshot acquisition, cloud infrastructure, entitlement
 activation, merge, or deployment is part of this offline procedure.
 
+The versioned logical-restoration evidence contract in
+[`STORAGE_FULL_TAIL_CERTIFICATION.md`](STORAGE_FULL_TAIL_CERTIFICATION.md#logical-restoration-evidence-contract-v1)
+and its validator at
+[`storage-logical-restoration-certification.mjs`](../../scripts/lib/storage-logical-restoration-certification.mjs)
+support offline validation of a separately owner-authorized, authentic logical
+H444 restoration. The validator does not export or restore data, access a hosted
+database, execute migrations, authorize release execution, or issue a hosted
+certification receipt. Its evidence method does not replace the required
+production physical-backup recovery certification gate or modify the existing
+physical-provider restoration contract.
+
 ## 4. Create a disposable fresh database
 
 Choose an unused local port range and a destination that does not exist:
