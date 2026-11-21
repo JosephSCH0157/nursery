@@ -18,6 +18,48 @@ authorizations remain unchanged. This package does not authorize restoration,
 cloning, migration 445/446/447 execution, H/B1 certification, financial operations,
 Stripe access, historical-object changes, new infrastructure, merge or deployment.
 
+## Data classification and simplified security profile
+
+Documentation amended 2026-11-21 at the owner's request. The owner confirms that
+Forge is prelaunch, with no registered customers or customer information, and
+describes its data as non-sensitive. This is an **owner-declared classification**,
+not a source inspection, empty-table finding or proof that credentials are absent.
+Expected evidence is internal prelaunch/test configuration and operational data.
+
+Schema/manifest inspection establishes field types, not current values. Contact
+fields, scripts, JSON metadata, SQL definitions and migration statements remain
+uninspected. Financial prices, budgets and Stripe object IDs are not inherently
+credentials; subscription fencing UUIDs are not OAuth refresh tokens. Acquisition
+credentials, encryption keys, Auth secrets and provider credentials remain secret
+regardless of customer count or Test mode. Exclude secret values, including
+encrypted provider credential payloads, and screen required schema/history/data.
+Unexpected personal information, a contradicted classification or required
+secret-bearing evidence causes a review hold; never silently redact required bytes.
+
+The proposed profile uses the existing trusted Windows workstation, verified TLS,
+read-only source access, an exact reviewed extraction allowlist, encrypted output
+and an owner/SYSTEM-only unused destination. Proposed encryption is owner-managed
+**AES-256-GCM with Windows DPAPI CurrentUser wrapping**, subject to offline
+verification and documented, tested recovery. No separate RSA recipient or
+independent key custodian is required by this profile. Independent review of the
+evidence and approval of its exact package digest remain mandatory. See the
+[confidential-output design](H444_CONFIDENTIAL_OUTPUT_DESIGN.md).
+
+Whole-workstation hardening is not a blanket prerequisite. Instead, before any
+acquisition the owner must explicitly record acceptance (or require mitigation)
+of paging, hibernation, crash/diagnostic persistence, unverified volume encryption,
+same-account/elevated access and incomplete memory erasure. The record must cover
+**transient acquisition credentials and encryption keys as well as the payload**;
+calling the payload non-sensitive is not acceptance of those secret exposures.
+Unknown protection stays unknown. No strict no-plaintext-on-disk claim is made.
+If that guarantee is required, the existing workstation is not verified suitable.
+
+Required risk record: named owner/operator and Windows account/host; exact
+procedure/allowlist/destination; each accepted risk and scope; required process
+controls; recovery/retention arrangements; approval reference and UTC expiry.
+**Residual-risk acceptance: NOT RECORDED.** This request authorizes documentation
+amendment only. It neither accepts these risks nor issues acquisition permission.
+
 ## Exact source and permitted evidence boundary
 
 | Item | Proposed requirement / current evidence |
@@ -52,12 +94,19 @@ Required authentic data, subject to a reviewed exact extraction allowlist:
   and original read receipts to the source snapshot; do not infer this binding
   merely because the local files passed a checksum test.
 
-The prior 88-table/four-contact-column-exclusion extraction manifest is an input
+The prior 88-table extraction manifest is an input
 to review, not a current approved export scope or proof that every required
 dependency is included. Its SHA-256 is
 9de7485012819a3b5b6fb5b70deb56229e176bd556200932e9b891bfd65e9614.
 The owner must approve a complete table/column/dependency allowlist and exclusions
 bound to the chosen procedure before any access. Do not expand scope at runtime.
+
+Correction: that pinned manifest **includes**, rather than excludes,
+`auth.users.email`, `auth.users.phone`, `tongs.billing_customers.email` and
+`tongs.beta_access_applications.applicant_email_normalized`. No claim is made
+about their contents. Any new contact-field exclusion requires a reviewed
+projection preserving required identity/dependency evidence; the preserved
+manifest itself remains unchanged.
 
 ## Consistent snapshot, provenance and deliverables
 
@@ -99,11 +148,14 @@ new destination has been created or approved. Existing .git evidence must never
 be overwritten. The final path must be excluded from Git, application serving,
 deployment, cloud sync and general backup/export jobs.
 
-Approve an exact unused path/run identity, encryption at rest and in transit,
-owner-only access (and required SYSTEM access on Windows), separate key recovery
-custody, available capacity and confidentiality controls for temporary data,
-swap/pagefile, crash dumps, command logs and diagnostic output. If those controls
-cannot be demonstrated, stop before private data is read.
+Approve an exact unused path/run identity, authenticated output encryption and
+verified TLS, owner-only access (and required SYSTEM access on Windows), named
+owner key custody, tested recovery and available capacity. Require no deliberate
+plaintext artifact/temp files, no credential-bearing arguments or raw payload
+logs, and bounded sanitized diagnostics. These process controls must be verified.
+Host paging/dump/hibernation and elevated-access risks follow the explicit
+acceptance record above; administrative hardening is not automatically required.
+Missing mandatory controls or missing risk acceptance stops acquisition.
 
 The acquisition destination stores inert encrypted files only. Do not import or
 execute captured SQL, instantiate a database, run triggers/webhooks, start workers
@@ -173,7 +225,8 @@ and all 475 original bodies remain protected.
 | Logical versus separately specified physical evidence method | UNDECIDED |
 | Exact exporter/query package and reviewed table/column/dependency scope | UNDECIDED |
 | Reuse-only Storage bodies versus any new version-specific reads | UNDECIDED; no new reads authorized |
-| Destination host/path, encryption and isolation evidence, key custodian | UNDECIDED |
+| Destination host/path, encryption and process controls, owner key custody and tested recovery | UNDECIDED; AES-256-GCM + DPAPI CurrentUser proposed |
+| Explicit workstation residual-risk acceptance, including transient credentials/keys | NOT RECORDED; documentation amendment is not acceptance |
 | Cost estimate, payer, hard byte/spend ceilings | UNDECIDED; no approved amount |
 | Named operator, start window, expiry, retention and disposal owner | UNDECIDED |
 | New authorization addressing prior stop and consumed permissions | NOT ISSUED |

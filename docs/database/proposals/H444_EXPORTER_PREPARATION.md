@@ -133,15 +133,26 @@ running them is not restoration or certification execution.
 
 ## Unresolved confidentiality and authorization requirements
 
+Security prerequisites were reconciled on 2026-11-21 in the
+[acquisition package](H444_ACQUISITION_AUTHORIZATION_NOT_APPROVED.md) and
+[confidential-output design](H444_CONFIDENTIAL_OUTPUT_DESIGN.md). The owner declares
+no registered customers or customer information; source contents remain
+uninspected. AES-256-GCM with Windows DPAPI CurrentUser wrapping is proposed,
+subject to offline verification and documented recovery. Host hardening is
+replaced by explicit, still-pending residual-risk acceptance, including exposure
+of transient credentials and encryption keys. Mandatory source/output controls,
+secret exclusions, exact artifact hashes and independent evidence review remain.
+**NOT APPROVED — EXECUTION PROHIBITED.** No exporter gates changed.
+
 | Requirement | Status / minimum next requirement |
 | --- | --- |
 | Authentic source and current H444 eligibility | **NOT VERIFIED.** Owner must identify permitted source/backup, endpoint, existing read-only principal and access window. No source read occurred. Stop if the source has advanced; never manufacture H444. |
 | Exact extraction/dependency scope | **BLOCKED.** Independently review and pin complete tables/columns, financial journals/subscriptions/receipts/entitlements, workspace/episode/registry relationships, catalog dependencies and exclusions. The seven-table synthetic fixture and old 88-table manifest are not approved authentic scope. |
 | Real transport and provenance | **BLOCKED.** Review pinned compatible psql/pg_dump versions/hashes, CA/hostname verification, connection framing, source role/identity, exit handling, cancellation and snapshot import. Validate against synthetic PostgreSQL before any authentic use. |
 | Temporary/output files | **BLOCKED.** Implement and review encryption, restricted exact unused destination, no overwrite, atomic publication, key custody and failure retention. Node's `mode:0600` test option does not establish Windows ACL confidentiality. No authentic plaintext temporary file is permitted by this proposal. |
-| Process memory | **BLOCKED.** Current core necessarily holds plaintext buffers and JavaScript strings; garbage collection does not guarantee erasure. Approve a suitable isolated execution environment and exposure controls before private data enters it. |
-| Swap/pagefile/hibernation/crash dumps | **BLOCKED.** Supply host-specific confidentiality evidence and an approved handling policy. This work does not verify or change those settings, disable swap, or claim memory stays off disk. |
-| Logs and secret screening | **BLOCKED.** Review stderr, command/session transcripts, diagnostics, server logging and crash reporting. Implement approved schema/history/data secret screening. Required secret-bearing fields must cause a scope stop, never silent redaction or a false clean receipt. |
+| Process memory | **ACCEPTANCE PENDING.** Current core holds plaintext buffers and JavaScript strings; garbage collection does not guarantee erasure. Verify process controls and obtain explicit owner acceptance of residual payload/credential/key exposure and same-account/elevated access. |
+| Swap/pagefile/hibernation/crash dumps | **ACCEPTANCE PENDING.** Record known settings, unknown protections and explicit risk acceptance or owner-required mitigation. No mandatory workstation-wide configuration change follows from the prelaunch classification. Do not claim memory stays off disk. |
+| Logs and secret screening | **BLOCKED.** Verify no credential-bearing arguments, raw payload/error logs or deliberate plaintext artifact files. Review the acquisition process and screen required schema/history/data. Accept residual host telemetry risk explicitly; comprehensive host-wide logging shutdown is not mandatory. Required secret-bearing fields cause a scope stop, never silent redaction or a false clean receipt. |
 | Storage reconciliation | **BLOCKED.** Approve reuse-only reconciliation of preserved exact versions/body digests to the source snapshot. No new Storage GET is authorized. |
 | Cost, expiry and retention | **UNDECIDED.** Approve payload/traffic/spend ceilings, payer, time window, expiry, custodian and retention/disposal policy. The test limits establish no pricing or spending commitment. |
 | Independent authorization | **NOT ISSUED.** New bounded owner approval must bind procedure/code/allowlist/source/destination/safeguards/budget and expressly address the prior stop. Separately approve the exact acquired package after independent review. Consumed authorizations cannot be reused. |
