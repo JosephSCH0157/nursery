@@ -16,6 +16,46 @@ import {
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const testDeps = { service: {} as TongsCommitService };
 
+test("Storage release pause prevents new job ticks and disposal drains admitted work", async () => {
+  const previous = process.env.FORGE_STORAGE_RELEASE_MODE;
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  let ticks = 0;
+  process.env.FORGE_STORAGE_RELEASE_MODE = "paused";
+  const runner = await startWorkpieceJobRunner(testDeps, {
+    targetKey: "http://127.0.0.1:54321",
+    pollIntervalMs: 5,
+    testOnlyTick: async () => { ticks++; entered(); await blocked; },
+  });
+  try {
+    for (const mode of ["paused", "invalid", ""]) {
+      process.env.FORGE_STORAGE_RELEASE_MODE = mode;
+      await wait(20);
+      assert.equal(ticks, 0);
+    }
+    process.env.FORGE_STORAGE_RELEASE_MODE = "open";
+    await started;
+    process.env.FORGE_STORAGE_RELEASE_MODE = "paused";
+    let drained = false;
+    const draining = runner.dispose().then(() => { drained = true; });
+    await wait(20);
+    assert.equal(drained, false, "cannot cut over while a job is admitted");
+    release();
+    await draining;
+    await wait(20);
+    assert.equal(ticks, 1);
+    assert.equal(runner.isActive(), false);
+    assert.equal(process.env.FORGE_STORAGE_RELEASE_MODE, "paused");
+  } finally {
+    release();
+    await runner.dispose();
+    if (previous === undefined) delete process.env.FORGE_STORAGE_RELEASE_MODE;
+    else process.env.FORGE_STORAGE_RELEASE_MODE = previous;
+  }
+});
+
 test("ordinary Vite startup is disabled while explicit local and allowlisted startup are authorized", () => {
   assert.deepEqual(
     resolveWorkpieceJobRunnerAuthority({}, "https://persistent-project.supabase.co"),

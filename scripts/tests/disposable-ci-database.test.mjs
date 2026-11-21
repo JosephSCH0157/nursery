@@ -125,3 +125,14 @@ test('Auth compatibility is restricted to the non-login synthetic principal afte
   assert.match(sql, /where id='fe000000-0000-4000-8000-000000000001';/);
   assert.doesNotMatch(sql, /insert into|delete from|set encrypted_password|update tongs\./i);
 });
+
+// Fixture guards and SQL bytes remain immutable; only setup order changes.
+test('Auth prerequisite is checked at its exact head before applying later successors', () => {
+  const begin = setup.indexOf("$authHead = '20261105025313'");
+  const check = setup.indexOf('  Assert-DisposableAuthUsers', begin);
+  const restore = setup.indexOf('  Restore-PendingMigrations', check);
+  const tail = setup.indexOf("Invoke-LocalSupabase @('migration','up'", restore);
+  assert.ok(begin > 0 && check > begin && restore > check && tail > restore);
+  assert.match(setup.slice(begin,check), /-le \$authHead/);
+  assert.match(setup.slice(begin,check), /-gt \$authHead/);
+});

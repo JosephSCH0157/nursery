@@ -4,6 +4,9 @@
 # Frozen database evidence and its executable certification inputs are hashed
 # as exact Git blob bytes. Never let platform checkout conversion rewrite them.
 supabase/migrations/** -text
+docs/database/certification/storage-admission-447.json text eol=lf
+supabase/tests/storage_admission_447_contract.sql text eol=lf
+database/proposals/20261120161347_storage_accounting_identity_admission.sql text eol=lf
 supabase/tests/** -text
 database/canonical-baseline-v1/** -text
 database/historical-pre-slice-a-v1/** -text

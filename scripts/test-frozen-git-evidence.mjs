@@ -136,6 +136,13 @@ try {
     "supabase/migrations/20261104143249_align_provider_requests_and_luna_financial_authority.sql",
     "supabase/migrations/20261104212918_hammer_canary_renewal_tooling_compatibility.sql",
     "supabase/migrations/20261105025313_scalable_forge_financial_admission.sql",
+    "supabase/migrations/20261111180013_storage_capacity_authority.sql",
+  "supabase/migrations/20261111185031_storage_capacity_statement_enforcement.sql",
+    "supabase/migrations/20261111192458_storage_subscription_lifecycle_fencing.sql",
+    "supabase/migrations/20261111201029_storage_historical_quarantine.sql",
+    "supabase/migrations/20261113175455_storage_historical_accounting.sql",
+    "supabase/migrations/20261113214832_workpiece_manifest_optimistic_concurrency.sql",
+    "supabase/migrations/20261120161347_storage_accounting_identity_admission.sql",
   ];
   assert.equal(published.successorFileCount, expectedSuccessorPaths.length);
   assert.deepEqual(
