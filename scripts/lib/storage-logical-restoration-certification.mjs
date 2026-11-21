@@ -261,7 +261,9 @@ async function hashArtifactFile(path, name) {
   }
 }
 
-async function validateLogicalArtifactDirectory(directory, receipt, approval) {
+// Byte/shape verification only; this export neither validates approval nor
+// establishes authenticity. The complete restoration validator remains required.
+export async function validateLogicalArtifactDirectory(directory, receipt, approval) {
   assert.ok(typeof directory === 'string' && directory.trim(),
     'logical_artifact_directory_required');
   const root = resolve(directory);
