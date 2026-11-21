@@ -68,6 +68,8 @@ for(const [name,mutate,error] of [
   ['nonfixture transport',f=>{f.transport.kind='postgres';},'authentic_acquisition_not_approved'],
   ['substituted plan',f=>{f.plan.candidate='0'.repeat(40);},'plan_digest_mismatch'],
   ['credential field in plan',f=>{f.plan.endpoint.password='SYNTHETIC_SECRET';reseal(f);},'unexpected_endpoint_fields'],
+  ['secret column projection',f=>{f.plan.tables[0].columns=[...f.plan.tables[0].columns,'encrypted_password'];reseal(f);},'secret_scope_forbidden'],
+  ['Vault table projection',f=>{f.plan.tables.push({name:'vault.secrets',columns:['id']});reseal(f);},'secret_scope_forbidden'],
   ['incomplete history columns',f=>{f.plan.tables.find(t=>t.name==='supabase_migrations.schema_migrations').columns=f.plan.tables.find(t=>t.name==='supabase_migrations.schema_migrations').columns.slice(1);reseal(f);},'missing_migration_columns'],
   ['unverified TLS chain',f=>{f.transport.connectionEvidence.chainVerified=false;},'verified_tls_required'],
   ['wrong TLS hostname',f=>{f.transport.connectionEvidence.host='evil.invalid';},'verified_tls_required'],

@@ -17,19 +17,21 @@ logical evidence contract. The preserved implementation remains unchanged at
 `330a91615dd755736ad74ae29e9e66450645ee2b8b6a3a31be8ef30180923b35`.
 Its custom schema archive and combined payload were not the six required files.
 
-The new module is a collection/assembly core with an injected transport. **Only
-the in-memory synthetic transport is implemented.** The module has no network
-client, subprocess launcher, credential resolver, persistent output writer,
-restore method or certification runner. It rejects authentic mode and any
-nonfixture transport before source operations. Plans must name the reserved
-`fixture.invalid` endpoint and synthetic project. There is no runtime approval
-flag that enables authentic collection.
+The module is a collection/assembly core with an injected transport. Subsequent
+[offline integration](H444_OFFLINE_INTEGRATION.md) adds a real PostgreSQL transport
+confined to a disposable synthetic container, and Windows encrypted output.
+There is no hosted transport, production credential resolver, restore method or
+certification runner. Authentic mode and nonfixture transports remain rejected.
+Plans must name `fixture.invalid` and the synthetic project; the real transport
+forces loopback inside a network-disabled fixture. No runtime approval flag
+enables authentic collection.
 
-The fixture transport models PostgreSQL responses and dump output. These tests
+The original in-memory fixture models PostgreSQL responses and dump output. Its tests
 do not execute SQL, start PostgreSQL, perform a TLS handshake or establish that
-the source permits the queries. A reviewed real transport and protected
-publication layer remain implementation prerequisites before authentic use.
-No existing acquisition or certification command calls this module.
+the source permits the queries. The newer integration tests exercise real TLS,
+PostgreSQL snapshots and encrypted publication using synthetic data only.
+A reviewed authentic transport/credential path, scope, recovery and explicit
+authorization remain prerequisites. No hosted or certification command calls it.
 
 ## Collection and failure contract
 
@@ -148,8 +150,8 @@ secret exclusions, exact artifact hashes and independent evidence review remain.
 | --- | --- |
 | Authentic source and current H444 eligibility | **NOT VERIFIED.** Owner must identify permitted source/backup, endpoint, existing read-only principal and access window. No source read occurred. Stop if the source has advanced; never manufacture H444. |
 | Exact extraction/dependency scope | **BLOCKED.** Independently review and pin complete tables/columns, financial journals/subscriptions/receipts/entitlements, workspace/episode/registry relationships, catalog dependencies and exclusions. The seven-table synthetic fixture and old 88-table manifest are not approved authentic scope. |
-| Real transport and provenance | **BLOCKED.** Review pinned compatible psql/pg_dump versions/hashes, CA/hostname verification, connection framing, source role/identity, exit handling, cancellation and snapshot import. Validate against synthetic PostgreSQL before any authentic use. |
-| Temporary/output files | **BLOCKED.** Implement and review encryption, restricted exact unused destination, no overwrite, atomic publication, key custody and failure retention. Node's `mode:0600` test option does not establish Windows ACL confidentiality. No authentic plaintext temporary file is permitted by this proposal. |
+| Real transport and provenance | **LOCAL FIXTURE ONLY.** The offline integration tests pinned clients, CA/hostname validation, framing, read-only snapshot import and cleanup against real synthetic PostgreSQL. No authentic endpoint or credential path is implemented/authorized. |
+| Temporary/output files | **LOCAL FIXTURE ONLY.** AES-256-GCM/DPAPI CurrentUser, owner/SYSTEM DACL checks, ciphertext-only output, no-replacement publication and recovery are exercised offline. Authentic destination, recovery planning and approval remain pending. No authentic plaintext temporary file is permitted. |
 | Process memory | **ACCEPTANCE PENDING.** Current core holds plaintext buffers and JavaScript strings; garbage collection does not guarantee erasure. Verify process controls and obtain explicit owner acceptance of residual payload/credential/key exposure and same-account/elevated access. |
 | Swap/pagefile/hibernation/crash dumps | **ACCEPTANCE PENDING.** Record known settings, unknown protections and explicit risk acceptance or owner-required mitigation. No mandatory workstation-wide configuration change follows from the prelaunch classification. Do not claim memory stays off disk. |
 | Logs and secret screening | **BLOCKED.** Verify no credential-bearing arguments, raw payload/error logs or deliberate plaintext artifact files. Review the acquisition process and screen required schema/history/data. Accept residual host telemetry risk explicitly; comprehensive host-wide logging shutdown is not mandatory. Required secret-bearing fields cause a scope stop, never silent redaction or a false clean receipt. |

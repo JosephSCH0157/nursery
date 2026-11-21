@@ -16,6 +16,12 @@ The acquisition package now requires explicit residual-risk acceptance rather
 than blanket workstation hardening. **Risk acceptance remains NOT RECORDED**;
 documentation approval is not permission to acquire or acceptance of secret exposure.
 
+Subsequent implementation status: [offline integration](H444_OFFLINE_INTEGRATION.md)
+implements this mechanism for synthetic fixtures only, including actual DPAPI
+round-trip in a fresh process. The observations and unperformed tests below
+describe the original design-only review; the integration report records the
+later validation. Authentic account-loss recovery and acquisition approval remain pending.
+
 ## Recommendation and local evidence
 
 Use the existing **Node `node:crypto` AES-256-GCM implementation**, with a fresh
@@ -24,8 +30,9 @@ CurrentUser** under the named owner-managed Windows account. Use a 96-bit random
 nonce and full 128-bit GCM tag; never reuse a key/nonce pair or derive either
 from artifact hashes. Do not fall back to DPAPI LocalMachine. Keep the unwrapped
 key transient; persist only its DPAPI-protected blob. No key was located, read
-or generated for this design. Offline verification and documented recovery are
-prerequisites; this is a proposed mechanism, not an implemented output layer.
+or generated during the design review. Offline verification and documented
+recovery are prerequisites for authentic use; the implemented output layer remains
+restricted to synthetic evidence as described in the integration report.
 
 Read-only capability inspection found native Windows Node `v20.20.0`, bundled
 OpenSSL `3.0.17`, AES-256-GCM/SHA-256 availability and the required cipher and
@@ -171,8 +178,8 @@ complete key/copy inventory. Never delete historical evidence or original bodies
 
 ## Review decision and next permitted work
 
-The mechanism is feasible with installed APIs, but the output layer is **not
-implemented or approved**. Required decisions: exact destination/DACLs; owner
+The mechanism is implemented for local synthetic tests but **not approved for
+authentic acquisition**. Required decisions: exact destination/DACLs; owner
 account and tested recovery; explicit host residual-risk acceptance and threat model;
 budgets/retention; exact framing and in-memory verification; independent review
 of the implementation and a new bounded acquisition authorization addressing the

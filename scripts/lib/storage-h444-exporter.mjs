@@ -1,8 +1,9 @@
 // Acquisition preparation only. Authentic collection is held before any I/O.
-// The transport contract is exercised with synthetic, in-memory PostgreSQL fixtures.
+// Transports are restricted to in-memory or isolated local synthetic fixtures.
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {REQUIRED_LOGICAL_ARTIFACTS} from './storage-logical-restoration-certification.mjs';
+import {checkExportScope,screenExportValue} from './storage-h444-secret-screen.mjs';
 
 export const FIXTURE_PROJECT = 'syntheticfixtureonly';
 export const HISTORY_COLUMNS = ['created_by','idempotency_key','name','rollback','statements','version'];
@@ -49,6 +50,7 @@ export function validatePlan(plan, expectedDigest, versions) {
     requireThat(Array.isArray(t.columns)&&t.columns.length>0&&new Set(t.columns).size===t.columns.length,'column_scope');
     t.columns.forEach(ident);
   }
+  checkExportScope(plan.tables);
   const table = name => plan.tables.find(t=>t.name===name);
   requireThat(canonical(table('supabase_migrations.schema_migrations')?.columns)===canonical(HISTORY_COLUMNS),'missing_migration_columns');
   for(const name of ['forge_meta.database_lineage','storage.objects',...authorities.map(a=>a[1])])requireThat(table(name),'missing_required_table');
@@ -193,6 +195,7 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
       const values=await query(rowsSQL(t,budget.rowsPerTable));requireThat(Array.isArray(values)&&values.every(r=>typeof r==='string'),'row_projection');
       requireThat(values.length===size.rowCount&&values.reduce((s,r)=>s+BigInt(Buffer.byteLength(r)),0n)===BigInt(size.rawBytes),'inconsistent_projection');
       const objects=values.map(r=>{try{return JSON.parse(r);}catch{throw new ExportHold('invalid_row_json');}});
+      screenExportValue(objects);
       for(const row of objects)requireThat(row&&canonical(Object.keys(row).sort())===canonical([...t.columns].sort()),'incomplete_row_projection');
       rows.set(t.name,values);parsed.set(t.name,objects);
     }
@@ -213,7 +216,10 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     requireThat(Array.isArray(sequenceNames),'sequence_inventory');const sequences=[];
     for(const s of sequenceNames){requireThat(plan.schemas.includes(s.schema),'sequence_scope');const observation=await query(frameSQL('select json_build_object(\'lastValue\',last_value::text,\'isCalled\',is_called,\'observedAt\',clock_timestamp()) from '+qualified(s.schema+'.'+s.name)));requireThat(/^-?[0-9]+$/.test(observation.lastValue)&&typeof observation.isCalled==='boolean'&&Number.isFinite(Date.parse(observation.observedAt)),'sequence_observation');sequences.push({...s,...observation});}
     const files=new Map();
-    for(const migration of [false,true])files.set(migration?'supabase-migrations-schema.sql':'schema.sql',normalizeDump(await bounded('dump',dumpRequest(plan,start.snapshotId,migration),budget.dumpMs)));
+    for(const migration of [false,true]){
+      const bytes=normalizeDump(await bounded('dump',dumpRequest(plan,start.snapshotId,migration),budget.dumpMs));
+      screenExportValue(bytes);files.set(migration?'supabase-migrations-schema.sql':'schema.sql',bytes);
+    }
     files.set('data.sql',dataSql(plan.tables.filter(t=>t.name!=='supabase_migrations.schema_migrations'),rows));
     files.set('supabase-migrations-data.sql',dataSql(plan.tables.filter(t=>t.name==='supabase_migrations.schema_migrations'),rows));
     const end=await query(frameSQL('select clock_timestamp()'));
@@ -224,7 +230,7 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
         financialSha256:sha256(canonical([...plan.financialTables].sort().map(n=>[n,rows.get(n)]))),storageSha256:hashRows(rows.get('storage.objects')),
         financialMode:'test',requiredFinancialRecords:counts,
         provenance:{evidenceKind:'synthetic-offline',candidate:plan.candidate,planSha256:expectedPlanSha256,exporterSha256:sha256(readFileSync(new URL(import.meta.url))),endpoint:plan.endpoint,
-          tools:plan.tools,transaction:anchor,operations,snapshotStartedAt:start.at,snapshotCompletedAt:end}}};
+          tools:plan.tools,transport:transport.provenance??{executionClass:'in-memory-fixture'},transaction:anchor,operations,snapshotStartedAt:start.at,snapshotCompletedAt:end}}};
     const sourceBytes=jsonBytes(sourceObservation);
     files.set('role-and-acl-manifest.json',jsonBytes({schema:'forge.h444-role-acl-export.v1',evidenceKind:'synthetic-offline',snapshotId:start.snapshotId,
       rolesAndMemberships:roles,relationPrivileges:privileges,ddlAclFiles:['schema.sql','supabase-migrations-schema.sql'],

@@ -287,6 +287,27 @@ export async function validateLogicalArtifactDirectory(directory, receipt, appro
   }
 
   const proofBytes = verified.get('snapshot-consistency.json').proofBytes;
+  validateSnapshotProof(proofBytes, receipt, approval);
+}
+
+// Same byte/proof checks without materializing plaintext files. Not approval.
+export function validateLogicalArtifactBuffers(files, receipt, approval) {
+  assert.deepEqual([...files.keys()].sort(), [...REQUIRED_LOGICAL_ARTIFACTS].sort(), 'logical_artifact_files');
+  assert.deepEqual(receipt.artifacts.map(a => a.name).sort(), [...REQUIRED_LOGICAL_ARTIFACTS].sort(), 'logical_artifact_receipt_files');
+  for (const artifact of receipt.artifacts) {
+    const bytes = files.get(artifact.name);
+    assert.ok(Buffer.isBuffer(bytes), 'logical_artifact_buffer');
+    assert.ok(bytes.length > 0, 'logical_artifact_empty');
+    assert.equal(artifact.snapshotId, receipt.snapshotId, 'logical_artifact_snapshot');
+    assert.equal(bytes.length, artifact.sizeBytes, 'logical_artifact_size_mismatch');
+    assert.equal(sha256(bytes), artifact.sha256, 'logical_artifact_bytes_changed');
+  }
+  const proofBytes = files.get('snapshot-consistency.json');
+  assert.ok(proofBytes.length <= 65536, 'snapshot_consistency_proof_size');
+  validateSnapshotProof(proofBytes, receipt, approval);
+}
+
+function validateSnapshotProof(proofBytes, receipt, approval) {
   assert.equal(sha256(proofBytes), receipt.consistencyProofSha256,
     'snapshot_consistency_proof_mismatch');
   const proof = parseJson(proofBytes, 'snapshot_consistency_proof');
