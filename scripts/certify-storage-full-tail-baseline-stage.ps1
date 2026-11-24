@@ -1,11 +1,20 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)][string]$Workdir,
  [Parameter(Mandatory)][string]$Container,[Parameter(Mandatory)][ValidateSet('permissive','restrictive')][string]$Lane,
- [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$ReviewRegressionOnly)
+ [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$ReviewRegressionOnly,[switch]$IncludeAdmission)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath($RepositoryRoot)
 $helper=Join-Path $repo 'scripts/lib/forge-storage-full-tail.mjs'
 $contract=Get-Content (Join-Path $repo 'docs/database/certification/storage-full-tail-446.json') -Raw|ConvertFrom-Json
+$historyCount=33
+if($IncludeAdmission){
+ if($ReviewRegressionOnly){throw 'Select either full 447 certification or review regression only'}
+ & node (Join-Path $repo 'scripts/verify-storage-h444-447-proposal.mjs') | Out-Null
+ if($LASTEXITCODE -ne 0){throw '447 migration and execution commitments differ'}
+ $admission=Get-Content (Join-Path $repo 'docs/database/certification/storage-admission-447.json') -Raw|ConvertFrom-Json
+ $contract.migrations=@($contract.migrations)+@($admission.migration)
+ $contract.target=$admission.migration.version;$historyCount=34
+}
 $project=(Get-Content (Join-Path $Workdir 'supabase/config.toml') -Raw|Select-String 'project_id = "([^\"]+)"').Matches[0].Groups[1].Value
 if($Container -cne "supabase_db_$project" -or $project -notmatch '^forge-baseline-v1-[a-f0-9]{12}$'){throw 'Unexpected disposable baseline container'}
 function Sql([string]$Text){$out=($Text|docker exec -i $Container psql -X -qAt -v ON_ERROR_STOP=1 -U postgres -d postgres 2>&1|Out-String);if($LASTEXITCODE -ne 0){throw "Full-tail local SQL failed: $out"};$out.Trim()}
@@ -51,6 +60,7 @@ if($ReviewRegressionOnly){
  return
 }
 $saved=@{};foreach($key in @('SUPABASE_DB_CONTAINER','FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT','FORGE_STORAGE_HTTP_CERT','FORGE_STORAGE_PRIVATE_INVENTORY')){$saved[$key]=[Environment]::GetEnvironmentVariable($key,'Process')}
+if($IncludeAdmission){$saved['FORGE_STRIPE_SANDBOX_CERT']=$env:FORGE_STRIPE_SANDBOX_CERT;$env:FORGE_STRIPE_SANDBOX_CERT=$null}
 try{
  $env:SUPABASE_DB_CONTAINER=$Container;$env:FORGE_STORAGE_HISTORICAL_ACCOUNTING_CERT='1';$env:FORGE_STORAGE_HTTP_CERT='1';$env:FORGE_STORAGE_PRIVATE_INVENTORY=$null
  & node (Join-Path $repo 'scripts/certify-storage-capacity-isolated.mjs') *> (Join-Path $EvidenceDirectory "$Lane-storage-http.log")
@@ -58,8 +68,20 @@ try{
  $env:FORGE_STORAGE_HTTP_CERT=$null;$env:FORGE_STORAGE_PRIVATE_INVENTORY=Join-Path $repo '.git/forge-storage-investigation-20261113'
  & node (Join-Path $repo 'scripts/certify-storage-capacity-isolated.mjs') *> (Join-Path $EvidenceDirectory "$Lane-all475.log")
  if($LASTEXITCODE -ne 0){throw "Exact historical inventory checks failed; see $Lane-all475.log"}
+ if($IncludeAdmission){
+  $env:FORGE_STORAGE_HTTP_CERT='1';$env:FORGE_STORAGE_PRIVATE_INVENTORY=$null
+  & node (Join-Path $repo 'scripts/certify-storage-capacity-isolated.mjs') --review-corrections *> (Join-Path $EvidenceDirectory "$Lane-admission-review.log")
+  if($LASTEXITCODE -ne 0){throw '447 metadata and overwrite behavior regression failed'}
+ }
 }finally{foreach($key in $saved.Keys){[Environment]::SetEnvironmentVariable($key,$saved[$key],'Process')}}
 Stage $contract.target;Apply '20261105025313' $contract.target
+if($IncludeAdmission){
+ foreach($check in @(@('storage_billing_hosted_release_contract.sql',4),@('storage_successor_hosted_release_contract.sql',6),@('storage_admission_447_contract.sql',7))){
+  $sql=(Get-Content (Join-Path $repo ('supabase/tests/'+$check[0])) -Raw).Trim().TrimEnd(';')
+  $result=Sql ('select row_to_json(c) from ('+$sql+') c;') | ConvertFrom-Json
+  if($result.storage_stage -ne $check[1] -or $result.storage_contract_ok -ne $true){throw '447 cumulative execution contract failed'}
+ }
+}
 if((Sql $financialSql) -cne $before){throw 'Preexisting financial state changed through full tail'}
 & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $Workdir -DatabaseTarget local -Mode preflight -RepositoryRoot $repo|Out-Null
 foreach($file in @('scalable_forge_financial_admission.sql','public_slice_a_security_behavior.sql')){
@@ -87,4 +109,4 @@ try{
  & node (Join-Path $repo 'scripts/normalize-canonical-catalog-for-production.mjs') --catalog $catalog --compatibility (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') --output $catalog|Out-Null
  if($LASTEXITCODE -ne 0){throw 'Full-tail catalog normalization failed'}
 }finally{Pop-Location}
-[ordered]@{schema='forge.storage-full-tail-baseline.v1';result='PASS';target=$contract.target;historyCount=33;lineage='baseline-v1';lane=$Lane;syntheticOperationalPrerequisite=$true;authenticHistoricalFinancialState=$false;financialFingerprintUnchanged=$true;storageHttpAccountingConcurrency='PASS';all475='PASS';rlsDataApi='PASS';catalogPath=$catalog}|ConvertTo-Json|Set-Content (Join-Path $EvidenceDirectory "$Lane-result.json")
+[ordered]@{schema='forge.storage-full-tail-baseline.v1';result='PASS';target=$contract.target;historyCount=$historyCount;lineage='baseline-v1';lane=$Lane;syntheticOperationalPrerequisite=$true;authenticHistoricalFinancialState=$false;financialFingerprintUnchanged=$true;storageHttpAccountingConcurrency='PASS';all475='PASS';rlsDataApi='PASS';catalogPath=$catalog}|ConvertTo-Json|Set-Content (Join-Path $EvidenceDirectory "$Lane-result.json")

@@ -124,7 +124,7 @@ jobs:
       - name: Verify hosted smoke isolation
         run: node --test scripts/tests/hosted-smoke-authorization.test.mjs
       - name: Verify offline Storage restoration evidence contracts
-        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs
+        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs scripts/test-storage-logical-execution-wiring.mjs
       - name: Certify fresh baseline and shared tail
         shell: pwsh
         run: |

@@ -42,13 +42,12 @@ It validates supplied evidence only: it does not export, import, connect to a
 database, run migrations, or grant hosted certification. An `OFFLINE_EVIDENCE_VALID`
 result is not a release receipt.
 
-The executing `certify-storage-authentic-restoration.mjs` coordinator accepts
-physical-provider approvals only. The logical validator is not connected to an
-export/import or migration execution path. The later
-[H444-to-447 proposal](proposals/STORAGE_H444_447_CERTIFICATION.md) remains
-non-executing; a reviewed logical execution adapter and 447-capable successor
-runner are prerequisites for that route. Offline tests and CI cannot satisfy
-this integration requirement or authorize running either route.
+The v1 logical validator remains offline-only. The same
+`certify-storage-authentic-restoration.mjs` coordinator now has the separate v2
+logical execution route below. Physical-provider approvals retain their original
+444/445/446 stages and cannot select 447. The preserved
+[H444-to-447 proposal](proposals/STORAGE_H444_447_CERTIFICATION.md) remains an
+unsigned requirements record; it is never accepted as an execution approval.
 
 The owner-approved evidence package must bind the exact current candidate and
 the complete pinned 446-migration manifest, including the exact 445–446 bytes.
@@ -93,6 +92,88 @@ separate authorization and handling of restricted evidence. This method does
 not weaken or replace the unchanged physical-provider restoration contract and
 tests. A successful logical H444 certification also does not satisfy the
 separate mandatory production physical-backup recovery certification gate.
+
+## Isolated logical execution through 447 (v2)
+
+This is implementation readiness, not authorization or an authentic certification
+result. No exporter, decryption, import, project creation, production release
+wrapper or recovery gate is enabled by this route. It consumes an **already
+restored**, independently reviewed H444 predecessor. Confidential handling and
+any materialization of the six artifact files require their own approved handling
+procedure; the synthetic-only encrypted exporter is unchanged.
+
+The new approval schema is `forge.storage-h444-logical-restoration-approval.v2`.
+It retains the v1 provenance, snapshot, financial, Storage, isolation, expiry and
+cleanup commitments, with these explicit differences:
+
+- `allowedOperation` is `isolated-h444-to-447-certification`; the manifest and
+  ordered migration commitments include the adopted 447 bytes. The candidate
+  must equal the clean executing checkout's HEAD.
+- `privilegeMode` is exactly `permissive` or `restrictive`, with a different
+  isolated H target for each mode. `connectionSha256` pins the trimmed,
+  credential-free descriptor accepted by the existing connection validator.
+- The pinned target-observation bundle contains only stage 444, including billing
+  stage 4 / PASS. It is evidence of the restored predecessor, not future results.
+- `behaviorReceiptSha256` is absent. Completed behavior and four-lane parity
+  require a **second independently approved digest after execution**.
+- The original manifest must contain exactly 475 identities and 447,475 bytes.
+  Source/target byte hashes, ownership metadata, receipts and original fingerprint
+  commitments remain required. The observed restored catalog must exactly match
+  the approved isolation target catalog before Upgrade.
+
+Place the approved package in a new restricted directory under
+`.git/forge-private-evidence/storage-authentic-certification`. The fixed input
+names are `source-observation.json`, `export-receipt.json`, `import-receipt.json`,
+`target-observations.json`, `storage-manifest.json`, `isolation-manifest.json`,
+and `artifacts/` containing the six v1 artifacts. Approval JSON and its digest
+must be independently supplied; the tool never issues them. Prepare creates a
+separate unused migration-only workdir, with the exact prefix through 445.
+Validate is offline. Neither action calls the database adapter.
+
+For a separately authorized run, use the existing coordinator with `--action`
+`Prepare`, `Validate`, `Preflight`, `Upgrade`, `PostVerify`, or `Certify`, plus
+`--approval`, `--approval-sha256`, and `--workdir`; Prepare also requires
+`--connection-file`. No command in this document is an instruction to run it now.
+The target can never be production. The existing adapter independently revalidates
+the approval/package before using an explicitly supplied target credential.
+
+Upgrade uses the existing durable-attempt coordinator in exact order 445, 446,
+447. Every stage checks the predecessor, records the attempt before execution,
+requires a one-version dry-run, applies only pinned bytes and immediately
+PostVerifies unchanged H444 history/financial/Storage fingerprints. Billing stage
+4 and successor stages 4/5/6 remain required; 447 additionally requires admission
+stage 7 / PASS. Exact financial-authority selectors remain those in the preserved
+447 proposal. Read observations use one repeatable-read, read-only transaction
+with bounded statement/lock/idle-transaction timeouts. Lost responses or partial
+packages remain a stop: PostVerify may inspect, but Upgrade never resumes or
+replays an attempted stage automatically.
+
+For the B1 comparison, the existing full-tail runner accepts `-IncludeAdmission`
+only with `-Lineage baseline`. It retains both privilege modes and the old
+through-446 default. The opt-in lane applies the identical tail through B1-34,
+runs metadata/overwrite regression and cumulative stages 4/6/7, preserves
+financial fingerprints, and compares normalized catalogs. This remains a
+synthetic operational fixture, not historical evidence or fresh-B1 financial
+initialization. No database execution is implied by offline runner tests.
+
+`Certify` additionally requires `--completion`, `--completion-sha256`, and
+`--final-storage-manifest`. The completion schema is
+`forge.storage-h444-447-logical-completion.v1`; it binds the execution approval,
+candidate, target, mode, snapshot, reviewer, observation time, actual final
+observation, durable per-stage receipts and final Storage manifest. The reviewed
+bundle must include H447 permissive/restrictive and B1-34 permissive/restrictive
+lanes with exact histories, distinct target identities, matching normalized
+catalog hashes and every original behavior check plus `storage-metadata-admission`
+and `storage-overwrite-admission`. Both H lanes carry complete Storage manifests
+preserving the approved original metadata and bytes. B1 lanes remain explicitly
+synthetic. The schema and exact fields are enforced in the logical validator.
+
+Only the existing wrappers 0.5.6/0.5.7 normalization is allowed for final parity.
+The source-to-restored isolation exceptions do not permit final H/B1 catalog
+differences. Completion re-observes the actual target through the adapter and
+requires verified receipts for all three applied stages. Its result never grants
+production release or physical recovery certification; reviewed cleanup and all
+independent release gates remain outstanding.
 
 ## Acceptance and release boundary
 

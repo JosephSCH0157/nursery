@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][ValidateSet('baseline','historical')][string]$Lineage,
  [string]$RepositoryRoot=(Split-Path -Parent $PSScriptRoot),
- [Parameter(Mandatory)][string]$EvidenceDirectory)
+ [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$IncludeAdmission)
 $ErrorActionPreference='Stop'
 $repo=[IO.Path]::GetFullPath($RepositoryRoot);$evidence=[IO.Path]::GetFullPath($EvidenceDirectory)
+if($IncludeAdmission -and $Lineage -ne 'baseline'){throw '447 synthetic extension is baseline-only; authentic H uses the guarded restoration coordinator'}
 if(-not $evidence.StartsWith((Join-Path $repo '.git')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or -not(Test-Path -LiteralPath $evidence -PathType Container)){throw 'Existing restricted repository-private evidence directory required'}
 $reserved=if($Lineage -eq 'baseline'){@('permissive-*','restrictive-*','baseline-result.json','baseline-input.json')}else{@('historical-result.json','historical-input.json')}
 foreach($pattern in $reserved){if(Get-ChildItem -LiteralPath $evidence -Filter $pattern){throw 'Existing certification evidence must be retained; use a new restricted run directory'}}
@@ -13,6 +14,11 @@ $helper=Join-Path $repo 'scripts/lib/forge-storage-full-tail.mjs'
 $verified=& node $helper --action verify --root $repo|ConvertFrom-Json
 if($LASTEXITCODE -ne 0 -or -not $verified.ok){throw 'Pinned full-tail verification failed'}
 $contract=Get-Content (Join-Path $repo 'docs/database/certification/storage-full-tail-446.json') -Raw|ConvertFrom-Json
+$historyCount=33
+if($IncludeAdmission){
+ $admission=Get-Content (Join-Path $repo 'docs/database/certification/storage-admission-447.json') -Raw|ConvertFrom-Json
+ $contract.target=$admission.migration.version;$historyCount=34
+}
 function Replace-One([string]$Text,[string]$Old,[string]$New){if(([regex]::Matches($Text,[regex]::Escape($Old))).Count -ne 1){throw 'Pinned runner structure changed'};$Text.Replace($Old,$New)}
 function Literal([string]$Text){"'"+$Text.Replace("'","''")+"'"}
 $template=if($Lineage -eq 'baseline'){'scripts/certify-canonical-baseline-v1.ps1'}else{'scripts/certify-hammer-owner-funded-first-transcription-historical-successor.ps1'}
@@ -24,6 +30,7 @@ try{
  if($Lineage -eq 'baseline'){
   $needle='  [pscustomobject]@{' + "`n" + '    ok = $true' + "`n" + '    schema = "forge.$CatalogStage-baseline-successor-certification.v1"'
   $addition='  & '+(Literal (Join-Path $repo 'scripts/certify-storage-full-tail-baseline-stage.ps1'))+' -RepositoryRoot $repo -Workdir $workdir -Container $container -Lane $DefaultPrivilegeMode -EvidenceDirectory '+(Literal $evidence)+"`n"
+  if($IncludeAdmission){$addition=$addition.TrimEnd()+" -IncludeAdmission`n"}
   $source=Replace-One $source $needle ($addition+$needle)
  }else{
   # This separate governed probe changes no original runner or exact-prefix guard.
@@ -71,6 +78,10 @@ $expected=@('20261020171517','20261020171519','20261020171522','20261022000000',
  $source=$source.Replace('$PSScriptRoot',(Literal (Join-Path $repo 'scripts')))
  [IO.File]::WriteAllText($generated,$source,[Text.UTF8Encoding]::new($false))
  $inputs=[ordered]@{schema='forge.storage-full-tail-input.v1';gitHead=$verified.head;lineage=$Lineage;target=$contract.target;template=$template;templateSha256=$contract.templatesAndFixtures.$template;generatedRunnerSha256=(Get-FileHash $generated -Algorithm SHA256).Hash.ToLowerInvariant();contractSha256=(Get-FileHash (Join-Path $repo 'docs/database/certification/storage-full-tail-446.json') -Algorithm SHA256).Hash.ToLowerInvariant()}
+ if($IncludeAdmission){
+  $inputs.admissionMigrationSha256=$admission.migration.sha256
+  $inputs.admissionContractSha256=(Get-FileHash (Join-Path $repo 'docs/database/certification/storage-admission-447.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+ }
  $inputs|ConvertTo-Json|Set-Content (Join-Path $evidence "$Lineage-input.json")
  if($Lineage -eq 'baseline'){
   foreach($lane in @('permissive','restrictive')){
@@ -80,7 +91,7 @@ $expected=@('20261020171517','20261020171519','20261020171522','20261022000000',
   $p=Get-Content (Join-Path $evidence 'permissive-full-catalog.json') -Raw|ConvertFrom-Json
   $r=Get-Content (Join-Path $evidence 'restrictive-full-catalog.json') -Raw|ConvertFrom-Json
   if($p.contractSha256 -cne $r.contractSha256 -or $p.objectCount -ne $r.objectCount){throw 'Full-tail catalog/ACL differs between privilege lanes'}
-  [ordered]@{schema='forge.storage-full-tail-baseline-comparison.v1';status='PASS';gitHead=$verified.head;target=$contract.target;historyCount=33;catalogObjectCount=$p.objectCount;catalogSha256=$p.contractSha256;syntheticOperationalPrerequisite=$true;authenticHistoricalFinancialState=$false}|ConvertTo-Json|Set-Content (Join-Path $evidence 'baseline-result.json')
+  [ordered]@{schema='forge.storage-full-tail-baseline-comparison.v1';status='PASS';gitHead=$verified.head;target=$contract.target;historyCount=$historyCount;catalogObjectCount=$p.objectCount;catalogSha256=$p.contractSha256;syntheticOperationalPrerequisite=$true;authenticHistoricalFinancialState=$false}|ConvertTo-Json|Set-Content (Join-Path $evidence 'baseline-result.json')
  }else{
   & pwsh -NoProfile -File $generated -RepositoryRoot $repo -HistoryMode CertifiedChain
   if($LASTEXITCODE -ne 0){throw 'Governed historical boundary probe failed'}

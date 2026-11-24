@@ -256,6 +256,21 @@ certification receipt. Its evidence method does not replace the required
 production physical-backup recovery certification gate or modify the existing
 physical-provider restoration contract.
 
+The same guarded restoration coordinator also implements the separately
+versioned logical v2 route through 447, described in
+[Isolated logical execution through 447](STORAGE_FULL_TAIL_CERTIFICATION.md#isolated-logical-execution-through-447-v2).
+It requires an already restored, independently approved H444 package, a clean
+candidate-bound checkout, a non-production target and per-stage verification.
+The existing physical approval remains restricted to 446. Completed logical
+behavior/parity evidence needs a separate independent approval after execution;
+v1 receipts and the unsigned 447 proposal cannot authorize this route.
+The full-tail B1 runner's opt-in `-IncludeAdmission` supports B1-34 in both
+privilege modes. Its default and historical synthetic boundary remain unchanged.
+These local implementation capabilities neither enable the held production
+445/446 wrappers nor create a production 447 executor. Export, confidentiality
+handling, restoration, actual certification and production release each retain
+their separate authorization boundaries.
+
 ## 4. Create a disposable fresh database
 
 Choose an unused local port range and a destination that does not exist:

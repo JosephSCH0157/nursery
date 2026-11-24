@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {mkdtemp, mkdir, readFile, readdir, copyFile, rm, writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -18,7 +19,11 @@ import {
   REQUIRED_LOGICAL_ARTIFACTS,
   migrationManifestSha256,
   validateLogicalRestorationEvidence,
+  LOGICAL_EXECUTION_APPROVAL_SCHEMA, LOGICAL_COMPLETION_SCHEMA, REQUIRED_447_BEHAVIOR_CHECKS,
+  validateLogicalExecutionPrerequisites, validateLogicalExecutionObservation,
+  validateLogicalRestoredCatalog, validateLogicalExecutionCompletion,
 } from './lib/storage-logical-restoration-certification.mjs';
+import {runUpgrade} from './certify-storage-authentic-restoration.mjs';
 import {sha256, REQUIRED_BEHAVIOR_CHECKS} from './lib/storage-authentic-certification.mjs';
 import {readPinned} from './lib/forge-storage-full-tail.mjs';
 import {PROJECT, STORAGE_RELEASES} from './lib/storage-successor-release-contract.mjs';
@@ -404,6 +409,206 @@ function logicalTest(name, run) {
     }
   });
 }
+
+const executionVersions = [...pinned.contract.migrations, pinned.admission.migration].map(m => m.version);
+const executionReleases = [...STORAGE_RELEASES, {number: 447, ...pinned.admission.migration}];
+function resealExecution(evidence) {
+  reseal(evidence);
+  delete evidence.approval.behaviorReceiptSha256;
+  evidence.approvalBytes = bytes(evidence.approval);
+  evidence.approvedSha256 = hash(evidence.approvalBytes);
+}
+async function executionFixture(getEvidence, mode = 'restrictive') {
+  const evidence = await getEvidence();
+  Object.assign(evidence.approval, {
+    schema: LOGICAL_EXECUTION_APPROVAL_SCHEMA, allowedOperation: 'isolated-h444-to-447-certification',
+    privilegeMode: mode, connectionSha256: hash(`postgresql://postgres@db.${targetProject}.supabase.co/postgres`),
+    migrationManifestSha256: migrationManifestSha256({migrations: [...pinned.contract.migrations, pinned.admission.migration]}),
+    migrations: executionReleases.map(({version, sha256}) => ({version, sha256})),
+  });
+  evidence.targetObservations.observations = evidence.targetObservations.observations.slice(0, 1);
+  Object.assign(evidence.targetObservations.observations[0].observation, {billingStage: 4, billingContractOk: true});
+  evidence.storageManifest.objects.forEach((object, i) => {
+    object.sourceBytes = object.targetBytes = i === 0 ? 967 : 942;
+  });
+  resealExecution(evidence);
+  return evidence;
+}
+const validateExecution = evidence => validateLogicalExecutionPrerequisites({...evidence, repositoryRoot, now});
+const executionObservation = count => ({...observation(Math.min(count, 446)),
+  versions: executionVersions.slice(0, count), billingStage: 4, billingContractOk: true,
+  admissionStage: 7, admissionContractOk: count === 447});
+
+for (const mode of ['permissive', 'restrictive']) logicalTest(`logical v2 validates restored H444 and executes the guarded 445/446/447 sequence: ${mode}`,
+async getEvidence => {
+  const e = await executionFixture(getEvidence, mode);
+  const approval = await validateExecution(e);
+  await assert.rejects(() => validate(e)); // v1 remains a separate non-executing contract.
+  validateLogicalRestoredCatalog(approval, e.isolationManifestBytes, {entries: e.isolationManifest.targetCatalog});
+  assert.throws(() => validateLogicalRestoredCatalog(approval, e.isolationManifestBytes, {entries: []}), /restored_catalog/);
+  let count = 444;
+  const receipts = new Map(), applied = [];
+  const result = await runUpgrade({approval, versions: executionVersions, releases: executionReleases,
+    validateObservation: validateLogicalExecutionObservation, checkApproval: () => validateExecution(e),
+    observe: () => executionObservation(count),
+    persist: (name, value) => {assert.ok(!receipts.has(name)); receipts.set(name, value);},
+    apply: release => {assert.ok(receipts.has(`attempt-${release.number}.json`)); applied.push(release.number); count = release.number;},
+  });
+  assert.deepEqual(applied, [445, 446, 447]);
+  assert.ok(receipts.has('verified-447.json'));
+  assert.equal(result.authenticCertification, 'PENDING_BEHAVIOR_PARITY_AND_CLEANUP');
+});
+
+for (const [name, mutate, pattern] of [
+  ['source substitution', e => {e.approval.sourceProject = 'a'.repeat(20);}, /source_project/],
+  ['production target', e => {e.approval.targetProject = PROJECT;}, /production_target/],
+  ['candidate substitution', e => {e.approval.candidate = 'a'.repeat(40);}, /approved_candidate/],
+  ['missing 447 commitment', e => {e.approval.migrations.pop();}, /approved_successor/],
+  ['invalid privilege mode', e => {e.approval.privilegeMode = 'both';}, /privilege_mode/],
+  ['incomplete H444', e => {e.targetObservations.observations[0].observation.versions.pop();}, /exact_history_prefix/],
+  ['unexplained catalog difference', e => {e.isolationManifest.catalogExceptions = [];}, /catalog_difference/],
+  ['incomplete object bytes', e => {e.storageManifest.objects[0].sourceBytes--; e.storageManifest.objects[0].targetBytes--;}, /approved_original_storage_bytes/],
+  ['wrong financial fingerprint', e => {e.targetObservations.observations[0].observation.financialSha256 = hash('changed');}, /financial_state_changed/],
+  ['missing billing contract', e => {delete e.targetObservations.observations[0].observation.billingContractOk;}, /billing_contract/],
+]) logicalTest(`logical execution rejects ${name}`, async getEvidence => {
+  const e = await executionFixture(getEvidence); mutate(e); resealExecution(e);
+  await assert.rejects(() => validateExecution(e), pattern);
+});
+
+logicalTest('logical execution rejects self-substituted approval digest and expiry', async getEvidence => {
+  const e = await executionFixture(getEvidence);
+  await assert.rejects(() => validateExecution({...e, approvedSha256: 'f'.repeat(64)}), /approval_bytes_changed/);
+  e.approval.expiresAt = '2026-11-19T22:59:00Z'; resealExecution(e);
+  await assert.rejects(() => validateExecution(e), /approval_expired/);
+});
+
+for (const failure of [445, 446, 447]) logicalTest(`logical coordinator does not replay lost response at ${failure}`,
+async getEvidence => {
+  const e = await executionFixture(getEvidence), approval = await validateExecution(e);
+  let count = 444;
+  const receipts = new Map(), calls = [];
+  const run = () => runUpgrade({approval, versions: executionVersions, releases: executionReleases,
+    validateObservation: validateLogicalExecutionObservation, checkApproval: () => approval,
+    observe: () => executionObservation(count),
+    persist: (name, value) => {assert.ok(!receipts.has(name), 'receipt_exists'); receipts.set(name, value);},
+    apply: release => {calls.push(release.number); count = release.number; if (count === failure) throw Error('lost response');},
+  });
+  await assert.rejects(run, /lost response/);
+  assert.equal(calls.at(-1), failure); assert.ok(!receipts.has(`verified-${failure}.json`));
+  const previousCalls = calls.length;
+  await assert.rejects(run); assert.equal(calls.length, previousCalls);
+});
+
+logicalTest('447 PostVerify rejects missing admission checks and protected-state drift', async getEvidence => {
+  const e = await executionFixture(getEvidence), approval = await validateExecution(e);
+  for (const change of [s => {s.admissionContractOk = false;}, s => {s.billingContractOk = false;},
+    s => {s.storageContractOk = false;}, s => {s.admissionStage = 6;},
+    s => {s.originalHistorySha256 = hash('wrong');}, s => {s.financialSha256 = hash('wrong');},
+    s => {s.storageSha256 = hash('wrong');}, s => {s.versions[446] = '99999999999999';}]) {
+    const state = executionObservation(447); change(state);
+    assert.throws(() => validateLogicalExecutionObservation(approval, state, executionVersions, 447));
+  }
+});
+
+logicalTest('logical completion requires independent review, four parity lanes and all 447 behavior evidence',
+async getEvidence => {
+  const e = await executionFixture(getEvidence), approval = await validateExecution(e);
+  const finalObservation = executionObservation(447), stageReceiptsSha256 = hash('actual-stage-receipts');
+  const completion = {
+    schema: LOGICAL_COMPLETION_SCHEMA, candidate, executionApprovalSha256: e.approvedSha256,
+    targetProject, sourceSnapshotId, privilegeMode: approval.privilegeMode,
+    observedAt: '2026-11-19T22:59:00Z', reviewerReference: 'SYNTHETIC TEST ONLY',
+    finalObservationSha256: hash(finalObservation), stageReceiptsSha256,
+    storageManifestSha256: hash(e.storageManifestBytes),
+    lanes: ['H447-permissive', 'H447-restrictive', 'B1-34-permissive', 'B1-34-restrictive'].map((name, index) => ({
+      name, candidate, targetProject: index === 1 ? targetProject : index === 0 ? 'v'.repeat(20) : `forge-baseline-v1-${String(index).repeat(12)}`,
+      lineage: index < 2 ? 'historical-v1' : 'baseline-v1',
+      versions: index < 2 ? executionVersions : ['20261021020814', ...executionVersions.filter(v => v >= '20261022000000')],
+      evidenceKind: index < 2 ? 'authentic-logical-restoration' : 'synthetic-operational-baseline',
+      sourceSnapshotId: index < 2 ? sourceSnapshotId : null,
+      storageManifest: index < 2 ? {...e.storageManifest, targetProject: index === 1 ? targetProject : 'v'.repeat(20)} : null,
+      catalogSha256: baselineCatalogSha256, observationSha256: index === 1 ? hash(finalObservation) : hash(name),
+      checks: Object.fromEntries(REQUIRED_447_BEHAVIOR_CHECKS.map(check => [check,
+        {result: 'PASS', evidenceSha256: hash(check), procedure: 'SYNTHETIC TEST ONLY'}])),
+    })),
+  };
+  const verify = (value = completion, override = {}) => validateLogicalExecutionCompletion({approval,
+    approvedSha256: e.approvedSha256, completionBytes: bytes(value), completionSha256: hash(value),
+    finalObservation, catalogSha256: baselineCatalogSha256, stageReceiptsSha256,
+    storageManifestBytes: e.storageManifestBytes, initialStorageManifestBytes: e.storageManifestBytes,
+    importCompletedAt: e.importReceipt.importCompletedAt, repositoryRoot, now, ...override});
+  assert.equal(verify().status, 'LOGICAL_447_BEHAVIOR_PARITY_VERIFIED');
+  assert.equal(verify().productionReleaseAuthorized, false);
+  assert.equal(verify().physicalRecoveryCertified, false);
+  assert.throws(() => verify(completion, {completionSha256: '0'.repeat(64)}), /logical_completion_bytes_changed/);
+  assert.throws(() => verify(completion, {stageReceiptsSha256: hash('wrong')}), /completion_stages_changed/);
+  const changedStorage = structuredClone(e.storageManifest);
+  changedStorage.objects[0].sourceByteSha256 = changedStorage.objects[0].targetByteSha256 = hash('replacement');
+  assert.throws(() => verify({...completion, storageManifestSha256: hash(changedStorage)},
+    {storageManifestBytes: bytes(changedStorage)}), /approved_original_storage_changed/);
+  for (const mutate of [c => {c.lanes.pop();}, c => {c.lanes[0].evidenceKind = 'synthetic';},
+    c => {c.lanes[0].catalogSha256 = hash('other');}, c => {c.lanes[2].versions.pop();},
+    c => {c.lanes[1].targetProject = c.lanes[0].targetProject;},
+    c => {delete c.lanes[0].checks['storage-metadata-admission'];},
+    c => {c.lanes[3].checks['storage-overwrite-admission'].result = 'FAIL';},
+    c => {c.lanes[0].storageManifest.objects = [];},
+    c => {c.finalObservationSha256 = hash('wrong');}, c => {c.executionApprovalSha256 = hash('wrong');},
+    c => {c.observedAt = '2026-11-20T00:00:00Z';}, c => {c.observedAt = '2026-11-19T21:00:00Z';}]) {
+    const changed = structuredClone(completion); mutate(changed); assert.throws(() => verify(changed));
+  }
+});
+
+logicalTest('CLI prepares and validates exact logical packages through 447 without connecting',
+async getEvidence => {
+  const e = await executionFixture(getEvidence);
+  e.approval.expiresAt = new Date(Date.now() + 3600000).toISOString();
+  e.approval.cleanupDeadline = new Date(Date.now() + 7200000).toISOString();
+  resealExecution(e);
+  const base = join(repositoryRoot, '.git', 'forge-private-evidence', 'storage-authentic-certification');
+  await mkdir(base, {recursive: true});
+  const directory = await mkdtemp(join(base, 'offline-cli-test-'));
+  try {
+    const evidenceDirectory = join(directory, 'evidence');
+    await mkdir(join(evidenceDirectory, 'artifacts'), {recursive: true});
+    for (const name of REQUIRED_LOGICAL_ARTIFACTS) {
+      await copyFile(join(e.logicalArtifactDirectory, name), join(evidenceDirectory, 'artifacts', name));
+    }
+    for (const [name, content] of Object.entries({
+      'approval.json': e.approvalBytes, 'source-observation.json': e.sourceObservationBytes,
+      'export-receipt.json': e.exportReceiptBytes, 'import-receipt.json': e.importReceiptBytes,
+      'target-observations.json': e.targetObservationsBytes, 'storage-manifest.json': e.storageManifestBytes,
+      'isolation-manifest.json': e.isolationManifestBytes,
+    })) await writeFile(join(evidenceDirectory, name), content, {flag: 'wx'});
+    const connection = join(directory, 'connection.txt'), workdir = join(directory, 'package');
+    await writeFile(connection, `postgresql://postgres@db.${targetProject}.supabase.co/postgres`, {flag: 'wx'});
+    const invoke = action => JSON.parse(execFileSync(process.execPath, [
+      join(repositoryRoot, 'scripts/certify-storage-authentic-restoration.mjs'),
+      '--action', action, '--approval', join(evidenceDirectory, 'approval.json'),
+      '--approval-sha256', e.approvedSha256, '--workdir', workdir,
+      ...(action === 'Prepare' ? ['--connection-file', connection] : []),
+    ], {cwd: repositoryRoot, encoding: 'utf8', timeout: 30000, stdio: 'pipe'}));
+    // Only these two offline actions are exercised. No adapter/credentials run.
+    assert.equal(invoke('Prepare').connected, false);
+    const packagePath = join(workdir, 'package.json');
+    for (const count of [445, 446, 447]) {
+      if (count > 445) {
+        const migration = [...pinned.contract.migrations, pinned.admission.migration][count - 1];
+        await writeFile(join(workdir, migration.path), pinned.blobs.get(migration.path), {flag: 'wx'});
+        await writeFile(packagePath, bytes({targetProject, candidate, through: count}));
+      }
+      assert.equal(invoke('Validate').connected, false);
+      assert.equal((await readdir(join(workdir, 'supabase/migrations'))).length, count);
+    }
+    const migration = join(workdir, pinned.admission.migration.path);
+    await writeFile(migration, Buffer.concat([await readFile(migration), Buffer.from('\n-- tampered fixture')]));
+    assert.throws(() => invoke('Validate'), /pinned_package_bytes/);
+    assert.equal((await readdir(workdir)).some(name => name.startsWith('attempt-')), false);
+  } finally {
+    assert.equal(dirname(directory), base);
+    assert.ok(directory.startsWith(join(base, 'offline-cli-test-')));
+    await rm(directory, {recursive: true, force: true});
+  }
+});
 
 logicalTest('accepts complete versioned synthetic evidence but never certifies a hosted database',
 async getEvidence => {
