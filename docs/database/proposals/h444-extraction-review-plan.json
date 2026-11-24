@@ -1,0 +1,3225 @@
+{
+  "schema": "forge.h444-extraction-review-plan.v1",
+  "status": "NOT APPROVED — EXECUTION PROHIBITED",
+  "preparedFromCandidate": "7a6955f11113c3cca0dcc7b5154192cf20a94d6c",
+  "sourceProject": "wtvdjndyxegudufrompx",
+  "legacyManifestSha256": "9de7485012819a3b5b6fb5b70deb56229e176bd556200932e9b891bfd65e9614",
+  "historyVersionsSha256": "b6642437f694d11e9ca29fb82046f556e699f7952a7e33f1f10916b71afeecc1",
+  "schemas": [
+    "auth",
+    "extensions",
+    "forge_meta",
+    "public",
+    "storage",
+    "supabase_migrations",
+    "tongs",
+    "vault"
+  ],
+  "tables": [
+    {
+      "name": "auth.users",
+      "columns": [
+        "instance_id",
+        "id",
+        "aud",
+        "role",
+        "email",
+        "email_confirmed_at",
+        "invited_at",
+        "last_sign_in_at",
+        "is_super_admin",
+        "created_at",
+        "updated_at",
+        "phone",
+        "phone_confirmed_at",
+        "banned_until",
+        "is_sso_user",
+        "deleted_at",
+        "is_anonymous"
+      ]
+    },
+    {
+      "name": "forge_meta.database_lineage",
+      "columns": [
+        "singleton",
+        "lineage",
+        "baseline_contract_sha256",
+        "historical_manifest_sha256",
+        "baseline_start_version",
+        "baseline_end_version",
+        "shared_tail_minimum_version",
+        "installed_at"
+      ]
+    },
+    {
+      "name": "storage.bucket_lifecycle_states",
+      "columns": [
+        "bucket_id",
+        "generation",
+        "next_run_at",
+        "claim_id",
+        "claim_until",
+        "continuation",
+        "last_started_at",
+        "last_completed_at",
+        "last_success_at",
+        "last_result",
+        "failure_count",
+        "last_error",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "storage.buckets",
+      "columns": [
+        "id",
+        "name",
+        "owner",
+        "created_at",
+        "updated_at",
+        "public",
+        "avif_autodetection",
+        "file_size_limit",
+        "allowed_mime_types",
+        "owner_id",
+        "type",
+        "versioning_status",
+        "lifecycle_configuration",
+        "lifecycle_configuration_generation"
+      ]
+    },
+    {
+      "name": "storage.migrations",
+      "columns": [
+        "id",
+        "name",
+        "hash",
+        "executed_at"
+      ]
+    },
+    {
+      "name": "storage.objects",
+      "columns": [
+        "id",
+        "bucket_id",
+        "name",
+        "owner",
+        "created_at",
+        "updated_at",
+        "last_accessed_at",
+        "metadata",
+        "version",
+        "owner_id",
+        "user_metadata",
+        "archived_at",
+        "is_delete_marker",
+        "is_versioned"
+      ]
+    },
+    {
+      "name": "supabase_migrations.schema_migrations",
+      "columns": [
+        "created_by",
+        "idempotency_key",
+        "name",
+        "rollback",
+        "statements",
+        "version"
+      ]
+    },
+    {
+      "name": "tongs.account_admission_events",
+      "columns": [
+        "id",
+        "user_id",
+        "revision",
+        "operation_id",
+        "event_type",
+        "origin_kind",
+        "origin_application_id",
+        "origin_legacy_user_id",
+        "reason",
+        "actor_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.account_admissions",
+      "columns": [
+        "user_id",
+        "effective_state",
+        "origin_kind",
+        "origin_application_id",
+        "origin_legacy_user_id",
+        "current_event_id",
+        "event_revision",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.account_authority_classifications",
+      "columns": [
+        "user_id",
+        "account_class",
+        "revision",
+        "reason",
+        "configured_by",
+        "configured_at"
+      ]
+    },
+    {
+      "name": "tongs.account_balances",
+      "columns": [
+        "user_id",
+        "stripe_customer_id",
+        "plan_item_id",
+        "plan_interval",
+        "plan_status",
+        "plan_current_period_end",
+        "plan_entitled",
+        "storage_item_id",
+        "storage_status",
+        "storage_current_period_end",
+        "storage_bytes_entitled",
+        "ai_credit_balance",
+        "created_at",
+        "updated_at",
+        "base_storage_bytes",
+        "total_storage_bytes_entitled"
+      ]
+    },
+    {
+      "name": "tongs.accounting_journal_entries",
+      "columns": [
+        "event_id",
+        "line_number",
+        "account_code",
+        "user_id",
+        "workspace_id",
+        "deposit_id",
+        "allowance_grant_id",
+        "owner_budget_id",
+        "currency",
+        "amount_micros",
+        "unit_kind",
+        "quantity_delta",
+        "metadata_json",
+        "created_at",
+        "beta_credit_grant_id"
+      ]
+    },
+    {
+      "name": "tongs.accounting_journal_events",
+      "columns": [
+        "id",
+        "idempotency_key",
+        "event_type",
+        "environment",
+        "source_type",
+        "source_id",
+        "currency",
+        "user_id",
+        "workspace_id",
+        "actor_id",
+        "payload_hash",
+        "metadata_json",
+        "occurred_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.ai_credits",
+      "columns": [
+        "user_id",
+        "billing_mode",
+        "token_balance",
+        "token_monthly_limit",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.ai_funding_preference_revisions",
+      "columns": [
+        "id",
+        "user_id",
+        "workspace_id",
+        "revision",
+        "payer_kind",
+        "org_id",
+        "actor_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.ai_pricing_policies",
+      "columns": [
+        "id",
+        "policy_code",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.ai_pricing_policy_revisions",
+      "columns": [
+        "id",
+        "policy_id",
+        "revision",
+        "previous_revision_id",
+        "provider",
+        "model",
+        "media_kind",
+        "generation_mode",
+        "billable_dimensions",
+        "provider_billing_unit",
+        "provider_price_micros_per_unit",
+        "provider_currency",
+        "forge_credit_conversion_numerator",
+        "forge_credit_conversion_denominator",
+        "markup_numerator",
+        "markup_denominator",
+        "addon_credits",
+        "effective_from",
+        "effective_through",
+        "is_active",
+        "price_source_type",
+        "price_source_reference",
+        "price_source_version",
+        "actor_id",
+        "content_hash",
+        "created_at",
+        "pricing_contract_version",
+        "model_snapshot",
+        "endpoint",
+        "customer_rounding_rule"
+      ]
+    },
+    {
+      "name": "tongs.ai_pricing_rate_components",
+      "columns": [
+        "id",
+        "pricing_policy_revision_id",
+        "ordinal",
+        "component_kind",
+        "unit_kind",
+        "rate_numerator",
+        "rate_denominator",
+        "currency",
+        "metadata_json",
+        "content_hash",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.anvil_capture_executions",
+      "columns": [
+        "execution_id",
+        "recording_capture_authority_id",
+        "operation_key",
+        "anvil_version",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.anvil_recording_completion_requests",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "capture_session_id",
+        "ready_transition_id",
+        "script_revision",
+        "script_hash",
+        "media_path",
+        "media_revision",
+        "media_hash",
+        "idempotency_key",
+        "request_fingerprint",
+        "completion_evidence",
+        "completed_by",
+        "created_at",
+        "script_path",
+        "media_bytes",
+        "media_content_type",
+        "storage_bucket",
+        "storage_key",
+        "recording_session_id",
+        "capture_authority_id",
+        "media_verification_receipt_id"
+      ]
+    },
+    {
+      "name": "tongs.anvil_recording_keep_requests",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "capture_session_id",
+        "completion_id",
+        "idempotency_key",
+        "request_fingerprint",
+        "decision_evidence",
+        "kept_by",
+        "created_at",
+        "recording_capture_authority_id"
+      ]
+    },
+    {
+      "name": "tongs.barstock_assignments",
+      "columns": [
+        "id",
+        "workspace_id",
+        "created_by",
+        "title",
+        "status",
+        "created_at",
+        "updated_at",
+        "revision",
+        "import_key"
+      ]
+    },
+    {
+      "name": "tongs.barstock_sparks",
+      "columns": [
+        "id",
+        "workspace_id",
+        "created_by",
+        "title",
+        "body",
+        "tags",
+        "status",
+        "source",
+        "pinned",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+        "client_id",
+        "episode_id",
+        "assignment_id",
+        "revision",
+        "import_key",
+        "linked_workpiece_id"
+      ]
+    },
+    {
+      "name": "tongs.bellows_session_checkpoints",
+      "columns": [
+        "id",
+        "session_id",
+        "sequence_no",
+        "checkpoint_kind",
+        "trigger_action_source",
+        "trigger_action_type",
+        "actor_type",
+        "actor_id",
+        "effect_type",
+        "follow_up_action_source",
+        "follow_up_action_type",
+        "offset_ms",
+        "occurred_at",
+        "lifecycle_state",
+        "recording_state",
+        "broadcast_state",
+        "upload_state",
+        "seal_state",
+        "outcome",
+        "acting_authority_state",
+        "host_participant_id",
+        "acting_host_participant_id",
+        "co_host_participant_ids",
+        "integrity_flags",
+        "event_count",
+        "snapshot_schema_version",
+        "session_snapshot",
+        "delta",
+        "recorded_at"
+      ]
+    },
+    {
+      "name": "tongs.bellows_session_participants",
+      "columns": [
+        "id",
+        "session_id",
+        "workspace_id",
+        "user_id",
+        "role_code",
+        "capture_identity",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.bellows_sessions",
+      "columns": [
+        "id",
+        "workspace_id",
+        "host_user_id",
+        "title",
+        "mode",
+        "session_type",
+        "recording_session_id",
+        "calendar_event_id",
+        "acting_authority_state",
+        "host_participant_id",
+        "acting_host_participant_id",
+        "co_host_participant_ids",
+        "lifecycle_state",
+        "recording_state",
+        "broadcast_state",
+        "upload_state",
+        "seal_state",
+        "outcome",
+        "integrity_flags",
+        "snapshot_schema_version",
+        "latest_checkpoint_id",
+        "created_at",
+        "started_at",
+        "ended_at",
+        "sealed_at",
+        "archived_at",
+        "updated_at",
+        "workpiece_id",
+        "recording_capture_authority_id",
+        "authority_generation"
+      ]
+    },
+    {
+      "name": "tongs.beta_access_applications",
+      "columns": [
+        "id",
+        "source",
+        "source_reference",
+        "source_payload_sha256",
+        "applicant_email_normalized",
+        "application_snapshot",
+        "submitted_at",
+        "received_at"
+      ]
+    },
+    {
+      "name": "tongs.beta_access_identity_bindings",
+      "columns": [
+        "application_id",
+        "user_id",
+        "operation_id",
+        "bound_by",
+        "bound_at"
+      ]
+    },
+    {
+      "name": "tongs.beta_credit_grants",
+      "columns": [
+        "id",
+        "user_id",
+        "workspace_id",
+        "financial_environment",
+        "credit_units",
+        "customer_value_micros",
+        "maximum_wholesale_capacity_micros",
+        "idempotency_key",
+        "reason",
+        "granted_by",
+        "journal_event_id",
+        "metadata_json",
+        "granted_at"
+      ]
+    },
+    {
+      "name": "tongs.billing_customers",
+      "columns": [
+        "user_id",
+        "stripe_customer_id",
+        "email",
+        "customer_name",
+        "metadata_json",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.billing_subscriptions",
+      "columns": [
+        "stripe_subscription_id",
+        "user_id",
+        "stripe_customer_id",
+        "purchase_type",
+        "item_id",
+        "interval",
+        "status",
+        "price_id",
+        "current_period_start",
+        "current_period_end",
+        "cancel_at_period_end",
+        "canceled_at",
+        "metadata_json",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.brand_asset_revisions",
+      "columns": [
+        "id",
+        "workspace_id",
+        "asset_id",
+        "revision",
+        "role",
+        "state",
+        "storage_bucket",
+        "storage_key",
+        "mime_type",
+        "bytes",
+        "content_hash",
+        "width",
+        "height",
+        "duration_ms",
+        "operation_id",
+        "operation_fingerprint",
+        "failure_message",
+        "created_at",
+        "ready_at",
+        "created_by",
+        "has_audio"
+      ]
+    },
+    {
+      "name": "tongs.brand_assets",
+      "columns": [
+        "id",
+        "workspace_id",
+        "profile_id",
+        "role",
+        "internal_label",
+        "archived_at",
+        "created_at",
+        "created_by"
+      ]
+    },
+    {
+      "name": "tongs.brand_profiles",
+      "columns": [
+        "id",
+        "workspace_id",
+        "internal_label",
+        "legacy_template_id",
+        "archived_at",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "updated_by"
+      ]
+    },
+    {
+      "name": "tongs.calendar_events",
+      "columns": [
+        "id",
+        "workspace_id",
+        "created_by",
+        "title",
+        "description",
+        "location",
+        "start_at",
+        "end_at",
+        "all_day",
+        "created_at",
+        "updated_at",
+        "session_id",
+        "assignment_id"
+      ]
+    },
+    {
+      "name": "tongs.canonical_recordings",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "status",
+        "kept_take_event_id",
+        "media_path",
+        "media_content_type",
+        "media_bytes",
+        "media_duration_ms",
+        "recording_session_id",
+        "anvil_capture_session_id",
+        "media_id",
+        "media_signature",
+        "baseline_transcript_path",
+        "baseline_timing_path",
+        "baseline_speaker_map_path",
+        "created_at",
+        "created_by",
+        "sealed_at",
+        "updated_at",
+        "updated_by",
+        "source_kind",
+        "source_authority_id",
+        "source_capture_authority_id"
+      ]
+    },
+    {
+      "name": "tongs.customer_deposits",
+      "columns": [
+        "id",
+        "user_id",
+        "stripe_mode",
+        "stripe_event_id",
+        "stripe_session_id",
+        "stripe_payment_intent_id",
+        "pack_id",
+        "currency",
+        "gross_amount_micros",
+        "credit_units",
+        "journal_event_id",
+        "metadata_json",
+        "received_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.customer_paid_execution_scope_authorizations",
+      "columns": [
+        "id",
+        "user_id",
+        "workspace_id",
+        "financial_environment",
+        "route_code",
+        "provider",
+        "model_or_sku",
+        "pricing_revision_id",
+        "cost_policy_revision_id",
+        "maximum_operation_count",
+        "maximum_customer_charge_micros",
+        "maximum_wholesale_exposure_micros",
+        "maximum_concurrency",
+        "rolling_window_seconds",
+        "valid_from",
+        "valid_until",
+        "status",
+        "reason",
+        "created_by",
+        "created_at",
+        "authorization_kind"
+      ]
+    },
+    {
+      "name": "tongs.customer_spending_quotes",
+      "columns": [
+        "id",
+        "user_id",
+        "operation_id",
+        "tool",
+        "workspace_id",
+        "pricing_revision_id",
+        "pricing_revision",
+        "currency",
+        "normal_maximum_charge_micros",
+        "billable_failure_maximum_charge_micros",
+        "customer_credit_units",
+        "full_cost_ceiling_micros",
+        "billable_failure_classes",
+        "free_failure_classes",
+        "included_quantity",
+        "retention_policy",
+        "provider_funding_summary",
+        "request_fingerprint",
+        "quote_hash",
+        "expires_at",
+        "created_at",
+        "financial_environment"
+      ]
+    },
+    {
+      "name": "tongs.customer_subscription_allowance_terms",
+      "columns": [
+        "id",
+        "contract_revision_id",
+        "financial_environment",
+        "plan_item_id",
+        "interval",
+        "policy_revision",
+        "entitlement_units",
+        "allocated_revenue_micros",
+        "maximum_wholesale_spend_micros",
+        "lifecycle_state",
+        "effective_from",
+        "reason",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.episode_split_recovery_receipts",
+      "columns": [
+        "id",
+        "workspace_id",
+        "project_id",
+        "source_workpiece_id",
+        "destination_workpiece_id",
+        "operation_key",
+        "manifest_hash",
+        "manifest_json",
+        "receipt_json",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.episodes",
+      "columns": [
+        "id",
+        "workspace_id",
+        "label",
+        "created_at",
+        "updated_at",
+        "archived_at",
+        "archived_by",
+        "archive_reason",
+        "lifecycle_state",
+        "deleted_at",
+        "deleted_by",
+        "detached_at",
+        "canonical_recording_id",
+        "active_revision_id",
+        "created_by",
+        "creation_origin",
+        "storage_tier"
+      ]
+    },
+    {
+      "name": "tongs.financial_environment_configuration_revisions",
+      "columns": [
+        "environment",
+        "revision",
+        "lifecycle_state",
+        "workflow_contract",
+        "route_code",
+        "provider",
+        "model",
+        "cost_policy_revision_id",
+        "pricing_revision_id",
+        "wholesale_exposure_ceiling_micros",
+        "maximum_concurrency",
+        "rolling_window_seconds",
+        "maximum_operation_count",
+        "required_stripe_identifier_slots",
+        "reason",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.financial_runtime_environment_revisions",
+      "columns": [
+        "revision",
+        "financial_environment",
+        "reason",
+        "actor_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.forge_credit_contract_revisions",
+      "columns": [
+        "id",
+        "contract_code",
+        "revision",
+        "lifecycle_state",
+        "credit_value_micros",
+        "currency",
+        "markup_basis_points",
+        "tax_treatment",
+        "reason",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.forge_credit_pack_terms",
+      "columns": [
+        "id",
+        "contract_revision_id",
+        "financial_environment",
+        "pack_id",
+        "offer_id",
+        "stripe_product_id",
+        "stripe_price_id",
+        "gross_amount_micros",
+        "credit_units",
+        "availability",
+        "effective_from",
+        "reason",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.funding_reservations",
+      "columns": [
+        "id",
+        "quote_id",
+        "user_id",
+        "operation_id",
+        "funding_source_type",
+        "funding_source_id",
+        "currency",
+        "reserved_customer_charge_micros",
+        "reserved_credit_units",
+        "reserved_wholesale_spend_micros",
+        "idempotency_key",
+        "created_at",
+        "funding_environment",
+        "rollout_authorization_id",
+        "runway_test_authorization_id"
+      ]
+    },
+    {
+      "name": "tongs.hammer_canonical_transcripts_v2",
+      "columns": [
+        "id",
+        "operation_id",
+        "user_id",
+        "workspace_id",
+        "workpiece_id",
+        "canonical_recording_id",
+        "recording_revision_id",
+        "provider_attempt_id",
+        "provider",
+        "model",
+        "provider_request_id",
+        "source_sha256",
+        "transcript_sha256",
+        "transcript_json",
+        "artifact_path",
+        "persisted_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_first_transcription_activation_authorities",
+      "columns": [
+        "id",
+        "financial_environment",
+        "user_id",
+        "workspace_id",
+        "workpiece_id",
+        "canonical_recording_id",
+        "recording_revision_id",
+        "completion_id",
+        "media_sha256",
+        "media_bytes",
+        "verified_duration_ms",
+        "provider_authority_id",
+        "capacity_authority_id",
+        "pricing_revision_id",
+        "aggregate_policy_revision_id",
+        "supplier_ceiling_micros",
+        "supporting_cost_ceiling_micros",
+        "complete_wholesale_ceiling_micros",
+        "customer_credit_units",
+        "maximum_customer_charge_micros",
+        "maximum_provider_attempts",
+        "maximum_concurrency",
+        "automatic_retries",
+        "valid_from",
+        "valid_until",
+        "reason",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_first_transcription_capacity_authorities",
+      "columns": [
+        "id",
+        "project_ref",
+        "evidence_sha256",
+        "checked_at",
+        "expires_at",
+        "netlify_plan",
+        "netlify_remaining_credit_microunits",
+        "supabase_plan",
+        "supabase_spend_cap_enabled",
+        "supabase_remaining_uncached_egress_bytes",
+        "supabase_remaining_database_bytes",
+        "observed_active_hammer_operations",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_history_epoch_heads",
+      "columns": [
+        "head_id",
+        "epoch_id",
+        "workspace_id",
+        "workpiece_id",
+        "canonical_recording_id",
+        "recording_revision_id",
+        "sequence",
+        "schema_version",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_bytes",
+        "artifact_registry_revision",
+        "artifact_registry_updated_at",
+        "parent_kind",
+        "parent_head_id",
+        "parent_path",
+        "parent_sha256",
+        "parent_registry_revision",
+        "parent_registry_updated_at",
+        "base_editor_state_hash",
+        "base_component_sha256",
+        "result_editor_state_hash",
+        "result_component_authority",
+        "initiated_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_history_epochs",
+      "columns": [
+        "epoch_id",
+        "workspace_id",
+        "workpiece_id",
+        "canonical_recording_id",
+        "recording_revision_id",
+        "schema_version",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_bytes",
+        "artifact_registry_revision",
+        "artifact_registry_updated_at",
+        "base_editor_state_hash",
+        "base_component_sha256",
+        "creation_reason",
+        "predecessor_original_path",
+        "predecessor_archive_path",
+        "predecessor_sha256",
+        "predecessor_bytes",
+        "predecessor_registry_revision",
+        "predecessor_registry_updated_at",
+        "archive_registry_revision",
+        "archive_registry_updated_at",
+        "initiating_user_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_recording_import_requests",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "operation_id",
+        "request_fingerprint",
+        "state",
+        "media_path",
+        "original_filename",
+        "expected_media_hash",
+        "expected_media_bytes",
+        "expected_media_content_type",
+        "verified_media_hash",
+        "verified_media_bytes",
+        "verified_media_content_type",
+        "storage_bucket",
+        "storage_key",
+        "media_revision",
+        "hammer_version",
+        "provenance",
+        "failure_stage",
+        "failure_code",
+        "failure_details",
+        "manifest_projected_at",
+        "manifest_projection_error",
+        "imported_by",
+        "created_at",
+        "updated_at",
+        "committed_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_transcription_operations",
+      "columns": [
+        "id",
+        "operation_id",
+        "request_fingerprint",
+        "route_code",
+        "financial_environment",
+        "user_id",
+        "workspace_id",
+        "workpiece_id",
+        "canonical_recording_id",
+        "recording_revision_id",
+        "completion_id",
+        "media_revision",
+        "media_path",
+        "media_sha256",
+        "media_bytes",
+        "media_content_type",
+        "verified_duration_ms",
+        "duration_evidence_source",
+        "provider_authority_id",
+        "quote_id",
+        "reservation_id",
+        "aggregate_hold_id",
+        "accepted_customer_charge_micros",
+        "supplier_ceiling_micros",
+        "supporting_cost_ceiling_micros",
+        "complete_wholesale_ceiling_micros",
+        "maximum_provider_attempts",
+        "execution_authorized",
+        "state",
+        "canonical_transcript_id",
+        "settled_at",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_transcription_provider_attempts",
+      "columns": [
+        "id",
+        "operation_id",
+        "attempt_number",
+        "state",
+        "provider_request_id",
+        "request_sha256",
+        "response_sha256",
+        "submitted_at",
+        "completed_at",
+        "failure_class",
+        "evidence_json",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hammer_transcription_provider_authorities",
+      "columns": [
+        "id",
+        "provider",
+        "model",
+        "speaker_labels",
+        "financial_environment",
+        "supplier_rate_micros_per_hour",
+        "billing_increment_ms",
+        "minimum_billable_ms",
+        "supporting_cost_ceiling_micros",
+        "source_url",
+        "account_evidence_sha256",
+        "source_checked_at",
+        "expires_at",
+        "lifecycle_state",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hearth_editorial_preflight_reports",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "revision",
+        "previous_revision_id",
+        "previous_revision",
+        "script_review_revision_id",
+        "source_file_path",
+        "source_file_revision",
+        "script_content_hash",
+        "research_artifact_id",
+        "research_artifact_revision",
+        "research_artifact_hash",
+        "checker_contract_version",
+        "report_json",
+        "report_content_hash",
+        "projection_content_hash",
+        "immutable_revision_hash",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.hearth_preflight_review_receipts",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "report_id",
+        "report_revision",
+        "script_content_hash",
+        "research_artifact_id",
+        "research_artifact_hash",
+        "operation_id",
+        "reviewed_by",
+        "reviewed_at"
+      ]
+    },
+    {
+      "name": "tongs.hearth_research_artifact_revisions",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "revision",
+        "previous_revision_id",
+        "previous_revision",
+        "brief_fingerprint",
+        "artifact_status",
+        "artifact_json",
+        "artifact_content_hash",
+        "projection_content_hash",
+        "immutable_revision_hash",
+        "contract_version",
+        "committed_by",
+        "committed_at"
+      ]
+    },
+    {
+      "name": "tongs.hearth_script_review_revisions",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "source_file_path",
+        "source_file_revision",
+        "script_content_hash",
+        "script_text",
+        "snapshot_content_hash",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.legacy_account_admission_cohort",
+      "columns": [
+        "user_id",
+        "captured_at",
+        "migration_version"
+      ]
+    },
+    {
+      "name": "tongs.openai_text_cost_policy_revisions",
+      "columns": [
+        "id",
+        "route_code",
+        "revision",
+        "policy_code",
+        "attempt_plan",
+        "maximum_input_units",
+        "maximum_output_units",
+        "maximum_attempts",
+        "direct_provider_ceiling_micros",
+        "supporting_cost_ceiling_micros",
+        "full_cost_ceiling_micros",
+        "cost_coverage",
+        "lifecycle_state",
+        "notes",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.openai_text_funding_bindings",
+      "columns": [
+        "operation_id",
+        "route_code",
+        "reservation_id",
+        "credential_funding",
+        "model",
+        "pricing_revision_id",
+        "maximum_input_units",
+        "maximum_output_units",
+        "maximum_attempts",
+        "created_at",
+        "cost_policy_revision_id",
+        "rollout_revision"
+      ]
+    },
+    {
+      "name": "tongs.openai_text_provider_rate_revisions",
+      "columns": [
+        "id",
+        "provider",
+        "runtime_model_alias",
+        "provider_model_id",
+        "revision",
+        "input_micros_per_million_tokens",
+        "cached_input_micros_per_million_tokens",
+        "output_micros_per_million_tokens",
+        "maximum_context_tokens",
+        "maximum_output_tokens",
+        "source_url",
+        "source_checked_at",
+        "content_hash",
+        "created_at",
+        "audio_input_micros_per_million_tokens",
+        "text_input_micros_per_million_tokens",
+        "billing_basis"
+      ]
+    },
+    {
+      "name": "tongs.openai_text_rate_condition_revisions",
+      "columns": [
+        "id",
+        "provider_rate_revision_id",
+        "revision",
+        "service_tier",
+        "cache_write_micros_per_million_tokens",
+        "long_context_threshold_tokens",
+        "long_context_input_multiplier_millis",
+        "long_context_cached_input_multiplier_millis",
+        "long_context_output_multiplier_millis",
+        "reasoning_billing_rule",
+        "source_url",
+        "source_retrieved_at",
+        "lifecycle_state",
+        "notes",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.openai_text_rollout_revisions",
+      "columns": [
+        "route_code",
+        "revision",
+        "mode",
+        "cost_policy_revision_id",
+        "reason",
+        "actor_id",
+        "created_at",
+        "funding_scope"
+      ]
+    },
+    {
+      "name": "tongs.openai_text_route_policies",
+      "columns": [
+        "route_code",
+        "product_area",
+        "provider_operation",
+        "maximum_input_units",
+        "maximum_output_units",
+        "maximum_attempts",
+        "requires_result_validation",
+        "requires_canonical_persistence",
+        "byo_supported",
+        "rollout_mode",
+        "notes",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.org_members",
+      "columns": [
+        "org_id",
+        "user_id",
+        "org_role",
+        "created_at",
+        "created_by"
+      ]
+    },
+    {
+      "name": "tongs.orgs",
+      "columns": [
+        "id",
+        "name",
+        "created_by",
+        "personal_owner_user_id",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.owner_operating_budget_revisions",
+      "columns": [
+        "budget_id",
+        "revision",
+        "status",
+        "maximum_amount_micros",
+        "reason",
+        "actor_id",
+        "journal_event_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.owner_operating_budgets",
+      "columns": [
+        "id",
+        "environment",
+        "workspace_id",
+        "provider",
+        "route",
+        "sku",
+        "currency",
+        "period_start",
+        "period_end",
+        "created_by",
+        "created_at",
+        "owner_testing_user_id"
+      ]
+    },
+    {
+      "name": "tongs.owner_paid_execution_canary_activation_revisions",
+      "columns": [
+        "id",
+        "execution_scope_authorization_id",
+        "owner_budget_id",
+        "revision",
+        "previous_revision_id",
+        "state",
+        "maximum_operation_count",
+        "valid_from",
+        "valid_until",
+        "reason",
+        "actor_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.paid_allowance_grants",
+      "columns": [
+        "id",
+        "receipt_id",
+        "user_id",
+        "stripe_subscription_id",
+        "plan_item_id",
+        "period_start",
+        "period_end",
+        "entitlement_units",
+        "allocated_revenue_micros",
+        "maximum_wholesale_spend_micros",
+        "currency",
+        "allocation_policy_revision",
+        "journal_event_id",
+        "metadata_json",
+        "granted_at",
+        "created_at",
+        "financial_environment"
+      ]
+    },
+    {
+      "name": "tongs.paid_execution_aggregate_assignments",
+      "columns": [
+        "id",
+        "policy_revision_id",
+        "user_id",
+        "workspace_id",
+        "state",
+        "valid_from",
+        "valid_until",
+        "reason",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.platform_operators",
+      "columns": [
+        "user_id",
+        "reason",
+        "granted_by",
+        "granted_at"
+      ]
+    },
+    {
+      "name": "tongs.private_markup_rule_revisions",
+      "columns": [
+        "id",
+        "revision",
+        "previous_revision_id",
+        "default_markup_basis_points",
+        "overrides_json",
+        "change_reason",
+        "content_hash",
+        "actor_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.private_pricing_cost_components",
+      "columns": [
+        "pricing_revision_id",
+        "ordinal",
+        "component_code",
+        "component_kind",
+        "credential_funding",
+        "provider_label",
+        "success_ceiling_micros",
+        "failure_ceiling_micros",
+        "cost_policy_revision",
+        "tail_policy",
+        "tail_policy_details"
+      ]
+    },
+    {
+      "name": "tongs.private_pricing_policies",
+      "columns": [
+        "id",
+        "policy_code",
+        "scope_kind",
+        "provider",
+        "sku",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.private_pricing_publications",
+      "columns": [
+        "id",
+        "policy_id",
+        "pricing_revision_id",
+        "publication_revision",
+        "action",
+        "reason",
+        "actor_id",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.private_pricing_revision_markup_sources",
+      "columns": [
+        "pricing_revision_id",
+        "markup_rule_revision_id",
+        "effective_markup_basis_points",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.private_pricing_revisions",
+      "columns": [
+        "id",
+        "policy_id",
+        "revision",
+        "previous_revision_id",
+        "lifecycle_state",
+        "currency",
+        "markup_basis_points",
+        "full_cost_ceiling_micros",
+        "failure_cost_ceiling_micros",
+        "customer_price_ceiling_micros",
+        "billable_failure_ceiling_micros",
+        "customer_credit_units",
+        "billable_failure_classes",
+        "free_failure_classes",
+        "included_quantity",
+        "retention_policy",
+        "change_reason",
+        "content_hash",
+        "actor_id",
+        "created_at",
+        "unrounded_customer_price_micros",
+        "rounding_adjustment_micros",
+        "settled_customer_price_micros"
+      ]
+    },
+    {
+      "name": "tongs.project_cradles",
+      "columns": [
+        "id",
+        "workspace_id",
+        "status",
+        "manifest_path",
+        "metadata",
+        "created_by",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "tongs.recording_capture_authorities",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "recording_session_id",
+        "ready_transition_id",
+        "script_path",
+        "script_revision",
+        "script_hash",
+        "operation_key",
+        "provenance",
+        "established_by",
+        "established_at",
+        "script_approval_id",
+        "script_approval_revision",
+        "script_approval_hash",
+        "venue",
+        "script_binding_kind",
+        "request_fingerprint",
+        "preflight_report_id",
+        "preflight_report_revision",
+        "preflight_script_hash",
+        "research_artifact_id",
+        "research_artifact_hash"
+      ]
+    },
+    {
+      "name": "tongs.recording_media_verification_receipts",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "recording_capture_authority_id",
+        "media_path",
+        "media_revision",
+        "media_hash",
+        "media_bytes",
+        "media_content_type",
+        "storage_bucket",
+        "storage_key",
+        "duration_ms",
+        "has_audio_stream",
+        "has_video_stream",
+        "probe_implementation",
+        "verification_evidence",
+        "verified_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.recording_revisions",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "canonical_recording_id",
+        "status",
+        "label",
+        "editor_session_path",
+        "revision_transcript_path",
+        "audio_polish_path",
+        "visual_timeline_path",
+        "visual_placements_path",
+        "history_path",
+        "snapshots_manifest_path",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "updated_by",
+        "composition_v2_path",
+        "media_provenance_path",
+        "render_jobs_path",
+        "release_packet_path",
+        "composition_revision",
+        "composition_fingerprint",
+        "composition_history_head_id",
+        "editorial_authority_path",
+        "editorial_authority_fingerprint",
+        "editorial_authority_revision"
+      ]
+    },
+    {
+      "name": "tongs.recording_sessions",
+      "columns": [
+        "id",
+        "title",
+        "session_type",
+        "starts_at",
+        "ends_at",
+        "notes",
+        "created_at",
+        "updated_at",
+        "workspace_id",
+        "status",
+        "created_by",
+        "calendar_event_id"
+      ]
+    },
+    {
+      "name": "tongs.restricted_beta_allocation_policy_revisions",
+      "columns": [
+        "id",
+        "revision",
+        "option_code",
+        "lifecycle_state",
+        "monthly_fixed_cost_micros",
+        "assumed_monthly_operations",
+        "fixed_allocation_per_operation_micros",
+        "subscription_revenue_allocation_limit_micros",
+        "notes",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.restricted_beta_cost_evidence_revisions",
+      "columns": [
+        "id",
+        "capability_code",
+        "revision",
+        "evidence_state",
+        "coverage_state",
+        "source_reference",
+        "observed_at",
+        "valid_until",
+        "included_capacity_json",
+        "reserved_headroom_json",
+        "latency_json",
+        "hard_cap_scope",
+        "notes",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.restricted_beta_policy_capabilities",
+      "columns": [
+        "id",
+        "policy_revision_id",
+        "capability_code",
+        "admission_mode",
+        "cost_evidence_revision_id",
+        "maximum_attempts",
+        "maximum_concurrency",
+        "per_operation_supplier_ceiling_micros",
+        "per_operation_supporting_ceiling_micros",
+        "per_operation_tail_ceiling_micros",
+        "permitted_callers_json",
+        "exact_model_or_sku",
+        "notes",
+        "created_at",
+        "provider_code",
+        "provider_gross_liquidity_limit_micros"
+      ]
+    },
+    {
+      "name": "tongs.restricted_beta_policy_revisions",
+      "columns": [
+        "id",
+        "environment",
+        "revision",
+        "lifecycle_state",
+        "aggregate_forge_exposure_limit_micros",
+        "reserved_headroom_micros",
+        "maximum_concurrency",
+        "rolling_window_seconds",
+        "evidence_max_age_seconds",
+        "allocation_policy_revision_id",
+        "tail_policy_revision_id",
+        "reason",
+        "created_at",
+        "exposure_accounting_mode",
+        "net_forge_loss_limit_micros",
+        "emergency_platform_risk_limit_micros"
+      ]
+    },
+    {
+      "name": "tongs.restricted_beta_tail_policy_revisions",
+      "columns": [
+        "id",
+        "revision",
+        "lifecycle_state",
+        "first_period_days",
+        "first_period_storage_ceiling_bytes",
+        "after_first_period_policy",
+        "warning_threshold_basis_points",
+        "halt_threshold_basis_points",
+        "deletion_on_threshold",
+        "notes",
+        "created_at",
+        "funding_treatment_json"
+      ]
+    },
+    {
+      "name": "tongs.runway_customer_test_authorizations",
+      "columns": [
+        "id",
+        "user_id",
+        "workspace_id",
+        "financial_environment",
+        "route_code",
+        "provider",
+        "model",
+        "generation_mode",
+        "duration_seconds",
+        "ratio",
+        "output_count",
+        "reference_image_count",
+        "maximum_provider_attempts",
+        "pricing_revision_id",
+        "operation_id",
+        "operation_fingerprint",
+        "maximum_operation_count",
+        "maximum_customer_charge_micros",
+        "maximum_wholesale_exposure_micros",
+        "maximum_concurrency",
+        "valid_from",
+        "valid_until",
+        "status",
+        "reason",
+        "created_by",
+        "created_at",
+        "maximum_quote_count"
+      ]
+    },
+    {
+      "name": "tongs.runway_funding_bindings",
+      "columns": [
+        "operation_id",
+        "operation_fingerprint",
+        "reservation_id",
+        "user_id",
+        "workspace_id",
+        "model",
+        "duration_seconds",
+        "ratio",
+        "direct_provider_ceiling_micros",
+        "supporting_cost_ceiling_micros",
+        "total_cost_ceiling_micros",
+        "pricing_revision_id",
+        "cost_stack_json",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.script_approval_preflight_bindings",
+      "columns": [
+        "script_approval_id",
+        "workspace_id",
+        "workpiece_id",
+        "script_approval_revision",
+        "preflight_report_id",
+        "preflight_report_revision",
+        "preflight_script_hash",
+        "research_artifact_id",
+        "research_artifact_hash",
+        "bound_by",
+        "bound_at"
+      ]
+    },
+    {
+      "name": "tongs.script_approval_revisions",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "approval_revision",
+        "source_file_path",
+        "source_file_revision",
+        "script_content_hash",
+        "semantic_state_hash",
+        "immutable_revision_hash",
+        "script_text",
+        "approval_contract_version",
+        "creator_version_label",
+        "created_by",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.storage_quarantine_authorizations",
+      "columns": [
+        "observation_id",
+        "operator_id",
+        "approved_at",
+        "manifest_sha256",
+        "reason"
+      ]
+    },
+    {
+      "name": "tongs.storage_quarantine_deletions",
+      "columns": [
+        "object_id",
+        "deleted_at",
+        "actor_id",
+        "actor_role"
+      ]
+    },
+    {
+      "name": "tongs.storage_quarantine_objects",
+      "columns": [
+        "object_id",
+        "observation_id",
+        "bucket",
+        "path_sha256",
+        "identity"
+      ]
+    },
+    {
+      "name": "tongs.storage_quarantine_observations",
+      "columns": [
+        "id",
+        "operator_id",
+        "observed_at",
+        "manifest",
+        "manifest_sha256"
+      ]
+    },
+    {
+      "name": "tongs.subscription_cycle_adjustments",
+      "columns": [
+        "id",
+        "receipt_id",
+        "provider_object_id",
+        "stripe_event_id",
+        "adjustment_type",
+        "amount_micros",
+        "liability_release_micros",
+        "discrepancy_expense_micros",
+        "journal_event_id",
+        "evidence_json",
+        "adjusted_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.subscription_cycle_receipts",
+      "columns": [
+        "id",
+        "user_id",
+        "stripe_mode",
+        "stripe_event_id",
+        "stripe_invoice_id",
+        "stripe_subscription_id",
+        "stripe_payment_intent_id",
+        "purchase_type",
+        "plan_item_id",
+        "currency",
+        "gross_amount_micros",
+        "period_start",
+        "period_end",
+        "journal_event_id",
+        "metadata_json",
+        "received_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.subscription_refresh_commits",
+      "columns": [
+        "token",
+        "stripe_mode",
+        "subscription_id",
+        "generation",
+        "event_id",
+        "snapshot",
+        "service_period",
+        "committed_at"
+      ]
+    },
+    {
+      "name": "tongs.subscription_refresh_fences",
+      "columns": [
+        "stripe_mode",
+        "subscription_id",
+        "generation",
+        "token",
+        "event_id",
+        "terminal_canceled"
+      ]
+    },
+    {
+      "name": "tongs.subscription_service_periods",
+      "columns": [
+        "stripe_mode",
+        "invoice_id",
+        "user_id",
+        "subscription_id",
+        "purchase_type",
+        "item_id",
+        "period_start",
+        "period_end",
+        "evidence",
+        "source_refresh_token"
+      ]
+    },
+    {
+      "name": "tongs.supplier_expenses",
+      "columns": [
+        "id",
+        "reservation_id",
+        "expense_key",
+        "provider",
+        "component_code",
+        "provider_reference",
+        "currency",
+        "amount_micros",
+        "evidence_status",
+        "obligation_status",
+        "evidence_json",
+        "incurred_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "tongs.workpiece_files",
+      "columns": [
+        "workpiece_id",
+        "path",
+        "file_type",
+        "content_type",
+        "bytes",
+        "hash_algo",
+        "hash_value",
+        "storage_bucket",
+        "storage_key",
+        "written_by_tool",
+        "written_by_tool_version",
+        "written_by_lane",
+        "created_at",
+        "updated_at",
+        "revision"
+      ]
+    },
+    {
+      "name": "tongs.workpiece_ready_script_meta",
+      "columns": [
+        "workspace_id",
+        "workpiece_id",
+        "script_path",
+        "marked_ready_by",
+        "marked_ready_at",
+        "updated_at",
+        "updated_by",
+        "script_revision",
+        "script_hash",
+        "transition_id",
+        "publish_evidence",
+        "script_approval_id",
+        "script_approval_revision",
+        "script_approval_hash",
+        "preflight_report_id",
+        "preflight_report_revision",
+        "preflight_script_hash",
+        "research_artifact_id",
+        "research_artifact_hash"
+      ]
+    },
+    {
+      "name": "tongs.workpiece_ready_transition_requests",
+      "columns": [
+        "id",
+        "workspace_id",
+        "workpiece_id",
+        "script_path",
+        "script_revision",
+        "script_hash",
+        "idempotency_key",
+        "request_fingerprint",
+        "publish_evidence",
+        "transitioned_by",
+        "created_at",
+        "script_approval_id",
+        "script_approval_revision",
+        "script_approval_hash",
+        "preflight_report_id",
+        "preflight_report_revision",
+        "preflight_script_hash",
+        "research_artifact_id",
+        "research_artifact_hash"
+      ]
+    },
+    {
+      "name": "tongs.workspace_members",
+      "columns": [
+        "workspace_id",
+        "user_id",
+        "role",
+        "created_at",
+        "created_by"
+      ]
+    },
+    {
+      "name": "tongs.workspaces",
+      "columns": [
+        "id",
+        "name",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "adaptive_style_alignment_enabled",
+        "adaptive_style_ai_accelerate_enabled",
+        "org_id",
+        "reference_material_review_enabled"
+      ]
+    }
+  ],
+  "financialTables": [
+    "tongs.accounting_journal_entries",
+    "tongs.accounting_journal_events",
+    "tongs.ai_funding_preference_revisions",
+    "tongs.billing_subscriptions",
+    "tongs.customer_paid_execution_scope_authorizations",
+    "tongs.customer_spending_quotes",
+    "tongs.financial_runtime_environment_revisions",
+    "tongs.funding_reservations",
+    "tongs.hammer_first_transcription_activation_authorities",
+    "tongs.hammer_first_transcription_capacity_authorities",
+    "tongs.hammer_transcription_operations",
+    "tongs.hammer_transcription_provider_attempts",
+    "tongs.openai_text_cost_policy_revisions",
+    "tongs.openai_text_funding_bindings",
+    "tongs.openai_text_rate_condition_revisions",
+    "tongs.openai_text_rollout_revisions",
+    "tongs.owner_operating_budget_revisions",
+    "tongs.owner_operating_budgets",
+    "tongs.owner_paid_execution_canary_activation_revisions",
+    "tongs.paid_execution_aggregate_assignments",
+    "tongs.private_pricing_revisions",
+    "tongs.restricted_beta_cost_evidence_revisions",
+    "tongs.restricted_beta_policy_capabilities",
+    "tongs.restricted_beta_policy_revisions",
+    "tongs.runway_funding_bindings",
+    "tongs.subscription_cycle_receipts",
+    "tongs.supplier_expenses"
+  ],
+  "excludedColumnData": [
+    {
+      "table": "auth.users",
+      "column": "encrypted_password",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "confirmation_token",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "confirmation_sent_at",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "recovery_token",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "recovery_sent_at",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "email_change_token_new",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "email_change",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "email_change_sent_at",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "raw_app_meta_data",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "raw_user_meta_data",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "phone_change",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "phone_change_token",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "phone_change_sent_at",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "confirmed_at",
+      "reason": "database-generated; preserved by schema"
+    },
+    {
+      "table": "auth.users",
+      "column": "email_change_token_current",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "email_change_confirm_status",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "reauthentication_token",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "auth.users",
+      "column": "reauthentication_sent_at",
+      "reason": "original pinned Auth exclusion"
+    },
+    {
+      "table": "storage.objects",
+      "column": "path_tokens",
+      "reason": "database-generated; preserved by schema"
+    }
+  ],
+  "foreignKeyDependencies": [
+    {
+      "source": "storage.bucket_lifecycle_states",
+      "target": "storage.buckets"
+    },
+    {
+      "source": "storage.objects",
+      "target": "storage.buckets"
+    },
+    {
+      "source": "tongs.account_admission_events",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.account_admission_events",
+      "target": "tongs.beta_access_identity_bindings"
+    },
+    {
+      "source": "tongs.account_admission_events",
+      "target": "tongs.legacy_account_admission_cohort"
+    },
+    {
+      "source": "tongs.account_admissions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.account_admissions",
+      "target": "tongs.account_admission_events"
+    },
+    {
+      "source": "tongs.account_admissions",
+      "target": "tongs.beta_access_identity_bindings"
+    },
+    {
+      "source": "tongs.account_admissions",
+      "target": "tongs.legacy_account_admission_cohort"
+    },
+    {
+      "source": "tongs.account_authority_classifications",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.account_balances",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "tongs.beta_credit_grants"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "tongs.customer_deposits"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "tongs.owner_operating_budgets"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "tongs.paid_allowance_grants"
+    },
+    {
+      "source": "tongs.accounting_journal_entries",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.accounting_journal_events",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.accounting_journal_events",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.ai_credits",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.ai_funding_preference_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.ai_funding_preference_revisions",
+      "target": "tongs.orgs"
+    },
+    {
+      "source": "tongs.ai_funding_preference_revisions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.ai_pricing_policy_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.ai_pricing_policy_revisions",
+      "target": "tongs.ai_pricing_policies"
+    },
+    {
+      "source": "tongs.ai_pricing_policy_revisions",
+      "target": "tongs.ai_pricing_policy_revisions"
+    },
+    {
+      "source": "tongs.ai_pricing_rate_components",
+      "target": "tongs.ai_pricing_policy_revisions"
+    },
+    {
+      "source": "tongs.anvil_capture_executions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.anvil_capture_executions",
+      "target": "tongs.recording_capture_authorities"
+    },
+    {
+      "source": "tongs.anvil_recording_completion_requests",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.anvil_recording_completion_requests",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.anvil_recording_completion_requests",
+      "target": "tongs.recording_capture_authorities"
+    },
+    {
+      "source": "tongs.anvil_recording_completion_requests",
+      "target": "tongs.recording_media_verification_receipts"
+    },
+    {
+      "source": "tongs.anvil_recording_completion_requests",
+      "target": "tongs.workpiece_ready_transition_requests"
+    },
+    {
+      "source": "tongs.anvil_recording_completion_requests",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.anvil_recording_keep_requests",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.anvil_recording_keep_requests",
+      "target": "tongs.anvil_recording_completion_requests"
+    },
+    {
+      "source": "tongs.anvil_recording_keep_requests",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.anvil_recording_keep_requests",
+      "target": "tongs.recording_capture_authorities"
+    },
+    {
+      "source": "tongs.anvil_recording_keep_requests",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.barstock_sparks",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.barstock_sparks",
+      "target": "tongs.barstock_assignments"
+    },
+    {
+      "source": "tongs.barstock_sparks",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.barstock_sparks",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.bellows_session_checkpoints",
+      "target": "tongs.bellows_sessions"
+    },
+    {
+      "source": "tongs.bellows_session_participants",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.bellows_session_participants",
+      "target": "tongs.bellows_sessions"
+    },
+    {
+      "source": "tongs.bellows_session_participants",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.bellows_sessions",
+      "target": "tongs.bellows_session_checkpoints"
+    },
+    {
+      "source": "tongs.bellows_sessions",
+      "target": "tongs.calendar_events"
+    },
+    {
+      "source": "tongs.bellows_sessions",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.bellows_sessions",
+      "target": "tongs.recording_capture_authorities"
+    },
+    {
+      "source": "tongs.bellows_sessions",
+      "target": "tongs.recording_sessions"
+    },
+    {
+      "source": "tongs.bellows_sessions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.beta_access_identity_bindings",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.beta_access_identity_bindings",
+      "target": "tongs.beta_access_applications"
+    },
+    {
+      "source": "tongs.beta_credit_grants",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.beta_credit_grants",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.beta_credit_grants",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.billing_customers",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.billing_subscriptions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.brand_asset_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.brand_asset_revisions",
+      "target": "tongs.brand_assets"
+    },
+    {
+      "source": "tongs.brand_asset_revisions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.brand_assets",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.brand_assets",
+      "target": "tongs.brand_profiles"
+    },
+    {
+      "source": "tongs.brand_assets",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.brand_profiles",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.brand_profiles",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.calendar_events",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.calendar_events",
+      "target": "tongs.recording_sessions"
+    },
+    {
+      "source": "tongs.calendar_events",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.canonical_recordings",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.canonical_recordings",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.canonical_recordings",
+      "target": "tongs.recording_capture_authorities"
+    },
+    {
+      "source": "tongs.canonical_recordings",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.customer_deposits",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.customer_deposits",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.customer_paid_execution_scope_authorizations",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.customer_paid_execution_scope_authorizations",
+      "target": "tongs.openai_text_cost_policy_revisions"
+    },
+    {
+      "source": "tongs.customer_paid_execution_scope_authorizations",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.customer_paid_execution_scope_authorizations",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.customer_spending_quotes",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.customer_spending_quotes",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.customer_spending_quotes",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.customer_subscription_allowance_terms",
+      "target": "tongs.forge_credit_contract_revisions"
+    },
+    {
+      "source": "tongs.episode_split_recovery_receipts",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.episode_split_recovery_receipts",
+      "target": "tongs.barstock_assignments"
+    },
+    {
+      "source": "tongs.episode_split_recovery_receipts",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.episode_split_recovery_receipts",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.episodes",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.episodes",
+      "target": "tongs.canonical_recordings"
+    },
+    {
+      "source": "tongs.episodes",
+      "target": "tongs.recording_revisions"
+    },
+    {
+      "source": "tongs.financial_environment_configuration_revisions",
+      "target": "tongs.openai_text_cost_policy_revisions"
+    },
+    {
+      "source": "tongs.financial_environment_configuration_revisions",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.financial_runtime_environment_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.forge_credit_pack_terms",
+      "target": "tongs.forge_credit_contract_revisions"
+    },
+    {
+      "source": "tongs.funding_reservations",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.funding_reservations",
+      "target": "tongs.customer_paid_execution_scope_authorizations"
+    },
+    {
+      "source": "tongs.funding_reservations",
+      "target": "tongs.customer_spending_quotes"
+    },
+    {
+      "source": "tongs.funding_reservations",
+      "target": "tongs.runway_customer_test_authorizations"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "tongs.canonical_recordings"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "tongs.hammer_transcription_operations"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "tongs.hammer_transcription_provider_attempts"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "tongs.recording_revisions"
+    },
+    {
+      "source": "tongs.hammer_canonical_transcripts_v2",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.anvil_recording_completion_requests"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.canonical_recordings"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.hammer_first_transcription_capacity_authorities"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.hammer_transcription_provider_authorities"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.recording_revisions"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.restricted_beta_policy_revisions"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_activation_authorities",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hammer_first_transcription_capacity_authorities",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_history_epoch_heads",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_history_epoch_heads",
+      "target": "tongs.hammer_history_epochs"
+    },
+    {
+      "source": "tongs.hammer_history_epochs",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_history_epochs",
+      "target": "tongs.canonical_recordings"
+    },
+    {
+      "source": "tongs.hammer_history_epochs",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hammer_history_epochs",
+      "target": "tongs.recording_revisions"
+    },
+    {
+      "source": "tongs.hammer_history_epochs",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hammer_recording_import_requests",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_recording_import_requests",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hammer_recording_import_requests",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.anvil_recording_completion_requests"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.canonical_recordings"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.customer_spending_quotes"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.funding_reservations"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.hammer_canonical_transcripts_v2"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.hammer_transcription_provider_authorities"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.recording_revisions"
+    },
+    {
+      "source": "tongs.hammer_transcription_operations",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hammer_transcription_provider_attempts",
+      "target": "tongs.hammer_transcription_operations"
+    },
+    {
+      "source": "tongs.hearth_editorial_preflight_reports",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hearth_editorial_preflight_reports",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hearth_editorial_preflight_reports",
+      "target": "tongs.hearth_editorial_preflight_reports"
+    },
+    {
+      "source": "tongs.hearth_editorial_preflight_reports",
+      "target": "tongs.hearth_research_artifact_revisions"
+    },
+    {
+      "source": "tongs.hearth_editorial_preflight_reports",
+      "target": "tongs.hearth_script_review_revisions"
+    },
+    {
+      "source": "tongs.hearth_editorial_preflight_reports",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hearth_preflight_review_receipts",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hearth_preflight_review_receipts",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hearth_preflight_review_receipts",
+      "target": "tongs.hearth_editorial_preflight_reports"
+    },
+    {
+      "source": "tongs.hearth_preflight_review_receipts",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hearth_research_artifact_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hearth_research_artifact_revisions",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hearth_research_artifact_revisions",
+      "target": "tongs.hearth_research_artifact_revisions"
+    },
+    {
+      "source": "tongs.hearth_research_artifact_revisions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.hearth_script_review_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.hearth_script_review_revisions",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.hearth_script_review_revisions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.legacy_account_admission_cohort",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.openai_text_cost_policy_revisions",
+      "target": "tongs.openai_text_route_policies"
+    },
+    {
+      "source": "tongs.openai_text_funding_bindings",
+      "target": "tongs.funding_reservations"
+    },
+    {
+      "source": "tongs.openai_text_funding_bindings",
+      "target": "tongs.openai_text_cost_policy_revisions"
+    },
+    {
+      "source": "tongs.openai_text_funding_bindings",
+      "target": "tongs.openai_text_rollout_revisions"
+    },
+    {
+      "source": "tongs.openai_text_funding_bindings",
+      "target": "tongs.openai_text_route_policies"
+    },
+    {
+      "source": "tongs.openai_text_funding_bindings",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.openai_text_rate_condition_revisions",
+      "target": "tongs.openai_text_provider_rate_revisions"
+    },
+    {
+      "source": "tongs.openai_text_rollout_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.openai_text_rollout_revisions",
+      "target": "tongs.openai_text_cost_policy_revisions"
+    },
+    {
+      "source": "tongs.openai_text_rollout_revisions",
+      "target": "tongs.openai_text_route_policies"
+    },
+    {
+      "source": "tongs.org_members",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.org_members",
+      "target": "tongs.orgs"
+    },
+    {
+      "source": "tongs.orgs",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.owner_operating_budget_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.owner_operating_budget_revisions",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.owner_operating_budget_revisions",
+      "target": "tongs.owner_operating_budgets"
+    },
+    {
+      "source": "tongs.owner_operating_budgets",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.owner_operating_budgets",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.owner_paid_execution_canary_activation_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.owner_paid_execution_canary_activation_revisions",
+      "target": "tongs.customer_paid_execution_scope_authorizations"
+    },
+    {
+      "source": "tongs.owner_paid_execution_canary_activation_revisions",
+      "target": "tongs.owner_operating_budgets"
+    },
+    {
+      "source": "tongs.owner_paid_execution_canary_activation_revisions",
+      "target": "tongs.owner_paid_execution_canary_activation_revisions"
+    },
+    {
+      "source": "tongs.paid_allowance_grants",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.paid_allowance_grants",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.paid_allowance_grants",
+      "target": "tongs.subscription_cycle_receipts"
+    },
+    {
+      "source": "tongs.paid_execution_aggregate_assignments",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.paid_execution_aggregate_assignments",
+      "target": "tongs.restricted_beta_policy_revisions"
+    },
+    {
+      "source": "tongs.paid_execution_aggregate_assignments",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.platform_operators",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.private_markup_rule_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.private_markup_rule_revisions",
+      "target": "tongs.private_markup_rule_revisions"
+    },
+    {
+      "source": "tongs.private_pricing_cost_components",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.private_pricing_policies",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.private_pricing_publications",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.private_pricing_publications",
+      "target": "tongs.private_pricing_policies"
+    },
+    {
+      "source": "tongs.private_pricing_publications",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.private_pricing_revision_markup_sources",
+      "target": "tongs.private_markup_rule_revisions"
+    },
+    {
+      "source": "tongs.private_pricing_revision_markup_sources",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.private_pricing_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.private_pricing_revisions",
+      "target": "tongs.private_pricing_policies"
+    },
+    {
+      "source": "tongs.private_pricing_revisions",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.project_cradles",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.project_cradles",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "tongs.hearth_editorial_preflight_reports"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "tongs.recording_sessions"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "tongs.script_approval_revisions"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "tongs.workpiece_ready_transition_requests"
+    },
+    {
+      "source": "tongs.recording_capture_authorities",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.recording_media_verification_receipts",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.recording_media_verification_receipts",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.recording_media_verification_receipts",
+      "target": "tongs.recording_capture_authorities"
+    },
+    {
+      "source": "tongs.recording_media_verification_receipts",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.recording_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.recording_revisions",
+      "target": "tongs.canonical_recordings"
+    },
+    {
+      "source": "tongs.recording_revisions",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.recording_revisions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.recording_sessions",
+      "target": "tongs.calendar_events"
+    },
+    {
+      "source": "tongs.recording_sessions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.restricted_beta_policy_capabilities",
+      "target": "tongs.restricted_beta_cost_evidence_revisions"
+    },
+    {
+      "source": "tongs.restricted_beta_policy_capabilities",
+      "target": "tongs.restricted_beta_policy_revisions"
+    },
+    {
+      "source": "tongs.restricted_beta_policy_revisions",
+      "target": "tongs.restricted_beta_allocation_policy_revisions"
+    },
+    {
+      "source": "tongs.restricted_beta_policy_revisions",
+      "target": "tongs.restricted_beta_tail_policy_revisions"
+    },
+    {
+      "source": "tongs.runway_customer_test_authorizations",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.runway_customer_test_authorizations",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.runway_customer_test_authorizations",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.runway_funding_bindings",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.runway_funding_bindings",
+      "target": "tongs.funding_reservations"
+    },
+    {
+      "source": "tongs.runway_funding_bindings",
+      "target": "tongs.private_pricing_revisions"
+    },
+    {
+      "source": "tongs.runway_funding_bindings",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.script_approval_preflight_bindings",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.script_approval_preflight_bindings",
+      "target": "tongs.hearth_editorial_preflight_reports"
+    },
+    {
+      "source": "tongs.script_approval_preflight_bindings",
+      "target": "tongs.script_approval_revisions"
+    },
+    {
+      "source": "tongs.script_approval_revisions",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.script_approval_revisions",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.script_approval_revisions",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.storage_quarantine_authorizations",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.storage_quarantine_authorizations",
+      "target": "tongs.storage_quarantine_observations"
+    },
+    {
+      "source": "tongs.storage_quarantine_deletions",
+      "target": "tongs.storage_quarantine_objects"
+    },
+    {
+      "source": "tongs.storage_quarantine_objects",
+      "target": "tongs.storage_quarantine_authorizations"
+    },
+    {
+      "source": "tongs.storage_quarantine_observations",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.subscription_cycle_adjustments",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.subscription_cycle_adjustments",
+      "target": "tongs.subscription_cycle_receipts"
+    },
+    {
+      "source": "tongs.subscription_cycle_receipts",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.subscription_cycle_receipts",
+      "target": "tongs.accounting_journal_events"
+    },
+    {
+      "source": "tongs.subscription_service_periods",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.subscription_service_periods",
+      "target": "tongs.subscription_refresh_commits"
+    },
+    {
+      "source": "tongs.supplier_expenses",
+      "target": "tongs.funding_reservations"
+    },
+    {
+      "source": "tongs.workpiece_files",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.workpiece_ready_script_meta",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.workpiece_ready_script_meta",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.workpiece_ready_script_meta",
+      "target": "tongs.hearth_editorial_preflight_reports"
+    },
+    {
+      "source": "tongs.workpiece_ready_script_meta",
+      "target": "tongs.script_approval_revisions"
+    },
+    {
+      "source": "tongs.workpiece_ready_script_meta",
+      "target": "tongs.workpiece_ready_transition_requests"
+    },
+    {
+      "source": "tongs.workpiece_ready_script_meta",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.workpiece_ready_transition_requests",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.workpiece_ready_transition_requests",
+      "target": "tongs.episodes"
+    },
+    {
+      "source": "tongs.workpiece_ready_transition_requests",
+      "target": "tongs.hearth_editorial_preflight_reports"
+    },
+    {
+      "source": "tongs.workpiece_ready_transition_requests",
+      "target": "tongs.script_approval_revisions"
+    },
+    {
+      "source": "tongs.workpiece_ready_transition_requests",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.workspace_members",
+      "target": "auth.users"
+    },
+    {
+      "source": "tongs.workspace_members",
+      "target": "tongs.workspaces"
+    },
+    {
+      "source": "tongs.workspaces",
+      "target": "tongs.orgs"
+    }
+  ],
+  "artifacts": [
+    "schema.sql",
+    "data.sql",
+    "supabase-migrations-schema.sql",
+    "supabase-migrations-data.sql",
+    "role-and-acl-manifest.json",
+    "snapshot-consistency.json"
+  ],
+  "sourceObservationSql": {
+    "storage_authentic_predecessor.sql": "711f59ec75b92feef7a2b17258e36d4d9019f3ec7e209a15b33fc6e369d550f3",
+    "storage_successor_hosted_release_contract.sql": "5b6045de79421e87f85fddc3ea0281ba5f7f0de894f9cc6178b1709312e1f171"
+  },
+  "sequenceEvidence": "NON_MVCC_OBSERVATIONS_ONLY",
+  "schemaDefinitions": "Complete selected schemas; screen and stop on secrets; no redaction",
+  "bodyPolicy": "Reuse exactly the independently pinned 475 originals; preserve all Storage metadata",
+  "operationalBindings": "NOT ISSUED: final candidate, source fingerprints, Storage identity digest, principal, window, budget and independent approval"
+}

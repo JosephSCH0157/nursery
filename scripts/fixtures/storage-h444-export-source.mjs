@@ -30,7 +30,7 @@ export function syntheticExportFixture(versions) {
       let value;
       if(sql.includes('pg_export_snapshot()'))value={snapshotId:this.snapshotId,at:'2026-11-21T12:00:00.000Z'};
       else if(sql.includes('has_column_privilege')){
-        value=plan.tables.map(t=>({name:t.name,columns:t.columns,present:true,schemaUsage:true,selectAll:true,unfiltered:true,actualColumns:[...t.columns]}));
+        value=plan.tables.map(t=>({name:t.name,columns:t.columns,present:true,schemaUsage:true,selectAll:true,unfiltered:true,actualColumns:[...t.columns],generatedColumns:[]}));
         this.privilegeMutation?.(value);
       }else if(sql.includes('row_to_json(r)::text')){
         const match=/ from "([a-z_]+)"\."([a-z_]+)" limit ([0-9]+)\) r/.exec(sql);if(!match)throw Error('unrecognized projection');

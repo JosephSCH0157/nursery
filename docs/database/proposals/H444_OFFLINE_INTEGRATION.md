@@ -264,3 +264,140 @@ behavior. The existing 14-test TLS/snapshot/secret/timeout/encryption suite and
 
 **NOT APPROVED — EXECUTION PROHIBITED. No live package, principal, CA, source
 fingerprints, budget, window, retention, recovery or risk acceptance is approved.**
+
+## Approval readiness: 2026-11-24 (metadata only)
+
+Starting candidate: `7a6955f11113c3cca0dcc7b5154192cf20a94d6c`.
+The owner authorized metadata observations and local preparation, **not acquisition**.
+The [exact extraction review plan](h444-extraction-review-plan.json) contains
+110 relations and 1,459 projected columns: the preserved 88-table scope, 17 missing
+protected financial relations, and five additional FK dependencies. All 27
+protected financial relations have complete ordinary-column projections. It
+preserves the six history columns, all eight schema-only namespaces, the original
+Auth projection (including email/phone), and existing secret exclusions. The only
+other omitted value is Storage's generated `path_tokens`; its generation expression
+is preserved in the complete schema. Generated columns cannot receive INSERT values.
+No ordinary required column may be omitted to pass the secret screen.
+
+Review-plan SHA-256 over the exporter's `canonical(plan)` UTF-8 encoding:
+`d7654c33002ecea3471aa197ee5a5b6859d4f27c15ebcaad52877f41dde5c9b2`.
+This is a validated extraction **scope**, not a complete operational v2 plan or
+independent approval. Copy its exact tables/schemas/financialTables into the existing
+v2 plan only after review; independently bind the executing candidate, source
+fingerprints, historical identity digest, client/CA, principal and authorization.
+No new acquisition/coordinator architecture is introduced.
+
+Offline verification, with the preserved metadata receipt:
+
+```text
+node scripts/verify-h444-extraction-review-plan.mjs docs/database/proposals/h444-extraction-review-plan.json .git/forge-private-evidence/h444-approval-readiness-20261124/catalog-observations.json
+node --test scripts/test-storage-h444-extraction-scope.mjs
+```
+
+Authenticated Supabase MCP observations at 23:31–23:38 UTC (18:31–18:38 EST) found
+one `historical-v1` singleton and exactly 444 distinct, non-null versions ending
+`20261111201029`. The complete version list matched the checked-in prefix.
+All 110 relations and projected columns exist. FK closure is complete in the
+observed catalog. All eight schema namespaces exist; `pg_depend` reported no
+dependencies in another non-system schema. Dynamic SQL dependencies, function
+contents and secret-bearing values remain uninspected; the later complete schema
+capture and independent isolation review remain mandatory. Installed extensions
+include wrappers 0.5.6; no extension/schema changes were made.
+
+Queries used the checked-in preflight's read-only, repeatable-read transaction
+setup and bounded catalog projections, with ROLLBACK. No financial rows, Auth
+records, Storage rows/bodies, migration statement payloads, function definitions
+or sequence values were acquired. Separate metadata sessions are **not** a
+consistent export snapshot. MCP used `postgres`; it does not prove a connection
+as the proposed acquisition principal or the direct client's TLS/cleanup behavior.
+An initial sequence-privilege metadata query failed on a non-sequence catalog
+object; the corrected CASE-guarded query succeeded. It made no persistent change.
+
+The existing login `supabase_read_only_user` has CONNECT, schema USAGE, SELECT on
+the required schema relations and sequences, BYPASSRLS, and no observed table or
+column write, database CREATE, schema CREATE, superuser, role-creation,
+database-creation or replication capability. Memberships are pg_read_all_data
+and pg_monitor, without ADMIN OPTION. This is broad database read access,
+**not** an allowlist-limited role. The owner must accept that credential scope;
+the exporter enforces the narrow extraction scope. Credentials and actual login
+availability were not retrieved or tested. No role/grant alteration is authorized.
+
+The authenticated project dashboard supplied the public Supabase Root 2021 CA:
+`https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt`.
+File SHA-256: `700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7`.
+Its certificate validity ends 2031-04-26; this verifies the supplied trust artifact,
+not a successful server handshake. The direct endpoint resolves to AAAA only.
+The selected Docker bridge has IPv6 disabled. **Direct acquisition transport is
+blocked pending a reviewed connectivity decision.** No pooler/hostaddr fallback,
+network reconfiguration, IPv4 add-on or credential use was attempted. Server SSL
+enforcement is off; the client still mandates verify-full with no downgrade.
+
+### Destination and recovery procedure
+
+A new empty destination was prepared at
+`.git/forge-private-evidence/h444-acquisition/owner-approved-h444-attempt-01`.
+The existing output verifier passed: current-owner/SYSTEM-only protected DACL,
+no reparse-point ancestry. No attempt journal or artifact exists. The D: volume
+had about 352 GiB free, well above the bounded envelope size; capacity is an
+observation, not a reservation. Recheck ACL, emptiness, capacity and path identity
+immediately before any separately approved execution. Only these new local
+preparation directories were restricted; broader inherited parent ACLs and
+same-account/administrator access were not changed or certified.
+
+The CA, catalog receipts and fixed query text are preserved under
+`.git/forge-private-evidence/h444-approval-readiness-20261124/` with an owner/SYSTEM
+DACL. They are preparation metadata, not authentic export evidence.
+
+Recovery procedure for a later authorized artifact:
+
+1. Keep the original ciphertext and independently recorded SHA-256. On the same
+   Windows account/profile, verify the bounded file size, hash and destination ACL
+   before passing bytes to the existing `decryptExportBundle` function in
+   `scripts/lib/storage-h444-output.mjs`. Never print the decrypted bundle or keys.
+2. DPAPI unwrap and GCM authentication must succeed before parsing. The decoder
+   rechecks all member hashes, six artifact commitments, snapshot proof and 475
+   body receipts. Report only pass/fail and ciphertext digest. Use
+   `clearExportBundle` in finally; best-effort buffer clearing is not proof of
+   complete memory erasure. No plaintext temporary file is needed for this check.
+3. Actual materialization/import requires separate restoration and confidential
+   handling approval. A successful decryption is not provenance approval or H/B1
+   certification. Retain ciphertext after any failure; do not reset the account,
+   change wrapping, or reacquire automatically to work around a recovery failure.
+4. Same-account fresh-process recovery, wrong wrapped-key rejection and GCM
+   tamper rejection are tested using synthetic fixtures. Account/profile/machine
+   loss, password-reset effects, power loss and an independent recovery custodian
+   are **not verified**. Owner must choose a documented recovery arrangement or
+   explicitly accept unrecoverability and the need for a newly authorized future
+   acquisition. Copying ciphertext alone does not make DPAPI portable.
+
+### Load, cost and remaining decisions
+
+The organization is Pro and the current dashboard identifies Micro compute.
+[Published egress pricing](https://supabase.com/docs/guides/platform/manage-your-usage/egress)
+lists 250 GB included uncached egress and $0.09/GB above allowance. Current billed
+usage, remaining allowance, credits and incremental invoice impact are unverified.
+There is no new infrastructure proposal, but this is not a zero-cost guarantee.
+The original 88-table size observation is stale and excludes 22 newly required
+relations. No current payload size was obtained by reading rows.
+
+Acquisition retains the existing 10-minute/two-session bounds, 30-second
+statements, 2-second lock wait, per-table 100,000-row limit and 128 MiB captured
+response limit. Fingerprint aggregation and repeated projections may scan/sort
+more data than is returned. These client limits do not bound source CPU, temporary
+disk, wire overhead or the provider bill. Owner must select a quiet UTC window,
+an explicit dollar ceiling and payer, with a separately justified usage/load check;
+do not treat an unverified estimate as a metered spending limit.
+
+Proposed retention is 24 hours in a 30-minute authorization window, subject to
+owner selection of exact UTC times (the implementation allows at most one hour
+and seven days after expiry). On failure/interruption retain ciphertext and
+attempt evidence, reconcile the owned session/client and obtain a new approval
+before retrying. Cleanup is limited to the exact approved attempt and generated
+client resources; never delete preserved historical bodies/evidence. Deletion is
+not secure erasure of SSD, backup, paging or diagnostic copies.
+
+Remaining decisions: supported direct connectivity; owner designation and secure
+delivery for the existing broad-read principal; exact v2 plan and independent
+source/identity pins; independent scope/secret review; residual-risk and recovery
+acceptance; cost ceiling/payer; operator/reviewer; exact window and cleanup deadline.
+**NOT APPROVED — EXECUTION PROHIBITED.** No authentic acquisition attempt occurred.

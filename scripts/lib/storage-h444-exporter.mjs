@@ -5,6 +5,7 @@ import {REQUIRED_LOGICAL_ARTIFACTS} from './storage-logical-restoration-certific
 import {validateAcquisitionAuthorization,authenticObservationSQL} from './storage-h444-authorization.mjs';
 import {validateHistoricalObservation} from './storage-authentic-certification.mjs';
 import {checkExportScope,screenExportValue} from './storage-h444-secret-screen.mjs';
+import {selectPreservedObjects} from './storage-h444-preserved-bodies.mjs';
 
 export const FIXTURE_PROJECT = 'syntheticfixtureonly';
 export const HISTORY_COLUMNS = ['created_by','idempotency_key','name','rollback','statements','version'];
@@ -103,7 +104,7 @@ function sizeSQL(table,maxRows) {
 }
 function privilegeSQL(plan) {
   const values=plan.tables.map(t=>'('+literal(t.name)+',ARRAY['+t.columns.map(literal).join(',')+']::text[])').join(',');
-  return frameSQL("select json_agg(json_build_object('name',p.name,'columns',p.cols,'present',c.oid is not null,'schemaUsage',has_schema_privilege(current_user,n.oid,'USAGE'),'selectAll',not exists(select 1 from unnest(p.cols) col where not coalesce(has_column_privilege(current_user,c.oid,col,'SELECT'),false)),'unfiltered',not c.relrowsecurity or r.rolsuper or r.rolbypassrls or (c.relowner=r.oid and not c.relforcerowsecurity),'actualColumns',(select json_agg(attname order by attnum) from pg_attribute where attrelid=c.oid and attnum>0 and not attisdropped))) from (values "+values+") p(name,cols) left join pg_class c on c.oid=to_regclass(p.name) left join pg_namespace n on n.oid=c.relnamespace cross join pg_roles r where r.rolname=current_user");
+  return frameSQL("select json_agg(json_build_object('name',p.name,'columns',p.cols,'present',c.oid is not null,'schemaUsage',has_schema_privilege(current_user,n.oid,'USAGE'),'selectAll',not exists(select 1 from unnest(p.cols) col where not coalesce(has_column_privilege(current_user,c.oid,col,'SELECT'),false)),'unfiltered',not c.relrowsecurity or r.rolsuper or r.rolbypassrls or (c.relowner=r.oid and not c.relforcerowsecurity),'actualColumns',(select json_agg(attname order by attnum) from pg_attribute where attrelid=c.oid and attnum>0 and not attisdropped),'generatedColumns',(select coalesce(json_agg(attname order by attnum),'[]'::json) from pg_attribute where attrelid=c.oid and attnum>0 and not attisdropped and attgenerated<>''))) from (values "+values+") p(name,cols) left join pg_class c on c.oid=to_regclass(p.name) left join pg_namespace n on n.oid=c.relnamespace cross join pg_roles r where r.rolname=current_user");
 }
 const rolesSQL = frameSQL("select json_build_object('roles',(select json_agg(json_build_object('name',rolname,'superuser',rolsuper,'inherit',rolinherit,'createRole',rolcreaterole,'createDb',rolcreatedb,'login',rolcanlogin,'replication',rolreplication,'bypassRls',rolbypassrls) order by rolname) from pg_roles),'memberships',(select json_agg(json_build_object('role',roleid::regrole::text,'member',member::regrole::text,'grantor',grantor::regrole::text,'admin',admin_option) order by roleid,member,grantor) from pg_auth_members),'defaultAcls',(select json_agg(json_build_object('role',defaclrole::regrole::text,'namespace',defaclnamespace,'type',defaclobjtype,'acl',defaclacl) order by defaclrole,defaclnamespace,defaclobjtype) from pg_default_acl))");
 
@@ -133,7 +134,7 @@ function dataSql(tables,rows,authentic=false) {
   return Buffer.from(parts.join(''));
 }
 
-export async function collectH444Export({mode,transport,plan,expectedPlanSha256,versions,limits={},authorization,acquireBodies,sessionDeadline=Infinity}) {
+export async function collectH444Export({mode,transport,plan,expectedPlanSha256,versions,limits={},authorization,receiptBytes,acquireBodies,sessionDeadline=Infinity}) {
   const authentic=mode==='authentic-acquisition';
   const approved=authorization?validateAcquisitionAuthorization({...authorization,plan,synthetic:!authentic}):null;
   requireThat(authentic ? approved && transport?.kind==='approved-postgresql' : mode==='synthetic-offline' && transport?.kind==='synthetic-fixture','authentic_acquisition_not_approved');
@@ -192,7 +193,12 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     const privileges=await query(privilegeSQL(plan));
     requireThat(Array.isArray(privileges)&&privileges.length===plan.tables.length&&new Set(privileges.map(p=>p.name)).size===plan.tables.length,'privilege_inventory');
     for(const t of plan.tables){const p=privileges.find(p=>p.name===t.name);requireThat(p?.present===true&&p.schemaUsage===true&&p.selectAll===true&&p.unfiltered===true,'inadequate_source_privileges');requireThat(t.columns.every(c=>p.actualColumns?.includes(c)),'missing_source_columns');
-      if(plan.financialTables.includes(t.name)||(approved&&['forge_meta.database_lineage','storage.objects','supabase_migrations.schema_migrations'].includes(t.name)))requireThat(canonical([...p.actualColumns].sort())===canonical([...t.columns].sort()),'incomplete_financial_projection');}
+      if(plan.financialTables.includes(t.name)||(approved&&['forge_meta.database_lineage','storage.objects','supabase_migrations.schema_migrations'].includes(t.name))){
+        // Generated values are reproduced by the captured schema; PostgreSQL does
+        // not permit explicit INSERT values for them. Every ordinary column stays required.
+        requireThat(Array.isArray(p.generatedColumns)&&p.generatedColumns.every(c=>p.actualColumns.includes(c)),'generated_column_inventory');
+        requireThat(canonical(p.actualColumns.filter(c=>!p.generatedColumns.includes(c)).sort())===canonical([...t.columns].sort()),'incomplete_financial_projection');
+      }}
     let authenticObservation,auxiliary;
     if(approved){
       authenticObservation=await query(frameSQL(authenticObservationSQL()));
@@ -217,7 +223,9 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     const counts={};for(const [key,name,selector] of authorities){counts[key]=parsed.get(name).filter(r=>Object.entries(selector).every(([k,v])=>r[k]===v)).length;requireThat(counts[key]===1,'incomplete_financial_authority');}
     // The source financial-mode function is read within the same transaction.
     requireThat(await query(frameSQL('select tongs._current_financial_environment()'))==='test','financial_mode');
-    const storage=parsed.get('storage.objects');
+    // Preserve ALL Storage metadata rows in data.sql and its canonical fingerprint.
+    // Only the independently pinned original receipt IDs identify the 475 bodies.
+    const storage=approved?selectPreservedObjects(parsed.get('storage.objects'),receiptBytes,approved.bodyReceiptsSha256):parsed.get('storage.objects');
     requireThat(storage.length===475&&new Set(storage.map(r=>r.id)).size===475,'storage_inventory');
     requireThat(storage.every(r=>/^[0-9]+$/.test(String(r.metadata?.size)))&&storage.reduce((s,r)=>s+BigInt(r.metadata.size),0n)===447475n,'storage_bytes');
     requireThat(storageIdentityDigest(storage)===plan.storageIdentitySha256,'storage_identity_mismatch');

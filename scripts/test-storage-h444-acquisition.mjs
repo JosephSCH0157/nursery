@@ -22,6 +22,13 @@ test('approved acquisition workflow against disposable SYNTHETIC database only',
   const f=await startSyntheticPostgres(versions);
   try {
     let r=await prepareAcquisitionFixture(f,directory);
+    // Real Storage has generated columns and objects outside the original 475.
+    // Capture all metadata; select retained bodies only by approved receipt IDs.
+    const objectColumns=f.plan.tables.find(t=>t.name==='storage.objects').columns;
+    await f.admin("ALTER TABLE storage.objects ADD COLUMN path_tokens text[] GENERATED ALWAYS AS (string_to_array(name,'/')) STORED; INSERT INTO storage.objects ("+objectColumns.join(',')+") SELECT "+objectColumns.map(c=>c==='id'?"'ffffffff-ffff-4fff-8fff-ffffffffffff'":c==='name'?"'unrelated/new-object'":c).join(',')+" FROM storage.objects LIMIT 1;");
+    const {authenticObservationSQL}=await import('./lib/storage-h444-authorization.mjs');
+    r.observation=JSON.parse((await f.admin(authenticObservationSQL()+';')).toString());
+    r=reseal(r,a=>{a.storageSha256=r.observation.storageSha256;});
     const output=join(directory,'forge-h444-offline-'+randomBytes(8).toString('hex'));await mkdir(output);await restrictSyntheticOutputDirectory(output);
     r=reseal(r,a=>{a.destination=output;});
     assert.equal(r.observation.storageStage,4);assert.equal(r.observation.storageContractOk,true);
@@ -77,6 +84,9 @@ test('approved acquisition workflow against disposable SYNTHETIC database only',
         assert.equal(observation.financialSha256,r.observation.financialSha256);
         assert.equal(observation.originalHistorySha256,r.observation.originalHistorySha256);
         assert.equal(observation.storageSha256,r.observation.storageSha256);
+        assert.match(b.files.get('data.sql').toString(),/unrelated\/new-object/);
+        assert.match(b.files.get('schema.sql').toString(),/GENERATED ALWAYS AS/);
+        assert.equal(JSON.parse(b.auxiliary.get('storage-snapshot-identities.json')).objects.length,475);
         assert.equal(observation.provenance.evidenceKind,'synthetic-offline');
       }finally{clearExportBundle(b);}
       assert.deepEqual((await readdir(output)).sort(),['attempt.json','evidence.h444enc']);

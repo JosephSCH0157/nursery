@@ -5,6 +5,17 @@ import {screenExportValue} from './storage-h444-secret-screen.mjs';
 const hold=(ok,code)=>{if(!ok)throw new ExportHold(code);};
 const normalize=v=>typeof v==='string'?v.replace(/^"|"$/g,''):v;
 
+export function selectPreservedObjects(allObjects,bytes,approvedSha256) {
+  hold(Buffer.isBuffer(bytes)&&bytes.length<=1024*1024&&sha256(bytes)===approvedSha256,'preserved_receipts_changed');
+  let receipts;try{receipts=JSON.parse(bytes);}catch{throw new ExportHold('preserved_receipts_invalid');}
+  hold(Array.isArray(receipts)&&receipts.length===475&&new Set(receipts.map(r=>r.object_id)).size===475,'preserved_receipt_set');
+  hold(Array.isArray(allObjects)&&new Set(allObjects.map(o=>o.id)).size===allObjects.length,'duplicate_storage_identity');
+  const ids=new Set(receipts.map(r=>r.object_id));
+  const originals=allObjects.filter(o=>ids.has(o.id));
+  validatePreservedReceipts(bytes,approvedSha256,originals);
+  return originals;
+}
+
 export function validatePreservedReceipts(bytes,approvedSha256,objects) {
   hold(Buffer.isBuffer(bytes)&&bytes.length<=1024*1024&&sha256(bytes)===approvedSha256,'preserved_receipts_changed');
   let receipts;try{receipts=JSON.parse(bytes);}catch{throw new ExportHold('preserved_receipts_invalid');}
