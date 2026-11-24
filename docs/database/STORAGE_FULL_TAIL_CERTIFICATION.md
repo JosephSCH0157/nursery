@@ -42,6 +42,14 @@ It validates supplied evidence only: it does not export, import, connect to a
 database, run migrations, or grant hosted certification. An `OFFLINE_EVIDENCE_VALID`
 result is not a release receipt.
 
+The executing `certify-storage-authentic-restoration.mjs` coordinator accepts
+physical-provider approvals only. The logical validator is not connected to an
+export/import or migration execution path. The later
+[H444-to-447 proposal](proposals/STORAGE_H444_447_CERTIFICATION.md) remains
+non-executing; a reviewed logical execution adapter and 447-capable successor
+runner are prerequisites for that route. Offline tests and CI cannot satisfy
+this integration requirement or authorize running either route.
+
 The owner-approved evidence package must bind the exact current candidate and
 the complete pinned 446-migration manifest, including the exact 445–446 bytes.
 The logical artifact directory contains exactly the schema, data, migration
@@ -74,6 +82,9 @@ matching neutralized identity. Wildcards, unexplained differences, unclassified
 effects, and incomplete inventories fail closed. Timestamped isolation and
 trigger-suppression evidence must precede import. Production secrets and Vault
 root keys must not be transferred.
+
+Import must start after the bound export snapshot has completed, and its
+completion cannot be in the future at evidence validation time.
 
 The owner-approved digest must be independently captured and supplied to the
 validator; valid JSON or a self-computed digest is not owner approval. Any

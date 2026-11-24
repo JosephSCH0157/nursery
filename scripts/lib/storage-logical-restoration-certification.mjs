@@ -358,7 +358,7 @@ function validateTargetObservations(bytes, approval, versions) {
   return bundle;
 }
 
-function validateImportReceipt(bytes, approval, exportReceipt) {
+function validateImportReceipt(bytes, approval, exportReceipt, now) {
   const receipt = verifyBytes(
     bytes, approval.logicalImportReceiptSha256, 'logical_import_receipt',
   );
@@ -400,7 +400,9 @@ function validateImportReceipt(bytes, approval, exportReceipt) {
     importCompletedAt].every(Number.isFinite), 'logical_import_timestamps');
   assert.ok(isolationCompletedAt <= importStartedAt &&
     triggerSuppressionStartedAt <= importStartedAt &&
-    importStartedAt <= importCompletedAt, 'logical_import_order');
+    Date.parse(exportReceipt.snapshotCompletedAt) <= importStartedAt &&
+    importStartedAt <= importCompletedAt &&
+    importCompletedAt <= now.getTime(), 'logical_import_order');
   assert.equal(receipt.isolationManifestSha256, approval.isolationManifestSha256);
   digest(receipt.triggerSuppressionEvidenceSha256, 'trigger_suppression_evidence');
   return receipt;
@@ -692,7 +694,7 @@ export async function validateLogicalRestorationEvidence({
   const exportReceipt = validateExportReceipt(exportReceiptBytes, approval, now);
   await validateLogicalArtifactDirectory(logicalArtifactDirectory, exportReceipt, approval);
   validateTargetObservations(targetObservationsBytes, approval, versions);
-  validateImportReceipt(importReceiptBytes, approval, exportReceipt);
+  validateImportReceipt(importReceiptBytes, approval, exportReceipt, now);
   validateStorageManifest(storageManifestBytes, approval);
   validateIsolationManifest(isolationManifestBytes, approval);
   validateBehaviorReceipt(behaviorReceiptBytes, approval);

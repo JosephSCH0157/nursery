@@ -464,6 +464,26 @@ async getEvidence => {
   await assert.rejects(() => validate(orderingEvidence), /logical_import_order/);
 });
 
+logicalTest('rejects import receipts that predate the completed export or claim future completion',
+async getEvidence => {
+  const beforeExport = await getEvidence();
+  resealNested(beforeExport, evidence => {
+    Object.assign(evidence.importReceipt, {
+      isolationCompletedAt: '2026-11-19T21:55:00.000Z',
+      triggerSuppressionStartedAt: '2026-11-19T21:56:00.000Z',
+      importStartedAt: '2026-11-19T21:57:00.000Z',
+      importCompletedAt: '2026-11-19T21:59:00.000Z',
+    });
+  });
+  await assert.rejects(() => validate(beforeExport), /logical_import_order/);
+
+  const futureImport = await getEvidence();
+  resealNested(futureImport, evidence => {
+    evidence.importReceipt.importCompletedAt = '2026-11-19T23:01:00.000Z';
+  });
+  await assert.rejects(() => validate(futureImport), /logical_import_order/);
+});
+
 logicalTest('rejects incomplete six-column source history and financial fingerprint drift',
 async getEvidence => {
   const historyEvidence = await getEvidence();
