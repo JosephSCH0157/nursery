@@ -111,6 +111,8 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.84.2
+      - name: Verify offline Storage restoration evidence contracts
+        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs scripts/test-storage-logical-execution-wiring.mjs scripts/test-storage-h444-exporter.mjs scripts/test-storage-h444-authorization.mjs
       - name: Verify frozen database artifacts and lineage rejection
         shell: pwsh
         run: |
@@ -123,8 +125,6 @@ jobs:
         run: node --test scripts/test-storage-billing-hosted-deployment.mjs scripts/test-storage-successor-hosted-deployment.mjs scripts/test-storage-successor-executors.mjs scripts/test-storage-http-source.mjs scripts/test-storage-historical-inventory-evidence.mjs scripts/test-storage-full-tail.mjs scripts/test-storage-admission-successor.mjs
       - name: Verify hosted smoke isolation
         run: node --test scripts/tests/hosted-smoke-authorization.test.mjs
-      - name: Verify offline Storage restoration evidence contracts
-        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs scripts/test-storage-logical-execution-wiring.mjs
       - name: Certify fresh baseline and shared tail
         shell: pwsh
         run: |

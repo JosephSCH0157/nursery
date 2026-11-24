@@ -271,6 +271,15 @@ These local implementation capabilities neither enable the held production
 handling, restoration, actual certification and production release each retain
 their separate authorization boundaries.
 
+The existing H444 exporter now includes a separately guarded acquisition route:
+[`H444_OFFLINE_INTEGRATION.md`](proposals/H444_OFFLINE_INTEGRATION.md#guarded-acquisition-extension-2026-11-24-not-executed).
+It requires a new independently pinned acquisition approval, a clean candidate,
+verified direct PostgreSQL TLS, the complete reviewed extraction scope and
+restricted encrypted output. It reuses preserved Storage bodies only after
+snapshot identity and byte reconciliation. The original synthetic route remains
+isolated; synthetic tests do not authorize a live connection. This capability
+does not provide an approved source package or remove the acquisition hold.
+
 ## 4. Create a disposable fresh database
 
 Choose an unused local port range and a destination that does not exist:

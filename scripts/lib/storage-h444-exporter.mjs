@@ -1,8 +1,9 @@
-// Acquisition preparation only. Authentic collection is held before any I/O.
-// Transports are restricted to in-memory or isolated local synthetic fixtures.
+// Shared bounded collector. Authentic transport additionally requires independent acquisition approval.
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {REQUIRED_LOGICAL_ARTIFACTS} from './storage-logical-restoration-certification.mjs';
+import {validateAcquisitionAuthorization,authenticObservationSQL} from './storage-h444-authorization.mjs';
+import {validateHistoricalObservation} from './storage-authentic-certification.mjs';
 import {checkExportScope,screenExportValue} from './storage-h444-secret-screen.mjs';
 
 export const FIXTURE_PROJECT = 'syntheticfixtureonly';
@@ -32,13 +33,15 @@ const authorities = [
 ];
 export const FINANCIAL_AUTHORITIES = authorities;
 
-export function validatePlan(plan, expectedDigest, versions) {
+export function validatePlan(plan, expectedDigest, versions, authorization) {
+  const authentic=plan?.evidenceKind==='authentic-logical-acquisition';
+  if(authentic)validateAcquisitionAuthorization({...authorization,plan});
   requireThat(sha256(canonical(plan))===expectedDigest,'plan_digest_mismatch');
   exactKeys(plan,['schema','evidenceKind','sourceProject','candidate','historyVersionsSha256','tables','schemas','financialTables','storageIdentitySha256','tools','endpoint'],'unexpected_plan_fields');
   exactKeys(plan.endpoint,['host','port','database','sslmode','caFile','caSha256'],'unexpected_endpoint_fields');
   exactKeys(plan.tools,['psqlSha256','pgDumpSha256'],'unexpected_tool_fields');
-  requireThat(plan.schema==='forge.h444-export-plan.v1' && plan.evidenceKind==='synthetic-offline','authentic_acquisition_not_approved');
-  requireThat(plan.sourceProject===FIXTURE_PROJECT && /^[a-f0-9]{40}$/.test(plan.candidate),'source_identity');
+  requireThat(authentic || (plan.schema==='forge.h444-export-plan.v1' && plan.evidenceKind==='synthetic-offline'),'authentic_acquisition_not_approved');
+  requireThat((authentic || plan.sourceProject===FIXTURE_PROJECT) && /^[a-f0-9]{40}$/.test(plan.candidate),'source_identity');
   requireThat(Array.isArray(versions) && versions.length===444 && versions.at(-1)==='20261111201029'
     && new Set(versions).size===444 && versions.every((v,i)=>!i||versions[i-1]<v),'history_prefix');
   requireThat(plan.historyVersionsSha256===sha256(versions.join('\n')),'history_manifest');
@@ -63,9 +66,9 @@ export function validatePlan(plan, expectedDigest, versions) {
     for(const key of Object.keys(selector))requireThat(table(name).columns.includes(key),'missing_financial_column');
   }
   requireThat(/^[a-f0-9]{64}$/.test(plan.storageIdentitySha256),'storage_identity_commitment');
-  requireThat(canonical(plan.schemas)===canonical([...new Set(plan.tables.map(t=>t.name.split('.')[0]))].sort()),'schema_scope');
+  requireThat(canonical(plan.schemas)===canonical(authentic?['auth','extensions','forge_meta','public','storage','supabase_migrations','tongs','vault']:[...new Set(plan.tables.map(t=>t.name.split('.')[0]))].sort()),'schema_scope');
   requireThat(plan.tools?.psqlSha256?.match(/^[a-f0-9]{64}$/) && plan.tools?.pgDumpSha256?.match(/^[a-f0-9]{64}$/),'tool_provenance');
-  requireThat(plan.endpoint?.host==='fixture.invalid' && plan.endpoint.port===5432 && plan.endpoint.database==='postgres','endpoint_scope');
+  requireThat((authentic || plan.endpoint?.host==='fixture.invalid') && plan.endpoint.port===5432 && plan.endpoint.database==='postgres','endpoint_scope');
   requireThat(plan.endpoint.sslmode==='verify-full' && /^[a-f0-9]{64}$/.test(plan.endpoint.caSha256),'verified_tls_required');
   requireThat(plan.endpoint.caFile && !/[\r\n\0]/.test(plan.endpoint.caFile),'ca_file_required');
 }
@@ -121,8 +124,8 @@ function normalizeDump(bytes) {
   return Buffer.from(lines.join('\n'));
 }
 
-function dataSql(tables,rows) {
-  const parts=["-- Synthetic preparation output; NOT AUTHENTIC EVIDENCE.\nSET standard_conforming_strings = on;\n"];
+function dataSql(tables,rows,authentic=false) {
+  const parts=[(authentic?"-- Approved acquisition; restoration requires separate authorization.":"-- Synthetic preparation output; NOT AUTHENTIC EVIDENCE.")+"\nSET standard_conforming_strings = on;\n"];
   for(const t of [...tables].sort((a,b)=>a.name<b.name?-1:1)) {
     const cols=t.columns.map(ident).join(',');
     for(const row of rows.get(t.name))parts.push('INSERT INTO '+qualified(t.name)+' ('+cols+') OVERRIDING SYSTEM VALUE SELECT '+cols+' FROM jsonb_populate_record(NULL::'+qualified(t.name)+','+literal(row)+'::jsonb);\n');
@@ -130,18 +133,21 @@ function dataSql(tables,rows) {
   return Buffer.from(parts.join(''));
 }
 
-export async function collectH444Export({mode,transport,plan,expectedPlanSha256,versions,limits={}}) {
-  // This gate cannot be waived by an environment variable, token or plan field.
-  requireThat(mode==='synthetic-offline' && transport?.kind==='synthetic-fixture','authentic_acquisition_not_approved');
-  validatePlan(plan,expectedPlanSha256,versions);
+export async function collectH444Export({mode,transport,plan,expectedPlanSha256,versions,limits={},authorization,acquireBodies,sessionDeadline=Infinity}) {
+  const authentic=mode==='authentic-acquisition';
+  const approved=authorization?validateAcquisitionAuthorization({...authorization,plan,synthetic:!authentic}):null;
+  requireThat(authentic ? approved && transport?.kind==='approved-postgresql' : mode==='synthetic-offline' && transport?.kind==='synthetic-fixture','authentic_acquisition_not_approved');
+  validatePlan(plan,expectedPlanSha256,versions,authorization);
+  if(approved)requireThat(canonical(limits)===canonical(approved.limits),'approved_limits_changed');
   const budget={...LIMITS,...limits};
   for(const k of Object.keys(budget))requireThat(Number.isSafeInteger(budget[k])&&budget[k]>0&&budget[k]<=LIMITS[k],'invalid_bound');
   const started=performance.now(); let consumed=0,anchor,beginAttempted=false;
   const operations=[];
   async function bounded(kind,input,timeoutMs) {
     const controller=new AbortController();let timer;
-    const duration=Math.min(timeoutMs,budget.sessionMs-(performance.now()-started));
+    const duration=Math.min(timeoutMs,budget.sessionMs-(performance.now()-started),sessionDeadline-Date.now());
     requireThat(duration>0,'session_timeout');
+    if(approved)requireThat(Date.now()<Date.parse(approved.expiresAt),'acquisition_expired');
     try {
       return await Promise.race([
         (async()=>{
@@ -186,7 +192,12 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     const privileges=await query(privilegeSQL(plan));
     requireThat(Array.isArray(privileges)&&privileges.length===plan.tables.length&&new Set(privileges.map(p=>p.name)).size===plan.tables.length,'privilege_inventory');
     for(const t of plan.tables){const p=privileges.find(p=>p.name===t.name);requireThat(p?.present===true&&p.schemaUsage===true&&p.selectAll===true&&p.unfiltered===true,'inadequate_source_privileges');requireThat(t.columns.every(c=>p.actualColumns?.includes(c)),'missing_source_columns');
-      if(plan.financialTables.includes(t.name))requireThat(canonical([...p.actualColumns].sort())===canonical([...t.columns].sort()),'incomplete_financial_projection');}
+      if(plan.financialTables.includes(t.name)||(approved&&['forge_meta.database_lineage','storage.objects','supabase_migrations.schema_migrations'].includes(t.name)))requireThat(canonical([...p.actualColumns].sort())===canonical([...t.columns].sort()),'incomplete_financial_projection');}
+    let authenticObservation,auxiliary;
+    if(approved){
+      authenticObservation=await query(frameSQL(authenticObservationSQL()));
+      try{validateHistoricalObservation(approved,authenticObservation,versions,444);}catch{throw new ExportHold('approved_source_fingerprint_changed');}
+    }
     const rows=new Map(),parsed=new Map();let projectedBytes=0n;
     for(const t of [...plan.tables].sort((a,b)=>a.name<b.name?-1:1)) {
       const size=await query(sizeSQL(t,budget.rowsPerTable));
@@ -210,6 +221,10 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     requireThat(storage.length===475&&new Set(storage.map(r=>r.id)).size===475,'storage_inventory');
     requireThat(storage.every(r=>/^[0-9]+$/.test(String(r.metadata?.size)))&&storage.reduce((s,r)=>s+BigInt(r.metadata.size),0n)===447475n,'storage_bytes');
     requireThat(storageIdentityDigest(storage)===plan.storageIdentitySha256,'storage_identity_mismatch');
+    if(approved){
+      requireThat(typeof acquireBodies==='function','preserved_bodies_required');
+      auxiliary=await acquireBodies(storage,start.snapshotId);
+    }
     const roles=await query(rolesSQL);
     requireThat(Array.isArray(roles?.roles)&&roles.roles.length>0&&Object.hasOwn(roles,'memberships')&&Object.hasOwn(roles,'defaultAcls'),'role_acl_inventory');
     const sequenceNames=await query(frameSQL("select coalesce(json_agg(json_build_object('schema',schemaname,'name',sequencename) order by schemaname,sequencename),'[]'::json) from pg_sequences where schemaname in ("+plan.schemas.map(literal).join(',')+')'));
@@ -220,8 +235,8 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
       const bytes=normalizeDump(await bounded('dump',dumpRequest(plan,start.snapshotId,migration),budget.dumpMs));
       screenExportValue(bytes);files.set(migration?'supabase-migrations-schema.sql':'schema.sql',bytes);
     }
-    files.set('data.sql',dataSql(plan.tables.filter(t=>t.name!=='supabase_migrations.schema_migrations'),rows));
-    files.set('supabase-migrations-data.sql',dataSql(plan.tables.filter(t=>t.name==='supabase_migrations.schema_migrations'),rows));
+    files.set('data.sql',dataSql(plan.tables.filter(t=>t.name!=='supabase_migrations.schema_migrations'),rows,authentic));
+    files.set('supabase-migrations-data.sql',dataSql(plan.tables.filter(t=>t.name==='supabase_migrations.schema_migrations'),rows,authentic));
     const end=await query(frameSQL('select clock_timestamp()'));
     requireThat(Number.isFinite(Date.parse(end))&&Date.parse(end)>=Date.parse(start.at),'snapshot_time_order');
     const sourceObservation={schema:'forge.storage-h444-logical-source-observation.v1',sourceProject:plan.sourceProject,snapshotId:start.snapshotId,
@@ -229,10 +244,11 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
         originalHistorySha256:hashRows(rows.get('supabase_migrations.schema_migrations')),
         financialSha256:sha256(canonical([...plan.financialTables].sort().map(n=>[n,rows.get(n)]))),storageSha256:hashRows(rows.get('storage.objects')),
         financialMode:'test',requiredFinancialRecords:counts,
-        provenance:{evidenceKind:'synthetic-offline',candidate:plan.candidate,planSha256:expectedPlanSha256,exporterSha256:sha256(readFileSync(new URL(import.meta.url))),endpoint:plan.endpoint,
+        provenance:{evidenceKind:plan.evidenceKind,candidate:plan.candidate,planSha256:expectedPlanSha256,storageIdentitySha256:plan.storageIdentitySha256,exporterSha256:sha256(readFileSync(new URL(import.meta.url))),endpoint:plan.endpoint,
           tools:plan.tools,transport:transport.provenance??{executionClass:'in-memory-fixture'},transaction:anchor,operations,snapshotStartedAt:start.at,snapshotCompletedAt:end}}};
+    if(approved){const provenance=sourceObservation.observation.provenance;sourceObservation.observation={...authenticObservation,provenance:{...provenance,acquisitionApprovalSha256:authorization.approvedSha256}};}
     const sourceBytes=jsonBytes(sourceObservation);
-    files.set('role-and-acl-manifest.json',jsonBytes({schema:'forge.h444-role-acl-export.v1',evidenceKind:'synthetic-offline',snapshotId:start.snapshotId,
+    files.set('role-and-acl-manifest.json',jsonBytes({schema:'forge.h444-role-acl-export.v1',evidenceKind:plan.evidenceKind,snapshotId:start.snapshotId,
       rolesAndMemberships:roles,relationPrivileges:privileges,ddlAclFiles:['schema.sql','supabase-migrations-schema.sql'],
       sequences:{consistency:'NON_MVCC_OBSERVATIONS_ONLY',values:sequences,restorationInstructionsIncluded:false}}));
     const artifacts=()=>[...files].map(([name,bytes])=>({name,snapshotId:start.snapshotId,sha256:sha256(bytes),sizeBytes:bytes.length})).sort((a,b)=>a.name<b.name?-1:1);
@@ -246,11 +262,12 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     // No productionSecretsIncluded assertion: preparation does not perform an
     // approved authentic secret screen. This receipt cannot pass the authentic
     // restoration validator, even though its six artifact/proof shapes match.
-    const receipt={schema:'forge.h444-synthetic-export-receipt.v1',evidenceKind:'synthetic-offline',sourceProject:plan.sourceProject,
+    let receipt={schema:'forge.h444-synthetic-export-receipt.v1',evidenceKind:'synthetic-offline',sourceProject:plan.sourceProject,
       snapshotId:start.snapshotId,consistencyMethod:'single-transaction-snapshot',snapshotStartedAt:start.at,snapshotCompletedAt:end,
       consistencyProofSha256:sha256(files.get('snapshot-consistency.json')),sourceObservationSha256:sha256(sourceBytes),artifacts:artifacts(),
       acquisitionApproved:false,confidentialityVerified:false};
-    bundle={files,sourceObservationBytes:sourceBytes,receipt};
+    if(authentic){const {evidenceKind,acquisitionApproved,confidentialityVerified,...logical}=receipt;receipt={...logical,schema:'forge.storage-h444-logical-export-receipt.v1',productionSecretsIncluded:false};}
+    bundle={files,sourceObservationBytes:sourceBytes,receipt,...(auxiliary?{auxiliary}:{})};
   } catch(e) { throw e instanceof ExportHold?e:new ExportHold('export_failed'); }
   finally {
     // Close must cancel/drain any failed operation, rollback the owning session,
