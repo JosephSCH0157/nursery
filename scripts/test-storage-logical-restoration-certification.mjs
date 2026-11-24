@@ -586,7 +586,10 @@ async getEvidence => {
       '--action', action, '--approval', join(evidenceDirectory, 'approval.json'),
       '--approval-sha256', e.approvedSha256, '--workdir', workdir,
       ...(action === 'Prepare' ? ['--connection-file', connection] : []),
-    ], {cwd: repositoryRoot, encoding: 'utf8', timeout: 30000, stdio: 'pipe'}));
+    // Offline preparation hashes/stages hundreds of pinned files. WSL over the
+    // canonical Windows checkout can exceed 30 seconds without a stuck child.
+    // This bounded test wait does not change acquisition/SQL/execution deadlines.
+    ], {cwd: repositoryRoot, encoding: 'utf8', timeout: 120000, stdio: 'pipe'}));
     // Only these two offline actions are exercised. No adapter/credentials run.
     assert.equal(invoke('Prepare').connected, false);
     const packagePath = join(workdir, 'package.json');
