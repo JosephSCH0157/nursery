@@ -81,10 +81,15 @@ function unpack(bytes) {
   verifyExportBundle(bundle);return bundle;
 }
 export async function encryptExportBundle(bundle) {
-  const plaintext=pack(bundle),key=randomBytes(32),nonce=randomBytes(12);
+  return encryptPayload(pack(bundle),bundle.auxiliary?'forge.h444.acquisition-envelope.v1':'forge.h444.synthetic-envelope.v1');
+}
+// Shared envelope primitive: preserve the existing wire format, cipher and DPAPI custody.
+// The owned payload copy is cleared here; callers retain no plaintext staging file.
+async function encryptPayload(plaintext,schema) {
+  const key=randomBytes(32),nonce=randomBytes(12);
   try {
     const wrapped=await dpapiKey('Protect',key);
-    const header=Buffer.from(canonical({schema:bundle.auxiliary?'forge.h444.acquisition-envelope.v1':'forge.h444.synthetic-envelope.v1',algorithm:'AES-256-GCM',wrapping:'DPAPI-CurrentUser',
+    const header=Buffer.from(canonical({schema,algorithm:'AES-256-GCM',wrapping:'DPAPI-CurrentUser',
       wrappedKey:wrapped.toString('base64'),nonce:nonce.toString('base64'),ciphertextLength:plaintext.length}));
     const aad=Buffer.concat([MAGIC,uint(header.length),header]);
     const cipher=createCipheriv('aes-256-gcm',key,nonce,{authTagLength:16});cipher.setAAD(aad);
@@ -92,6 +97,11 @@ export async function encryptExportBundle(bundle) {
   }finally{key.fill(0);plaintext.fill(0);}
 }
 export async function decryptExportBundle(bytes) {
+  const plaintext=await decryptPayload(bytes,['forge.h444.synthetic-envelope.v1','forge.h444.acquisition-envelope.v1']);
+  try{return unpack(plaintext);}catch{throw new ExportHold('encrypted_output_verification_failed');}
+  finally{plaintext.fill(0);}
+}
+async function decryptPayload(bytes,schemas) {
   let key,plaintext,partial;
   try {
     hold(Buffer.isBuffer(bytes)&&bytes.length>MAGIC.length+20&&bytes.length<=MAX+65536,'envelope_size');
@@ -99,7 +109,7 @@ export async function decryptExportBundle(bytes) {
     const size=bytes.readUInt32BE(MAGIC.length);hold(size>0&&size<=32768&&MAGIC.length+4+size+16<=bytes.length,'envelope_header');
     const offset=MAGIC.length+4+size,header=json(bytes.subarray(MAGIC.length+4,offset));
     keys(header,['schema','algorithm','wrapping','wrappedKey','nonce','ciphertextLength']);
-    hold(['forge.h444.synthetic-envelope.v1','forge.h444.acquisition-envelope.v1'].includes(header.schema)&&header.algorithm==='AES-256-GCM'&&header.wrapping==='DPAPI-CurrentUser','envelope_policy');
+    hold(schemas.includes(header.schema)&&header.algorithm==='AES-256-GCM'&&header.wrapping==='DPAPI-CurrentUser','envelope_policy');
     hold(Number.isSafeInteger(header.ciphertextLength)&&header.ciphertextLength>0&&header.ciphertextLength<=MAX&&offset+header.ciphertextLength+16===bytes.length,'envelope_length');
     const nonce=Buffer.from(header.nonce,'base64'),wrapped=Buffer.from(header.wrappedKey,'base64');
     hold(nonce.length===12&&wrapped.length>0&&wrapped.length<=8192,'envelope_key');
@@ -107,21 +117,48 @@ export async function decryptExportBundle(bytes) {
     const decipher=createDecipheriv('aes-256-gcm',key,nonce,{authTagLength:16});decipher.setAAD(bytes.subarray(0,offset));decipher.setAuthTag(bytes.subarray(-16));
     partial=decipher.update(bytes.subarray(offset,-16));
     // No parsing or delivery of partial plaintext before GCM authentication.
-    const final=decipher.final();plaintext=Buffer.concat([partial,final]);return unpack(plaintext);
+    const final=decipher.final();plaintext=Buffer.concat([partial,final]);return Buffer.from(plaintext);
   }catch{throw new ExportHold('encrypted_output_verification_failed');}
   finally{key?.fill(0);partial?.fill(0);plaintext?.fill(0);}
 }
 export async function writeEncryptedExport(bundle,directory,name='evidence.h444enc',{signal}={}) {
+  const result=await publishEncryptedEnvelope(()=>encryptExportBundle(bundle),directory,name,async stored=>{
+    const recovered=await decryptExportBundle(stored);
+    try{for(const [n,b] of bundle.files)hold(b.equals(recovered.files.get(n)),'encrypted_disk_roundtrip');}
+    finally{clearExportBundle(recovered);}
+  },{signal});
+  return {...result,artifactCount:6,acquisitionApproved:bundle.receipt.schema==='forge.storage-h444-logical-export-receipt.v1'};
+}
+
+const METADATA_SCHEMA='forge.h444.before-state-metadata-envelope.v1',METADATA_MAX=32*1024*1024;
+export async function encryptMetadataEvidence(bytes) {
+  hold(Buffer.isBuffer(bytes)&&bytes.length>0&&bytes.length<=METADATA_MAX,'metadata_size');
+  return encryptPayload(Buffer.from(bytes),METADATA_SCHEMA);
+}
+export async function decryptMetadataEvidence(bytes) {
+  hold(Buffer.isBuffer(bytes)&&bytes.length<=METADATA_MAX+65536,'metadata_envelope_size');
+  const plaintext=await decryptPayload(bytes,[METADATA_SCHEMA]);
+  if(plaintext.length===0||plaintext.length>METADATA_MAX){plaintext.fill(0);throw new ExportHold('metadata_size');}
+  // Caller must clear recovered bytes after in-memory validation/review.
+  return plaintext;
+}
+export async function writeEncryptedMetadataEvidence(bytes,directory,name='before-state.h444enc',{signal}={}) {
+  const result=await publishEncryptedEnvelope(()=>encryptMetadataEvidence(bytes),directory,name,async stored=>{
+    const recovered=await decryptMetadataEvidence(stored);
+    try{hold(bytes.equals(recovered),'encrypted_disk_roundtrip');}finally{recovered.fill(0);}
+  },{signal});
+  return {...result,plaintextSha256:sha256(bytes),schema:METADATA_SCHEMA};
+}
+
+async function publishEncryptedEnvelope(createEnvelope,directory,name,verify,{signal}={}) {
   hold(/^[a-z0-9-]+\.h444enc$/.test(name),'output_name');
   const root=await verifyOutputDirectory(directory),destination=join(root,name),staging=join(root,'partial-'+randomBytes(12).toString('hex')+'.h444enc');
-  const envelope=await encryptExportBundle(bundle);
+  const envelope=await createEnvelope();
   const handle=await open(staging,'wx',0o600);
   try{await handle.writeFile(envelope);await handle.sync();}finally{await handle.close();}
   await verifyOutputDirectory(root);
   const stored=await readFile(staging);hold(sha256(stored)===sha256(envelope),'encrypted_disk_hash');
-  const recovered=await decryptExportBundle(stored);
-  try{for(const [n,b] of bundle.files)hold(b.equals(recovered.files.get(n)),'encrypted_disk_roundtrip');}
-  finally{clearExportBundle(recovered);}
+  await verify(stored);
   hold(!signal?.aborted,'acquisition_interrupted');
   // Atomic no-replacement publication on the same volume (rename may replace).
   try{await link(staging,destination);}catch{throw new ExportHold('output_publication_failed');}
@@ -129,7 +166,7 @@ export async function writeEncryptedExport(bundle,directory,name='evidence.h444e
   const status=await lstat(destination);hold(status.isFile()&&!status.isSymbolicLink(),'output_file');
   await verifyOutputDirectory(root);
   hold(sha256(await readFile(destination))===sha256(envelope),'published_bytes_changed');
-  return {path:destination,sha256:sha256(envelope),sizeBytes:envelope.length,artifactCount:6,acquisitionApproved:bundle.receipt.schema==='forge.storage-h444-logical-export-receipt.v1'};
+  return {path:destination,sha256:sha256(envelope),sizeBytes:envelope.length};
 }
 
 export function clearExportBundle(bundle){if(!bundle)return;for(const b of bundle.files.values())b.fill(0);bundle.sourceObservationBytes.fill(0);for(const b of bundle.auxiliary?.values()??[])b.fill(0);}
