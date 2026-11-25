@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 
-test('actual B1 Apply function enforces the exact 447 dry-run and installed prefix without database access', () => {
-  const script = String.raw`
+for(const stage of [447,448])test('actual B1 Apply function enforces the exact '+stage+' dry-run and installed prefix without database access', () => {
+  let script = String.raw`
 $ErrorActionPreference='Stop'
 $repo=$env:FORGE_OFFLINE_TEST_ROOT
 $tokens=$null;$errors=$null
@@ -55,15 +55,17 @@ try{
  Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 `;
+  if(stage===448)script=script.replaceAll('20261113214832','20261120161347').replace(/'20261120161347'\r?\n }elseif/,"'20261125023622'\n }elseif");
+  if(stage===448){script=script.replaceAll("Apply '20261120161347' '20261120161347'","Apply '20261120161347' '20261125023622'").replace("$contract.migrations=@($contract.migrations)+@($admission.migration)","$convergence=Get-Content (Join-Path $repo 'docs/database/certification/quench-acl-convergence-448.json') -Raw|ConvertFrom-Json\n$contract.migrations=@($contract.migrations)+@($admission.migration)+@($convergence.migration)");}
   const output = execFileSync('pwsh', ['-NoProfile', '-Command', script], {
     encoding: 'utf8', timeout: 30000, env: {...process.env, FORGE_OFFLINE_TEST_ROOT: process.cwd()},
   });
   assert.match(output, /PASS synthetic B1 447 Apply guards/);
 });
 
-test('database adapter rejects the production target before reading approval or credentials', () => {
+for(const action of ['Apply447','Apply448'])test(action+' database adapter rejects the production target before reading approval or credentials', () => {
   assert.throws(() => execFileSync('pwsh', ['-NoProfile', '-File', 'scripts/storage-authentic-db-adapter.ps1',
-    '-Lineage', 'historical', '-Action', 'Apply447', '-TargetProject', 'wtvdjndyxegudufrompx',
+    '-Lineage', 'historical', '-Action', action, '-TargetProject', 'wtvdjndyxegudufrompx',
     '-Workdir', 'not-a-workdir', '-ApprovalPath', 'not-an-approval', '-ApprovalSha256', 'a'.repeat(64)],
   {encoding: 'utf8', timeout: 30000, stdio: 'pipe'}), /Production target forbidden/);
 });

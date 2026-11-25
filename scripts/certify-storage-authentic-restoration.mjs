@@ -9,7 +9,7 @@ import {normalizeCatalogForProduction} from './lib/forge-catalog-production-norm
 import {sha256,validateRestorationApproval,validateHistoricalObservation} from './lib/storage-authentic-certification.mjs';
 import {readPinned} from './lib/forge-storage-full-tail.mjs';
 import {proposalPath,validateStorage447Proposal} from './verify-storage-h444-447-proposal.mjs';
-import {LOGICAL_EXECUTION_APPROVAL_SCHEMA,validateLogicalExecutionPrerequisites,
+import {LOGICAL_EXECUTION_APPROVAL_SCHEMA,LOGICAL_INTERVENTION_SCHEMA,isLogicalExecutionSchema,validateLogicalExecutionPrerequisites,
  validateLogicalExecutionObservation,validateLogicalRestoredCatalog,
  validateLogicalExecutionCompletion} from './lib/storage-logical-restoration-certification.mjs';
 
@@ -40,14 +40,14 @@ export function validatePackage(workdir,a,payload){
  const dir=dirname(workdir);regular(workdir);
  const pkg=JSON.parse(readFileSync(workdir));
  assert.equal(pkg.targetProject,a.targetProject);assert.equal(pkg.candidate,a.candidate);
- assert.ok((a.schema===LOGICAL_EXECUTION_APPROVAL_SCHEMA?[445,446,447]:[445,446]).includes(pkg.through));
+ assert.ok((a.schema===LOGICAL_INTERVENTION_SCHEMA?[445,446,447,448]:a.schema===LOGICAL_EXECUTION_APPROVAL_SCHEMA?[445,446,447]:[445,446]).includes(pkg.through));
  const names=payload.names.slice(0,pkg.through);
  for(const part of ['supabase','supabase/migrations','supabase/templates','supabase/.temp'])assert.ok(lstatSync(join(dir,part)).isDirectory()&&!lstatSync(join(dir,part)).isSymbolicLink(),'package_directory_link');
  assert.deepEqual(readdirSync(join(dir,'supabase/migrations')).sort(),names.map(p=>p.split('/').at(-1)),'staged_prefix');
  for(const path of [...names,'supabase/config.toml','supabase/templates/password_changed_notification.html'])assert.deepEqual(readFileSync(regular(join(dir,path))),payload.files.get(path),'pinned_package_bytes');
  assert.equal(readFileSync(regular(join(dir,'supabase/.temp/project-ref')),'utf8').trim(),a.targetProject);
  const connection=validateRestorationConnection(readFileSync(regular(join(dir,'supabase/.temp/pooler-url')),'utf8'),a.targetProject);
- if(a.schema===LOGICAL_EXECUTION_APPROVAL_SCHEMA)assert.equal(sha256(connection),a.connectionSha256,'approved_connection_changed');
+ if(isLogicalExecutionSchema(a.schema))assert.equal(sha256(connection),a.connectionSha256,'approved_connection_changed');
  return pkg;
 }
 function catalogFromRows(rows){
@@ -81,7 +81,8 @@ function parse(argv){
 async function main(){
  const args=parse(process.argv.slice(2));
  const approvalBytes=readFileSync(regular(privatePath(args.approval)));
- const logical=JSON.parse(approvalBytes).schema===LOGICAL_EXECUTION_APPROVAL_SCHEMA;
+ const logical=isLogicalExecutionSchema(JSON.parse(approvalBytes).schema);
+ const intervention=JSON.parse(approvalBytes).schema===LOGICAL_INTERVENTION_SCHEMA;
  assert.ok(logical||(!args.completion&&!args['completion-sha256']&&!args['final-storage-manifest']&&args.action!=='Certify'),'physical_route_unchanged');
  const logicalInputs=()=>{
   const directory=dirname(resolve(args.approval));
@@ -90,7 +91,8 @@ async function main(){
    sourceObservationBytes:read('source-observation.json'),exportReceiptBytes:read('export-receipt.json'),
    importReceiptBytes:read('import-receipt.json'),targetObservationsBytes:read('target-observations.json'),
    storageManifestBytes:read('storage-manifest.json'),isolationManifestBytes:read('isolation-manifest.json'),
-   logicalArtifactDirectory:privatePath(join(directory,'artifacts')),repositoryRoot:repo};
+   logicalArtifactDirectory:privatePath(join(directory,'artifacts')),repositoryRoot:repo,
+   ...(intervention?{interventionReceiptBytes:read('intervention-receipt.json')}:{})};
  };
  const checkApproval=()=>logical?validateLogicalExecutionPrerequisites(logicalInputs()):validateRestorationApproval(approvalBytes,args['approval-sha256']);
  const a=await checkApproval();
@@ -105,6 +107,7 @@ async function main(){
   const m=pinned.admission.migration;
   payload.names.push(m.path);payload.files.set(m.path,pinned.blobs.get(m.path));
   releases=[...STORAGE_RELEASES,{number:447,version:m.version,sha256:m.sha256,filename:m.path.split('/').at(-1)}];
+  if(intervention){const q=pinned.convergence.migration;payload.names.push(q.path);payload.files.set(q.path,pinned.blobs.get(q.path));releases.push({number:448,version:q.version,sha256:q.sha256,filename:q.path.split('/').at(-1)});}
  }
  const versions=payload.names.map(p=>p.split('/').at(-1).split('_')[0]);
  const validateObservation=logical?validateLogicalExecutionObservation:validateHistoricalObservation;
@@ -160,7 +163,7 @@ async function main(){
  validateObservation(a,state,versions,count);
  const result={status:'POSTVERIFY',count,targetProject:a.targetProject,certified:false};
  let catalogSha256;
- if(count===(logical?447:446)){
+ if(count===(intervention?448:logical?447:446)){
   const catalog=catalogFromRows(await adapter('Catalog'));
   const compatibility=JSON.parse(readFileSync(join(repo,'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json')));
   const normalized=normalizeCatalogForProduction(catalog,compatibility).catalog;
@@ -169,7 +172,7 @@ async function main(){
   durable(join(dir,`catalog-${Date.now()}.json`),normalized);result.catalogParity='PASS';
  }
  if(args.action==='Certify'){
-  assert.equal(count,447,'final_stage_required');
+  assert.equal(count,intervention?448:447,'final_stage_required');
   const stageReceipts=releases.map(r=>{
    const receipt=JSON.parse(readFileSync(regular(privatePath(join(dir,`verified-${r.number}.json`)))));
    assert.equal(receipt.approvalSha256,args['approval-sha256'],'stage_approval_changed');

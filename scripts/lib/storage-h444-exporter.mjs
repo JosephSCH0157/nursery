@@ -1,5 +1,6 @@
 // Shared bounded collector. Authentic transport additionally requires independent acquisition approval.
 import {createHash} from 'node:crypto';
+import {ACQUISITION_INTERVENTION_SCHEMA,validateInterventionReceipt,validateInterventionSnapshot,validateOriginalQuenchSnapshot,INTERVENTION_CATALOG_SQL,QUENCH_OBSERVATION_SQL} from './storage-quench-intervention.mjs';
 import {readFileSync} from 'node:fs';
 import {REQUIRED_LOGICAL_ARTIFACTS} from './storage-logical-restoration-certification.mjs';
 import {validateAcquisitionAuthorization,authenticObservationSQL} from './storage-h444-authorization.mjs';
@@ -135,7 +136,7 @@ function dataSql(tables,rows,authentic=false) {
   return Buffer.from(parts.join(''));
 }
 
-export async function collectH444Export({mode,transport,plan,expectedPlanSha256,versions,limits={},authorization,receiptBytes,acquireBodies,sessionDeadline=Infinity}) {
+export async function collectH444Export({mode,transport,plan,expectedPlanSha256,versions,limits={},authorization,receiptBytes,interventionReceiptBytes,acquireBodies,sessionDeadline=Infinity}) {
   const authentic=mode==='authentic-acquisition';
   const approved=authorization?validateAcquisitionAuthorization({...authorization,plan,synthetic:!authentic}):null;
   requireThat(authentic ? approved && transport?.kind==='approved-postgresql' : mode==='synthetic-offline' && transport?.kind==='synthetic-fixture','authentic_acquisition_not_approved');
@@ -191,11 +192,21 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     beginAttempted=true;await bounded('query',BEGIN_SQL,budget.queryMs);
     const start=await query(frameSQL("select json_build_object('snapshotId',pg_export_snapshot(),'at',clock_timestamp())"));
     requireThat(/^[A-Fa-f0-9]+-[A-Fa-f0-9]+-[A-Fa-f0-9]+$/.test(start.snapshotId)&&Number.isFinite(Date.parse(start.at)),'snapshot_provenance');
-    let principalEvidence;
-    if(approved?.schema==='forge.h444-acquisition-approval.v2'){
+    let principalEvidence,interventionEvidence;
+    if(approved?.principalApproval){
       requireThat(anchor.role===approved.principal,'temporary_principal_session');
       principalEvidence=validatePrincipalObservation(await query(frameSQL(PRINCIPAL_METADATA_SQL)),approved);
       validateFinancialModeDefinition(await query(frameSQL(FINANCIAL_MODE_METADATA_SQL)));
+    }
+    if(approved?.schema===ACQUISITION_INTERVENTION_SCHEMA){
+      const receipt=validateInterventionReceipt(interventionReceiptBytes,approved.intervention,approved);
+      requireThat(Date.parse(receipt.independentReview.reviewedAt)<=Date.parse(start.at),'intervention_review_precedes_acquisition');
+      const functions=await query(frameSQL(QUENCH_OBSERVATION_SQL));
+      const catalog=await query(frameSQL(INTERVENTION_CATALOG_SQL));
+      validateInterventionSnapshot(receipt,functions,catalog);
+      interventionEvidence={receipt,receiptSha256:approved.intervention.receiptSha256,functions,catalog};
+    }else if(approved?.evidenceKind==='authentic-logical-acquisition'){
+      validateOriginalQuenchSnapshot(await query(frameSQL(QUENCH_OBSERVATION_SQL)));
     }
     const privileges=await query(privilegeSQL(plan));
     requireThat(Array.isArray(privileges)&&privileges.length===plan.tables.length&&new Set(privileges.map(p=>p.name)).size===plan.tables.length,'privilege_inventory');
@@ -261,10 +272,10 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
         financialMode:'test',requiredFinancialRecords:counts,
         provenance:{evidenceKind:plan.evidenceKind,candidate:plan.candidate,planSha256:expectedPlanSha256,storageIdentitySha256:plan.storageIdentitySha256,exporterSha256:sha256(readFileSync(new URL(import.meta.url))),endpoint:plan.endpoint,
           tools:plan.tools,transport:transport.provenance??{executionClass:'in-memory-fixture'},transaction:anchor,operations,snapshotStartedAt:start.at,snapshotCompletedAt:end}}};
-    if(approved){const provenance=sourceObservation.observation.provenance;sourceObservation.observation={...authenticObservation,provenance:{...provenance,acquisitionApprovalSha256:authorization.approvedSha256}};}
+    if(approved){const provenance=sourceObservation.observation.provenance;sourceObservation.observation={...authenticObservation,provenance:{...provenance,acquisitionApprovalSha256:authorization.approvedSha256,...(interventionEvidence?{interventionReceiptSha256:approved.intervention.receiptSha256,correctedCatalogSha256:approved.intervention.correctedCatalogSha256}:{})}};}
     const sourceBytes=jsonBytes(sourceObservation);
     files.set('role-and-acl-manifest.json',jsonBytes({schema:'forge.h444-role-acl-export.v1',evidenceKind:plan.evidenceKind,snapshotId:start.snapshotId,
-      rolesAndMemberships:roles,...(principalEvidence?{temporaryPrincipalEvidence:principalEvidence}:{}),relationPrivileges:privileges,ddlAclFiles:['schema.sql','supabase-migrations-schema.sql'],
+      rolesAndMemberships:roles,...(interventionEvidence?{securityIntervention:interventionEvidence}:{}),...(principalEvidence?{temporaryPrincipalEvidence:principalEvidence}:{}),relationPrivileges:privileges,ddlAclFiles:['schema.sql','supabase-migrations-schema.sql'],
       sequences:{consistency:'NON_MVCC_OBSERVATIONS_ONLY',values:sequences,restorationInstructionsIncluded:false}}));
     const artifacts=()=>[...files].map(([name,bytes])=>({name,snapshotId:start.snapshotId,sha256:sha256(bytes),sizeBytes:bytes.length})).sort((a,b)=>a.name<b.name?-1:1);
     const proof={schema:'forge.storage-h444-logical-snapshot-consistency.v1',sourceProject:plan.sourceProject,snapshotId:start.snapshotId,

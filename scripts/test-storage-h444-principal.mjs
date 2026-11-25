@@ -5,14 +5,18 @@ import {mkdir,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {resolve,join,sep} from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {canonical,sha256} from './lib/storage-h444-exporter.mjs';
+import {canonical,sha256,collectH444Export} from './lib/storage-h444-exporter.mjs';
 import {validateAcquisitionAuthorization,authenticObservationSQL,OBSERVATION_SQL} from './lib/storage-h444-authorization.mjs';
 import {TEMPORARY_PRINCIPAL,CREATE_ROLE_SQL,CLEANUP_ROLE_SQL,PRINCIPAL_METADATA_SQL,PRINCIPAL_REVIEW_METADATA_SQL,FINANCIAL_MODE_METADATA_SQL,
   FINANCIAL_MODE_PIN,FINANCIAL_MODE_READ,validateFinancialModeDefinition,validatePrincipalObservation,validatePrincipalApproval} from './lib/storage-h444-principal.mjs';
 import {startSyntheticPostgres} from './fixtures/storage-h444-postgres-fixture.mjs';
 import {prepareAcquisitionFixture} from './fixtures/storage-h444-acquisition-fixture.mjs';
-import {runApprovedH444Acquisition} from './lib/storage-h444-acquisition.mjs';
+import {runApprovedH444Acquisition,validateAcquisitionPackage} from './lib/storage-h444-acquisition.mjs';
 import {restrictSyntheticOutputDirectory,decryptExportBundle,clearExportBundle} from './lib/storage-h444-output.mjs';
+
+import {interventionFixture} from './fixtures/storage-quench-intervention-fixture.mjs';
+import {INTERVENTION_CATALOG_SQL,QUENCH_OBSERVATION_SQL,QUENCH_FUNCTIONS,canonical as interventionCanonical} from './lib/storage-quench-intervention.mjs';
+import {createLocalPostgresTransport} from './lib/storage-h444-postgres.mjs';
 
 function approval(value){
   return {principal:TEMPORARY_PRINCIPAL,independentReviewer:'SYNTHETIC_REVIEWER',operator:'SYNTHETIC_OPERATOR',
@@ -152,6 +156,48 @@ test('temporary role, effective PUBLIC privileges, lifecycle and encrypted acqui
         assert.ok(manifest.rolesAndMemberships.roles.some(r=>r.name===TEMPORARY_PRINCIPAL));
         assert.equal(JSON.parse(bundle.sourceObservationBytes).observation.financialSha256,obs.financialSha256);
         assert.equal(JSON.parse(bundle.sourceObservationBytes).observation.originalHistorySha256,obs.originalHistorySha256);
+      }finally{clearExportBundle(bundle);}
+    });
+    await t.test('v3 collector rejects catalog drift before protected rows and preserves reviewed evidence in encrypted output',async()=>{
+      const template=interventionFixture(full);
+      await admin("CREATE ROLE authenticated; CREATE ROLE service_role; CREATE ROLE anon;");
+      for(const row of template.receipt.originalCatalog.filter(x=>x.category==='function'))await admin(JSON.parse(row.canonical).definition);
+      for(const fn of QUENCH_FUNCTIONS)await admin('GRANT EXECUTE ON FUNCTION '+fn.signature+' TO authenticated,service_role;');
+      const catalog=async()=>JSON.parse((await admin(INTERVENTION_CATALOG_SQL+';')).toString());
+      const functions=async()=>JSON.parse((await admin(QUENCH_OBSERVATION_SQL+';')).toString());
+      const originalCatalog=await catalog(),before=await functions();
+      for(const fn of QUENCH_FUNCTIONS)await admin('REVOKE EXECUTE ON FUNCTION '+fn.signature+' FROM PUBLIC;');
+      const correctedCatalog=await catalog(),after=await functions();
+      const intervention=interventionFixture(full,{originalCatalog,correctedCatalog,beforeJson:before.recordsCanonical,afterJson:after.recordsCanonical});
+      const output3=join(directory,'forge-h444-offline-'+randomBytes(8).toString('hex'));await mkdir(output3);await restrictSyntheticOutputDirectory(output3);
+      value=await observe();const principal=approval(value);principal.expiresAt=expiresAt;
+      const approved={...full,...principal,schema:'forge.h444-acquisition-approval.v3',intervention:intervention.binding,destination:output3};
+      const approvalBytes=Buffer.from(canonical(approved));
+      const req={...request,interventionReceiptBytes:intervention.bytes,authorization:{...request.authorization,approvalBytes,approvedSha256:sha256(approvalBytes)}};
+      await validateAcquisitionPackage(req);
+      await assert.rejects(validateAcquisitionPackage({...req,interventionReceiptBytes:undefined}));
+      await assert.rejects(validateAcquisitionPackage({...req,interventionReceiptBytes:Buffer.from('{}')}));
+      // Change an unrelated catalog identity without changing the principal's EXECUTE inventory.
+      await admin("COMMENT ON TABLE tongs.financial_runtime_environment_revisions IS 'SYNTHETIC_CATALOG_DRIFT';");
+      // Comments are intentionally not part of the canonical catalog. Use a grant to another role instead.
+      await admin('GRANT SELECT ON tongs.financial_runtime_environment_revisions TO authenticated;');
+      const transport=await createLocalPostgresTransport({...f,plan:req.plan,authorization:req.authorization,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
+      const trace=[];const query=transport.query.bind(transport);transport.query=async function*(sql,options){trace.push(sql);yield*query(sql,options);};
+      const close=transport.close.bind(transport);let rolledBack=false;transport.close=async o=>{rolledBack=o?.rollback===true;return close(o);};
+      await assert.rejects(collectH444Export({...req,mode:'synthetic-offline',transport,expectedPlanSha256:approved.planSha256}));
+      assert.ok(rolledBack);assert.ok(trace.some(sql=>sql.includes(INTERVENTION_CATALOG_SQL)));
+      assert.ok(!trace.some(sql=>sql.includes('row_to_json(r)::text')||sql.includes('with protected(value)')));
+      await admin('REVOKE SELECT ON tongs.financial_runtime_environment_revisions FROM authenticated;');
+      await admin('COMMENT ON TABLE tongs.financial_runtime_environment_revisions IS NULL;');
+      const result=await runApprovedH444Acquisition(req,{fixture:f,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
+      const encrypted=await readFile(result.path);assert.ok(!encrypted.includes(Buffer.from('SYNTHETIC_PASSWORD_ONLY')));
+      const bundle=await decryptExportBundle(encrypted);
+      try{
+        const evidence=JSON.parse(bundle.files.get('role-and-acl-manifest.json')).securityIntervention;
+        assert.equal(interventionCanonical(evidence.receipt),interventionCanonical(intervention.receipt));
+        assert.deepEqual(evidence.functions.records,after.records);assert.deepEqual(evidence.catalog,correctedCatalog);
+        assert.equal(JSON.parse(bundle.sourceObservationBytes).observation.provenance.interventionReceiptSha256,intervention.binding.receiptSha256);
+        assert.equal(bundle.files.size,6);assert.equal(result.storageObjectCount,475);
       }finally{clearExportBundle(bundle);}
     });
     const cleanup=oid=>f.exec(['/usr/lib/postgresql/17/bin/psql','-XqAt','-h','/var/run/postgresql','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-v','expected_role_oid='+oid],{input:Buffer.from(CLEANUP_ROLE_SQL)});

@@ -31,7 +31,7 @@ try {
   hold(args.length===5&&['--check','--acquire'].includes(args[0])&&args[1]==='--package'&&args[3]==='--approval-sha256','invocation');
   hold(process.platform==='win32','windows_required');
   const p=JSON.parse(await boundedFile(args[2],65536));
-  hold(canonical(Object.keys(p).sort())===canonical(['approval','plan','ca','bodyReceipts','inventory'].sort()),'package_fields');
+  hold(canonical(Object.keys(p).sort())===canonical(['approval','plan','ca','bodyReceipts','inventory',...(Object.hasOwn(p,'interventionReceipt')?['interventionReceipt']:[])].sort()),'package_fields');
   const git=(...a)=>execFileSync('git',a,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
   hold(git('status','--porcelain')==='','candidate_worktree_not_clean');
   const head=git('rev-parse','HEAD');
@@ -40,6 +40,7 @@ try {
   const request={plan,authorization:{approvalBytes:await boundedFile(p.approval,65536),approvedSha256:args[4],head},
     versions:JSON.parse(await readFile(new URL('../docs/database/certification/storage-full-tail-446.json',import.meta.url))).migrations.slice(0,444).map(m=>m.version),
     caBytes:await boundedFile(p.ca,65536),receiptBytes:await boundedFile(p.bodyReceipts,1024*1024),inventoryBytes:await boundedFile(p.inventory,8*1024*1024)};
+  if(p.interventionReceipt)request.interventionReceiptBytes=await boundedFile(p.interventionReceipt,64*1024*1024);
   await validateAcquisitionPackage(request);
   if(args[0]==='--check')process.stdout.write('PACKAGE_VALID_NO_CONNECTION\n');
   else {

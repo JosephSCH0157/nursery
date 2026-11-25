@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$RepositoryRoot,[Parameter(Mandatory)][string]$Workdir,
  [Parameter(Mandatory)][string]$Container,[Parameter(Mandatory)][ValidateSet('permissive','restrictive')][string]$Lane,
- [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$ReviewRegressionOnly,[switch]$IncludeAdmission)
+ [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$ReviewRegressionOnly,[switch]$IncludeAdmission,[switch]$IncludeConvergence)
 $ErrorActionPreference='Stop'
+if($IncludeConvergence){$IncludeAdmission=$true}
 $repo=[IO.Path]::GetFullPath($RepositoryRoot)
 $helper=Join-Path $repo 'scripts/lib/forge-storage-full-tail.mjs'
 $contract=Get-Content (Join-Path $repo 'docs/database/certification/storage-full-tail-446.json') -Raw|ConvertFrom-Json
@@ -14,6 +15,11 @@ if($IncludeAdmission){
  $admission=Get-Content (Join-Path $repo 'docs/database/certification/storage-admission-447.json') -Raw|ConvertFrom-Json
  $contract.migrations=@($contract.migrations)+@($admission.migration)
  $contract.target=$admission.migration.version;$historyCount=34
+}
+if($IncludeConvergence){
+ $convergence=Get-Content (Join-Path $repo 'docs/database/certification/quench-acl-convergence-448.json') -Raw|ConvertFrom-Json
+ $contract.migrations=@($contract.migrations)+@($convergence.migration)
+ $contract.target=$convergence.migration.version;$historyCount=35
 }
 $project=(Get-Content (Join-Path $Workdir 'supabase/config.toml') -Raw|Select-String 'project_id = "([^\"]+)"').Matches[0].Groups[1].Value
 if($Container -cne "supabase_db_$project" -or $project -notmatch '^forge-baseline-v1-[a-f0-9]{12}$'){throw 'Unexpected disposable baseline container'}
@@ -81,6 +87,11 @@ if($IncludeAdmission){
   $result=Sql ('select row_to_json(c) from ('+$sql+') c;') | ConvertFrom-Json
   if($result.storage_stage -ne $check[1] -or $result.storage_contract_ok -ne $true){throw '447 cumulative execution contract failed'}
  }
+}
+if($IncludeConvergence){
+ $sql=(Get-Content (Join-Path $repo 'supabase/tests/quench_public_execute_448_contract.sql') -Raw).Trim().TrimEnd(';')
+ $q=Sql ('select row_to_json(c) from ('+$sql+') c;')|ConvertFrom-Json
+ if($q.storage_stage -ne 8 -or $q.storage_contract_ok -ne $true){throw '448 Quench ACL convergence failed'}
 }
 if((Sql $financialSql) -cne $before){throw 'Preexisting financial state changed through full tail'}
 & (Join-Path $repo 'scripts/verify-supabase-lineage.ps1') -Lineage baseline -Workdir $Workdir -DatabaseTarget local -Mode preflight -RepositoryRoot $repo|Out-Null

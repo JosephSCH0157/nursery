@@ -33,13 +33,14 @@ database contents. The extraction allowlist is enforced by the exporter, not
 by column-level database privilege restrictions.** Explicit owner acceptance
 and supervised credential custody are required.
 
-Provider authorization to assign BYPASSRLS must be established for this exact
-project before creation is authorized. A stock PostgreSQL synthetic fixture
-does not reproduce Supabase's reserved-role/supautils enforcement. Existing
-CREATEROLE, BYPASSRLS and membership ADMIN observations are not by themselves
-proof of permission to assign BYPASSRLS to another role. If unsupported, stop
-for the provider-supported procedure; never elevate the observer or modify a
-reserved role as a workaround.
+The 2026-11-24 source metadata review (02:08 UTC on November 25) confirmed
+PostgreSQL 17.6, authenticated `postgres`, CREATEROLE, BYPASSRLS, and ADMIN OPTION
+on `pg_read_all_data`. PostgreSQL 17 permits a BYPASSRLS creator to assign that
+attribute; the observed Supabase reserved-role/membership lists exclude the
+proposed role and `pg_read_all_data`. This establishes the documented authority
+and catalog prerequisites, not a completed CREATE ROLE test. The role was absent.
+Stop on any provider rejection; never elevate the observer or change a reserved
+role. See [PostgreSQL 17 CREATE ROLE](https://www.postgresql.org/docs/17/sql-createrole.html).
 
 ## Effective privileges: independent review required
 
@@ -78,11 +79,35 @@ merely to satisfy JSON validation. Built-in session operations and TEMP require
 explicit residual-risk acceptance. Newly discovered unsafe capabilities require
 owner review of a new procedure, not silent acceptance.
 
-No complete effective hosted-routine review exists yet. Local fixture results
-cannot fill that gap. Before hosted provisioning approval, authorize the minimum
-metadata-only prospective review needed; after separately authorized disabled-role
-creation, revalidate actual effective capabilities and OID before enrollment.
-The two phases must agree; unexpected differences leave the role disabled.
+The prospective source review is **HOLD**, independently corroborated by a separate
+Codex review agent. At 2026-11-25T02:09:38.839307Z, PUBLIC plus `pg_read_all_data`
+exposed 3,361 executable routines (inventory SHA-256
+`5a2a01aaf1c135354715cd8cc4e7cbc64d2eafa6f3ec52a7d6125f9e0363c182`). Three
+PUBLIC-executable, postgres-owned SECURITY DEFINER routines have write-capable
+bodies matching the frozen migration
+`20260904120000_tongs_quench_destination_packages_youtube_jobs.sql`:
+
+- `tongs.finalize_quench_destination_package(uuid,uuid,uuid,uuid,uuid,text,integer,text,uuid,jsonb)`;
+- `tongs.enqueue_youtube_publication_job(uuid,uuid,uuid)`;
+- `tongs.retry_youtube_publication_stage(uuid,uuid,uuid)`.
+
+Their JWT/workspace guards do not establish a credential-wide read-only boundary
+for a direct SQL client that can set request JWT session settings. No routine was
+invoked, protected row inspected, or live write effect demonstrated. This is a
+blocking capability finding, not a claim that every routine has been certified
+safe or that an exploit was executed. Trigger-only routines are not treated as
+directly callable mutators. The exporter READ ONLY transaction remains necessary
+but does not remove capabilities from the credential outside that transaction.
+
+Private metadata, exact queries and body hashes are preserved beneath
+`.git/forge-private-evidence/h444-approval-readiness-20261124/temporary-role-readiness-2f896915/`.
+Do not create or enroll the role while this HOLD remains. A separately reviewed
+privilege correction or provider-enforced restriction must preserve authentic
+H444 catalog evidence; changing PUBLIC ACLs is a source change, not an implicit
+permission in this proposal. Role-specific REVOKE cannot solve the finding.
+After any separately authorized disabled-role creation, revalidate actual
+capabilities/OID and independently pin them before enrollment. Unknown capabilities
+or unexplained differences leave the role disabled.
 
 ## Financial observation compatibility
 
@@ -96,6 +121,16 @@ unchanged. No financial authority is initialized or modified.
 
 ## Credential enrollment, expiry and cleanup
 
+**Forge Credential Index:** obtain the assigned index number from the owner before
+creating a credential. No number is assigned by this proposal. The owner-controlled
+index records only credential identity (including its assigned index), project
+`wtvdjndyxegudufrompx`, role `forge_h444_acquire_01`, H444 acquisition purpose,
+actual creation date, and approved expiration. Leave dates unassigned until known;
+never invent an enrollment event. Passwords/verifiers are not index fields and
+must not enter Git, chat, logs or evidence. The owner alone retains the password
+and enters it through the approved private prompt. Do not use the existing managed
+administrator credential enrollment command for this role or retest old credentials.
+
 1. Separately approve exact candidate, create/cleanup SQL hashes, source, capable
    provisioning operator, intended role membership and risks. Confirm no other
    operator is changing this role during provisioning/enrollment/cleanup. Require
@@ -107,12 +142,14 @@ unchanged. No financial authority is initialized or modified.
    `psql` `\password forge_h444_acquire_01`, using SCRAM-SHA-256, verified TLS and
    an explicitly approved provisioning session. No SQL literal, shell argument,
    environment file, clipboard automation, transcript or credential-manager reuse.
-   Verify provider query/audit logging will not capture the password or verifier;
-   psql's encrypted enrollment still sends a reusable password verifier. If that
-   confidentiality requirement cannot be established, STOP before enrollment.
+   Follow the transaction-local logging procedure below; psql's encrypted
+   enrollment still sends a sensitive password verifier. If confidentiality cannot
+   be established, STOP before enrollment. Keep the role NOLOGIN and expired.
 4. A separately approved `ALTER ROLE forge_h444_acquire_01 LOGIN VALID UNTIL
    '<exact approved UTC end>';` enables a maximum 30-minute supervised window.
-   The exact expiry must equal v2 acquisition `expiresAt`. Capture post-enrollment
+   Do not open that window until owner-held credential availability and exact
+   indexed project/role identity are established. The exact expiry must equal v2
+   acquisition `expiresAt`. Capture post-enrollment
    metadata without reading a password/verifier. Re-pin its actual OID, expiry,
    settings and effective capabilities. A password-presence boolean is sufficient.
 5. Acquisition uses the existing private SecureString-to-stdin delivery and
@@ -136,9 +173,71 @@ unchanged. No financial authority is initialized or modified.
    securely erased; preserve the existing documented risk acceptance and evidence
    retention requirements. Do not delete historical evidence or acquisition receipts.
 
+### Enrollment logging: proposed control, not yet executed
+
+Source metadata showed `log_statement=ddl`, `log_min_error_statement=error`,
+`pg_stat_statements.track_utility=on`, `pgaudit.log=none` and SCRAM-SHA-256.
+Ordinary statement masking alone does not cover errors or statement statistics.
+[Supabase's credential logging procedure](https://supabase.com/kb/troubleshooting/provisioning-credentials-without-log-exposure)
+supports the following same-connection transaction before private `\password`:
+
+```sql
+BEGIN;
+SET LOCAL statement_timeout='30s';
+SET LOCAL lock_timeout='2s';
+SET LOCAL idle_in_transaction_session_timeout='120s';
+SET LOCAL transaction_timeout='180s';
+SET LOCAL log_statement='none';
+SET LOCAL log_min_error_statement='panic';
+SET LOCAL log_min_messages='fatal';
+SET LOCAL pg_stat_statements.track='none';
+SET LOCAL pgaudit.log='none';
+```
+
+This is **NOT APPROVED** SQL preparation, not permission to change logging now.
+Use direct verified TLS and a private interactive `psql -X` session with
+ON_ERROR_STOP, no echo/transcript/recording, and no credential-bearing command
+arguments. Before any secret prompt, read back every setting above, verify
+`password_encryption=scram-sha-256`, the exact disabled role OID, source and
+operator identity. On any error/mismatch/timeout, rollback and close without
+prompting. Only after all gates pass may the owner privately run
+`\password forge_h444_acquire_01`; commit only confirmed success. On failure,
+rollback/close, preserve only sanitized status, and do not retry automatically.
+Confirm logging settings revert after commit/rollback; connection loss is an
+uncertain enrollment, requiring metadata reconciliation rather than retry.
+
+Supautils' observed allowed configuration list includes these logging controls;
+core `has_parameter_privilege=false` does not establish their unavailability.
+Their actual use/readback in the exact enrollment session remains **NOT VERIFIED**.
+No setting was changed during this review. Provider logging behavior is documented,
+not empirically certified here; private client diagnostics and auxiliary recording
+must also be excluded. Enrollment authorization must explicitly cover this brief
+transaction-local suppression, its reduced error visibility, and reset verification.
+
+### Consolidated owner decisions still required
+
+1. Assign the Forge Credential Index number; designate the owner as password
+   custodian and confirm the exact project/role/purpose. Supply no password in chat.
+2. Authorize the exact closed H444 Quench intervention under
+   DATABASE_OPERATIONS.md after independent before/after commitments are pinned.
+   Local implementation approval does not clear the source privilege HOLD.
+3. After that HOLD clears, approve the exact candidate and pinned creation/cleanup
+   SQL, provisioning operator, broad-read/BYPASSRLS and PUBLIC residual risks,
+   private enrollment procedure, and exact UTC role expiration/activation window.
+4. Name the cleanup operator available through interruption/expiry and approve
+   revocation/drain/drop on every exit, evidence retention, cost ceiling and recovery
+   limitations. Acquisition from the corrected source needs its own fresh v3 package and explicit approval;
+   neither prior consumed authorization nor this document opens a window.
+
 ## New approval and certification requirements
 
-The temporary role requires `forge.h444-acquisition-approval.v2`. It retains all
+The unmodified-source temporary-role contract remains
+`forge.h444-acquisition-approval.v2`. The corrected H444 source requires
+`forge.h444-acquisition-approval.v3` and the independently reviewed intervention
+receipt, original/corrected full catalog commitments and unchanged protected
+evidence described in DATABASE_OPERATIONS.md. Old contracts cannot substitute
+for that receipt. The v3 route uses the same principal lifecycle and retains
+all v2 principal controls. It retains all
 v1 candidate, scope, source, TLS, financial/Storage, historical-body, cost,
 destination and time pins, and adds `principalApproval`: exact role OID/expiry,
 effective privilege and routine digests, create/cleanup SQL hashes, independent

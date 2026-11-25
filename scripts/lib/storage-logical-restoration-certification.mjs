@@ -1,4 +1,10 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {LOGICAL_INTERVENTION_SCHEMA,INTERVENTION_COMPLETION_SCHEMA,validateInterventionBinding,validateInterventionReceipt,validateInterventionSnapshot,catalogCommitment,canonical} from './storage-quench-intervention.mjs';
+export {LOGICAL_INTERVENTION_SCHEMA};
+export const isLogicalExecutionSchema=s=>[LOGICAL_EXECUTION_APPROVAL_SCHEMA,LOGICAL_INTERVENTION_SCHEMA].includes(s);
+const withIntervention=a=>a.schema===LOGICAL_INTERVENTION_SCHEMA;
+const executionMigrations=(p,a)=>[...p.contract.migrations,p.admission.migration,...(withIntervention(a)?[p.convergence.migration]:[])];
 import {createHash} from 'node:crypto';
 import {lstat, open, readdir} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
@@ -122,17 +128,18 @@ function validateApproval(bytes, approvedSha256, pinned, now, execution = false)
   digest(approvedSha256, 'approval_digest_required');
   assert.equal(sha256(bytes), approvedSha256, 'approval_bytes_changed');
   const approval = parseJson(bytes, 'logical_approval');
+  const intervention=execution&&withIntervention(approval);
   exactKeys(approval, execution
-    ? [...APPROVAL_KEYS.filter(key => key !== 'behaviorReceiptSha256'), 'privilegeMode', 'connectionSha256']
+    ? [...APPROVAL_KEYS.filter(key => key !== 'behaviorReceiptSha256'), 'privilegeMode', 'connectionSha256',...(intervention?['intervention']:[])]
     : APPROVAL_KEYS, 'logical_approval');
-  assert.equal(approval.schema, execution ? LOGICAL_EXECUTION_APPROVAL_SCHEMA : LOGICAL_RESTORATION_APPROVAL_SCHEMA);
+  assert.equal(approval.schema, intervention ? LOGICAL_INTERVENTION_SCHEMA : execution ? LOGICAL_EXECUTION_APPROVAL_SCHEMA : LOGICAL_RESTORATION_APPROVAL_SCHEMA);
   assert.equal(approval.sourceProject, PROJECT, 'source_project');
   assert.match(approval.targetProject ?? '', /^[a-z]{20}$/, 'target_project');
   assert.notEqual(approval.targetProject, PROJECT, 'production_target_forbidden');
   assert.equal(approval.evidenceKind, 'authentic-logical-restoration');
-  assert.equal(approval.allowedOperation, execution ? 'isolated-h444-to-447-certification' : 'isolated-h444-to-446-certification');
+  assert.equal(approval.allowedOperation, intervention ? 'isolated-corrected-h444-to-448-certification' : execution ? 'isolated-h444-to-447-certification' : 'isolated-h444-to-446-certification');
   assert.equal(approval.candidate, pinned.head, 'approved_candidate_changed');
-  const migrations = execution ? [...pinned.contract.migrations, pinned.admission.migration] : pinned.contract.migrations;
+  const migrations = execution ? executionMigrations(pinned,approval) : pinned.contract.migrations;
   assert.equal(approval.migrationManifestSha256, migrationManifestSha256({migrations}),
     'full_migration_manifest_changed');
   assert.deepEqual(
@@ -165,6 +172,7 @@ function validateApproval(bytes, approvedSha256, pinned, now, execution = false)
     assert.ok(['permissive', 'restrictive'].includes(approval.privilegeMode), 'privilege_mode');
     digest(approval.connectionSha256, 'connection_digest');
   }
+  if(intervention)validateInterventionBinding(approval.intervention);
   return approval;
 }
 
@@ -729,12 +737,12 @@ export async function validateLogicalRestorationEvidence({
 export async function validateLogicalExecutionPrerequisites({
   approvalBytes, approvedSha256, sourceObservationBytes, exportReceiptBytes,
   importReceiptBytes, targetObservationsBytes, storageManifestBytes,
-  isolationManifestBytes, logicalArtifactDirectory,
+  isolationManifestBytes, logicalArtifactDirectory, interventionReceiptBytes,
   repositoryRoot = REPOSITORY_ROOT, now = new Date(),
 }) {
   const pinned = readPinned(repositoryRoot);
   const approval = validateApproval(approvalBytes, approvedSha256, pinned, now, true);
-  const versions = [...pinned.contract.migrations, pinned.admission.migration].map(m => m.version);
+  const versions = executionMigrations(pinned,approval).map(m => m.version);
   validateSourceObservation(sourceObservationBytes, approval, versions);
   const receipt = validateExportReceipt(exportReceiptBytes, approval, now);
   await validateLogicalArtifactDirectory(logicalArtifactDirectory, receipt, approval);
@@ -744,26 +752,44 @@ export async function validateLogicalExecutionPrerequisites({
   const storage = validateStorageManifest(storageManifestBytes, approval);
   assert.equal(storage.objects.reduce((n, object) => n + object.sourceBytes, 0), 447475,
     'approved_original_storage_bytes');
-  validateIsolationManifest(isolationManifestBytes, approval);
+  const isolation=validateIsolationManifest(isolationManifestBytes, approval);
+  if(withIntervention(approval)){
+    const intervention=validateInterventionReceipt(interventionReceiptBytes,approval.intervention,{...approval,now});
+    const source=JSON.parse(sourceObservationBytes);
+    assert.equal(source.observation.provenance?.interventionReceiptSha256,approval.intervention.receiptSha256,'source_intervention_link');
+    assert.equal(source.observation.provenance?.correctedCatalogSha256,approval.intervention.correctedCatalogSha256,'source_corrected_catalog_link');
+    assert.ok(Date.parse(intervention.independentReview.reviewedAt)<=Date.parse(source.observation.provenance.snapshotStartedAt),'intervention_precedes_acquisition');
+    assert.equal(canonical(isolation.sourceCatalog),canonical(catalogCommitment(intervention.correctedCatalog).entries),'isolation_source_is_corrected_catalog');
+    const roleEvidence=JSON.parse(readFileSync(resolve(logicalArtifactDirectory,'role-and-acl-manifest.json'))).securityIntervention;
+    assert.ok(roleEvidence,'encrypted_intervention_evidence_required');
+    assert.equal(canonical(roleEvidence.receipt),canonical(intervention),'encrypted_intervention_substitution');
+    assert.equal(roleEvidence.receiptSha256,approval.intervention.receiptSha256);
+    validateInterventionSnapshot(intervention,roleEvidence.functions,roleEvidence.catalog);
+  }else {
+    assert.equal(interventionReceiptBytes,undefined,'intervention_requires_v3');
+    assert.equal(JSON.parse(sourceObservationBytes).observation.provenance?.interventionReceiptSha256,undefined,'intervention_requires_v3');
+  }
   return approval;
 }
 
 export function validateLogicalExecutionObservation(approval, observation, versions, count) {
-  assert.equal(approval.schema, LOGICAL_EXECUTION_APPROVAL_SCHEMA, 'logical_execution_approval_required');
-  assert.ok([444, 445, 446, 447].includes(count), 'unsupported_logical_stage');
-  assert.equal(versions.length, 447, 'complete_447_versions_required');
+  assert.ok(isLogicalExecutionSchema(approval.schema),'logical_execution_approval_required');
+  const intervention=withIntervention(approval);
+  assert.ok((intervention?[444,445,446,447,448]:[444,445,446,447]).includes(count),'unsupported_logical_stage');
+  assert.equal(versions.length,intervention?448:447,'complete_versions_required');
   assert.deepEqual(observation.versions, versions.slice(0, count), 'exact_history_prefix');
   // At 447 the unchanged successor contract still reports stage 6. Validate
   // all of its original integrity checks, then the independent stage-7 check.
-  validateHistoricalObservation(approval, count === 447
+  validateHistoricalObservation(approval, count >= 447
     ? {...observation, versions: observation.versions.slice(0, 446)} : observation,
   versions, Math.min(count, 446));
   assert.equal(observation.billingStage, 4, 'billing_stage');
   assert.equal(observation.billingContractOk, true, 'billing_contract');
-  if (count === 447) {
+  if (count >= 447) {
     assert.equal(observation.admissionStage, 7, 'admission_stage');
     assert.equal(observation.admissionContractOk, true, 'admission_contract');
   }
+  if(intervention){assert.equal(observation.quenchStage,8);assert.equal(observation.quenchContractOk,true,'quench_contract');}
   return observation;
 }
 
@@ -780,13 +806,14 @@ export function validateLogicalExecutionCompletion({
   catalogSha256, stageReceiptsSha256, storageManifestBytes, now = new Date(),
   initialStorageManifestBytes, importCompletedAt, repositoryRoot = REPOSITORY_ROOT,
 }) {
-  assert.equal(approval.schema, LOGICAL_EXECUTION_APPROVAL_SCHEMA);
+  assert.ok(isLogicalExecutionSchema(approval.schema));
+  const intervention=withIntervention(approval),finalCount=intervention?448:447;
   assert.ok(Date.parse(approval.expiresAt) > now.getTime(), 'approval_expired');
   const completion = verifyBytes(completionBytes, completionSha256, 'logical_completion');
   exactKeys(completion, ['schema', 'candidate', 'executionApprovalSha256', 'targetProject',
     'sourceSnapshotId', 'privilegeMode', 'observedAt', 'reviewerReference',
     'finalObservationSha256', 'stageReceiptsSha256', 'storageManifestSha256', 'lanes'], 'logical_completion');
-  assert.equal(completion.schema, LOGICAL_COMPLETION_SCHEMA);
+  assert.equal(completion.schema,intervention?INTERVENTION_COMPLETION_SCHEMA:LOGICAL_COMPLETION_SCHEMA);
   for (const key of ['candidate', 'targetProject', 'sourceSnapshotId', 'privilegeMode']) {
     assert.equal(completion[key], approval[key], 'completion_binding:' + key);
   }
@@ -796,10 +823,10 @@ export function validateLogicalExecutionCompletion({
   assert.ok(Number.isFinite(observedAt) && observedAt <= now.getTime() &&
     observedAt >= Date.parse(importCompletedAt) && observedAt < Date.parse(approval.expiresAt), 'completion_time');
   const pinned = readPinned(repositoryRoot);
-  const migrations = [...pinned.contract.migrations, pinned.admission.migration];
+  const migrations = executionMigrations(pinned,approval);
   const versions = migrations.map(m => m.version);
   assert.equal(pinned.head, approval.candidate, 'approved_candidate_changed');
-  validateLogicalExecutionObservation(approval, finalObservation, versions, 447);
+  validateLogicalExecutionObservation(approval, finalObservation, versions, finalCount);
   assert.equal(completion.finalObservationSha256, sha256(JSON.stringify(finalObservation)), 'completion_observation_changed');
   assert.equal(completion.stageReceiptsSha256, stageReceiptsSha256, 'completion_stages_changed');
   digest(stageReceiptsSha256, 'stage_receipts_digest');
@@ -810,7 +837,7 @@ export function validateLogicalExecutionCompletion({
     [o.identitySha256, o.sourceMetadataSha256, o.sourceBytes, o.sourceByteSha256])
     .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
   assert.deepEqual(originalBytes(finalStorage), originalBytes(initialStorage), 'approved_original_storage_changed');
-  const expectedLanes = ['H447-permissive', 'H447-restrictive', 'B1-34-permissive', 'B1-34-restrictive'];
+  const expectedLanes = intervention?['H448-permissive','H448-restrictive','B1-35-permissive','B1-35-restrictive']:['H447-permissive', 'H447-restrictive', 'B1-34-permissive', 'B1-34-restrictive'];
   assert.ok(Array.isArray(completion.lanes), 'parity_lanes_required');
   assert.deepEqual(completion.lanes.map(lane => lane.name), expectedLanes, 'complete_parity_lanes');
   const targets = new Set();
@@ -818,7 +845,7 @@ export function validateLogicalExecutionCompletion({
     exactKeys(lane, ['name', 'candidate', 'targetProject', 'lineage', 'versions', 'evidenceKind',
       'sourceSnapshotId', 'catalogSha256', 'observationSha256', 'storageManifest', 'checks'], 'parity_lane');
     assert.equal(lane.candidate, approval.candidate, 'parity_candidate');
-    const historical = lane.name.startsWith('H447');
+    const historical = lane.name.startsWith('H'+finalCount);
     assert.match(lane.targetProject ?? '', historical ? /^[a-z]{20}$/ : /^forge-baseline-v1-[a-f0-9]{12}$/, 'parity_target');
     assert.notEqual(lane.targetProject, PROJECT, 'production_target_forbidden');
     assert.ok(!targets.has(lane.targetProject), 'distinct_privilege_targets_required');
@@ -837,20 +864,20 @@ export function validateLogicalExecutionCompletion({
       [baselineVersion, ...versions.filter(version => version >= '20261022000000')], 'parity_history');
     assert.equal(lane.catalogSha256, catalogSha256, 'parity_catalog');
     digest(lane.observationSha256, 'parity_observation_digest');
-    exactKeys(lane.checks, REQUIRED_447_BEHAVIOR_CHECKS, 'parity_behavior_checks');
+    exactKeys(lane.checks,intervention?[...REQUIRED_447_BEHAVIOR_CHECKS,'quench-acquisition-denied','quench-authorized-callers']:REQUIRED_447_BEHAVIOR_CHECKS,'parity_behavior_checks');
     for (const check of Object.values(lane.checks)) {
       exactKeys(check, ['result', 'evidenceSha256', 'procedure'], 'parity_behavior_check');
       assert.equal(check.result, 'PASS', 'parity_behavior_failed');
       digest(check.evidenceSha256, 'parity_behavior_evidence');
       nonempty(check.procedure, 'parity_behavior_procedure');
     }
-    if (lane.name === `H447-${approval.privilegeMode}`) {
+    if (lane.name === `H${finalCount}-${approval.privilegeMode}`) {
       assert.equal(lane.targetProject, approval.targetProject, 'current_lane_target');
       assert.equal(lane.observationSha256, completion.finalObservationSha256, 'current_lane_observation');
       assert.deepEqual(lane.storageManifest, finalStorage, 'current_lane_storage_manifest');
     }
   }
-  return {status: 'LOGICAL_447_BEHAVIOR_PARITY_VERIFIED', targetProject: approval.targetProject,
+  return {status: intervention?'LOGICAL_448_BEHAVIOR_PARITY_VERIFIED':'LOGICAL_447_BEHAVIOR_PARITY_VERIFIED', targetProject: approval.targetProject,
     candidate: approval.candidate, privilegeMode: approval.privilegeMode,
     productionReleaseAuthorized: false, physicalRecoveryCertified: false,
     remaining: ['reviewed-cleanup-receipt', 'independent-production-physical-recovery', 'separate-production-release-authorization']};

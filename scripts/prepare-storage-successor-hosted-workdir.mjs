@@ -5,6 +5,7 @@ import {mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, lstatS
 import {resolve, join, dirname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {PAYLOAD, PROJECT, releaseFor, STORAGE_RELEASES} from './lib/storage-successor-release-contract.mjs';
+import {readConvergenceSuccessor} from './lib/storage-quench-successor.mjs';
 import {readAdmissionSuccessor} from './lib/storage-admission-successor.mjs';
 
 const CONFIGURATION = ['supabase/config.toml', 'supabase/templates/password_changed_notification.html'];
@@ -47,14 +48,16 @@ export function validateSuccessorPayload(repo) {
   assert.equal(names.length, 446, 'payload_inventory_count');
   const {contract:admission}=readAdmissionSuccessor(repo);
   git(repo,'merge-base','--is-ancestor',admission.sourceCandidate,'HEAD');
-  const repositoryNames=[...names,admission.migration.path];
+  const convergence=readConvergenceSuccessor(repo);
+  const repositoryNames=[...names,admission.migration.path,convergence.migration.path];
+  assert.equal(sha256(git(repo,'show',`HEAD:${convergence.migration.path}`)),convergence.migration.sha256,'convergence_suffix_hash');
   assert.deepEqual(list('HEAD'), repositoryNames, 'committed_migration_inventory');
   assert.deepEqual(readdirSync(join(repo, 'supabase/migrations')).filter(p => p.endsWith('.sql'))
     .map(p => `supabase/migrations/${p}`).sort(), repositoryNames, 'working_migration_inventory');
   assert.equal(sha256(git(repo,'show',`HEAD:${admission.migration.path}`)),admission.migration.sha256,'adopted_suffix_hash');
   // Recognize only the pinned repository suffix. Legacy packages still select
   // exclusively from the unchanged 446-file payload; 447 is never included.
-  git(repo, 'diff', '--exit-code', PAYLOAD, 'HEAD', '--', 'supabase/migrations', ...CONFIGURATION, `:(exclude)${admission.migration.path}`);
+  git(repo, 'diff', '--exit-code', PAYLOAD, 'HEAD', '--', 'supabase/migrations', ...CONFIGURATION, `:(exclude)${admission.migration.path}`,`:(exclude)${convergence.migration.path}`);
   git(repo, 'diff', '--exit-code', 'HEAD', '--', 'supabase/migrations', ...CONFIGURATION);
   const files = payloadFiles(repo, [...names, ...CONFIGURATION]);
   for (const path of files.keys()) {

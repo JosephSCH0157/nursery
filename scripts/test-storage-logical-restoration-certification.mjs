@@ -24,6 +24,8 @@ import {
   validateLogicalRestoredCatalog, validateLogicalExecutionCompletion,
 } from './lib/storage-logical-restoration-certification.mjs';
 import {runUpgrade} from './certify-storage-authentic-restoration.mjs';
+import {interventionFixture} from './fixtures/storage-quench-intervention-fixture.mjs';
+import {LOGICAL_INTERVENTION_SCHEMA,INTERVENTION_COMPLETION_SCHEMA,catalogCommitment} from './lib/storage-quench-intervention.mjs';
 import {sha256, REQUIRED_BEHAVIOR_CHECKS} from './lib/storage-authentic-certification.mjs';
 import {readPinned} from './lib/forge-storage-full-tail.mjs';
 import {PROJECT, STORAGE_RELEASES} from './lib/storage-successor-release-contract.mjs';
@@ -808,4 +810,52 @@ async getEvidence => {
   await writeFile(join(evidence.logicalArtifactDirectory, 'data.sql'),
     'x'.repeat(evidence.exportReceipt.artifacts.find(item => item.name === 'data.sql').sizeBytes));
   await assert.rejects(() => validate(evidence), /logical_artifact_bytes_changed/);
+});
+
+// The new route reuses the same artifact validator and guarded coordinator.
+async function interventionExecutionFixture(getEvidence,mode='restrictive'){
+ const e=await executionFixture(getEvidence,mode),f=interventionFixture(e.approval);
+ const migrations=[...pinned.contract.migrations,pinned.admission.migration,pinned.convergence.migration];
+ Object.assign(e.approval,{schema:LOGICAL_INTERVENTION_SCHEMA,allowedOperation:'isolated-corrected-h444-to-448-certification',intervention:f.binding,
+   migrations:migrations.slice(444).map(({version,sha256})=>({version,sha256})),migrationManifestSha256:migrationManifestSha256({migrations})});
+ e.interventionReceiptBytes=f.bytes;
+ e.sourceObservation.observation.provenance={interventionReceiptSha256:f.binding.receiptSha256,correctedCatalogSha256:f.binding.correctedCatalogSha256,snapshotStartedAt:e.exportReceipt.snapshotStartedAt};
+ e.isolationManifest.sourceCatalog=catalogCommitment(f.receipt.correctedCatalog).entries;
+ e.isolationManifest.targetCatalog=e.isolationManifest.sourceCatalog.map(x=>x.identity==='media_probe'?{...x,sha256:hash('target-catalog-object')}:x);
+ Object.assign(e.targetObservations.observations[0].observation,{quenchStage:8,quenchContractOk:true});
+ await writeFile(join(e.logicalArtifactDirectory,'role-and-acl-manifest.json'),bytes({securityIntervention:{receipt:f.receipt,receiptSha256:f.binding.receiptSha256,functions:{found:3,records:JSON.parse(f.receipt.after.recordsJson)},catalog:f.receipt.correctedCatalog}}));
+ resealExecution(e);
+ const proof=JSON.parse(await readFile(join(e.logicalArtifactDirectory,'snapshot-consistency.json')));
+ proof.sourceObservationSha256=e.approval.sourceObservationSha256;
+ for(const a of e.exportReceipt.artifacts.filter(a=>a.name!=='snapshot-consistency.json')){const b=await readFile(join(e.logicalArtifactDirectory,a.name));a.sha256=hash(b);a.sizeBytes=b.length;}
+ proof.artifactSetSha256=hash(e.exportReceipt.artifacts.filter(a=>a.name!=='snapshot-consistency.json').map(a=>[a.name,a.sha256,a.sizeBytes]).sort(([a],[b])=>a<b?-1:a>b?1:0));
+ const b=bytes(proof);await writeFile(join(e.logicalArtifactDirectory,'snapshot-consistency.json'),b);
+ const artifact=e.exportReceipt.artifacts.find(a=>a.name==='snapshot-consistency.json');artifact.sha256=hash(b);artifact.sizeBytes=b.length;e.exportReceipt.consistencyProofSha256=hash(b);
+ resealExecution(e);return e;
+}
+const convergenceVersions=[...executionVersions,pinned.convergence.migration.version];
+const convergenceReleases=[...executionReleases,{number:448,...pinned.convergence.migration}];
+const convergenceObservation=count=>({...executionObservation(Math.min(count,447)),versions:convergenceVersions.slice(0,count),admissionContractOk:count>=447,quenchStage:8,quenchContractOk:true});
+for(const mode of ['permissive','restrictive'])logicalTest('v3 preserves original evidence and executes ordered445-448 '+mode,async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,mode),a=await validateExecution(e),calls=[],records=new Map();let count=444;
+ const result=await runUpgrade({approval:a,versions:convergenceVersions,releases:convergenceReleases,validateObservation:validateLogicalExecutionObservation,
+  checkApproval:()=>validateExecution(e),observe:()=>convergenceObservation(count),persist:(name,v)=>{assert.ok(!records.has(name));records.set(name,v);},apply:r=>{assert.ok(records.has('attempt-'+r.number+'.json'));calls.push(r.number);count=r.number;}});
+ assert.deepEqual(calls,[445,446,447,448]);assert.equal(result.status,'UPGRADE_VERIFIED');
+ for(const bad of [447,449])assert.throws(()=>validateLogicalExecutionObservation(a,convergenceObservation(bad),executionVersions,bad));
+ for(const change of [x=>x.quenchContractOk=false,x=>x.financialSha256=hash('drift'),x=>x.versions.reverse()]){const x=convergenceObservation(448);change(x);assert.throws(()=>validateLogicalExecutionObservation(a,x,convergenceVersions,448));}
+});
+for(const [name,mutate] of [
+ ['missing receipt',e=>delete e.interventionReceiptBytes],
+ ['receipt substitution',e=>e.interventionReceiptBytes=bytes({})],
+ ['snapshot provenance lost',e=>delete e.sourceObservation.observation.provenance],
+ ['wrong corrected isolation source',e=>e.isolationManifest.sourceCatalog[1].sha256=hash('wrong')],
+ ['downgrade',e=>{e.approval.schema=LOGICAL_EXECUTION_APPROVAL_SCHEMA;e.approval.allowedOperation='isolated-h444-to-447-certification';delete e.approval.intervention;}]
+])logicalTest('v3 rejects '+name,async getEvidence=>{const e=await interventionExecutionFixture(getEvidence);mutate(e);resealExecution(e);await assert.rejects(()=>validateExecution(e));});
+logicalTest('v3 completion requires four448 lanes and strict parity, never a447 receipt',async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence),approval=await validateExecution(e),finalObservation=convergenceObservation(448),stageReceiptsSha256=hash('four-verified-stages');
+ const completion={schema:INTERVENTION_COMPLETION_SCHEMA,candidate,executionApprovalSha256:e.approvedSha256,targetProject,sourceSnapshotId,privilegeMode:approval.privilegeMode,observedAt:'2026-11-19T22:59:00Z',reviewerReference:'SYNTHETIC_REVIEWER',finalObservationSha256:hash(finalObservation),stageReceiptsSha256,storageManifestSha256:hash(e.storageManifestBytes),
+ lanes:['H448-permissive','H448-restrictive','B1-35-permissive','B1-35-restrictive'].map((name,i)=>({name,candidate,targetProject:i===1?targetProject:i===0?'v'.repeat(20):'forge-baseline-v1-'+String(i).repeat(12),lineage:i<2?'historical-v1':'baseline-v1',versions:i<2?convergenceVersions:['20261021020814',...convergenceVersions.filter(v=>v>='20261022000000')],evidenceKind:i<2?'authentic-logical-restoration':'synthetic-operational-baseline',sourceSnapshotId:i<2?sourceSnapshotId:null,storageManifest:i<2?{...e.storageManifest,targetProject:i===1?targetProject:'v'.repeat(20)}:null,catalogSha256:baselineCatalogSha256,observationSha256:i===1?hash(finalObservation):hash(name),checks:Object.fromEntries([...REQUIRED_447_BEHAVIOR_CHECKS,'quench-acquisition-denied','quench-authorized-callers'].map(c=>[c,{result:'PASS',evidenceSha256:hash(c),procedure:'SYNTHETIC_ONLY'}]))}))};
+ const verify=c=>validateLogicalExecutionCompletion({approval,approvedSha256:e.approvedSha256,completionBytes:bytes(c),completionSha256:hash(c),finalObservation,catalogSha256:baselineCatalogSha256,stageReceiptsSha256,storageManifestBytes:e.storageManifestBytes,initialStorageManifestBytes:e.storageManifestBytes,importCompletedAt:e.importReceipt.importCompletedAt,repositoryRoot,now});
+ assert.equal(verify(completion).status,'LOGICAL_448_BEHAVIOR_PARITY_VERIFIED');
+ for(const change of [c=>c.schema=LOGICAL_COMPLETION_SCHEMA,c=>c.lanes.pop(),c=>c.lanes[2].catalogSha256=hash('different'),c=>delete c.lanes[0].checks['quench-acquisition-denied'],c=>c.lanes[1].versions.pop()]){const c=structuredClone(completion);change(c);assert.throws(()=>verify(c));}
 });

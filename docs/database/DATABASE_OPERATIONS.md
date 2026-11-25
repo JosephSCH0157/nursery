@@ -109,6 +109,82 @@ entrypoint remains unimplemented and unauthorized. Do not use `--include-all`,
 **Not yet implemented/certified:** any unbounded or general historical-upgrade
 executor. Only the version-specific entrypoints named here are governed.
 
+### Closed H444 Quench security intervention (separate hosted approval)
+
+Owner-authorized local procedure, 2026-11-24. **No hosted execution is approved.**
+This is the sole pre-convergence security intervention: on the pinned Forge
+project, at the exact historical-v1 444-version/six-column prefix, remove only
+PUBLIC EXECUTE from the three signatures in
+[`h444-quench-public-execute-correction.sql`](proposals/h444-quench-public-execute-correction.sql).
+It is not a general SQL executor, migration shortcut, permission to skip 445–447,
+or authorization to change any function body, role, grant recipient or data.
+The missing Quench retry-helper repair is excluded.
+
+The demonstrated necessity is that direct PostgreSQL clients can override
+read-only defaults and supply JWT session settings; PUBLIC execution of the
+finalization/enqueue SECURITY DEFINER routines then permits writes. Existing
+authenticated/service_role grants, definitions, owners and search paths must be
+preserved. The independently reviewed synthetic checks establish that narrow
+correction, not actual source state or permission to execute it.
+
+Before dispatch, the owner must confirm the independently reviewed exact
+`forge.h444-quench-acl-authorization.v1` digest for the clean candidate, source,
+three-function SQL/observation hashes and convergence migration hash, security
+necessity, operator/reviewer, cost ceiling, 30-minute-or-shorter UTC window,
+recovery plan and private evidence custody. The reviewer must be distinct from
+the operator. Preserve the original full catalog using the existing canonical
+catalog-row query, the exact six-column history and lineage commitment, and
+the existing financial/Storage commitments. Any fresh protected financial
+observation needs its own explicit scope; do not reuse a consumed authorization.
+Record function OIDs, definitions, owners, configuration and expanded ACLs using
+[`h444-quench-public-execute-observation.sql`](proposals/h444-quench-public-execute-observation.sql).
+Independently predict the after-records by deleting exactly the three PUBLIC
+EXECUTE entries. No other catalog entry may change. Incomplete original catalog
+evidence is a STOP; scoped function observations are not a full catalog backup.
+
+Supervised dispatch uses only the fixed, hash-verified correction payload on the
+approved direct verify-full endpoint with the explicitly designated existing
+operator; never an arbitrary SQL path, changed reserved role or implicit credential
+fallback. Verify source identity and exact history immediately beforehand.
+Coordinate exclusive DDL ownership and verify the approved recovery evidence.
+Persist a create-only, fsynced attempt containing authorization/SQL hashes and
+candidate before sending the payload once; preserve it on every exit. The SQL
+requires independently supplied before/after fingerprints and enforces a single
+serializable transaction, 30-second statement, 2-second lock, 30-second idle and
+60-second transaction limits. This does not authorize opening a connection now.
+
+SQL NOTICE output is provisional, never proof of commit. Fresh read-only
+PostVerify on a separate snapshot must prove the committed after-state, unchanged
+original history/lineage/financial/Storage commitments and the full original-to-
+corrected catalog delta. Independently approve that evidence as
+`forge.h444-quench-acl-intervention.v1`. Retain raw before/after catalogs and
+receipts; never rewrite an original observation, add a migration-history row,
+or normalize the security delta away. An error before commit rolls back. A lost
+response, interruption, expired window or failed PostVerify is a HOLD: no retry,
+automatic PUBLIC regrant, or assumption of rollback. Reconcile read-only;
+unexpected changes require a separately authorized recovery decision. No restore
+or recovery action is implicit in this procedure.
+
+The corrected source is explicitly **H444 plus the recorded Quench ACL
+intervention**. Acquisition approval v3 binds its independent receipt and checks
+the corrected full catalog and function identities inside the acquisition
+snapshot before row extraction; existing v1/v2 approvals cannot select this
+state. The encrypted six-artifact package retains the receipt and observed
+catalog in its role/ACL artifact and binds them in source provenance. Principal
+provisioning, owner-assigned Credential Index, confidential enrollment, and the
+complete effective-capability review remain separate gates.
+
+Restoration execution approval v3 uses the existing coordinator through ordered
+445, 446, 447 and **448 / `20261125023622`**, with independent Apply/PostVerify
+receipts. The new shared-tail migration receives the same bytes on H and B1,
+accepts only the exact original or corrected ACL state, and converges both to
+the corrected state. It must never be applied ahead of 445–447 or recorded
+retroactively. Source correction and external-effect isolation are separately
+accounted transitions. Final H448/B1-35 parity is exact, except the existing
+wrappers compatibility rule; no Quench catalog exception survives convergence.
+Both privilege modes and original financial/Storage/recovery/release gates remain
+mandatory. No H447 completion is substituted for the new H448 completion.
+
 ### Storage billing successors 441–444 (separate hosted authorization required)
 
 The four fixed entrypoints below pin project `wtvdjndyxegudufrompx`, historical

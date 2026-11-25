@@ -24,7 +24,7 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
   const approval=authorization?validateAcquisitionAuthorization({...authorization,plan,synthetic:!client}):null;
   const inspect=()=>client?inspectAcquisitionClient(container,runId,imageId):inspectFixtureContainer(container,runId,imageId);
   await inspect();
-  const role=approval?.schema==='forge.h444-acquisition-approval.v2'||client?approval.principal:'fixture_reader';
+  const role=approval?.principalApproval||client?approval.principal:'fixture_reader';
   if(credential)hold(Buffer.isBuffer(credential)&&credential.length>0&&credential.length<=2048&&!credential.includes(0)&&!credential.includes(10)&&!credential.includes(13),'credential_format');
   const passwordInput=()=>credential?Buffer.concat([credential,Buffer.from('\n')]):undefined;
   hold(plan.endpoint.caFile==='/fixture/ca.crt','fixture_ca_path');

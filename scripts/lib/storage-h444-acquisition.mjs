@@ -7,6 +7,7 @@ import {collectH444Export,validatePlan,ExportHold,sha256,canonical} from './stor
 import {verifyOutputDirectory,writeEncryptedExport,clearExportBundle,dpapiKey} from './storage-h444-output.mjs';
 import {validateAcquisitionAuthorization} from './storage-h444-authorization.mjs';
 import {acquirePreservedBodies} from './storage-h444-preserved-bodies.mjs';
+import {ACQUISITION_INTERVENTION_SCHEMA,validateInterventionReceipt} from './storage-quench-intervention.mjs';
 import {randomBytes} from 'node:crypto';
 
 export async function runSyntheticH444Acquisition(fixture,{directory,name='evidence.h444enc'}={}) {
@@ -31,6 +32,8 @@ export async function validateAcquisitionPackage(request) {
   const synthetic=plan.evidenceKind==='synthetic-offline';
   const a=validateAcquisitionAuthorization({...authorization,plan,synthetic});
   validatePlan(plan,a.planSha256,versions,authorization);
+  if(a.schema===ACQUISITION_INTERVENTION_SCHEMA)validateInterventionReceipt(request.interventionReceiptBytes,a.intervention,a);
+  else if(request.interventionReceiptBytes)throw new ExportHold('intervention_requires_v3');
   if(!Buffer.isBuffer(receiptBytes)||sha256(receiptBytes)!==a.bodyReceiptsSha256
     ||!Buffer.isBuffer(inventoryBytes)||sha256(inventoryBytes)!==a.inventorySha256
     ||!Buffer.isBuffer(caBytes)||sha256(caBytes)!==plan.endpoint.caSha256)throw new ExportHold('acquisition_package_changed');

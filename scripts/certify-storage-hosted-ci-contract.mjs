@@ -12,7 +12,7 @@ const container='supabase_db_nursery';
 const query=q=>execFileSync('docker',['exec','-i',container,'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres'],{input:`begin read only;${q};commit;`,encoding:'utf8'}).trim();
 const provenance=JSON.parse(query("select json_build_object('lineage',(select lineage from forge_meta.database_lineage where singleton),'head',(select max(version) from supabase_migrations.schema_migrations),'versions',(select json_agg(version order by version) from supabase_migrations.schema_migrations where version>='20261111180013'))"));
 const {contract:admission}=readAdmissionSuccessor();
-validateStorageCiProvenance(JSON.parse(readFileSync('docs/database/certification/storage-full-tail-446.json','utf8')),provenance,{includeAdmission:true});
+validateStorageCiProvenance(JSON.parse(readFileSync('docs/database/certification/storage-full-tail-446.json','utf8')),provenance,{includeConvergence:true});
 const sql=readFileSync('supabase/tests/storage_billing_hosted_release_contract.sql','utf8').trim().replace(/;$/,'');
 const contract=JSON.parse(query(`select row_to_json(s) from (${sql}) s`));
 assert.equal(contract.storage_stage,4);assert.equal(contract.storage_contract_ok,true);assert.equal(contract.financial_mode,'test');
@@ -22,5 +22,8 @@ assert.equal(successorContract.storage_stage,6);assert.equal(successorContract.s
 const admissionSql=readFileSync(admission.executionContract,'utf8').trim().replace(/;$/,'');
 const admissionContract=JSON.parse(query(`select row_to_json(s) from (${admissionSql}) s`));
 assert.equal(admissionContract.storage_stage,7);assert.equal(admissionContract.storage_contract_ok,true);
+const quenchSql=readFileSync('supabase/tests/quench_public_execute_448_contract.sql','utf8').trim().replace(/;$/,'');
+const quenchContract=JSON.parse(query(`select row_to_json(s) from (${quenchSql}) s`));
+assert.equal(quenchContract.storage_stage,8);assert.equal(quenchContract.storage_contract_ok,true);
 assert.equal(query("select current_setting('transaction_read_only')"),'on');
-console.log(JSON.stringify({result:'PASS',provenance,contract,successorContract,admissionContract,readOnly:true,historicalStateEquivalence:false}));
+console.log(JSON.stringify({result:'PASS',provenance,contract,successorContract,admissionContract,quenchContract,readOnly:true,historicalStateEquivalence:false}));

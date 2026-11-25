@@ -1,5 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+docs/database/proposals/h444-quench-public-execute-*.sql text eol=lf
+docs/database/certification/quench-acl-convergence-448.json text eol=lf
 
 # Frozen database evidence and its executable certification inputs are hashed
 # as exact Git blob bytes. Never let platform checkout conversion rewrite them.

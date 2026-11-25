@@ -177,6 +177,38 @@ independent release gates remain outstanding.
 
 ## Acceptance and release boundary
 
+### Recorded Quench security intervention through 448 (v3)
+
+The closed intervention authority is solely
+[`DATABASE_OPERATIONS.md`](DATABASE_OPERATIONS.md#closed-h444-quench-security-intervention-separate-hosted-approval).
+No hosted action is authorized by local implementation. Logical execution v3
+(`forge.storage-h444-logical-restoration-approval.v3`) extends the existing
+coordinator with operation `isolated-corrected-h444-to-448-certification`.
+Its `intervention` pins the independently reviewed receipt, authorization and
+original/corrected full catalog commitments. Supply `intervention-receipt.json`
+beside the existing package. Receipt/candidate/source/history/financial/Storage
+bindings, the acquisition snapshot provenance and encrypted role/ACL artifact
+must agree. The isolation source catalog must be the corrected catalog; the
+original-to-corrected ACL transition is never an isolation exception.
+
+The separately pinned successor is `certification/quench-acl-convergence-448.json`.
+Upgrade applies 445/446/447/448 in order with the existing durable no-retry
+coordinator. The adapter independently requires v3 for Apply448 and observes
+the stage-8 Quench execution contract in addition to all existing cumulative
+checks. Corrected ACLs must remain intact at every v3 stage. Physical restoration
+remains through 446 and logical v2 remains through 447.
+
+The existing B1 runner's explicit `-IncludeConvergence` option includes admission
+447 and convergence 448 in both privilege modes. Completion uses
+`forge.storage-h444-448-logical-completion.v1`, with H448-permissive,
+H448-restrictive, B1-35-permissive and B1-35-restrictive lanes, complete histories,
+strict identical final catalogs, and all original behavior evidence plus
+`quench-acquisition-denied` and `quench-authorized-callers`. The latter preserves
+authenticated finalization/enqueue and explicit service-role grants; it does not
+claim the separately broken retry helper has been repaired. No production
+physical-backup recovery, financial, isolation, confidentiality or release gate
+is removed. This is synthetic-tested infrastructure, not authentic certification.
+
 Keep separate outcomes for B1 synthetic operational certification, H synthetic boundary verification, and authentic H full-tail certification. Missing authentic evidence is a release blocker, not an exemption. Empty-B1 operational initialization remains a separate reviewed contract; never seed commercial authority into fresh installations to conceal that limitation.
 
 Retain exact candidate SHA, CLI version, pinned input hashes, per-stage pending sets, applied history, all test output, catalog fingerprints and cleanup verification in restricted evidence. Run affected application tests on the same SHA. Preserve prior accepted receipts and all 475 original objects and references. No exclusion/quarantine activation, ownership assignment, capacity grant, hosted write, merge or deployment belongs to this procedure. Production deployment policy remains the canonical AGENTS.md policy.

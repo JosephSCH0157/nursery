@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][ValidateSet('baseline','historical')][string]$Lineage,
  [string]$RepositoryRoot=(Split-Path -Parent $PSScriptRoot),
- [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$IncludeAdmission)
+ [Parameter(Mandatory)][string]$EvidenceDirectory,[switch]$IncludeAdmission,[switch]$IncludeConvergence)
 $ErrorActionPreference='Stop'
+if($IncludeConvergence){$IncludeAdmission=$true}
 $repo=[IO.Path]::GetFullPath($RepositoryRoot);$evidence=[IO.Path]::GetFullPath($EvidenceDirectory)
 if($IncludeAdmission -and $Lineage -ne 'baseline'){throw '447 synthetic extension is baseline-only; authentic H uses the guarded restoration coordinator'}
 if(-not $evidence.StartsWith((Join-Path $repo '.git')+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or -not(Test-Path -LiteralPath $evidence -PathType Container)){throw 'Existing restricted repository-private evidence directory required'}
@@ -19,6 +20,10 @@ if($IncludeAdmission){
  $admission=Get-Content (Join-Path $repo 'docs/database/certification/storage-admission-447.json') -Raw|ConvertFrom-Json
  $contract.target=$admission.migration.version;$historyCount=34
 }
+if($IncludeConvergence){
+ $convergence=Get-Content (Join-Path $repo 'docs/database/certification/quench-acl-convergence-448.json') -Raw|ConvertFrom-Json
+ $contract.target=$convergence.migration.version;$historyCount=35
+}
 function Replace-One([string]$Text,[string]$Old,[string]$New){if(([regex]::Matches($Text,[regex]::Escape($Old))).Count -ne 1){throw 'Pinned runner structure changed'};$Text.Replace($Old,$New)}
 function Literal([string]$Text){"'"+$Text.Replace("'","''")+"'"}
 $template=if($Lineage -eq 'baseline'){'scripts/certify-canonical-baseline-v1.ps1'}else{'scripts/certify-hammer-owner-funded-first-transcription-historical-successor.ps1'}
@@ -31,6 +36,7 @@ try{
   $needle='  [pscustomobject]@{' + "`n" + '    ok = $true' + "`n" + '    schema = "forge.$CatalogStage-baseline-successor-certification.v1"'
   $addition='  & '+(Literal (Join-Path $repo 'scripts/certify-storage-full-tail-baseline-stage.ps1'))+' -RepositoryRoot $repo -Workdir $workdir -Container $container -Lane $DefaultPrivilegeMode -EvidenceDirectory '+(Literal $evidence)+"`n"
   if($IncludeAdmission){$addition=$addition.TrimEnd()+" -IncludeAdmission`n"}
+  if($IncludeConvergence){$addition=$addition.TrimEnd()+" -IncludeConvergence`n"}
   $source=Replace-One $source $needle ($addition+$needle)
  }else{
   # This separate governed probe changes no original runner or exact-prefix guard.
@@ -82,6 +88,7 @@ $expected=@('20261020171517','20261020171519','20261020171522','20261022000000',
   $inputs.admissionMigrationSha256=$admission.migration.sha256
   $inputs.admissionContractSha256=(Get-FileHash (Join-Path $repo 'docs/database/certification/storage-admission-447.json') -Algorithm SHA256).Hash.ToLowerInvariant()
  }
+ if($IncludeConvergence){$inputs.convergenceMigrationSha256=$convergence.migration.sha256}
  $inputs|ConvertTo-Json|Set-Content (Join-Path $evidence "$Lineage-input.json")
  if($Lineage -eq 'baseline'){
   foreach($lane in @('permissive','restrictive')){

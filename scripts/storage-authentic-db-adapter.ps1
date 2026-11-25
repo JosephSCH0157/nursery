@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
  [Parameter(Mandatory)][ValidateSet('historical')][string]$Lineage,
- [Parameter(Mandatory)][ValidateSet('Observe','Apply445','Apply446','Apply447','Catalog')][string]$Action,
+ [Parameter(Mandatory)][ValidateSet('Observe','Apply445','Apply446','Apply447','Apply448','Catalog')][string]$Action,
  [Parameter(Mandatory)][ValidatePattern('^[a-z]{20}$')][string]$TargetProject,
  [Parameter(Mandatory)][string]$Workdir,
  [Parameter(Mandatory)][string]$ApprovalPath,
@@ -18,7 +18,9 @@ if($TargetProject -ceq 'wtvdjndyxegudufrompx'){throw 'Production target forbidde
 & node (Join-Path $PSScriptRoot 'certify-storage-authentic-restoration.mjs') --action Validate --approval $ApprovalPath --approval-sha256 $ApprovalSha256 --workdir $Workdir --target $TargetProject | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Restoration approval or package validation failed.'}
 $approval=Get-Content -LiteralPath $ApprovalPath -Raw | ConvertFrom-Json
-$logical=$approval.schema -ceq 'forge.storage-h444-logical-restoration-approval.v2'
+$intervention=$approval.schema -ceq 'forge.storage-h444-logical-restoration-approval.v3'
+$logical=$intervention -or $approval.schema -ceq 'forge.storage-h444-logical-restoration-approval.v2'
+if($Action -eq 'Apply448' -and -not $intervention){throw '448 requires the separate intervention execution approval.'}
 if($Action -eq 'Apply447' -and -not $logical){throw '447 requires the separate logical execution approval.'}
 if(-not $env:SUPABASE_DB_PASSWORD){throw 'Approved restoration credential must be supplied through SUPABASE_DB_PASSWORD.'}
 & (Join-Path $PSScriptRoot 'verify-supabase-lineage.ps1') -Lineage historical -Workdir $Workdir -DatabaseTarget linked -Mode preflight -RepositoryRoot $repo | Out-Null
@@ -35,6 +37,10 @@ if($Action -eq 'Observe'){
   $billing=(Get-Content (Join-Path $repo 'supabase/tests/storage_billing_hosted_release_contract.sql') -Raw).Trim().TrimEnd(';')
   $admission=(Get-Content (Join-Path $repo 'supabase/tests/storage_admission_447_contract.sql') -Raw).Trim().TrimEnd(';')
   $sql="with o as (`n"+$observation+"`n), c as (`n"+$contract+"`n), b as (`n"+$billing+"`n), a as (`n"+$admission+"`n) select (o.observation::jsonb || jsonb_build_object('storageStage',c.storage_stage,'storageContractOk',c.storage_contract_ok,'billingStage',b.storage_stage,'billingContractOk',b.storage_contract_ok,'admissionStage',a.storage_stage,'admissionContractOk',a.storage_contract_ok,'requiredFinancialRecords',jsonb_build_object('pricing',(select count(*) from tongs.private_pricing_revisions where id='b4c4472f-0325-4c2e-b2ef-9aef5e59e64a'),'rollout',(select count(*) from tongs.openai_text_rollout_revisions where route_code='hearth.chat_completion' and revision=12),'costPolicy',(select count(*) from tongs.openai_text_cost_policy_revisions where id='10000000-0000-4000-8000-000000000010'),'rateCondition',(select count(*) from tongs.openai_text_rate_condition_revisions where id='51100000-0000-4000-8000-000000000004'))))::text as observation from o cross join c cross join b cross join a;"
+  if($intervention){
+   $quench=(Get-Content (Join-Path $repo 'supabase/tests/quench_public_execute_448_contract.sql') -Raw).Trim().TrimEnd(';')
+   $sql="with o as ("+$sql.Trim().TrimEnd(';')+"), q as ("+$quench+") select (o.observation::jsonb || jsonb_build_object('quenchStage',q.storage_stage,'quenchContractOk',q.storage_contract_ok))::text as observation from o cross join q;"
+  }
   $rows=Query $sql @('observation')
  }else{
   $rows=Query ("with o as (`n"+$observation+"`n), c as (`n"+$contract+"`n) select (o.observation::jsonb || jsonb_build_object('storageStage',c.storage_stage,'storageContractOk',c.storage_contract_ok))::text as observation from o cross join c;") @('observation')
@@ -48,7 +54,7 @@ if($Action -eq 'Observe'){
 }else{
  # A coordinator-created durable attempt is mandatory. The adapter cannot
  # create it, rerun a consumed stage, or accept an arbitrary SQL file.
- $number=switch($Action){'Apply445'{445};'Apply446'{446};'Apply447'{447}}
+ $number=switch($Action){'Apply445'{445};'Apply446'{446};'Apply447'{447};'Apply448'{448}}
  $attemptPath=Join-Path $Workdir "attempt-$number.json"
  $attempt=Get-Content -LiteralPath $attemptPath -Raw | ConvertFrom-Json
  if($attempt.approvalSha256 -cne $ApprovalSha256 -or $attempt.targetProject -cne $TargetProject -or $attempt.stage -ne $number){throw 'Attempt identity mismatch.'}
