@@ -160,8 +160,12 @@ test('temporary role, effective PUBLIC privileges, lifecycle and encrypted acqui
     });
     await t.test('v3 collector rejects catalog drift before protected rows and preserves reviewed evidence in encrypted output',async()=>{
       const template=interventionFixture(full);
-      await admin("CREATE ROLE authenticated; CREATE ROLE service_role; CREATE ROLE anon;");
-      for(const row of template.receipt.originalCatalog.filter(x=>x.category==='function'))await admin(JSON.parse(row.canonical).definition);
+      await admin("CREATE ROLE anon;");
+      for(const row of template.receipt.originalCatalog.filter(x=>x.category==='function')){
+        const definition=JSON.parse(row.canonical).definition;
+        for(const [,relation] of definition.matchAll(/(tongs\.[a-z_]+)%rowtype/g))await admin('CREATE TABLE IF NOT EXISTS '+relation+'(id uuid);');
+        await admin(definition);
+      }
       for(const fn of QUENCH_FUNCTIONS)await admin('GRANT EXECUTE ON FUNCTION '+fn.signature+' TO authenticated,service_role;');
       const catalog=async()=>JSON.parse((await admin(INTERVENTION_CATALOG_SQL+';')).toString());
       const functions=async()=>JSON.parse((await admin(QUENCH_OBSERVATION_SQL+';')).toString());
@@ -178,17 +182,14 @@ test('temporary role, effective PUBLIC privileges, lifecycle and encrypted acqui
       await assert.rejects(validateAcquisitionPackage({...req,interventionReceiptBytes:undefined}));
       await assert.rejects(validateAcquisitionPackage({...req,interventionReceiptBytes:Buffer.from('{}')}));
       // Change an unrelated catalog identity without changing the principal's EXECUTE inventory.
-      await admin("COMMENT ON TABLE tongs.financial_runtime_environment_revisions IS 'SYNTHETIC_CATALOG_DRIFT';");
-      // Comments are intentionally not part of the canonical catalog. Use a grant to another role instead.
       await admin('GRANT SELECT ON tongs.financial_runtime_environment_revisions TO authenticated;');
-      const transport=await createLocalPostgresTransport({...f,plan:req.plan,authorization:req.authorization,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
+      const transport=await createLocalPostgresTransport({...f,plan:req.plan,expectedPlanSha256:approved.planSha256,authorization:req.authorization,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
       const trace=[];const query=transport.query.bind(transport);transport.query=async function*(sql,options){trace.push(sql);yield*query(sql,options);};
       const close=transport.close.bind(transport);let rolledBack=false;transport.close=async o=>{rolledBack=o?.rollback===true;return close(o);};
       await assert.rejects(collectH444Export({...req,mode:'synthetic-offline',transport,expectedPlanSha256:approved.planSha256}));
       assert.ok(rolledBack);assert.ok(trace.some(sql=>sql.includes(INTERVENTION_CATALOG_SQL)));
       assert.ok(!trace.some(sql=>sql.includes('row_to_json(r)::text')||sql.includes('with protected(value)')));
       await admin('REVOKE SELECT ON tongs.financial_runtime_environment_revisions FROM authenticated;');
-      await admin('COMMENT ON TABLE tongs.financial_runtime_environment_revisions IS NULL;');
       const result=await runApprovedH444Acquisition(req,{fixture:f,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
       const encrypted=await readFile(result.path);assert.ok(!encrypted.includes(Buffer.from('SYNTHETIC_PASSWORD_ONLY')));
       const bundle=await decryptExportBundle(encrypted);

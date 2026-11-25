@@ -813,17 +813,18 @@ async getEvidence => {
 });
 
 // The new route reuses the same artifact validator and guarded coordinator.
-async function interventionExecutionFixture(getEvidence,mode='restrictive'){
+async function interventionExecutionFixture(getEvidence,mode='restrictive',mutateRole=()=>{},snapshotStartedAt){
  const e=await executionFixture(getEvidence,mode),f=interventionFixture(e.approval);
  const migrations=[...pinned.contract.migrations,pinned.admission.migration,pinned.convergence.migration];
  Object.assign(e.approval,{schema:LOGICAL_INTERVENTION_SCHEMA,allowedOperation:'isolated-corrected-h444-to-448-certification',intervention:f.binding,
    migrations:migrations.slice(444).map(({version,sha256})=>({version,sha256})),migrationManifestSha256:migrationManifestSha256({migrations})});
  e.interventionReceiptBytes=f.bytes;
- e.sourceObservation.observation.provenance={interventionReceiptSha256:f.binding.receiptSha256,correctedCatalogSha256:f.binding.correctedCatalogSha256,snapshotStartedAt:e.exportReceipt.snapshotStartedAt};
+ e.sourceObservation.observation.provenance={interventionReceiptSha256:f.binding.receiptSha256,correctedCatalogSha256:f.binding.correctedCatalogSha256,snapshotStartedAt:snapshotStartedAt??e.exportReceipt.snapshotStartedAt};
  e.isolationManifest.sourceCatalog=catalogCommitment(f.receipt.correctedCatalog).entries;
  e.isolationManifest.targetCatalog=e.isolationManifest.sourceCatalog.map(x=>x.identity==='media_probe'?{...x,sha256:hash('target-catalog-object')}:x);
  Object.assign(e.targetObservations.observations[0].observation,{quenchStage:8,quenchContractOk:true});
- await writeFile(join(e.logicalArtifactDirectory,'role-and-acl-manifest.json'),bytes({securityIntervention:{receipt:f.receipt,receiptSha256:f.binding.receiptSha256,functions:{found:3,records:JSON.parse(f.receipt.after.recordsJson)},catalog:f.receipt.correctedCatalog}}));
+ const role={securityIntervention:{receipt:f.receipt,receiptSha256:f.binding.receiptSha256,functions:{found:3,records:JSON.parse(f.receipt.after.recordsJson)},catalog:f.receipt.correctedCatalog}};mutateRole(role);
+ await writeFile(join(e.logicalArtifactDirectory,'role-and-acl-manifest.json'),bytes(role));
  resealExecution(e);
  const proof=JSON.parse(await readFile(join(e.logicalArtifactDirectory,'snapshot-consistency.json')));
  proof.sourceObservationSha256=e.approval.sourceObservationSha256;
@@ -858,4 +859,11 @@ logicalTest('v3 completion requires four448 lanes and strict parity, never a447 
  const verify=c=>validateLogicalExecutionCompletion({approval,approvedSha256:e.approvedSha256,completionBytes:bytes(c),completionSha256:hash(c),finalObservation,catalogSha256:baselineCatalogSha256,stageReceiptsSha256,storageManifestBytes:e.storageManifestBytes,initialStorageManifestBytes:e.storageManifestBytes,importCompletedAt:e.importReceipt.importCompletedAt,repositoryRoot,now});
  assert.equal(verify(completion).status,'LOGICAL_448_BEHAVIOR_PARITY_VERIFIED');
  for(const change of [c=>c.schema=LOGICAL_COMPLETION_SCHEMA,c=>c.lanes.pop(),c=>c.lanes[2].catalogSha256=hash('different'),c=>delete c.lanes[0].checks['quench-acquisition-denied'],c=>c.lanes[1].versions.pop()]){const c=structuredClone(completion);change(c);assert.throws(()=>verify(c));}
+});
+
+for(const [name,change] of [['missing function observation',x=>delete x.securityIntervention.functions],['function OID drift',x=>x.securityIntervention.functions.records[0].oid++]])logicalTest('v3 rejects '+name+' in consistently hashed artifacts',async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,'restrictive',change);await assert.rejects(()=>validateExecution(e));
+});
+logicalTest('v3 requires independent review before acquisition snapshot',async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},'2026-11-19T21:03:30Z');await assert.rejects(()=>validateExecution(e),/intervention_precedes_acquisition/);
 });
