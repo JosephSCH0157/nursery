@@ -8,6 +8,7 @@ import {PRINCIPAL_METADATA_SQL,validatePrincipalObservation,FINANCIAL_MODE_METAD
 import {validateHistoricalObservation} from './storage-authentic-certification.mjs';
 import {checkExportScope,screenExportValue} from './storage-h444-secret-screen.mjs';
 import {selectPreservedObjects} from './storage-h444-preserved-bodies.mjs';
+import {isManagedAcquisition,managedInterventionContext,MANAGED_TYPE_INVENTORY_SQL,validateManagedTypeInventory} from './storage-h444-managed.mjs';
 
 export const FIXTURE_PROJECT = 'syntheticfixtureonly';
 export const HISTORY_COLUMNS = ['created_by','idempotency_key','name','rollback','statements','version'];
@@ -78,11 +79,11 @@ export function validatePlan(plan, expectedDigest, versions, authorization) {
 
 // Connection arguments are prepared, never launched here. There is no credential
 // resolver or network client in this module. A future launcher requires review.
-export function dumpRequest(plan, snapshotId, migrationSchema) {
+export function dumpRequest(plan, snapshotId, migrationSchema, managed=false) {
   requireThat(/^[A-Fa-f0-9]+-[A-Fa-f0-9]+-[A-Fa-f0-9]+$/.test(snapshotId),'invalid_snapshot_id');
   const schemas = migrationSchema ? ['supabase_migrations'] : plan.schemas.filter(s=>s!=='supabase_migrations');
   return {
-    args:['--format=plain','--schema-only','--quote-all-identifiers','--no-password',
+    args:['--format=plain','--schema-only','--quote-all-identifiers','--no-password',...(managed?['--no-subscriptions']:[]),
       '--lock-wait-timeout='+LIMITS.lockMs,'--snapshot='+snapshotId,...schemas.map(s=>'--schema='+s)],
     environment:{PGHOST:plan.endpoint.host,PGPORT:String(plan.endpoint.port),PGDATABASE:plan.endpoint.database,
       PGSSLMODE:'verify-full',PGSSLROOTCERT:plan.endpoint.caFile,PGCONNECT_TIMEOUT:'10',
@@ -192,14 +193,21 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     beginAttempted=true;await bounded('query',BEGIN_SQL,budget.queryMs);
     const start=await query(frameSQL("select json_build_object('snapshotId',pg_export_snapshot(),'at',clock_timestamp())"));
     requireThat(/^[A-Fa-f0-9]+-[A-Fa-f0-9]+-[A-Fa-f0-9]+$/.test(start.snapshotId)&&Number.isFinite(Date.parse(start.at)),'snapshot_provenance');
-    let principalEvidence,interventionEvidence;
+    let principalEvidence,interventionEvidence,managedTypeEvidence;
     if(approved?.principalApproval){
       requireThat(anchor.role===approved.principal,'temporary_principal_session');
       principalEvidence=validatePrincipalObservation(await query(frameSQL(PRINCIPAL_METADATA_SQL)),approved);
       validateFinancialModeDefinition(await query(frameSQL(FINANCIAL_MODE_METADATA_SQL)));
     }
-    if(approved?.schema===ACQUISITION_INTERVENTION_SCHEMA){
-      const receipt=validateInterventionReceipt(interventionReceiptBytes,approved.intervention,approved);
+    const managed=isManagedAcquisition(approved);
+    if(managed){
+      requireThat(anchor.role===approved.principal,'managed_session_identity');
+      const inventory=await query(frameSQL(MANAGED_TYPE_INVENTORY_SQL));
+      managedTypeEvidence={...validateManagedTypeInventory(inventory,plan),inventory};
+      validateFinancialModeDefinition(await query(frameSQL(FINANCIAL_MODE_METADATA_SQL)));
+    }
+    if(approved?.schema===ACQUISITION_INTERVENTION_SCHEMA||managed){
+      const receipt=validateInterventionReceipt(interventionReceiptBytes,approved.intervention,managedInterventionContext(approved));
       requireThat(Date.parse(receipt.independentReview.reviewedAt)<=Date.parse(start.at),'intervention_review_precedes_acquisition');
       const functions=await query(frameSQL(QUENCH_OBSERVATION_SQL));
       const catalog=await query(frameSQL(INTERVENTION_CATALOG_SQL));
@@ -219,7 +227,7 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
       }}
     let authenticObservation,auxiliary;
     if(approved){
-      authenticObservation=await query(frameSQL(authenticObservationSQL(!!principalEvidence)));
+      authenticObservation=await query(frameSQL(authenticObservationSQL(!!principalEvidence||managed)));
       try{validateHistoricalObservation(approved,authenticObservation,versions,444);}catch{throw new ExportHold('approved_source_fingerprint_changed');}
     }
     const rows=new Map(),parsed=new Map();let projectedBytes=0n;
@@ -240,7 +248,7 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     requireThat(lineage.length===1&&lineage[0].singleton===true&&lineage[0].lineage==='historical-v1','source_lineage');
     const counts={};for(const [key,name,selector] of authorities){counts[key]=parsed.get(name).filter(r=>Object.entries(selector).every(([k,v])=>r[k]===v)).length;requireThat(counts[key]===1,'incomplete_financial_authority');}
     // The source financial-mode function is read within the same transaction.
-    requireThat(await query(frameSQL('select '+(principalEvidence?FINANCIAL_MODE_READ:'tongs._current_financial_environment()')))==='test','financial_mode');
+    requireThat(await query(frameSQL('select '+(principalEvidence||managed?FINANCIAL_MODE_READ:'tongs._current_financial_environment()')))==='test','financial_mode');
     // Preserve ALL Storage metadata rows in data.sql and its canonical fingerprint.
     // Only the independently pinned original receipt IDs identify the 475 bodies.
     const storage=approved?selectPreservedObjects(parsed.get('storage.objects'),receiptBytes,approved.bodyReceiptsSha256):parsed.get('storage.objects');
@@ -258,7 +266,7 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     for(const s of sequenceNames){requireThat(plan.schemas.includes(s.schema),'sequence_scope');const observation=await query(frameSQL('select json_build_object(\'lastValue\',last_value::text,\'isCalled\',is_called,\'observedAt\',clock_timestamp()) from '+qualified(s.schema+'.'+s.name)));requireThat(/^-?[0-9]+$/.test(observation.lastValue)&&typeof observation.isCalled==='boolean'&&Number.isFinite(Date.parse(observation.observedAt)),'sequence_observation');sequences.push({...s,...observation});}
     const files=new Map();
     for(const migration of [false,true]){
-      const bytes=normalizeDump(await bounded('dump',dumpRequest(plan,start.snapshotId,migration),budget.dumpMs));
+      const bytes=normalizeDump(await bounded('dump',dumpRequest(plan,start.snapshotId,migration,managed),budget.dumpMs));
       screenExportValue(bytes);files.set(migration?'supabase-migrations-schema.sql':'schema.sql',bytes);
     }
     files.set('data.sql',dataSql(plan.tables.filter(t=>t.name!=='supabase_migrations.schema_migrations'),rows,authentic));
@@ -275,7 +283,7 @@ export async function collectH444Export({mode,transport,plan,expectedPlanSha256,
     if(approved){const provenance=sourceObservation.observation.provenance;sourceObservation.observation={...authenticObservation,provenance:{...provenance,acquisitionApprovalSha256:authorization.approvedSha256,...(interventionEvidence?{interventionReceiptSha256:approved.intervention.receiptSha256,correctedCatalogSha256:approved.intervention.correctedCatalogSha256}:{})}};}
     const sourceBytes=jsonBytes(sourceObservation);
     files.set('role-and-acl-manifest.json',jsonBytes({schema:'forge.h444-role-acl-export.v1',evidenceKind:plan.evidenceKind,snapshotId:start.snapshotId,
-      rolesAndMemberships:roles,...(interventionEvidence?{securityIntervention:interventionEvidence}:{}),...(principalEvidence?{temporaryPrincipalEvidence:principalEvidence}:{}),relationPrivileges:privileges,ddlAclFiles:['schema.sql','supabase-migrations-schema.sql'],
+      rolesAndMemberships:roles,...(interventionEvidence?{securityIntervention:interventionEvidence}:{}),...(principalEvidence?{temporaryPrincipalEvidence:principalEvidence}:{}),...(managed?{managedExecution:{...approved.managedExecutionApproval,typeEvidence:managedTypeEvidence,credentialReadOnly:false,restorationApproved:false}}:{}),relationPrivileges:privileges,ddlAclFiles:['schema.sql','supabase-migrations-schema.sql'],
       sequences:{consistency:'NON_MVCC_OBSERVATIONS_ONLY',values:sequences,restorationInstructionsIncluded:false}}));
     const artifacts=()=>[...files].map(([name,bytes])=>({name,snapshotId:start.snapshotId,sha256:sha256(bytes),sizeBytes:bytes.length})).sort((a,b)=>a.name<b.name?-1:1);
     const proof={schema:'forge.storage-h444-logical-snapshot-consistency.v1',sourceProject:plan.sourceProject,snapshotId:start.snapshotId,

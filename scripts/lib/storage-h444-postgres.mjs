@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {ExportHold,canonical,sha256,validatePlan} from './storage-h444-exporter.mjs';
 import {validateAcquisitionAuthorization} from './storage-h444-authorization.mjs';
 import {localDockerArguments,localProcessEnvironment,runPrivateProcess} from './storage-h444-process.mjs';
+import {isManagedAcquisition,validateManagedExecutionApproval} from './storage-h444-managed.mjs';
 
 const hold=(ok,code)=>{if(!ok)throw new ExportHold(code);};
 export async function inspectFixtureContainer(container,runId,imageId) {
@@ -24,7 +25,8 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
   const approval=authorization?validateAcquisitionAuthorization({...authorization,plan,synthetic:!client}):null;
   const inspect=()=>client?inspectAcquisitionClient(container,runId,imageId):inspectFixtureContainer(container,runId,imageId);
   await inspect();
-  const role=approval?.principalApproval||client?approval.principal:'fixture_reader';
+  const managed=isManagedAcquisition(approval);
+  const role=approval?.principalApproval||managed||client?approval.principal:'fixture_reader';
   if(credential)hold(Buffer.isBuffer(credential)&&credential.length>0&&credential.length<=2048&&!credential.includes(0)&&!credential.includes(10)&&!credential.includes(13),'credential_format');
   const passwordInput=()=>credential?Buffer.concat([credential,Buffer.from('\n')]):undefined;
   hold(plan.endpoint.caFile==='/fixture/ca.crt','fixture_ca_path');
@@ -80,7 +82,7 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
       hold(requested.environment.PGSSLMODE==='verify-full'&&requested.environment.PGHOST===plan.endpoint.host
         &&requested.environment.PGSSLROOTCERT==='/fixture/ca.crt'&&requested.snapshotId.match(/^[a-f0-9]+-[a-f0-9]+-[a-f0-9]+$/i)
         &&requested.executableSha256===plan.tools.pgDumpSha256,'dump_transport_policy');
-      const allowed=['--format=plain','--schema-only','--quote-all-identifiers','--no-password','--lock-wait-timeout=2000',
+      const allowed=['--format=plain','--schema-only','--quote-all-identifiers','--no-password',...(managed?['--no-subscriptions']:[]),'--lock-wait-timeout=2000',
         '--snapshot='+requested.snapshotId,...requested.schemas.map(s=>'--schema='+s)];
       hold(canonical(allowed)===canonical(requested.args)&&requested.schemas.every(s=>plan.schemas.includes(s)),'dump_transport_scope');
       await inspect();
@@ -90,10 +92,16 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
       if(closed)return;
       let failed=false;
       try {
+        if(managed){
+          hold(!dead&&rollback,'managed_cleanup_uncertain');
+          const siblings=Number((await request("SELECT count(*) FROM pg_stat_activity WHERE application_name='"+applicationName+"' AND usename='postgres' AND pid<>pg_backend_pid();",{timeoutMs:2000,maxBytes:1024})).toString().trim());
+          hold(siblings===0,'managed_dump_sessions_remaining');
+        }
         if(!dead&&rollback){await request('ROLLBACK;', {timeoutMs:2000,maxBytes:1024});transport.rollbackVerified=true;}
         if(!dead)child.stdin.end('\\q\n');
         else child.kill();
-        await Promise.race([exit,new Promise((_,reject)=>{const t=setTimeout(()=>reject(new ExportHold('postgres_close_timeout')),2000);t.unref();})]);
+        const exitCode=await Promise.race([exit,new Promise((_,reject)=>{const t=setTimeout(()=>reject(new ExportHold('postgres_close_timeout')),2000);t.unref();})]);
+        if(managed)hold(exitCode===0&&transport.rollbackVerified,'managed_cleanup_uncertain');
       }catch{failed=true;child.kill();}
       finally{closed=true;transport.closed=true;}
       // docker exec termination is not proof that its server session ended.
@@ -115,10 +123,18 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
   };
   try {
     // Actual successful verify-full connection, not caller-supplied TLS booleans.
+    if(managed)await request('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY; SET LOCAL search_path=pg_catalog;');
     const peer=JSON.parse((await request("SELECT json_build_object('pid',pg_backend_pid(),'ssl',(SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()),'role',current_user,'database',current_database());")).toString());
     hold(peer.ssl===true&&peer.role===role&&peer.database==='postgres'&&Number.isSafeInteger(peer.pid),'postgres_identity_failed');
     transport.backendPid=peer.pid;
-    if(client||credential){
+    if(managed){
+      const m=validateManagedExecutionApproval(approval);
+      const identity=JSON.parse((await request("SELECT json_build_object('oid',oid::bigint,'bypassRls',rolbypassrls,'serverVersionNum',current_setting('server_version_num'),'readOnly',current_setting('transaction_read_only'),'isolation',current_setting('transaction_isolation')) FROM pg_roles WHERE rolname=current_user;")).toString());
+      hold(Number.isSafeInteger(identity.oid)&&identity.oid>0&&identity.bypassRls===true&&identity.serverVersionNum===m.serverVersionNum
+        &&identity.readOnly==='on'&&identity.isolation==='repeatable read','managed_execution_identity');
+      transport.provenance.managedIdentity=identity;
+      await request('ROLLBACK;');
+    }else if(client||credential){
       const capability=JSON.parse((await request("SELECT json_build_object('unsafe',rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema') AND has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE'))) FROM pg_roles WHERE rolname=current_user;")).toString());
       hold(capability.unsafe===false,'postgres_principal_privileges');
     }

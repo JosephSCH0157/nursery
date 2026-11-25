@@ -15,7 +15,7 @@ try {
  & $node --max-old-space-size=768 $script --check --package $Package --approval-sha256 $ApprovalSha256
  if($LASTEXITCODE -ne 0){throw 'package invalid'}
  if(-not $ExecuteApprovedAcquisition){exit 0}
- $secret=Read-Host 'Approved named read-only principal password (private pipe only)' -AsSecureString
+ $secret=Read-Host 'Approved acquisition credential (v4: Credential001 / entry 01; private pipe only)' -AsSecureString
  $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
  $bytes=[Text.Encoding]::UTF8.GetBytes([Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer))
  if($bytes.Length -eq 0 -or $bytes.Length -gt 2048){throw 'credential length'}

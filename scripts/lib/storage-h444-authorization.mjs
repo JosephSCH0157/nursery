@@ -7,6 +7,7 @@ import {PROJECT} from './storage-successor-release-contract.mjs';
 import {TEMPORARY_PRINCIPAL,validatePrincipalApproval,FINANCIAL_MODE_READ} from './storage-h444-principal.mjs';
 
 import {ACQUISITION_INTERVENTION_SCHEMA,validateInterventionBinding} from './storage-quench-intervention.mjs';
+import {isManagedAcquisition,validateManagedExecutionApproval} from './storage-h444-managed.mjs';
 const hold=(ok,code)=>{if(!ok)throw new ExportHold(code);};
 const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 export const OBSERVATION_SQL=readFileSync(new URL('../../supabase/tests/storage_authentic_predecessor.sql',import.meta.url),'utf8').trim().replace(/;$/,'');
@@ -25,12 +26,14 @@ export function validateAcquisitionAuthorization({approvalBytes,approvedSha256,p
       'ownerApprovalReference','independentReviewer','operator','priorStopSupersededReference','scopeReviewReference','secretReviewReference',
       'riskAcceptanceReference','recoveryReference','costApprovalReference','costCeilingUsd','payer','notBefore','expiresAt','cleanupDeadline',
       'destination','bodyDirectory','bodyReceiptsSha256','inventorySha256','lineageSha256','historySha256','financialSha256','storageSha256','limits'];
+    const managed=isManagedAcquisition(a);
     const intervention=a.schema===ACQUISITION_INTERVENTION_SCHEMA;
     const temporary=intervention||a.schema==='forge.h444-acquisition-approval.v2';
     if(intervention){fields.push('intervention');validateInterventionBinding(a.intervention);hold(a.principal===TEMPORARY_PRINCIPAL,'intervention_principal');}
     if(temporary)fields.push('principalApproval');
+    if(managed){fields.push('intervention','managedExecutionApproval');validateInterventionBinding(a.intervention);validateManagedExecutionApproval(a);}
     hold(canonical(Object.keys(a).sort())===canonical(fields.sort()),'acquisition_approval_fields');
-    hold((temporary||a.schema==='forge.h444-acquisition-approval.v1')&&a.allowedOperation==='read-only-h444-export-reuse-preserved-bodies','acquisition_operation');
+    hold((managed||temporary||a.schema==='forge.h444-acquisition-approval.v1')&&a.allowedOperation==='read-only-h444-export-reuse-preserved-bodies','acquisition_operation');
     hold(a.principal!==TEMPORARY_PRINCIPAL||temporary,'temporary_principal_requires_v2');
     hold(a.evidenceKind===(synthetic?'synthetic-offline':'authentic-logical-acquisition'),'acquisition_evidence_kind');
     hold(a.sourceProject===plan.sourceProject&&a.sourceProject===(synthetic?'syntheticfixtureonly':PROJECT),'acquisition_source');
@@ -40,7 +43,7 @@ export function validateAcquisitionAuthorization({approvalBytes,approvedSha256,p
       'riskAcceptanceReference','recoveryReference','costApprovalReference','payer'])hold(typeof a[key]==='string'&&a[key].trim().length>=3&&a[key].length<=512,'acquisition_decision_missing');
     hold(a.operator!==a.independentReviewer,'independent_review_required');
     if(temporary)validatePrincipalApproval(a);
-    hold(/^[a-z_][a-z0-9_]{2,62}$/.test(a.principal)&&!['postgres','supabase_admin','service_role','authenticator'].includes(a.principal),'least_privilege_principal');
+    hold(managed?a.principal==='postgres':/^[a-z_][a-z0-9_]{2,62}$/.test(a.principal)&&!['postgres','supabase_admin','service_role','authenticator'].includes(a.principal),'least_privilege_principal');
     hold(/^sha256:[a-f0-9]{64}$/.test(a.clientImageId),'client_image_pin');
     for(const key of ['bodyReceiptsSha256','inventorySha256','lineageSha256','historySha256','financialSha256','storageSha256'])hold(hash(a[key]),'acquisition_integrity_pin');
     if(!synthetic)hold(a.bodyReceiptsSha256==='5fdc1e5a24be1530acfc9b9975ba96bbec4370bbe249d43d33ceb512a89ae154'

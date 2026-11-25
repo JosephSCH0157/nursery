@@ -4,11 +4,12 @@ import {lstat,readdir,open} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createLocalPostgresTransport,createApprovedPostgresTransport} from './storage-h444-postgres.mjs';
 import {collectH444Export,validatePlan,ExportHold,sha256,canonical} from './storage-h444-exporter.mjs';
-import {verifyOutputDirectory,writeEncryptedExport,clearExportBundle,dpapiKey} from './storage-h444-output.mjs';
+import {verifyOutputDirectory,writeEncryptedExport,writeEncryptedMetadataEvidence,clearExportBundle,dpapiKey} from './storage-h444-output.mjs';
 import {validateAcquisitionAuthorization} from './storage-h444-authorization.mjs';
 import {acquirePreservedBodies} from './storage-h444-preserved-bodies.mjs';
 import {ACQUISITION_INTERVENTION_SCHEMA,validateInterventionReceipt} from './storage-quench-intervention.mjs';
 import {randomBytes} from 'node:crypto';
+import {isManagedAcquisition,managedInterventionContext,validateManagedRecovery} from './storage-h444-managed.mjs';
 
 export async function runSyntheticH444Acquisition(fixture,{directory,name='evidence.h444enc'}={}) {
   if(fixture.mode!=='synthetic-offline')throw new ExportHold('authentic_acquisition_not_approved');
@@ -32,8 +33,10 @@ export async function validateAcquisitionPackage(request) {
   const synthetic=plan.evidenceKind==='synthetic-offline';
   const a=validateAcquisitionAuthorization({...authorization,plan,synthetic});
   validatePlan(plan,a.planSha256,versions,authorization);
-  if(a.schema===ACQUISITION_INTERVENTION_SCHEMA)validateInterventionReceipt(request.interventionReceiptBytes,a.intervention,a);
+  if(a.schema===ACQUISITION_INTERVENTION_SCHEMA||isManagedAcquisition(a))validateInterventionReceipt(request.interventionReceiptBytes,a.intervention,managedInterventionContext(a));
   else if(request.interventionReceiptBytes)throw new ExportHold('intervention_requires_v3');
+  if(isManagedAcquisition(a))validateManagedRecovery(request.recoveryEvidenceBytes,a);
+  else if(request.recoveryEvidenceBytes)throw new ExportHold('recovery_requires_v4');
   if(!Buffer.isBuffer(receiptBytes)||sha256(receiptBytes)!==a.bodyReceiptsSha256
     ||!Buffer.isBuffer(inventoryBytes)||sha256(inventoryBytes)!==a.inventorySha256
     ||!Buffer.isBuffer(caBytes)||sha256(caBytes)!==plan.endpoint.caSha256)throw new ExportHold('acquisition_package_changed');
@@ -81,6 +84,15 @@ async function executeApprovedAcquisition(request,{credential,fixture,signal}={}
     const result=await writeEncryptedExport(bundle,a.destination,'evidence.h444enc',{signal});
     if(signal?.aborted)throw new ExportHold('acquisition_interrupted');
     if(Date.now()>=deadline||Date.now()>=Date.parse(a.expiresAt))throw new ExportHold('acquisition_deadline');
+    if(isManagedAcquisition(a)){
+      if(!transport.closed||!transport.rollbackVerified)throw new ExportHold('managed_cleanup_uncertain');
+      const bytes=Buffer.from(canonical({schema:'forge.h444-managed-execution-receipt.v1',approvalSha256:request.authorization.approvedSha256,
+        candidate:a.candidate,mode:'CONTROLLED_READ_ONLY_EXECUTION',credentialReadOnly:false,backendPid:transport.backendPid,
+        applicationName:transport.applicationName,rollbackVerified:true,clientClosed:true,dumpSessionsRemaining:0,
+        encryptedEvidenceSha256:result.sha256,completedAt:new Date().toISOString(),restorationApproved:false,requiresIndependentReview:true}));
+      try{await writeEncryptedMetadataEvidence(bytes,a.destination,'execution-receipt.h444enc',{signal});}finally{bytes.fill(0);}
+      if(Date.now()>=Date.parse(a.expiresAt))throw new ExportHold('acquisition_deadline');
+    }
     return {...result,storageObjectCount:475,storageBytes:447475,restorationApproved:false};
   }catch(e){throw e instanceof ExportHold?e:new ExportHold('acquisition_failed');}
   finally{try{await transport?.close();}finally{signal?.removeEventListener('abort',interrupt);credential?.fill(0);clearExportBundle(bundle);}}
