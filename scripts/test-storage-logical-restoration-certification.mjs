@@ -560,9 +560,10 @@ async getEvidence => {
   }
 });
 
-logicalTest('CLI prepares and validates exact logical packages through 447 without connecting',
+for(const finalStage of [447,448])logicalTest('CLI prepares and validates exact logical packages through '+finalStage+' without connecting',
 async getEvidence => {
-  const e = await executionFixture(getEvidence);
+  const e = finalStage===448?await interventionExecutionFixture(getEvidence):await executionFixture(getEvidence);
+  const migrations=[...pinned.contract.migrations,pinned.admission.migration,...(finalStage===448?[pinned.convergence.migration]:[])];
   e.approval.expiresAt = new Date(Date.now() + 3600000).toISOString();
   e.approval.cleanupDeadline = new Date(Date.now() + 7200000).toISOString();
   resealExecution(e);
@@ -580,6 +581,7 @@ async getEvidence => {
       'export-receipt.json': e.exportReceiptBytes, 'import-receipt.json': e.importReceiptBytes,
       'target-observations.json': e.targetObservationsBytes, 'storage-manifest.json': e.storageManifestBytes,
       'isolation-manifest.json': e.isolationManifestBytes,
+      ...(finalStage===448?{'intervention-receipt.json':e.interventionReceiptBytes}:{}),
     })) await writeFile(join(evidenceDirectory, name), content, {flag: 'wx'});
     const connection = join(directory, 'connection.txt'), workdir = join(directory, 'package');
     await writeFile(connection, `postgresql://postgres@db.${targetProject}.supabase.co/postgres`, {flag: 'wx'});
@@ -595,16 +597,23 @@ async getEvidence => {
     // Only these two offline actions are exercised. No adapter/credentials run.
     assert.equal(invoke('Prepare').connected, false);
     const packagePath = join(workdir, 'package.json');
-    for (const count of [445, 446, 447]) {
+    for (const count of (finalStage===448?[445,446,447,448]:[445,446,447])) {
       if (count > 445) {
-        const migration = [...pinned.contract.migrations, pinned.admission.migration][count - 1];
+        const migration = migrations[count - 1];
         await writeFile(join(workdir, migration.path), pinned.blobs.get(migration.path), {flag: 'wx'});
         await writeFile(packagePath, bytes({targetProject, candidate, through: count}));
       }
       assert.equal(invoke('Validate').connected, false);
       assert.equal((await readdir(join(workdir, 'supabase/migrations'))).length, count);
     }
-    const migration = join(workdir, pinned.admission.migration.path);
+    if(finalStage===447){
+      await writeFile(join(workdir,pinned.convergence.migration.path),pinned.blobs.get(pinned.convergence.migration.path),{flag:'wx'});
+      await writeFile(packagePath,bytes({targetProject,candidate,through:448}));
+      assert.throws(()=>invoke('Validate'));
+      await rm(join(workdir,pinned.convergence.migration.path));
+      await writeFile(packagePath,bytes({targetProject,candidate,through:447}));
+    }
+    const migration = join(workdir, migrations.at(-1).path);
     await writeFile(migration, Buffer.concat([await readFile(migration), Buffer.from('\n-- tampered fixture')]));
     assert.throws(() => invoke('Validate'), /pinned_package_bytes/);
     assert.equal((await readdir(workdir)).some(name => name.startsWith('attempt-')), false);
