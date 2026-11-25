@@ -73,6 +73,8 @@ supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sq
 # Canonical baseline v1 is byte-hashed certification evidence. Keep the same
 # LF bytes in Git and Windows working trees.
 database/canonical-baseline-v1/** text eol=lf
+# Proposed one-shot observation is reviewed by exact SQL byte hash.
+docs/database/proposals/h444-financial-fingerprint-observation.sql text eol=lf
 docs/database/baseline/v1-gate3/** text eol=lf
 scripts/build-canonical-baseline-v1.ps1 text eol=lf
 scripts/capture-canonical-baseline-v1-catalog.ps1 text eol=lf

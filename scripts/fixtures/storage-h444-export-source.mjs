@@ -4,7 +4,7 @@ import {FIXTURE_PROJECT,HISTORY_COLUMNS,FINANCIAL_AUTHORITIES,BEGIN_SQL,canonica
 export function syntheticExportFixture(versions) {
   const storage=Array.from({length:475},(_,i)=>({id:'00000000-0000-4000-8000-'+String(i).padStart(12,'0'),
     bucket_id:'forge-workpieces',name:'synthetic/'+i,owner:null,owner_id:null,version:'fixture-v1',
-    metadata:{size:i===474?967:942,eTag:'synthetic'},user_metadata:{fixture:true},
+    metadata:{size:i===474?967:942,eTag:'"synthetic"'},user_metadata:{fixture:true},
     created_at:'2026-01-01T00:00:00Z',updated_at:'2026-01-01T00:00:00Z',last_accessed_at:null}));
   const rows=new Map([
     ['supabase_migrations.schema_migrations',versions.map(version=>({created_by:'SYNTHETIC',idempotency_key:null,name:'fixture',rollback:null,statements:['-- synthetic '+version],version}))],

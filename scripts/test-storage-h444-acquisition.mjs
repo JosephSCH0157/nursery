@@ -22,6 +22,26 @@ test('approved acquisition workflow against disposable SYNTHETIC database only',
   const f=await startSyntheticPostgres(versions);
   try {
     let r=await prepareAcquisitionFixture(f,directory);
+    assert.equal(JSON.parse(r.receiptBytes).filter(x=>x.etag.startsWith('W/')).length,414);
+    await t.test('financial proposal preserves the canonical digest on synthetic data and refuses an ineligible connection',async()=>{
+      const proposal=readFileSync('docs/database/proposals/h444-financial-fingerprint-observation.sql','utf8');
+      // The fixture admin socket is deliberately not TLS: unchanged proposal
+      // must fail closed. This is not a live MCP/principal eligibility claim.
+      const blocked=JSON.parse((await f.admin(proposal)).toString());
+      assert.equal(blocked.status,'BLOCKED_SOURCE_OR_CAPABILITY');assert.equal(blocked.financialSha256,null);
+      // Execute only the identical protected CTE/expression against synthetic
+      // relations to verify native PostgreSQL parity, including every relation.
+      const cte=proposal.slice(proposal.indexOf('with protected(value)'),proposal.indexOf(', eligibility AS ('));
+      const expression=proposal.match(/\(select encode\(extensions\.digest\(coalesce\(string_agg\(value,[\s\S]*?from protected\)/)[0];
+      const sql=cte+' SELECT '+expression+';';
+      const observe=async()=>(await f.admin(sql)).toString().trim();
+      assert.equal(await observe(),r.observation.financialSha256);
+      const {PROTECTED_FINANCIAL_TABLES}=await import('./lib/storage-h444-authorization.mjs');
+      for(const name of PROTECTED_FINANCIAL_TABLES){
+        const change=await f.admin('BEGIN; INSERT INTO '+name+" DEFAULT VALUES; "+sql+' ROLLBACK;');
+        assert.notEqual(change.toString().trim(),r.observation.financialSha256,name+' must contribute');
+      }
+    });
     // Real Storage has generated columns and objects outside the original 475.
     // Capture all metadata; select retained bodies only by approved receipt IDs.
     const objectColumns=f.plan.tables.find(t=>t.name==='storage.objects').columns;

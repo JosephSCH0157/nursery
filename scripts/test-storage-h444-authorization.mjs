@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {canonical,sha256,LIMITS,validatePlan} from './lib/storage-h444-exporter.mjs';
-import {validateAcquisitionAuthorization,PROTECTED_FINANCIAL_TABLES,authenticObservationSQL} from './lib/storage-h444-authorization.mjs';
+import {validateAcquisitionAuthorization,PROTECTED_FINANCIAL_TABLES,authenticObservationSQL,OBSERVATION_SQL} from './lib/storage-h444-authorization.mjs';
 import {syntheticExportFixture} from './fixtures/storage-h444-export-source.mjs';
 const versions=JSON.parse(readFileSync('docs/database/certification/storage-full-tail-446.json')).migrations.slice(0,444).map(m=>m.version);
 function fixture(){
@@ -51,4 +51,19 @@ for(const [name,change] of [
 ])test('rejects '+name+' even if the altered fixture is rehashed',()=>{const f=fixture();change(f);assert.throws(()=>validateAcquisitionAuthorization(seal(f)));});
 test('refuses missing or substituted independent digest',()=>{
   const auth=seal(fixture());for(const approvedSha256 of [undefined,'0'.repeat(64)])assert.throws(()=>validateAcquisitionAuthorization({...auth,approvedSha256}));
+});
+test('fingerprint proposal pins the unchanged complete financial observation without exporting rows',()=>{
+  const sql=readFileSync('docs/database/proposals/h444-financial-fingerprint-observation.sql','utf8');
+  assert.equal(sha256(sql),'583d8bf77750621151f97e02b34fb159ef0f6d1ef2da17ecd6a9c4363f928c9a');
+  const governed=OBSERVATION_SQL.replaceAll('\r\n','\n');
+  const protectedCte=governed.slice(governed.indexOf('with protected(value)'),governed.indexOf('\nselect jsonb_build_object('));
+  assert.ok(sql.includes(protectedCte+', eligibility AS ('));
+  const tables=[...sql.matchAll(/from (tongs\.[a-z_]+) x/g)].map(m=>m[1]).sort();
+  assert.deepEqual(tables,PROTECTED_FINANCIAL_TABLES);assert.equal(tables.length,27);
+  const fingerprint=governed.match(/'financialSha256',(.*),\n/)[1];
+  assert.ok(sql.includes(fingerprint));
+  assert.match(sql,/BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;/);
+  assert.match(sql,/SET LOCAL row_security=off;/);
+  assert.match(sql,/SET LOCAL transaction_timeout='60s';/);
+  assert.match(sql,/ROLLBACK;\n$/);
 });

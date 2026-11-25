@@ -3,7 +3,15 @@ import {join,resolve} from 'node:path';
 import {ExportHold,canonical,sha256,storageIdentityDigest} from './storage-h444-exporter.mjs';
 import {screenExportValue} from './storage-h444-secret-screen.mjs';
 const hold=(ok,code)=>{if(!ok)throw new ExportHold(code);};
-const normalize=v=>typeof v==='string'?v.replace(/^"|"$/g,''):v;
+// RFC 9110 sections 8.8.3/8.8.3.2: validate a single entity-tag before weak
+// comparison. Do not trim, case-fold, unescape or accept bare/list values.
+// This corroborates identity only; version/metadata pins and body SHA-256 still
+// establish preservation. A weak tag is never promoted to a strong byte proof.
+const opaqueTag=value=>{
+  const match=typeof value==='string'&&/^(?:W\/)?"([\x21\x23-\x7e\x80-\xff]*)"$/.exec(value);
+  hold(match&&match[0]===value,'preserved_object_etag');
+  return match[1];
+};
 
 export function selectPreservedObjects(allObjects,bytes,approvedSha256) {
   hold(Buffer.isBuffer(bytes)&&bytes.length<=1024*1024&&sha256(bytes)===approvedSha256,'preserved_receipts_changed');
@@ -24,7 +32,7 @@ export function validatePreservedReceipts(bytes,approvedSha256,objects) {
   for(const r of receipts){
     const o=objects.find(o=>o.id===r.object_id);
     hold(/^[a-f0-9-]{36}$/.test(r.object_id)&&o&&o.bucket_id==='forge-workpieces'&&r.path===o.name&&r.version===o.version
-      &&normalize(r.etag)===normalize(o.metadata.eTag)&&Number(o.metadata.size)===r.bytes
+      &&opaqueTag(r.etag)===opaqueTag(o.metadata?.eTag)&&Number(o.metadata.size)===r.bytes
       &&Number.isSafeInteger(r.bytes)&&r.bytes>0&&r.bytes<=65536&&/^[a-f0-9]{64}$/.test(r.sha256),'preserved_object_identity');
   }
   hold(receipts.reduce((n,r)=>n+r.bytes,0)===447475,'preserved_total_bytes');

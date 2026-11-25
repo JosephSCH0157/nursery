@@ -401,3 +401,23 @@ delivery for the existing broad-read principal; exact v2 plan and independent
 source/identity pins; independent scope/secret review; residual-risk and recovery
 acceptance; cost ceiling/payer; operator/reviewer; exact window and cleanup deadline.
 **NOT APPROVED — EXECUTION PROHIBITED.** No authentic acquisition attempt occurred.
+
+## Preserved ETag compatibility and independent financial observation
+
+The bounded local correction validates RFC 9110 entity-tag syntax before weak
+comparison of the case-sensitive opaque values. It accepts the preserved
+`W/"value"` HTTP receipts against `"value"` metadata without treating weak tags
+as strong byte evidence. Bare, malformed, list, case-substituted and different
+opaque values fail. Exact identity/path/version/metadata commitments, the entire
+475-object inventory, size and independently pinned body SHA-256 remain required.
+Historical receipts, bodies and migration evidence are not rewritten. The real
+synthetic acquisition fixture now reproduces the 414 weak-tag receipt pattern,
+including encrypted recovery and wrong-byte rejection.
+
+The [financial fingerprint request](H444_FINANCIAL_FINGERPRINT_AUTHORIZATION.md)
+prepares the existing full 27-relation aggregate for a separately authorized
+digest-only MCP observation. The SQL is a non-executing proposal; its preparation
+and synthetic tests are not authorization to read protected source rows. Owner
+approval and independent review remain required before that observation, followed
+by a separately candidate-bound acquisition decision. The physical-restoration
+contract and production recovery gate are unchanged.

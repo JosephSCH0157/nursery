@@ -39,7 +39,8 @@ export async function prepareAcquisitionFixture(f,directory) {
   const receipts=[];
   for(const o of f.transport.rows.get('storage.objects')){
     const b=Buffer.alloc(o.metadata.size,65);await writeFile(join(bodyDirectory,o.id+'.bin'),b,{flag:'wx'});
-    receipts.push({object_id:o.id,path:o.name,bytes:b.length,sha256:sha256(b),etag:o.metadata.eTag,version:o.version,read_at:new Date().toISOString()});
+    // Reproduce the preserved weak HTTP / quoted metadata representation mix.
+    receipts.push({object_id:o.id,path:o.name,bytes:b.length,sha256:sha256(b),etag:(receipts.length<414?'W/':'')+o.metadata.eTag,version:o.version,read_at:new Date().toISOString()});
   }
   const receiptBytes=Buffer.from(canonical(receipts)),inventoryBytes=Buffer.from('SYNTHETIC_INVENTORY');
   const a={schema:'forge.h444-acquisition-approval.v1',allowedOperation:'read-only-h444-export-reuse-preserved-bodies',evidenceKind:'synthetic-offline',
