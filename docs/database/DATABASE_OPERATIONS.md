@@ -133,7 +133,8 @@ three-function SQL/observation hashes and convergence migration hash, security
 necessity, operator/reviewer, cost ceiling, 30-minute-or-shorter UTC window,
 recovery plan and private evidence custody. The reviewer must be distinct from
 the operator. Preserve the original full catalog using the existing canonical
-catalog-row query, the exact six-column history and lineage commitment, and
+catalog-row query in a read-only snapshot with `SET LOCAL search_path=pg_catalog`
+(the receipt pins `catalogContext=search_path=pg_catalog`), the exact six-column history and lineage commitment, and
 the existing financial/Storage commitments. Any fresh protected financial
 observation needs its own explicit scope; do not reuse a consumed authorization.
 Record function OIDs, definitions, owners, configuration and expanded ACLs using

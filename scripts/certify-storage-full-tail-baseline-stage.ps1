@@ -113,10 +113,24 @@ where n.nspname='tongs' and c.relkind='r' and c.relname in (
  'storage_historical_retirements','storage_historical_revocations','workpiece_manifest_publications');
 '@
 if($acl -cne 't'){throw 'New private audit ACL/RLS contract failed'}
+function CaptureFinalCatalog([string]$Path){
+ if($IncludeConvergence){
+  $query=(& node $helper --action convergence-catalog-query --root $repo | Out-String)
+  if($LASTEXITCODE -ne 0){throw 'Pinned convergence catalog query failed'}
+  $encoded=Sql $query
+  $raw=Join-Path $EvidenceDirectory "$Lane-convergence-catalog-rows.json"
+  $stream=[IO.File]::Open($raw,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+  try{$bytes=[Convert]::FromBase64String($encoded);$stream.Write($bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+  & node $helper --action convergence-catalog-format --root $repo --input $raw --output $Path
+  if($LASTEXITCODE -ne 0){throw 'Convergence catalog UTF-8 fingerprint failed'}
+ }else{
+  & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $Path -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|Out-Null
+ }
+}
 Push-Location $Workdir
 try{
  $catalog=Join-Path $EvidenceDirectory "$Lane-full-catalog.json"
- & (Join-Path $repo 'scripts/capture-canonical-baseline-v1-catalog.ps1') -Target local -OutputPath $catalog -ExtensionCompatibilityPath (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') -RepositoryRoot $repo|Out-Null
+ CaptureFinalCatalog $catalog
  & node (Join-Path $repo 'scripts/normalize-canonical-catalog-for-production.mjs') --catalog $catalog --compatibility (Join-Path $repo 'docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json') --output $catalog|Out-Null
  if($LASTEXITCODE -ne 0){throw 'Full-tail catalog normalization failed'}
 }finally{Pop-Location}

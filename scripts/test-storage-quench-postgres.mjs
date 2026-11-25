@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import test from 'node:test';
+import {INTERVENTION_CATALOG_SQL,INTERVENTION_CATALOG_CAPTURE_SQL,catalogCommitment} from './lib/storage-quench-intervention.mjs';
 import {execFileSync} from 'node:child_process';
 import {localDockerArguments} from './lib/storage-h444-process.mjs';
 for(const mode of ['restrictive','permissive'])test('Quench intervention and convergence PostgreSQL '+mode,{skip:process.platform!=='win32'},async()=>{
@@ -123,6 +124,14 @@ try {
  await f.admin('REVOKE EXECUTE ON FUNCTION '+signatures[0]+' FROM PUBLIC;');
  await f.admin('GRANT EXECUTE ON FUNCTION '+signatures[0]+' TO anon;');
  await assert.rejects(f.admin(convergence));check('448 rejects unapproved extra grant',true);
+ await f.admin("CREATE TYPE public.context_type AS ENUM ('snowman ☃'); CREATE TABLE public.context_table(id int PRIMARY KEY, value public.context_type); CREATE VIEW public.context_view AS SELECT * FROM public.context_table;");
+ const raw=JSON.parse((await f.admin(INTERVENTION_CATALOG_SQL+';')).toString());
+ const encoded=(await f.admin(INTERVENTION_CATALOG_CAPTURE_SQL)).toString();
+ const captured=JSON.parse(Buffer.from(encoded,'base64').toString('utf8'));
+ const acquisition=JSON.parse((await f.admin('BEGIN READ ONLY; SET LOCAL search_path=pg_catalog; '+INTERVENTION_CATALOG_SQL+'; ROLLBACK;')).toString());
+ assert.notEqual(catalogCommitment(raw).sha256,catalogCommitment(captured).sha256);
+ assert.deepEqual(captured,acquisition);assert.ok(JSON.stringify(captured).includes('☃'));
+ check('v3 explicit catalog context preserves exact UTF-8 and avoids public-schema deparsing drift',true);
  console.log(JSON.stringify({passed,mode,scope:'SYNTHETIC_ONLY',hostedWrites:0}));
 } finally {await f.stop();console.log('FIXTURE_REMOVAL_CONFIRMED');}
 

@@ -1,6 +1,6 @@
 // Synthetic evidence only. Never an authentic source receipt or approval.
 import {readFileSync} from 'node:fs';
-import {QUENCH_FUNCTIONS,INTERVENTION_SCHEMA,CATALOG_QUERY_SHA256,canonical,digest,catalogCommitment} from '../lib/storage-quench-intervention.mjs';
+import {QUENCH_FUNCTIONS,INTERVENTION_SCHEMA,CATALOG_CONTEXT,CATALOG_QUERY_SHA256,canonical,digest,catalogCommitment} from '../lib/storage-quench-intervention.mjs';
 import {convergenceSuccessor} from '../lib/storage-quench-successor.mjs';
 export function interventionFixture(context,observed={}){
  const sql=readFileSync(new URL('../../supabase/migrations/20260904120000_tongs_quench_destination_packages_youtube_jobs.sql',import.meta.url),'utf8').replaceAll('\r\n','\n');
@@ -21,7 +21,7 @@ export function interventionFixture(context,observed={}){
  const authorizationSha256=digest(canonical(a));
  const versions=JSON.parse(readFileSync(new URL('../../docs/database/certification/storage-full-tail-446.json',import.meta.url))).migrations.slice(0,444).map(m=>m.version);
  const state=(phase,json)=>({sourceProject:a.sourceProject,candidate:a.candidate,observedAt:phase==='before'?'2026-11-19T21:01:00Z':'2026-11-19T21:03:00Z',snapshotId:phase+'-SYNTHETIC',lineage:'historical-v1',historyColumns:['created_by','idempotency_key','name','rollback','statements','version'],versions,...Object.fromEntries(['lineageSha256','historySha256','financialSha256','storageSha256'].map(k=>[k,a[k]])),recordsJson:json,recordsSha256:digest(json),catalogSha256:phase==='before'?a.originalCatalogSha256:a.correctedCatalogSha256,transactionOutcome:phase==='before'?'READ_ONLY_ROLLED_BACK':'COMMIT_INDEPENDENTLY_POSTVERIFIED',evidenceReference:'SYNTHETIC_ONLY'});
- const receipt={schema:INTERVENTION_SCHEMA,sourceProject:a.sourceProject,candidate:a.candidate,authorization:a,authorizationSha256,attempt:{authorizationSha256,sqlSha256:a.sqlSha256,startedAt:'2026-11-19T21:02:00Z',dispatchCount:1},before:state('before',beforeJson),after:state('after',afterJson),originalCatalog,correctedCatalog,catalogQuerySha256:CATALOG_QUERY_SHA256};
+ const receipt={schema:INTERVENTION_SCHEMA,sourceProject:a.sourceProject,candidate:a.candidate,authorization:a,authorizationSha256,attempt:{authorizationSha256,sqlSha256:a.sqlSha256,startedAt:'2026-11-19T21:02:00Z',dispatchCount:1},before:state('before',beforeJson),after:state('after',afterJson),originalCatalog,correctedCatalog,catalogQuerySha256:CATALOG_QUERY_SHA256,catalogContext:CATALOG_CONTEXT};
  receipt.independentReview={reviewer:a.independentReviewer,reviewReference:'SYNTHETIC_ONLY',reviewedAt:'2026-11-19T21:04:00Z',evidenceSha256:digest(canonical(receipt)),verdict:'PASS_COMMITTED_EXACT_ACL_DELTA'};
  const bytes=Buffer.from(JSON.stringify(receipt));const binding={receiptSha256:digest(bytes),authorizationSha256,originalCatalogSha256:a.originalCatalogSha256,correctedCatalogSha256:a.correctedCatalogSha256};return {receipt,bytes,binding};
 }

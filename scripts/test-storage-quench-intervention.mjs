@@ -20,7 +20,7 @@ for(const [name,mutate] of [
  ['retry dispatch',r=>r.attempt.dispatchCount=2],['owner absent',r=>r.authorization.ownerApprovalReference=''],
  ['wrong SQL',r=>r.authorization.sqlSha256=digest('wrong')],['operator self review',r=>r.authorization.independentReviewer=r.authorization.operator],
  ['source substitution',r=>r.sourceProject='otherproject'],['candidate substitution',r=>r.candidate='b'.repeat(40)],
- ['wrong full inventory query',r=>r.catalogQuerySha256=digest('partial')],['unreviewed evidence',r=>r.independentReview.verdict='UNKNOWN'],
+ ['wrong catalog context',r=>r.catalogContext='search_path=public'],['wrong full inventory query',r=>r.catalogQuerySha256=digest('partial')],['unreviewed evidence',r=>r.independentReview.verdict='UNKNOWN'],
  ['OID substitution',r=>{const rows=JSON.parse(r.after.recordsJson);rows[0].oid++;r.after.recordsJson=JSON.stringify(rows);r.after.recordsSha256=digest(r.after.recordsJson);}]
 ])test('rejects '+name+' even with freshly supplied outer digest',()=>{
  const f=interventionFixture(context);mutate(f.receipt);const bytes=Buffer.from(JSON.stringify(f.receipt));assert.throws(()=>validateInterventionReceipt(bytes,{...f.binding,receiptSha256:digest(bytes)},context));

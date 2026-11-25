@@ -191,6 +191,11 @@ bindings, the acquisition snapshot provenance and encrypted role/ACL artifact
 must agree. The isolation source catalog must be the corrected catalog; the
 original-to-corrected ACL transition is never an isolation exception.
 
+The v3 original/corrected source catalogs, H adapter Catalog and
+`-IncludeConvergence` B1 capture all pin `search_path=pg_catalog`. Raw B1 rows
+use base64 transport and strict UTF-8 decoding; no identity is normalized away.
+Legacy capture contexts and frozen query/capture files stay unchanged.
+
 The separately pinned successor is `certification/quench-acl-convergence-448.json`.
 Upgrade applies 445/446/447/448 in order with the existing durable no-retry
 coordinator. The adapter independently requires v3 for Apply448 and observes

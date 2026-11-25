@@ -6,6 +6,7 @@ import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {readAdmissionSuccessor,admissionSuccessor} from './storage-admission-successor.mjs';
 import {readConvergenceSuccessor,convergenceSuccessor} from './storage-quench-successor.mjs';
+import {INTERVENTION_CATALOG_CAPTURE_SQL,catalogDocument} from './storage-quench-intervention.mjs';
 export const digest=b=>createHash('sha256').update(b).digest('hex');
 export function validateContract(c){
  if(c.sourceCandidate!=='674011bf88f8f6d179e362fd394dda49b38e155f'||c.historicalAnchor!=='20261018120000'||c.historicalAnchorCount!==411||c.schema!=='forge.storage-full-tail-contract.v1'||c.target!=='20261113214832'||c.migrations.length!==446||c.baselineCount!==33)throw Error('Unreviewed full-tail contract');
@@ -60,7 +61,9 @@ export function stage(root,workdir,lineage,through){
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const args=Object.fromEntries(process.argv.slice(2).reduce((a,x,i,v)=>i%2?a:[...a,[x.replace(/^--/,''),v[i+1]]],[]));
  const root=resolve(args.root??process.cwd());
- if(args.action==='stage')console.log(JSON.stringify(stage(root,args.workdir,args.lineage,args.through)));
+ if(args.action==='convergence-catalog-query'){readConvergenceSuccessor(root);process.stdout.write(INTERVENTION_CATALOG_CAPTURE_SQL);}
+ else if(args.action==='convergence-catalog-format'){readConvergenceSuccessor(root);const rows=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(args.input)));writeFileSync(args.output,JSON.stringify(catalogDocument(rows))+'\n',{flag:'wx'});}
+ else if(args.action==='stage')console.log(JSON.stringify(stage(root,args.workdir,args.lineage,args.through)));
  else if(args.action==='template'){const p=readPinned(root);if(!Object.hasOwn(p.contract.templatesAndFixtures,args.path))throw Error('Unpinned template');writeFileSync(args.output,p.blobs.get(args.path));}
  else if(args.action==='pending'){const c=readPinned(root).contract;console.log(JSON.stringify(pendingVersions(c,args.lineage,args.after,args.through)));}
  else {const p=readPinned(root);console.log(JSON.stringify({ok:true,head:p.head,scope:'legacy-through-446',target:p.contract.target,historicalCount:446,baselineCount:33,repositoryTarget:p.convergence.migration.version,repositoryHistoricalCount:p.convergence.historicalCount,repositoryBaselineCount:p.convergence.baselineCount}));}

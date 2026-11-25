@@ -21,6 +21,15 @@ export const QUENCH_FUNCTIONS=Object.freeze([
 const versions=JSON.parse(readFileSync(new URL('../../docs/database/certification/storage-full-tail-446.json',import.meta.url))).migrations.slice(0,444).map(m=>m.version);
 const catalogSql=readFileSync(new URL('../../supabase/tests/catalog/canonical_baseline_v1_contract_rows.sql',import.meta.url),'utf8').trim().replace(/;$/,'');
 export const INTERVENTION_CATALOG_SQL=`SELECT coalesce(json_agg(r ORDER BY category COLLATE "C",identity COLLATE "C"),'[]') FROM (${catalogSql}) r`;
+export const CATALOG_CONTEXT='search_path=pg_catalog';
+// Base64 keeps the existing PowerShell/native pipe ASCII-only; decode exact UTF-8 bytes.
+export const INTERVENTION_CATALOG_CAPTURE_SQL=`BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
+SET LOCAL statement_timeout='30s'; SET LOCAL lock_timeout='2s';
+SET LOCAL idle_in_transaction_session_timeout='30s'; SET LOCAL transaction_timeout='60s';
+SET LOCAL search_path=pg_catalog;
+SELECT encode(convert_to((${INTERVENTION_CATALOG_SQL})::text,'UTF8'),'base64');
+ROLLBACK;`;
+export function catalogDocument(rows){const c=catalogCommitment(rows);return {schema:'forge.canonical-baseline-application-catalog-fingerprint.v1',objectCount:c.entries.length,entries:c.entries,contractSha256:c.sha256};}
 export const CATALOG_QUERY_SHA256=digest(catalogSql);
 const observationSql=readFileSync(new URL('../../docs/database/proposals/h444-quench-public-execute-observation.sql',import.meta.url),'utf8');
 export const QUENCH_OBSERVATION_SQL=observationSql.slice(observationSql.indexOf('WITH targets'),observationSql.indexOf('\nROLLBACK;')).trim().replace(/;$/,'');
@@ -44,7 +53,7 @@ export function validateInterventionBinding(binding){
 export function validateInterventionReceipt(bytes,binding,context){
  validateInterventionBinding(binding);assert.ok(Buffer.isBuffer(bytes)&&bytes.length<=64*1024*1024,'intervention_receipt_required');assert.equal(digest(bytes),binding.receiptSha256,'intervention_receipt_changed');
  const now=Number(new Date(context.now??Date.now()));assert.ok(Number.isFinite(now));
- const r=JSON.parse(bytes);keys(r,'schema sourceProject candidate authorization authorizationSha256 attempt before after originalCatalog correctedCatalog catalogQuerySha256 independentReview');
+ const r=JSON.parse(bytes);keys(r,'schema sourceProject candidate authorization authorizationSha256 attempt before after originalCatalog correctedCatalog catalogQuerySha256 catalogContext independentReview');
  assert.equal(r.schema,INTERVENTION_SCHEMA);assert.equal(r.sourceProject,context.sourceProject);assert.equal(r.candidate,context.candidate);
  const a=r.authorization;keys(a,'schema sourceProject candidate operation ownerApprovalReference securityNecessityReference operator independentReviewer reviewReference recoveryReference costApprovalReference costCeilingUsd notBefore expiresAt sqlSha256 observationSqlSha256 convergenceMigrationSha256 originalCatalogSha256 correctedCatalogSha256 beforeRecordsSha256 afterRecordsSha256 lineageSha256 historySha256 financialSha256 storageSha256');
  assert.equal(a.schema,'forge.h444-quench-acl-authorization.v1');assert.equal(a.operation,'revoke-three-quench-public-execute');assert.equal(a.sourceProject,r.sourceProject);assert.equal(a.candidate,r.candidate);
@@ -65,6 +74,7 @@ export function validateInterventionReceipt(bytes,binding,context){
  }
  assert.notEqual(r.before.snapshotId,r.after.snapshotId,'fresh_committed_postverify_required');
  assert.deepEqual(states[1],states[0].map(x=>({...x,acl:x.acl.filter(a=>a.grantee!=='PUBLIC')})),'unexpected_acl_delta');
+ assert.equal(r.catalogContext,CATALOG_CONTEXT,'catalog_context_changed');
  assert.equal(r.catalogQuerySha256,CATALOG_QUERY_SHA256,'full_catalog_query_changed');
  const old=catalogCommitment(r.originalCatalog),corrected=catalogCommitment(r.correctedCatalog);
  assert.equal(old.sha256,binding.originalCatalogSha256);assert.equal(corrected.sha256,binding.correctedCatalogSha256);

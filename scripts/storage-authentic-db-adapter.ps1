@@ -25,6 +25,7 @@ if($Action -eq 'Apply447' -and -not $logical){throw '447 requires the separate l
 if(-not $env:SUPABASE_DB_PASSWORD){throw 'Approved restoration credential must be supplied through SUPABASE_DB_PASSWORD.'}
 & (Join-Path $PSScriptRoot 'verify-supabase-lineage.ps1') -Lineage historical -Workdir $Workdir -DatabaseTarget linked -Mode preflight -RepositoryRoot $repo | Out-Null
 function Query([string]$Sql,[string[]]$Columns){
+ if($intervention -and $Action -eq 'Catalog'){$Sql="set local search_path=pg_catalog;`n"+$Sql}
  if($logical){$Sql="set local statement_timeout='120s'; set local lock_timeout='10s'; set local idle_in_transaction_session_timeout='15s';`n"+$Sql}
  $result=Invoke-ForgeSupabaseCli -Arguments @('db','query','--linked','--agent=no','--output','csv','--workdir',$Workdir,'--',("begin transaction isolation level repeatable read read only;`n"+$Sql+"`nrollback;"))
  @(ConvertFrom-ForgeSupabaseCsv -StandardOutput $result.StandardOutput -ExpectedColumns $Columns -Context 'Restoration certification')
