@@ -51,6 +51,11 @@ explicit parameter privileges, incoming membership/default ACLs, and every
 effectively executable routine (including PUBLIC and built-ins) with identity,
 owner, ACL, language, volatility, security-definer flag, search path and definition
 digest. No passwords, password hashes, row contents or routine bodies are returned.
+The fixed `PRINCIPAL_REVIEW_METADATA_SQL` variant lets an approved observer
+inventory the disabled role without SET ROLE or password authentication. Run
+metadata review with `search_path=pg_catalog` for stable routine identities.
+Preserve disabled-role evidence and independently re-pin the final enrolled
+inventory; LOGIN and expiry changes are intentional, not digest-equivalent.
 
 The v2 gate rejects unexpected write rights, ownership, role switching, settings,
 expiry, identity substitution or inventory drift before financial observations or

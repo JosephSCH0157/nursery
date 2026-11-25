@@ -7,7 +7,7 @@ import {resolve,join,sep} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {canonical,sha256} from './lib/storage-h444-exporter.mjs';
 import {validateAcquisitionAuthorization,authenticObservationSQL,OBSERVATION_SQL} from './lib/storage-h444-authorization.mjs';
-import {TEMPORARY_PRINCIPAL,CREATE_ROLE_SQL,CLEANUP_ROLE_SQL,PRINCIPAL_METADATA_SQL,FINANCIAL_MODE_METADATA_SQL,
+import {TEMPORARY_PRINCIPAL,CREATE_ROLE_SQL,CLEANUP_ROLE_SQL,PRINCIPAL_METADATA_SQL,PRINCIPAL_REVIEW_METADATA_SQL,FINANCIAL_MODE_METADATA_SQL,
   FINANCIAL_MODE_PIN,FINANCIAL_MODE_READ,validateFinancialModeDefinition,validatePrincipalObservation,validatePrincipalApproval} from './lib/storage-h444-principal.mjs';
 import {startSyntheticPostgres} from './fixtures/storage-h444-postgres-fixture.mjs';
 import {prepareAcquisitionFixture} from './fixtures/storage-h444-acquisition-fixture.mjs';
@@ -73,6 +73,14 @@ test('temporary role, effective PUBLIC privileges, lifecycle and encrypted acqui
     await t.test('creation is disabled/expired, has no credential, and grants only read-all-data without SET/ADMIN',async()=>{
       const r=JSON.parse((await admin("SELECT json_build_object('login',rolcanlogin,'passwordAbsent',rolpassword IS NULL,'expired',rolvaliduntil<now()) FROM pg_authid WHERE rolname='forge_h444_acquire_01';")).toString());
       assert.deepEqual(r,{login:false,passwordAbsent:true,expired:true});
+    });
+    await t.test('observer inventories disabled role without SET ROLE, password, or login',async()=>{
+      const disabled=JSON.parse((await admin('BEGIN; SET LOCAL search_path=pg_catalog; '+PRINCIPAL_REVIEW_METADATA_SQL+'; ROLLBACK;')).toString());
+      assert.equal(disabled.role.name,TEMPORARY_PRINCIPAL);assert.equal(disabled.role.login,false);
+      assert.equal(disabled.memberships[0].role,'pg_read_all_data');assert.equal(disabled.memberships[0].set,false);
+      assert.deepEqual(disabled,await observe());
+      const disabledApproval=approval(disabled);disabledApproval.expiresAt=disabled.role.validUntil;
+      assert.throws(()=>validatePrincipalObservation(disabled,disabledApproval));
     });
     const expiresAt=new Date(Date.now()+1200000).toISOString();
     await admin("ALTER ROLE forge_h444_acquire_01 LOGIN PASSWORD 'SYNTHETIC_PASSWORD_ONLY' VALID UNTIL '"+expiresAt+"';");

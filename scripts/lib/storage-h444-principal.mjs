@@ -33,8 +33,8 @@ SELECT json_build_object(
  'defaultAcls',(SELECT count(*) FROM pg_default_acl WHERE defaclrole=(SELECT oid FROM r)),
  'databases',(SELECT coalesce(json_agg(json_build_object('name',datname,'connect',has_database_privilege(current_user,oid,'CONNECT'),'create',has_database_privilege(current_user,oid,'CREATE'),'temporary',has_database_privilege(current_user,oid,'TEMPORARY')) ORDER BY datname),'[]') FROM pg_database),
  'schemaCreate',(SELECT coalesce(json_agg(nspname ORDER BY nspname),'[]') FROM pg_namespace WHERE has_schema_privilege(current_user,oid,'CREATE')),
- 'relationWrites',(SELECT coalesce(json_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname),'[]') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind IN ('r','p','v','m','f') AND (has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') OR has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE,REFERENCES'))),
- 'sequenceWrites',(SELECT coalesce(json_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname),'[]') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE c.relkind='S' AND has_sequence_privilege(current_user,c.oid,'USAGE,UPDATE')),
+ 'relationWrites',(SELECT coalesce(json_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname),'[]') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE CASE WHEN c.relkind IN ('r','p','v','m','f') THEN (has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') OR has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE,REFERENCES')) ELSE false END),
+ 'sequenceWrites',(SELECT coalesce(json_agg(n.nspname||'.'||c.relname ORDER BY n.nspname,c.relname),'[]') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE CASE WHEN c.relkind='S' THEN has_sequence_privilege(current_user,c.oid,'USAGE,UPDATE') ELSE false END),
  'largeObjectWrites',(SELECT coalesce(json_agg(m.oid::bigint ORDER BY m.oid),'[]') FROM pg_largeobject_metadata m WHERE EXISTS(SELECT 1 FROM aclexplode(coalesce(m.lomacl,acldefault('L',m.lomowner))) a WHERE a.privilege_type='UPDATE' AND CASE WHEN a.grantee=0 THEN true ELSE pg_has_role(current_user,a.grantee,'USAGE') END)),
  'parameterPrivileges',(SELECT coalesce(json_agg(parname ORDER BY parname),'[]') FROM pg_parameter_acl WHERE has_parameter_privilege(current_user,parname,'SET,ALTER SYSTEM')),
  'sessionSettingsRulesSha256',(SELECT encode(sha256(convert_to(string_agg(pg_get_ruledef(oid),E'\n' ORDER BY rulename),'UTF8')),'hex') FROM pg_rewrite WHERE ev_class='pg_catalog.pg_settings'::regclass),
@@ -44,6 +44,11 @@ SELECT json_build_object(
    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
    WHERE p.prokind IN ('f','p','w') AND has_schema_privilege(current_user,n.oid,'USAGE') AND has_function_privilege(current_user,p.oid,'EXECUTE'))
 )`;
+
+// Independent disabled-role review uses the same effective-privilege inventory
+// without authenticating as, or granting SET ROLE to, the acquisition principal.
+// The target is fixed; callers cannot inject a role name or a different query.
+export const PRINCIPAL_REVIEW_METADATA_SQL=PRINCIPAL_METADATA_SQL.replaceAll('current_user',"'forge_h444_acquire_01'::name");
 
 export function validatePrincipalApproval(a){
   const p=a.principalApproval;
