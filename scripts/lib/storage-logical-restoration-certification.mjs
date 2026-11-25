@@ -758,7 +758,8 @@ export async function validateLogicalExecutionPrerequisites({
     const source=JSON.parse(sourceObservationBytes);
     assert.equal(source.observation.provenance?.interventionReceiptSha256,approval.intervention.receiptSha256,'source_intervention_link');
     assert.equal(source.observation.provenance?.correctedCatalogSha256,approval.intervention.correctedCatalogSha256,'source_corrected_catalog_link');
-    assert.ok(Date.parse(intervention.independentReview.reviewedAt)<=Date.parse(source.observation.provenance.snapshotStartedAt),'intervention_precedes_acquisition');
+    assert.equal(source.observation.provenance.snapshotStartedAt,receipt.snapshotStartedAt,'intervention_snapshot_time_binding');
+    assert.ok(Date.parse(intervention.independentReview.reviewedAt)<=Date.parse(receipt.snapshotStartedAt),'intervention_precedes_acquisition');
     assert.equal(canonical(isolation.sourceCatalog),canonical(catalogCommitment(intervention.correctedCatalog).entries),'isolation_source_is_corrected_catalog');
     const roleEvidence=JSON.parse(readFileSync(resolve(logicalArtifactDirectory,'role-and-acl-manifest.json'))).securityIntervention;
     assert.ok(roleEvidence,'encrypted_intervention_evidence_required');

@@ -15,7 +15,7 @@ import {runApprovedH444Acquisition,validateAcquisitionPackage} from './lib/stora
 import {restrictSyntheticOutputDirectory,decryptExportBundle,clearExportBundle} from './lib/storage-h444-output.mjs';
 
 import {interventionFixture} from './fixtures/storage-quench-intervention-fixture.mjs';
-import {INTERVENTION_CATALOG_SQL,QUENCH_OBSERVATION_SQL,QUENCH_FUNCTIONS,canonical as interventionCanonical} from './lib/storage-quench-intervention.mjs';
+import {INTERVENTION_CATALOG_SQL,QUENCH_OBSERVATION_SQL,QUENCH_FUNCTIONS,validateInterventionSnapshot,canonical as interventionCanonical} from './lib/storage-quench-intervention.mjs';
 import {createLocalPostgresTransport} from './lib/storage-h444-postgres.mjs';
 
 function approval(value){
@@ -167,8 +167,8 @@ test('temporary role, effective PUBLIC privileges, lifecycle and encrypted acqui
         await admin(definition);
       }
       for(const fn of QUENCH_FUNCTIONS)await admin('GRANT EXECUTE ON FUNCTION '+fn.signature+' TO authenticated,service_role;');
-      const catalog=async()=>JSON.parse((await admin(INTERVENTION_CATALOG_SQL+';')).toString());
-      const functions=async()=>JSON.parse((await admin(QUENCH_OBSERVATION_SQL+';')).toString());
+      const catalog=async()=>JSON.parse((await asRole(INTERVENTION_CATALOG_SQL)).toString());
+      const functions=async()=>JSON.parse((await asRole(QUENCH_OBSERVATION_SQL)).toString());
       const originalCatalog=await catalog(),before=await functions();
       for(const fn of QUENCH_FUNCTIONS)await admin('REVOKE EXECUTE ON FUNCTION '+fn.signature+' FROM PUBLIC;');
       const correctedCatalog=await catalog(),after=await functions();
@@ -186,10 +186,12 @@ test('temporary role, effective PUBLIC privileges, lifecycle and encrypted acqui
       const transport=await createLocalPostgresTransport({...f,plan:req.plan,expectedPlanSha256:approved.planSha256,authorization:req.authorization,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
       const trace=[];const query=transport.query.bind(transport);transport.query=async function*(sql,options){trace.push(sql);yield*query(sql,options);};
       const close=transport.close.bind(transport);let rolledBack=false;transport.close=async o=>{rolledBack=o?.rollback===true;return close(o);};
-      await assert.rejects(collectH444Export({...req,mode:'synthetic-offline',transport,expectedPlanSha256:approved.planSha256}));
+      try{await assert.rejects(collectH444Export({...req,mode:'synthetic-offline',transport,limits:approved.limits,expectedPlanSha256:approved.planSha256}));}
+      finally{await close();}
       assert.ok(rolledBack);assert.ok(trace.some(sql=>sql.includes(INTERVENTION_CATALOG_SQL)));
       assert.ok(!trace.some(sql=>sql.includes('row_to_json(r)::text')||sql.includes('with protected(value)')));
       await admin('REVOKE SELECT ON tongs.financial_runtime_environment_revisions FROM authenticated;');
+      validateInterventionSnapshot(intervention.receipt,await functions(),await catalog());
       const result=await runApprovedH444Acquisition(req,{fixture:f,credential:Buffer.from('SYNTHETIC_PASSWORD_ONLY')});
       const encrypted=await readFile(result.path);assert.ok(!encrypted.includes(Buffer.from('SYNTHETIC_PASSWORD_ONLY')));
       const bundle=await decryptExportBundle(encrypted);

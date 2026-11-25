@@ -865,5 +865,5 @@ for(const [name,change] of [['missing function observation',x=>delete x.security
  const e=await interventionExecutionFixture(getEvidence,'restrictive',change);await assert.rejects(()=>validateExecution(e));
 });
 logicalTest('v3 requires independent review before acquisition snapshot',async getEvidence=>{
- const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},'2026-11-19T21:03:30Z');await assert.rejects(()=>validateExecution(e),/intervention_precedes_acquisition/);
+ const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},'2026-11-19T21:03:30Z');await assert.rejects(()=>validateExecution(e),/intervention_snapshot_time_binding|intervention_precedes_acquisition/);
 });
