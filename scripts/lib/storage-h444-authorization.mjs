@@ -4,13 +4,17 @@ import {resolve,isAbsolute,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {canonical,sha256,ExportHold,LIMITS} from './storage-h444-exporter.mjs';
 import {PROJECT} from './storage-successor-release-contract.mjs';
+import {TEMPORARY_PRINCIPAL,validatePrincipalApproval,FINANCIAL_MODE_READ} from './storage-h444-principal.mjs';
 
 const hold=(ok,code)=>{if(!ok)throw new ExportHold(code);};
 const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
 export const OBSERVATION_SQL=readFileSync(new URL('../../supabase/tests/storage_authentic_predecessor.sql',import.meta.url),'utf8').trim().replace(/;$/,'');
 export const CONTRACT_SQL=readFileSync(new URL('../../supabase/tests/storage_successor_hosted_release_contract.sql',import.meta.url),'utf8').trim().replace(/;$/,'');
 export const PROTECTED_FINANCIAL_TABLES=Object.freeze([...new Set([...OBSERVATION_SQL.matchAll(/from (tongs\.[a-z_]+) x/g)].map(m=>m[1]))].sort());
-export const authenticObservationSQL=()=>`with o as (${OBSERVATION_SQL}\n), c as (${CONTRACT_SQL}\n) select o.observation::jsonb || jsonb_build_object('storageStage',c.storage_stage,'storageContractOk',c.storage_contract_ok) from o cross join c`;
+export const authenticObservationSQL=(temporaryPrincipal=false)=>{
+  const sql=`with o as (${OBSERVATION_SQL}\n), c as (${CONTRACT_SQL}\n) select o.observation::jsonb || jsonb_build_object('storageStage',c.storage_stage,'storageContractOk',c.storage_contract_ok) from o cross join c`;
+  return temporaryPrincipal?sql.replaceAll('tongs._current_financial_environment()',FINANCIAL_MODE_READ):sql;
+};
 
 export function validateAcquisitionAuthorization({approvalBytes,approvedSha256,plan,head,now=new Date(),synthetic=false}) {
   try {
@@ -20,8 +24,11 @@ export function validateAcquisitionAuthorization({approvalBytes,approvedSha256,p
       'ownerApprovalReference','independentReviewer','operator','priorStopSupersededReference','scopeReviewReference','secretReviewReference',
       'riskAcceptanceReference','recoveryReference','costApprovalReference','costCeilingUsd','payer','notBefore','expiresAt','cleanupDeadline',
       'destination','bodyDirectory','bodyReceiptsSha256','inventorySha256','lineageSha256','historySha256','financialSha256','storageSha256','limits'];
+    const temporary=a.schema==='forge.h444-acquisition-approval.v2';
+    if(temporary)fields.push('principalApproval');
     hold(canonical(Object.keys(a).sort())===canonical(fields.sort()),'acquisition_approval_fields');
-    hold(a.schema==='forge.h444-acquisition-approval.v1'&&a.allowedOperation==='read-only-h444-export-reuse-preserved-bodies','acquisition_operation');
+    hold((temporary||a.schema==='forge.h444-acquisition-approval.v1')&&a.allowedOperation==='read-only-h444-export-reuse-preserved-bodies','acquisition_operation');
+    hold(a.principal!==TEMPORARY_PRINCIPAL||temporary,'temporary_principal_requires_v2');
     hold(a.evidenceKind===(synthetic?'synthetic-offline':'authentic-logical-acquisition'),'acquisition_evidence_kind');
     hold(a.sourceProject===plan.sourceProject&&a.sourceProject===(synthetic?'syntheticfixtureonly':PROJECT),'acquisition_source');
     hold(/^[a-f0-9]{40}$/.test(head)&&a.candidate===head&&plan.candidate===head,'acquisition_candidate');
@@ -29,6 +36,7 @@ export function validateAcquisitionAuthorization({approvalBytes,approvedSha256,p
     for(const key of ['ownerApprovalReference','independentReviewer','operator','priorStopSupersededReference','scopeReviewReference','secretReviewReference',
       'riskAcceptanceReference','recoveryReference','costApprovalReference','payer'])hold(typeof a[key]==='string'&&a[key].trim().length>=3&&a[key].length<=512,'acquisition_decision_missing');
     hold(a.operator!==a.independentReviewer,'independent_review_required');
+    if(temporary)validatePrincipalApproval(a);
     hold(/^[a-z_][a-z0-9_]{2,62}$/.test(a.principal)&&!['postgres','supabase_admin','service_role','authenticator'].includes(a.principal),'least_privilege_principal');
     hold(/^sha256:[a-f0-9]{64}$/.test(a.clientImageId),'client_image_pin');
     for(const key of ['bodyReceiptsSha256','inventorySha256','lineageSha256','historySha256','financialSha256','storageSha256'])hold(hash(a[key]),'acquisition_integrity_pin');

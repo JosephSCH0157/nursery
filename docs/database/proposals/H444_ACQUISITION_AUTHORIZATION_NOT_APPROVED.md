@@ -2,6 +2,13 @@
 
 **NOT APPROVED — EXECUTION PROHIBITED**
 
+Temporary-principal preparation: the separately gated
+[H444 temporary-principal procedure](H444_TEMPORARY_PRINCIPAL.md) adds a v2
+approval contract for `forge_h444_acquire_01`. It requires fresh candidate-bound
+owner approval, exact role/OID/effective-privilege review and separately approved
+provisioning, enrollment and cleanup. Prior observation/authentication approvals
+and expired acquisition windows do not authorize it.
+
 This is an unsigned decision document, not an approval, credential, executable
 plan or instruction to contact the source. No authorization token or approval
 digest has been issued. All unresolved fields below block acquisition.

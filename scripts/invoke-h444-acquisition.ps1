@@ -5,9 +5,11 @@ param(
  [switch]$ExecuteApprovedAcquisition
 )
 $ErrorActionPreference='Stop'
+# Windows PowerShell launched by pwsh must not import incompatible pwsh modules.
+if($PSVersionTable.PSEdition -eq 'Desktop'){$env:PSModulePath=Join-Path $PSHOME 'Modules'}
 $secret=$null; $pointer=[IntPtr]::Zero; $bytes=$null; $process=$null
 try {
- $node=(Get-Command node -CommandType Application).Source
+ $node=(Get-Command node -CommandType Application | Select-Object -First 1).Source
  $script=Join-Path $PSScriptRoot 'acquire-h444-evidence.mjs'
  # No credentials are requested unless the reviewed package passes offline checks.
  & $node --max-old-space-size=768 $script --check --package $Package --approval-sha256 $ApprovalSha256

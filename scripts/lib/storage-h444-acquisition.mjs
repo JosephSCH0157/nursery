@@ -66,7 +66,7 @@ async function executeApprovedAcquisition(request,{credential,fixture,signal}={}
   try {
     if(signal?.aborted)throw new ExportHold('acquisition_interrupted');
     if(Date.now()>=deadline)throw new ExportHold('acquisition_deadline');
-    transport=synthetic?await createLocalPostgresTransport({...fixture,plan:request.plan,expectedPlanSha256:a.planSha256,credential})
+    transport=synthetic?await createLocalPostgresTransport({...fixture,plan:request.plan,expectedPlanSha256:a.planSha256,credential,authorization:request.authorization})
       :await createApprovedPostgresTransport({...request,expectedPlanSha256:a.planSha256,sessionDeadline:deadline},{credential,caBytes:request.caBytes});
     if(signal?.aborted)throw new ExportHold('acquisition_interrupted');
     bundle=await collectH444Export({...request,mode:synthetic?'synthetic-offline':'authentic-acquisition',transport,

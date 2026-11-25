@@ -109,7 +109,7 @@ jobs:
         with:
           node-version: 20.20.0
       - name: Verify offline Storage restoration evidence contracts
-        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs scripts/test-storage-logical-execution-wiring.mjs scripts/test-storage-h444-exporter.mjs scripts/test-storage-h444-authorization.mjs scripts/test-storage-h444-extraction-scope.mjs
+        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs scripts/test-storage-logical-execution-wiring.mjs scripts/test-storage-h444-exporter.mjs scripts/test-storage-h444-authorization.mjs scripts/test-storage-h444-extraction-scope.mjs scripts/test-storage-h444-principal.mjs
       - uses: supabase/setup-cli@v1
         with:
           version: 2.84.2

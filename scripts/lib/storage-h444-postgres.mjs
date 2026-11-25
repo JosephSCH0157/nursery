@@ -21,10 +21,10 @@ export async function inspectFixtureContainer(container,runId,imageId) {
 export async function createLocalPostgresTransport(options) {return createPostgresTransport(options);}
 async function createPostgresTransport({container,runId,imageId,plan,expectedPlanSha256,versions,credential,authorization,client=false}) {
   validatePlan(plan,expectedPlanSha256,versions,authorization);
-  const approval=client?validateAcquisitionAuthorization({...authorization,plan}):null;
+  const approval=authorization?validateAcquisitionAuthorization({...authorization,plan,synthetic:!client}):null;
   const inspect=()=>client?inspectAcquisitionClient(container,runId,imageId):inspectFixtureContainer(container,runId,imageId);
   await inspect();
-  const role=client?approval.principal:'fixture_reader';
+  const role=approval?.schema==='forge.h444-acquisition-approval.v2'||client?approval.principal:'fixture_reader';
   if(credential)hold(Buffer.isBuffer(credential)&&credential.length>0&&credential.length<=2048&&!credential.includes(0)&&!credential.includes(10)&&!credential.includes(13),'credential_format');
   const passwordInput=()=>credential?Buffer.concat([credential,Buffer.from('\n')]):undefined;
   hold(plan.endpoint.caFile==='/fixture/ca.crt','fixture_ca_path');
@@ -36,7 +36,7 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
   const env=['env','-i','PATH=/usr/bin:/bin', 'PGHOST='+plan.endpoint.host,...(client?[]:['PGHOSTADDR=127.0.0.1']),'PGPORT=5432',
     'PGDATABASE=postgres','PGUSER='+role,'PGSSLMODE=verify-full','PGSSLROOTCERT=/fixture/ca.crt',
     'PGPASSFILE=/nonexistent','PGSERVICEFILE=/nonexistent','PGCONNECT_TIMEOUT=5','PGAPPNAME='+applicationName,
-    'PGOPTIONS=-c default_transaction_read_only=on -c row_security=off -c statement_timeout=30000 -c lock_timeout=2000 -c idle_in_transaction_session_timeout=600000'];
+    'PGOPTIONS=-c default_transaction_read_only=on -c row_security=off -c statement_timeout=30000 -c lock_timeout=2000 -c idle_in_transaction_session_timeout=600000 -c transaction_timeout=600000'];
   const prefix=['exec','-i',container,...env,...(credential?['sh','-c','IFS= read -r PGPASSWORD; export PGPASSWORD; exec "$@"','private-credential']:[])];
   let active,dead=false,diagnosticBytes=0,closed=false;
   const child=spawn('docker',localDockerArguments([...prefix,'/usr/lib/postgresql/17/bin/psql','-X','-qAt','--no-password','-v','ON_ERROR_STOP=1','-P','pager=off','-f','-']),
@@ -100,7 +100,7 @@ async function createPostgresTransport({container,runId,imageId,plan,expectedPla
       // Query the isolated fixture admin socket and terminate only this
       // transport's sessions, including an interrupted pg_dump subprocess.
       if(transport.backendPid&&!client){
-        const scope="application_name='"+applicationName+"' AND usename='fixture_reader'";
+        const scope="application_name='"+applicationName+"' AND usename='"+role+"'";
         const check=async()=>Number((await runPrivateProcess('docker',['exec','-i',container,'psql','-XqAt','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1'],
           {input:Buffer.from('SELECT count(*) FROM pg_stat_activity WHERE '+scope+';'),timeoutMs:2000,maxBytes:1024})).toString().trim());
         if(await check()){

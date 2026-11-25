@@ -97,6 +97,10 @@ supabase/tests/pre_slice_a_fixture_behavior.sql text eol=lf
 scripts/certify-gate5d-integrated-synthetic.ps1 text eol=lf
 supabase/tests/public_slice_a_security_behavior.sql text eol=lf
 
+# Candidate-bound temporary acquisition-role procedure hashes (new proposals only).
+docs/database/proposals/h444-temporary-role-create.sql text eol=lf
+docs/database/proposals/h444-temporary-role-cleanup.sql text eol=lf
+
 # Generated artifacts/mirrors (do not hand edit)
 apps/anvil/dist/** linguist-generated=true
 apps/nursery/public/anvil/** linguist-generated=true

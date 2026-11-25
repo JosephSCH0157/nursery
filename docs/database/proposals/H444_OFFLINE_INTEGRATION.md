@@ -126,6 +126,11 @@ triggered or queried; these are local results, not PR CI or release approval.
 
 ## Guarded acquisition extension (2026-11-24; not executed)
 
+The subsequent [temporary-principal proposal](H444_TEMPORARY_PRINCIPAL.md) adds
+v2 approval and effective-privilege gates to this same coordinator. The original
+v1 route and physical-restoration contracts remain separate and unchanged.
+Temporary-role tests are synthetic; no hosted provisioning is implied.
+
 Publication is permission to review code, **not permission to connect**. The
 existing collector, PostgreSQL transport, encrypted container and logical
 artifact validator now have a separately approved acquisition route. The
