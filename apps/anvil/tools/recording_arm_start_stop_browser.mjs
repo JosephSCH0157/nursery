@@ -187,7 +187,8 @@ try {
 
   await page.waitForTimeout(1500);
   await page.locator('#stopRecBtn').click();
-  await page.waitForFunction(() => window.__tpRecordingArm?.getSnapshot?.().state === 'armed');
+  await page.waitForFunction(() => ['armed', 'idle'].includes(window.__tpRecordingArm?.getSnapshot?.().state));
+  assert.equal(await page.evaluate(() => window.__tpRecordingArm.getSnapshot().state === 'armed'), await page.evaluate(() => !!window.__tpMic?.isOpen?.() && !!window.__tpCamera?.isActive?.()));
   try {
     await page.waitForFunction(() => document.body.textContent?.includes('Keep this take for editing?'));
   } catch (error) {

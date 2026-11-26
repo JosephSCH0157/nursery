@@ -95044,8 +95044,8 @@ function defaultDependencies() {
 function createRecordingArmController(overrides = {}) {
   const deps = { ...defaultDependencies(), ...overrides };
   let snapshot = { state: "idle", configuration: null, failure: null };
-  let ownsMic = false;
-  let ownsCamera = false;
+  let ownedMic = null;
+  let ownedCamera = null;
   let ownsObsArm = false;
   let removeObsDisconnectListener = null;
   const listeners3 = /* @__PURE__ */ new Set();
@@ -95073,19 +95073,23 @@ function createRecordingArmController(overrides = {}) {
       }
       ownsObsArm = false;
     }
-    if (ownsCamera) {
+    if (ownedCamera) {
+      const owned = ownedCamera;
+      ownedCamera = null;
       try {
-        deps.getCameraApi()?.stop?.();
+        if (owned.stream && deps.getCameraApi() === owned.api && owned.api.getStream?.() === owned.stream) owned.api.stop?.();
+        else owned.stream?.getTracks().forEach((track) => track.stop());
       } catch {
       }
-      ownsCamera = false;
     }
-    if (ownsMic) {
+    if (ownedMic) {
+      const owned = ownedMic;
+      ownedMic = null;
       try {
-        await deps.getMicApi()?.releaseMic?.();
+        if (owned.stream && deps.getMicApi() === owned.api && owned.api.__lastStream === owned.stream) await owned.api.releaseMic?.();
+        else owned.stream?.getTracks().forEach((track) => track.stop());
       } catch {
       }
-      ownsMic = false;
     }
   };
   const fail3 = async (failure, configuration) => {
@@ -95153,12 +95157,13 @@ function createRecordingArmController(overrides = {}) {
       if (!mic2?.requestMic) return fail3("microphone_failed", configuration);
       if (!mic2.isOpen?.()) {
         try {
-          await mic2.requestMic(micId || void 0);
-          ownsMic = true;
+          const stream = await mic2.requestMic(micId || void 0);
+          ownedMic = { api: mic2, stream: stream || mic2.__lastStream || null };
         } catch (error) {
           return fail3(permissionDenied(error) ? "microphone_denied" : "microphone_failed", configuration);
         }
       }
+      if (!mic2.isOpen?.()) return fail3("microphone_failed", configuration);
       if (configuration.mode === "av") {
         const camera = deps.getCameraApi();
         if (!camera?.start) return fail3("camera_failed", configuration);
@@ -95173,12 +95178,13 @@ function createRecordingArmController(overrides = {}) {
               const failure = camera.getLastStartFailure?.() === "permission_denied" ? "camera_denied" : "camera_failed";
               return fail3(failure, configuration);
             }
-            ownsCamera = true;
+            ownedCamera = { api: camera, stream: camera.getStream?.() ?? null };
           } catch (error) {
             return fail3(permissionDenied(error) ? "camera_denied" : "camera_failed", configuration);
           }
         }
       }
+      if (configuration.mode === "av" && !deps.getCameraApi()?.isActive?.()) return fail3("camera_failed", configuration);
       publish({ state: "armed", configuration, failure: null });
       return { ok: true };
     },
@@ -95200,6 +95206,10 @@ function createRecordingArmController(overrides = {}) {
         const obs = deps.getObsApi();
         if (!obs?.armed?.() || !obs.isConnected?.()) publish({ state: "error", configuration: snapshot.configuration, failure: "obs_disconnected" });
       }
+      if (snapshot.state === "armed" && snapshot.configuration?.engine === "core") {
+        const failure = !deps.getMicApi()?.isOpen?.() ? "microphone_missing" : snapshot.configuration.mode === "av" && !deps.getCameraApi()?.isActive?.() ? "camera_missing" : null;
+        if (failure) publish({ state: "error", configuration: snapshot.configuration, failure });
+      }
     },
     setRecordingActive(active) {
       if (active) {
@@ -95207,7 +95217,7 @@ function createRecordingArmController(overrides = {}) {
         publish({ state: "recording", configuration: snapshot.configuration || (saved.ok ? saved.configuration : null), failure: null });
       } else if (snapshot.state === "recording") {
         const configuration = snapshot.configuration;
-        const browserReady = configuration?.engine === "core" && (ownsMic || !!deps.getMicApi()?.isOpen?.()) && (configuration.mode === "audio" || ownsCamera || !!deps.getCameraApi()?.isActive?.());
+        const browserReady = configuration?.engine === "core" && !!deps.getMicApi()?.isOpen?.() && (configuration.mode === "audio" || !!deps.getCameraApi()?.isActive?.());
         const obs = configuration?.engine === "obs" ? deps.getObsApi() : null;
         const obsReady = !!obs?.armed?.() && !!obs?.isConnected?.();
         publish({
@@ -95338,13 +95348,17 @@ function initRecordingArmControl() {
     void controller.refreshConfiguration();
   };
   window.addEventListener("tp:recording-settings:changed", refresh);
+  window.addEventListener("tp:mic:state", refresh);
   const offSettings = subscribeRecorderSettings(refresh);
+  const offCamera = [appStoreSingleton.subscribe("cameraEnabled", refresh), appStoreSingleton.subscribe("cameraAvailable", refresh)];
   cleanup = () => {
     offController();
     offSettings();
+    offCamera.forEach((off2) => off2());
     document.removeEventListener("tp:settings:rendered", onSettings);
     window.removeEventListener("tp:recording:state", onRecording);
     window.removeEventListener("tp:recording-settings:changed", refresh);
+    window.removeEventListener("tp:mic:state", refresh);
   };
   window.__tpRecordingArm = controller;
 }
@@ -95355,6 +95369,7 @@ var init_recording_arm_control = __esm({
     init_recording_arm();
     init_recorderRegistry();
     init_recorder_settings();
+    init_app_store();
     initialized3 = false;
     cleanup = null;
   }
@@ -96948,6 +96963,7 @@ var init_local_auto = __esm({
         }
       }
       let lastRecorderTrackSnapshot = null;
+      let captureGeneration = 0;
       function readSelectedMicDeviceId() {
         try {
           const raw = localStorage.getItem("tp_mic_device_v1");
@@ -97002,9 +97018,9 @@ var init_local_auto = __esm({
         } catch {
         }
       }
-      function buildProbeFromSnapshot(contentType) {
-        const audioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
-        const videoTrackCount = Number(lastRecorderTrackSnapshot?.videoTrackCount || 0);
+      function buildProbeFromSnapshot(contentType, snapshot = lastRecorderTrackSnapshot) {
+        const audioTrackCount = Number(snapshot?.audioTrackCount || 0);
+        const videoTrackCount = Number(snapshot?.videoTrackCount || 0);
         return {
           hasAudioStream: audioTrackCount > 0,
           audioDurationSec: null,
@@ -97016,22 +97032,22 @@ var init_local_auto = __esm({
           contentType
         };
       }
-      async function verifyFinalizedRecordingArtifact(blob, strategy) {
+      async function verifyFinalizedRecordingArtifact(blob, strategy, snapshot = lastRecorderTrackSnapshot, audioFailure = recorderAudioTrackFailure) {
         const contentType = String(blob.type || "application/octet-stream").trim().toLowerCase();
-        const snapshotProbe = buildProbeFromSnapshot(contentType);
+        const snapshotProbe = buildProbeFromSnapshot(contentType, snapshot);
         if (blob.size <= 0) return { ok: false, reason: "empty_artifact", probe: snapshotProbe };
         if (strategy?.mode === "audio" && !contentType.startsWith("audio/") || strategy?.mode === "av" && !contentType.startsWith("video/")) {
           return { ok: false, reason: "content_type_mismatch", probe: snapshotProbe };
         }
-        if (recorderAudioTrackFailure) {
+        if (audioFailure) {
           return { ok: false, reason: "audio_track_ended", probe: snapshotProbe };
         }
         try {
           const customVerifier = window.__tpVerifyRecordedArtifact;
           if (typeof customVerifier === "function") {
             const result = await customVerifier(blob, {
-              lastRecorderTrackSnapshot,
-              recordingEngine: getRecordingEngine()
+              lastRecorderTrackSnapshot: snapshot,
+              recordingEngine: snapshot?.recorderEngine ?? getRecordingEngine()
             });
             if (result && typeof result === "object") {
               const probe = {
@@ -97506,6 +97522,7 @@ var init_local_auto = __esm({
         if (stopping) await stopping;
         if (document.getElementById("retryLocalRecordingSave")) throw new Error("Retry the pending local recording save before starting another take.");
         if (active) return;
+        captureGeneration++;
         if (getRecordingEngine() !== "core") throw new Error("Core Recorder cannot start while OBS is selected.");
         try {
           if (mustSkipForMode()) {
@@ -97699,6 +97716,14 @@ var init_local_auto = __esm({
       async function saveBlob(blob, name, opts = {}) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const contentType = blob.type || "application/octet-stream";
+        const generation = captureGeneration;
+        const snapshotAtSave = lastRecorderTrackSnapshot;
+        const audioFailureAtSave = recorderAudioTrackFailure;
+        const isCurrentTake = () => generation === captureGeneration;
+        const notify4 = (...args) => {
+          if (isCurrentTake()) showRecorderToast(...args);
+        };
+        let cloudSettled = false;
         const localWrite = writeLocalRecording(bytes, name, activeDestination ?? void 0);
         showRecordingFinalizeIndicator({ takeName: name });
         let committed = false;
@@ -97720,16 +97745,17 @@ var init_local_auto = __esm({
         let downloadFallbackSucceeded = false;
         let downloadFallbackSkippedReason = null;
         const emitDestinationStatus = () => {
+          if (!isCurrentTake()) return;
           emitRecordingDestinationStatus({
             fileName: name,
             cloudUpload: {
-              state: canonicalUploadSucceeded ? "succeeded" : canonicalAttempted ? "failed" : "not_attempted",
+              state: canonicalUploadSucceeded ? "succeeded" : canonicalAttempted ? cloudSettled ? "failed" : "pending" : "not_attempted",
               path: commitResultOk?.path ?? null,
               errorCode: canonicalUploadSucceeded ? null : canonicalErrorCode,
               errorMessage: canonicalUploadSucceeded ? null : canonicalErrorMessage
             },
             canonicalCompletion: {
-              state: committed ? "succeeded" : canonicalCompletionAttempted ? "failed" : "not_attempted",
+              state: committed ? "succeeded" : canonicalCompletionAttempted ? cloudSettled ? "failed" : "pending" : "not_attempted",
               completionId: acceptedCompletionId,
               errorCode: committed ? null : canonicalErrorCode,
               errorMessage: committed ? null : canonicalErrorMessage
@@ -97750,7 +97776,7 @@ var init_local_auto = __esm({
           });
         };
         const presentCanonicalTakeDecision = async () => {
-          if (!commitResultOk || !acceptedCompletionId) return;
+          if (!commitResultOk || !acceptedCompletionId || !isCurrentTake()) return;
           hideRecordingFinalizeIndicator();
           showRecorderToast("Recording saved \xB7 Keep or discard this take.", "info");
           await showRecordingDecisionDialog({
@@ -97767,264 +97793,294 @@ var init_local_auto = __esm({
             }
           });
         };
-        try {
-          const recordingValidity = await verifyFinalizedRecordingArtifact(blob, opts.strategy ?? null);
-          try {
-            console.info("[core-recorder] finalized artifact validity", recordingValidity);
-            window.dispatchEvent(new CustomEvent("tp:recording:artifact-audio-verification", {
-              detail: {
-                ok: recordingValidity.ok,
-                reason: recordingValidity.ok ? null : recordingValidity.reason,
-                probe: recordingValidity.probe
-              }
-            }));
-          } catch {
-          }
-          if (!recordingValidity.ok) {
-            if (recordingValidity.reason === "no_audio_stream") {
-              showRecorderToast("The finalized recording has no audio track. This cannot be saved as a podcast take.", "error");
-              canonicalErrorCode = "podcast_take_no_audio_stream";
-              canonicalErrorMessage = "The finalized recording has no audio track. This cannot be saved as a podcast take.";
-            } else if (recordingValidity.reason === "audio_track_ended") {
-              showRecorderToast("Microphone capture stopped before this recording ended. This take cannot be kept.", "error");
-              canonicalErrorCode = "podcast_take_audio_track_ended";
-              canonicalErrorMessage = "Microphone capture stopped before this recording ended. This take cannot be kept.";
-            } else if (recordingValidity.reason === "near_silent_audio") {
-              showRecorderToast("The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.", "error");
-              canonicalErrorCode = "podcast_take_near_silent_audio";
-              canonicalErrorMessage = "The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.";
-            } else {
-              showRecorderToast("The finalized recording failed browser media sanity checks and cannot be uploaded as a take.", "error");
-              canonicalErrorCode = `podcast_take_${recordingValidity.reason}`;
-              canonicalErrorMessage = `The finalized recording failed browser media sanity checks (${recordingValidity.reason}).`;
-            }
-            try {
-              window.dispatchEvent(new CustomEvent("tp:recording:podcast-audio-invalid", {
-                detail: {
-                  reason: recordingValidity.reason,
-                  probe: recordingValidity.probe,
-                  safeToLeave: false
-                }
-              }));
-            } catch {
-            }
-          }
-          const recorderAudioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
-          const recorderVideoTrackCount = Number(lastRecorderTrackSnapshot?.videoTrackCount || 0);
-          const expectedContainerHasAudio = recorderAudioTrackCount > 0;
-          try {
-            console.info("[core-recorder] finalize blob diagnostics", {
-              mimeType: contentType,
-              bytes: bytes.length,
-              durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null,
-              recorderAudioTrackCount,
-              recorderVideoTrackCount,
-              expectedContainerHasAudio,
-              recorderEngine: lastRecorderTrackSnapshot?.recorderEngine || getRecordingEngine()
-            });
-          } catch {
-          }
-          const storageLimitHintBytes = readStorageLimitHintBytes();
-          const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
-          if (!recordingValidity.ok) {
-            canonicalAttempted = false;
-          } else if (skipCanonicalCommit) {
-            try {
-              console.warn("[core-recorder] skipping canonical commit after prior storage size-limit failure", {
-                size: bytes.length,
-                hintBytes: storageLimitHintBytes,
-                name
-              });
-            } catch {
-            }
-            showRecorderToast(
-              "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
-              "warning"
-            );
-            canonicalAttempted = false;
-            canonicalErrorCode = "canonical_commit_skipped_size_hint";
-            canonicalErrorMessage = "Canonical upload skipped after prior storage size-limit failure";
-          } else {
-            canonicalAttempted = true;
-            try {
-              const commitResult = await commitRecordingBytesToTongs({
-                captureAuthority: opts.saveIdentity?.captureAuthority ?? (() => {
-                  throw new Error("capture_authority_unavailable");
-                })(),
-                bytes,
-                originalName: name,
-                contentType,
-                transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
-                transcriptStatus: opts.transcriptFinalize?.status ?? null,
-                recordingMedium: opts.strategy?.recordingMedium ?? null,
-                requiresPostNormalization: opts.strategy?.requiresPostNormalization === true
-              });
-              const commitResultSuccess = readCommitResultSuccess(commitResult);
-              if (commitResultSuccess) {
-                commitResultOk = commitResultSuccess;
-                canonicalUploadSucceeded = true;
-                canonicalCompletionAttempted = true;
-                const completion = await transitionRecordingCompleted({
-                  commit: commitResultSuccess,
-                  durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null
-                });
-                if (completion.ok && completion.completionId) {
-                  committed = true;
-                  acceptedCompletionId = completion.completionId;
-                } else {
-                  canonicalErrorCode = completion.reason ?? `recording_completion_${completion.outcome}`;
-                  canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
-                  showRecorderToast(canonicalErrorMessage, "warning");
-                }
-                try {
-                  console.log("[core-recorder] canonical commit ok", {
-                    workpieceId: commitResultSuccess.workpieceId,
-                    path: commitResultSuccess.path,
-                    createdCradle: commitResultSuccess.createdCradle
-                  });
-                } catch {
-                }
-              } else {
-                const commitError = extractCommitErrorSummary(commitResult);
-                canonicalErrorCode = commitError.code;
-                canonicalErrorMessage = commitError.message;
-                if (isStorageTooLargeCommitResult(commitResult)) {
-                  writeStorageLimitHintBytes(bytes.length);
-                  showRecorderToast(
-                    "Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.",
-                    "warning"
-                  );
-                }
-                try {
-                  console.warn("[core-recorder] canonical commit unavailable; using local fallback", commitResult);
-                } catch {
-                }
-              }
-            } catch (commitErr) {
-              canonicalErrorCode = "canonical_commit_exception";
-              canonicalErrorMessage = String(commitErr?.message || commitErr || "Canonical commit failed");
-              try {
-                console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
-              } catch {
-              }
-            }
-          }
-          const local = await localWrite;
-          localMirrorExpected = local.expected;
-          localMirrorAttempted = !!local.handle || local.expected;
-          localMirrorSucceeded = local.success;
-          localMirrorHandleAvailable = !!local.handle;
-          localMirrorConfiguredPath = local.hint;
-          localMirrorErrorCode = local.errorCode;
-          localMirrorErrorMessage = local.errorMessage;
-          downloadFallbackSkippedReason = "automatic_download_disabled";
+        const local = await localWrite;
+        localMirrorExpected = local.expected;
+        localMirrorAttempted = !!local.handle || local.expected;
+        localMirrorSucceeded = local.success;
+        localMirrorHandleAvailable = !!local.handle;
+        localMirrorConfiguredPath = local.hint;
+        localMirrorErrorCode = local.errorCode;
+        localMirrorErrorMessage = local.errorMessage;
+        downloadFallbackSkippedReason = "automatic_download_disabled";
+        const emitLocalResult = () => {
+          if (!isCurrentTake()) return;
           emitLocalSafetyCopyStatus({
-            enabled: local.expected,
-            configuredPath: local.hint,
+            enabled: localMirrorExpected,
+            configuredPath: localMirrorConfiguredPath,
             attempted: localMirrorAttempted,
-            success: local.success,
-            bytesWritten: local.success ? bytes.length : 0,
-            finalPath: local.success ? `local:directory:${name}` : null,
-            errorCode: local.errorCode,
-            errorMessage: local.errorMessage,
-            safeToLeave: local.success,
-            localCopySecured: local.success,
+            success: localMirrorSucceeded,
+            bytesWritten: localMirrorSucceeded ? bytes.length : 0,
+            finalPath: localMirrorSucceeded ? `local:directory:${name}` : null,
+            errorCode: localMirrorErrorCode,
+            errorMessage: localMirrorErrorMessage,
+            safeToLeave: localMirrorSucceeded,
+            localCopySecured: localMirrorSucceeded,
             localMirrorExpected,
             localMirrorAttempted,
             localMirrorSucceeded,
             canonicalCommitAttempted: canonicalAttempted,
             canonicalCommitSucceeded: committed,
-            overallSafeToLeave: local.success || committed,
+            overallSafeToLeave: localMirrorSucceeded || committed,
             downloadFallbackAttempted: false,
             downloadFallbackSucceeded: false,
             downloadFallbackSkippedReason
           });
-          if (!local.success && (local.expected || !committed)) {
-            showRecorderToast("The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.", "error");
-            const old = document.getElementById("retryLocalRecordingSave");
-            old?.remove();
-            const retry2 = document.createElement("button");
-            retry2.id = "retryLocalRecordingSave";
-            retry2.textContent = "Retry local recording save";
-            retry2.addEventListener("click", async () => {
-              retry2.disabled = true;
-              const result = await writeLocalRecording(bytes, name);
-              retry2.disabled = false;
-              if (result.success) {
-                localMirrorSucceeded = true;
-                localMirrorErrorCode = null;
-                localMirrorErrorMessage = null;
-                localMirrorConfiguredPath = result.hint;
-                emitDestinationStatus();
-                showRecorderToast("Recording saved to the Hearth recording folder.", "info");
-                retry2.remove();
-              } else showRecorderToast(result.errorMessage || "Recording folder unavailable. Relink it in Hearth.", "error");
-            });
-            document.body.appendChild(retry2);
-          }
+        };
+        emitLocalResult();
+        const offerLocalRetry = () => {
+          showRecorderToast("The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.", "error");
+          const old = document.getElementById("retryLocalRecordingSave");
+          old?.remove();
+          const retry2 = document.createElement("button");
+          retry2.id = "retryLocalRecordingSave";
+          retry2.textContent = "Retry local recording save";
+          retry2.addEventListener("click", async () => {
+            retry2.disabled = true;
+            const result = await writeLocalRecording(bytes, name);
+            retry2.disabled = false;
+            if (result.success) {
+              localMirrorSucceeded = true;
+              localMirrorErrorCode = null;
+              localMirrorErrorMessage = null;
+              localMirrorConfiguredPath = result.hint;
+              localMirrorHandleAvailable = result.handle != null;
+              emitLocalResult();
+              emitDestinationStatus();
+              showRecorderToast("Recording saved to the Hearth recording folder.", "info");
+              retry2.remove();
+            } else showRecorderToast(result.errorMessage || "Recording folder unavailable. Relink it in Hearth.", "error");
+          });
+          document.body.appendChild(retry2);
+        };
+        if (!local.success && local.expected) offerLocalRetry();
+        emitDestinationStatus();
+        hideRecordingFinalizeIndicator();
+        if (local.success) showRecorderToast("Recording saved to the Hearth folder. Cloud persistence is a separate pending step.", "info");
+        const completeCloud = async () => {
           try {
-            if (committed) {
-              downloadFallbackSkippedReason = "canonical_commit_succeeded";
+            const recordingValidity = await verifyFinalizedRecordingArtifact(blob, opts.strategy ?? null, snapshotAtSave, audioFailureAtSave);
+            try {
+              console.info("[core-recorder] finalized artifact validity", recordingValidity);
+              if (isCurrentTake()) window.dispatchEvent(new CustomEvent("tp:recording:artifact-audio-verification", {
+                detail: {
+                  ok: recordingValidity.ok,
+                  reason: recordingValidity.ok ? null : recordingValidity.reason,
+                  probe: recordingValidity.probe
+                }
+              }));
+            } catch {
+            }
+            if (!recordingValidity.ok) {
+              if (recordingValidity.reason === "no_audio_stream") {
+                notify4("The finalized recording has no audio track. This cannot be saved as a podcast take.", "error");
+                canonicalErrorCode = "podcast_take_no_audio_stream";
+                canonicalErrorMessage = "The finalized recording has no audio track. This cannot be saved as a podcast take.";
+              } else if (recordingValidity.reason === "audio_track_ended") {
+                notify4("Microphone capture stopped before this recording ended. This take cannot be kept.", "error");
+                canonicalErrorCode = "podcast_take_audio_track_ended";
+                canonicalErrorMessage = "Microphone capture stopped before this recording ended. This take cannot be kept.";
+              } else if (recordingValidity.reason === "near_silent_audio") {
+                notify4("The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.", "error");
+                canonicalErrorCode = "podcast_take_near_silent_audio";
+                canonicalErrorMessage = "The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.";
+              } else {
+                notify4("The finalized recording failed browser media sanity checks and cannot be uploaded as a take.", "error");
+                canonicalErrorCode = `podcast_take_${recordingValidity.reason}`;
+                canonicalErrorMessage = `The finalized recording failed browser media sanity checks (${recordingValidity.reason}).`;
+              }
               try {
-                console.log("[core-recorder] canonical commit succeeded; skipping download fallback", { name });
+                if (isCurrentTake()) window.dispatchEvent(new CustomEvent("tp:recording:podcast-audio-invalid", {
+                  detail: {
+                    reason: recordingValidity.reason,
+                    probe: recordingValidity.probe,
+                    safeToLeave: false
+                  }
+                }));
               } catch {
               }
-              if (localMirrorExpected && !localMirrorSucceeded) {
-                emitUploadFallbackAudit({
-                  saveIdentity: opts.saveIdentity ?? null,
-                  originalName: name,
-                  bytes: bytes.length,
-                  canonicalAttempted,
-                  canonicalSucceeded: true,
-                  fallbackUsed: false,
-                  safeToLeave: true,
-                  errorCode: canonicalErrorCode,
-                  errorMessage: canonicalErrorMessage,
-                  finalStorageKey: commitResultOk?.path || null,
-                  localMirrorExpected,
-                  localMirrorAttempted,
-                  localMirrorSucceeded,
-                  localCopySecured: false,
-                  downloadFallbackAttempted,
-                  downloadFallbackSucceeded,
-                  downloadFallbackSkippedReason
-                });
-              }
-              emitDestinationStatus();
-              if (commitResultOk && acceptedCompletionId) {
-                await presentCanonicalTakeDecision();
-              }
-              return !localMirrorExpected || localMirrorSucceeded;
             }
-            emitUploadFallbackAudit({
-              saveIdentity: opts.saveIdentity ?? null,
-              originalName: name,
-              bytes: bytes.length,
-              canonicalAttempted,
-              canonicalSucceeded: false,
-              fallbackUsed: localMirrorSucceeded,
-              safeToLeave: false,
-              errorCode: canonicalErrorCode,
-              errorMessage: canonicalErrorMessage,
-              finalStorageKey: localMirrorSucceeded ? `local:directory:${name}` : null,
-              localMirrorExpected,
-              localMirrorAttempted,
-              localMirrorSucceeded,
-              localCopySecured: localMirrorSucceeded,
-              downloadFallbackAttempted: false,
-              downloadFallbackSucceeded: false,
-              downloadFallbackSkippedReason
-            });
-            showRecorderToast(localMirrorSucceeded ? "Recording saved to the Hearth folder. Canonical cloud completion is still incomplete." : "Recording has no confirmed local copy or canonical completion. Keep Anvil open and retry the local save.", "warning");
+            const recorderAudioTrackCount = Number(snapshotAtSave?.audioTrackCount || 0);
+            const recorderVideoTrackCount = Number(snapshotAtSave?.videoTrackCount || 0);
+            const expectedContainerHasAudio = recorderAudioTrackCount > 0;
+            try {
+              console.info("[core-recorder] finalize blob diagnostics", {
+                mimeType: contentType,
+                bytes: bytes.length,
+                durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null,
+                recorderAudioTrackCount,
+                recorderVideoTrackCount,
+                expectedContainerHasAudio,
+                recorderEngine: snapshotAtSave?.recorderEngine || getRecordingEngine()
+              });
+            } catch {
+            }
+            const storageLimitHintBytes = readStorageLimitHintBytes();
+            const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
+            if (!recordingValidity.ok) {
+              canonicalAttempted = false;
+            } else if (skipCanonicalCommit) {
+              try {
+                console.warn("[core-recorder] skipping canonical commit after prior storage size-limit failure", {
+                  size: bytes.length,
+                  hintBytes: storageLimitHintBytes,
+                  name
+                });
+              } catch {
+              }
+              notify4(
+                "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
+                "warning"
+              );
+              canonicalAttempted = false;
+              canonicalErrorCode = "canonical_commit_skipped_size_hint";
+              canonicalErrorMessage = "Canonical upload skipped after prior storage size-limit failure";
+            } else {
+              canonicalAttempted = true;
+              emitDestinationStatus();
+              try {
+                const commitResult = await commitRecordingBytesToTongs({
+                  captureAuthority: opts.saveIdentity?.captureAuthority ?? (() => {
+                    throw new Error("capture_authority_unavailable");
+                  })(),
+                  bytes,
+                  originalName: name,
+                  contentType,
+                  transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
+                  transcriptStatus: opts.transcriptFinalize?.status ?? null,
+                  recordingMedium: opts.strategy?.recordingMedium ?? null,
+                  requiresPostNormalization: opts.strategy?.requiresPostNormalization === true
+                });
+                const commitResultSuccess = readCommitResultSuccess(commitResult);
+                if (commitResultSuccess) {
+                  commitResultOk = commitResultSuccess;
+                  canonicalUploadSucceeded = true;
+                  canonicalCompletionAttempted = true;
+                  emitDestinationStatus();
+                  const completion = await transitionRecordingCompleted({
+                    commit: commitResultSuccess,
+                    durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null
+                  });
+                  if (completion.ok && completion.completionId) {
+                    committed = true;
+                    acceptedCompletionId = completion.completionId;
+                  } else {
+                    canonicalErrorCode = completion.reason ?? `recording_completion_${completion.outcome}`;
+                    canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
+                    notify4(canonicalErrorMessage, "warning");
+                  }
+                  try {
+                    console.log("[core-recorder] canonical commit ok", {
+                      workpieceId: commitResultSuccess.workpieceId,
+                      path: commitResultSuccess.path,
+                      createdCradle: commitResultSuccess.createdCradle
+                    });
+                  } catch {
+                  }
+                } else {
+                  const commitError = extractCommitErrorSummary(commitResult);
+                  canonicalErrorCode = commitError.code;
+                  canonicalErrorMessage = commitError.message;
+                  if (isStorageTooLargeCommitResult(commitResult)) {
+                    writeStorageLimitHintBytes(bytes.length);
+                    notify4(
+                      "Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.",
+                      "warning"
+                    );
+                  }
+                  try {
+                    console.warn("[core-recorder] canonical commit unavailable; using local fallback", commitResult);
+                  } catch {
+                  }
+                }
+              } catch (commitErr) {
+                canonicalErrorCode = "canonical_commit_exception";
+                canonicalErrorMessage = String(commitErr?.message || commitErr || "Canonical commit failed");
+                try {
+                  console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
+                } catch {
+                }
+              }
+            }
+            try {
+              if (committed) {
+                downloadFallbackSkippedReason = "canonical_commit_succeeded";
+                try {
+                  console.log("[core-recorder] canonical commit succeeded; skipping download fallback", { name });
+                } catch {
+                }
+                if (localMirrorExpected && !localMirrorSucceeded) {
+                  emitUploadFallbackAudit({
+                    saveIdentity: opts.saveIdentity ?? null,
+                    originalName: name,
+                    bytes: bytes.length,
+                    canonicalAttempted,
+                    canonicalSucceeded: true,
+                    fallbackUsed: false,
+                    safeToLeave: true,
+                    errorCode: canonicalErrorCode,
+                    errorMessage: canonicalErrorMessage,
+                    finalStorageKey: commitResultOk?.path || null,
+                    localMirrorExpected,
+                    localMirrorAttempted,
+                    localMirrorSucceeded,
+                    localCopySecured: false,
+                    downloadFallbackAttempted,
+                    downloadFallbackSucceeded,
+                    downloadFallbackSkippedReason
+                  });
+                }
+                emitDestinationStatus();
+                if (commitResultOk && acceptedCompletionId) {
+                  await presentCanonicalTakeDecision();
+                }
+                return !localMirrorExpected || localMirrorSucceeded;
+              }
+              if (!local.success && !local.expected) offerLocalRetry();
+              emitUploadFallbackAudit({
+                saveIdentity: opts.saveIdentity ?? null,
+                originalName: name,
+                bytes: bytes.length,
+                canonicalAttempted,
+                canonicalSucceeded: false,
+                fallbackUsed: localMirrorSucceeded,
+                safeToLeave: false,
+                errorCode: canonicalErrorCode,
+                errorMessage: canonicalErrorMessage,
+                finalStorageKey: localMirrorSucceeded ? `local:directory:${name}` : null,
+                localMirrorExpected,
+                localMirrorAttempted,
+                localMirrorSucceeded,
+                localCopySecured: localMirrorSucceeded,
+                downloadFallbackAttempted: false,
+                downloadFallbackSucceeded: false,
+                downloadFallbackSkippedReason
+              });
+              notify4(localMirrorSucceeded ? "Recording saved to the Hearth folder. Canonical cloud completion is still incomplete." : "Recording has no confirmed local copy or canonical completion. Keep Anvil open and retry the local save.", "warning");
+              emitDestinationStatus();
+              return localMirrorSucceeded;
+            } finally {
+              cloudSettled = true;
+              emitDestinationStatus();
+              emitLocalResult();
+            }
+          } catch (error) {
+            cloudSettled = true;
             emitDestinationStatus();
-            return localMirrorSucceeded;
-          } finally {
-            hideRecordingFinalizeIndicator();
+            emitLocalResult();
+            throw error;
           }
-        } catch (error) {
-          hideRecordingFinalizeIndicator();
-          throw error;
-        }
+        };
+        if (!local.expected) return completeCloud();
+        setTimeout(() => {
+          void completeCloud().catch((error) => {
+            cloudSettled = true;
+            canonicalErrorCode = "cloud_finalization_exception";
+            canonicalErrorMessage = String(error);
+            emitDestinationStatus();
+            notify4("Cloud persistence failed. The local recording is unchanged.", "warning");
+          });
+        }, 0);
+        return local.success;
       }
       try {
         const auto2 = window.__tpAutoRecord = window.__tpAutoRecord || {};
@@ -108297,7 +108353,8 @@ function bindCameraUI() {
   }
   async function doStart(attemptedFallback = false) {
     if (isStarting) return false;
-    if (currentStream) return true;
+    if (currentStream && isActive()) return true;
+    if (currentStream) doStop();
     if (!navigator.mediaDevices?.getUserMedia) {
       try {
         console.warn("[CAM] getUserMedia not supported");
@@ -108407,7 +108464,7 @@ function bindCameraUI() {
     return true;
   }
   function isActive() {
-    return !!currentStream;
+    return !!currentStream?.getVideoTracks().some((track) => track.readyState === "live");
   }
   try {
     appStoreSingleton.subscribe("cameraEnabled", async (on3) => {
@@ -108466,6 +108523,7 @@ function bindCameraUI() {
   setButtons(false, false);
   void refreshDevices();
   const api = window.__tpCamera || {};
+  api.getStream = () => currentStream;
   api.start = doStart;
   api.stop = doStop;
   api.setDevice = (id) => setDevice(id);

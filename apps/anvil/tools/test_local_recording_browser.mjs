@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 // synthetic substitutes; this test never contacts Supabase or a paid provider.
 const authority = `export const beginRecordingCaptureSession = () => 'synthetic-capture';
 export const ensureRecordingCaptureTarget = async () => ({ ok: true, captureAuthority: { id: 'synthetic', captureSessionId: 'synthetic-capture' } });
-export const commitRecordingBytesToTongs = async () => ({ ok: false, reason: 'isolated_cloud_unavailable' });
+export const commitRecordingBytesToTongs = async () => window.__captureTestCloudNeverSettles ? new Promise(() => {}) : ({ ok: false, reason: 'isolated_cloud_unavailable' });
 export const commitRecordingFileToTongs = async () => ({ ok: false, reason: 'isolated_cloud_unavailable' });
 export const commitRecordingJsonArtifactToTongs = async () => ({ ok: false });
 export const readPendingRecordingDecisions = async () => [];
@@ -84,9 +84,27 @@ try {
   assert.equal(result.destination.configuredFolder.state, 'succeeded');
   assert.equal(result.destination.cloudUpload.state, 'failed');
   assert.equal(result.destination.browserDownload.state, 'skipped');
+  const unresponsiveCloud = await page.evaluate(async () => {
+    window.__captureTestCloudNeverSettles = true;
+    const takes = [];
+    for (let i = 0; i < 2; i++) {
+      await CaptureTest.startSessionRecording({ engine: 'core' });
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      let timer;
+      try {
+        await Promise.race([CaptureTest.stopSessionRecording(), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Local Stop blocked by cloud')), 5000); })]);
+      } finally { clearTimeout(timer); }
+      takes.push({ recording: CaptureTest.isSessionRecording(), busy: CaptureTest.isRecordingBusy() });
+    }
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle('Hearth-recordings');
+    let files = 0; for await (const entry of folder.values()) if (entry.kind === 'file') files++;
+    return { takes, files };
+  });
+  assert.deepEqual(unresponsiveCloud.takes, [{ recording: false, busy: false }, { recording: false, busy: false }]);
+  assert.equal(unresponsiveCloud.files, 3);
   await page.evaluate(async () => { window.__tpRecDir.get = () => null; await CaptureTest.initRecordingDestinationWarning().refresh(); });
   const warningBox = await page.locator('#recordingDestinationWarning').boundingBox();
   assert.ok(warningBox && warningBox.y < 160 && warningBox.height < 150 && warningBox.x >= 0 && warningBox.x + warningBox.width <= 1280, 'Warning must stay prominent and compact within the primary controls viewport');
   await page.screenshot({ path: '../../.git/forge-anvil-refinements-20261126/destination-warning.png' });
-  console.log(JSON.stringify({ test: 'synthetic-core-av-local-finalization-playback', ...result }));
+  console.log(JSON.stringify({ test: 'synthetic-core-av-local-finalization-playback', ...result, unresponsiveCloud }));
 } finally { await browser.close(); }

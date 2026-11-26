@@ -27,12 +27,14 @@ export type RecordingArmSnapshot = {
 };
 
 type MicApi = {
+  __lastStream?: MediaStream | null;
   isOpen?: () => boolean;
   requestMic?: (deviceId?: string) => Promise<MediaStream | void>;
   releaseMic?: () => Promise<void> | void;
 };
 
 type CameraApi = {
+  getStream?: () => MediaStream | null;
   isActive?: () => boolean;
   setDevice?: (deviceId: string | null) => Promise<boolean> | boolean;
   start?: () => Promise<boolean> | boolean;
@@ -114,8 +116,8 @@ function defaultDependencies(): RecordingArmDependencies {
 export function createRecordingArmController(overrides: Partial<RecordingArmDependencies> = {}) {
   const deps = { ...defaultDependencies(), ...overrides };
   let snapshot: RecordingArmSnapshot = { state: 'idle', configuration: null, failure: null };
-  let ownsMic = false;
-  let ownsCamera = false;
+  let ownedMic: { api: MicApi; stream: MediaStream | null } | null = null;
+  let ownedCamera: { api: CameraApi; stream: MediaStream | null } | null = null;
   let ownsObsArm = false;
   let removeObsDisconnectListener: (() => void) | null = null;
   const listeners = new Set<(next: RecordingArmSnapshot) => void>();
@@ -136,13 +138,19 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
       try { deps.setObsEnabled(false); } catch {}
       ownsObsArm = false;
     }
-    if (ownsCamera) {
-      try { deps.getCameraApi()?.stop?.(); } catch {}
-      ownsCamera = false;
+    if (ownedCamera) {
+      const owned = ownedCamera; ownedCamera = null;
+      try {
+        if (owned.stream && deps.getCameraApi() === owned.api && owned.api.getStream?.() === owned.stream) owned.api.stop?.();
+        else owned.stream?.getTracks().forEach((track) => track.stop());
+      } catch {}
     }
-    if (ownsMic) {
-      try { await deps.getMicApi()?.releaseMic?.(); } catch {}
-      ownsMic = false;
+    if (ownedMic) {
+      const owned = ownedMic; ownedMic = null;
+      try {
+        if (owned.stream && deps.getMicApi() === owned.api && owned.api.__lastStream === owned.stream) await owned.api.releaseMic?.();
+        else owned.stream?.getTracks().forEach((track) => track.stop());
+      } catch {}
     }
   };
 
@@ -226,12 +234,13 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
       if (!mic?.requestMic) return fail('microphone_failed', configuration);
       if (!mic.isOpen?.()) {
         try {
-          await mic.requestMic(micId || undefined);
-          ownsMic = true;
+          const stream = await mic.requestMic(micId || undefined);
+          ownedMic = { api: mic, stream: stream || mic.__lastStream || null };
         } catch (error) {
           return fail(permissionDenied(error) ? 'microphone_denied' : 'microphone_failed', configuration);
         }
       }
+      if (!mic.isOpen?.()) return fail('microphone_failed', configuration);
 
       if (configuration.mode === 'av') {
         const camera = deps.getCameraApi();
@@ -249,12 +258,14 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
                 : 'camera_failed';
               return fail(failure, configuration);
             }
-            ownsCamera = true;
+            ownedCamera = { api: camera, stream: camera.getStream?.() ?? null };
           } catch (error) {
             return fail(permissionDenied(error) ? 'camera_denied' : 'camera_failed', configuration);
           }
         }
       }
+
+      if (configuration.mode === 'av' && !deps.getCameraApi()?.isActive?.()) return fail('camera_failed', configuration);
 
       publish({ state: 'armed', configuration, failure: null });
       return { ok: true as const };
@@ -277,6 +288,11 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
         const obs = deps.getObsApi();
         if (!obs?.armed?.() || !obs.isConnected?.()) publish({ state: 'error', configuration: snapshot.configuration, failure: 'obs_disconnected' });
       }
+      if (snapshot.state === 'armed' && snapshot.configuration?.engine === 'core') {
+        const failure = !deps.getMicApi()?.isOpen?.() ? 'microphone_missing'
+          : snapshot.configuration.mode === 'av' && !deps.getCameraApi()?.isActive?.() ? 'camera_missing' : null;
+        if (failure) publish({ state: 'error', configuration: snapshot.configuration, failure });
+      }
     },
     setRecordingActive(active: boolean) {
       if (active) {
@@ -285,8 +301,8 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
       } else if (snapshot.state === 'recording') {
         const configuration = snapshot.configuration;
         const browserReady = configuration?.engine === 'core'
-          && (ownsMic || !!deps.getMicApi()?.isOpen?.())
-          && (configuration.mode === 'audio' || ownsCamera || !!deps.getCameraApi()?.isActive?.());
+          && !!deps.getMicApi()?.isOpen?.()
+          && (configuration.mode === 'audio' || !!deps.getCameraApi()?.isActive?.());
         const obs = configuration?.engine === 'obs' ? deps.getObsApi() : null;
         const obsReady = !!obs?.armed?.() && !!obs?.isConnected?.();
         publish({

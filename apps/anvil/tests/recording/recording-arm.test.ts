@@ -22,14 +22,20 @@ function harness(options: {
   obsConnectResult?: boolean;
   obsConnected?: boolean;
 } = {}) {
-  const releaseMic = jest.fn();
-  const stopCamera = jest.fn();
+  const stream = () => {
+    const track = { readyState: 'live', stop: jest.fn(() => { track.readyState = 'ended'; }) };
+    return { getTracks: () => [track] } as unknown as MediaStream;
+  };
+  let micStream: MediaStream | null = options.micOpen ? stream() : null;
+  let cameraStream: MediaStream | null = options.cameraOpen ? stream() : null;
+  const releaseMic = jest.fn(() => { micStream?.getTracks().forEach((t) => t.stop()); micStream = null; });
+  const stopCamera = jest.fn(() => { cameraStream?.getTracks().forEach((t) => t.stop()); cameraStream = null; });
   const requestMic = options.micError
     ? jest.fn(async () => { throw options.micError; })
-    : jest.fn(async () => ({ getTracks: () => [] } as unknown as MediaStream));
+    : jest.fn(async () => { micStream?.getTracks().forEach((t) => t.stop()); micStream = stream(); return micStream; });
   const startCamera = options.cameraError
     ? jest.fn(async () => { throw options.cameraError; })
-    : jest.fn(async () => true);
+    : jest.fn(async () => { cameraStream = stream(); return true; });
   const setDevice = jest.fn(async () => true);
   const dispatch = jest.fn();
   let obsArmed = !!options.obsArmed;
@@ -43,6 +49,13 @@ function harness(options: {
   const disconnectObs = jest.fn(async () => undefined);
   const setObsEnabled = jest.fn();
   const config = options.config ?? 'valid';
+  const micApi = { isOpen: () => !!micStream?.getTracks().some((t) => t.readyState === 'live'), requestMic, releaseMic, get __lastStream() { return micStream; } };
+  const cameraApi = {
+    isActive: () => !!cameraStream?.getTracks().some((t) => t.readyState === 'live'),
+    getStream: () => cameraStream, setDevice,
+    start: options.cameraStartFailure ? jest.fn(async () => false) : startCamera,
+    stop: stopCamera, getLastStartFailure: () => options.cameraStartFailure ?? null,
+  };
   const deps: RecordingArmDependencies = {
     readConfiguration: () => config === 'missing'
       ? { ok: false, reason: 'missing' }
@@ -50,14 +63,8 @@ function harness(options: {
         ? { ok: false, reason: 'invalid' }
         : { ok: true, configuration: { engine: options.engine ?? 'core', mode: options.mode ?? 'av' } },
     enumerateDevices: async () => [device('audioinput', 'mic-1'), device('videoinput', 'cam-1')],
-    getMicApi: () => ({ isOpen: () => !!options.micOpen, requestMic, releaseMic }),
-    getCameraApi: () => ({
-      isActive: () => !!options.cameraOpen,
-      setDevice,
-      start: options.cameraStartFailure ? jest.fn(async () => false) : startCamera,
-      stop: stopCamera,
-      getLastStartFailure: () => options.cameraStartFailure ?? null,
-    }),
+    getMicApi: () => micApi,
+    getCameraApi: () => cameraApi,
     getObsApi: () => options.obsAvailable === false ? null : ({
       armed: () => obsArmed,
       setArmed: setObsArmed,
@@ -74,6 +81,7 @@ function harness(options: {
   };
   return {
     controller: createRecordingArmController(deps), requestMic, releaseMic, startCamera, stopCamera, setDevice, dispatch,
+    micApi, cameraApi,
     setObsArmed, maybeConnectObs, disconnectObs, setObsEnabled, disconnectObsEvent: () => disconnectListener?.(),
   };
 }
@@ -86,6 +94,31 @@ beforeEach(() => {
 });
 
 describe('recording device arming', () => {
+  test('Disarm preserves microphone and camera acquisitions replaced after Arm', async () => {
+    const h = harness(); await h.controller.arm();
+    const originalMic = h.micApi.__lastStream!; const originalCamera = h.cameraApi.getStream()!;
+    await h.requestMic(); await h.startCamera();
+    const replacementMic = h.micApi.__lastStream!; const replacementCamera = h.cameraApi.getStream()!;
+    await h.controller.disarm();
+    expect(replacementMic.getTracks()[0].readyState).toBe('live');
+    expect(replacementCamera.getTracks()[0].readyState).toBe('live');
+    expect(h.releaseMic).not.toHaveBeenCalled(); expect(h.stopCamera).not.toHaveBeenCalled();
+    expect(originalMic.getTracks()[0].readyState).toBe('ended');
+    expect(originalCamera.getTracks()[0].readyState).toBe('ended');
+  });
+  test('failed arming also preserves a microphone replaced by another consumer', async () => {
+    const h = harness();
+    h.startCamera.mockImplementationOnce(async () => { await h.requestMic(); throw new Error('camera failed'); });
+    await expect(h.controller.arm()).resolves.toEqual({ ok: false, failure: 'camera_failed' });
+    expect(h.micApi.__lastStream!.getTracks()[0].readyState).toBe('live');
+    expect(h.releaseMic).not.toHaveBeenCalled();
+  });
+  test.each(['microphone', 'camera'] as const)('Stop cannot restore armed readiness after the %s closes', async (closed) => {
+    const h = harness(); await h.controller.arm(); h.controller.setRecordingActive(true);
+    if (closed === 'microphone') h.releaseMic(); else h.stopCamera();
+    h.controller.setRecordingActive(false);
+    expect(h.controller.getSnapshot().state).toBe('idle');
+  });
   test('engine changes release only owned media and leave OBS unarmed until explicit intent', async () => {
     const options: { engine: 'core' | 'obs' } = { engine: 'core' };
     const h = harness(options);

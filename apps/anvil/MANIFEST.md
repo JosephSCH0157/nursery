@@ -545,6 +545,21 @@ See `docs/scroll-contract.md` for executable runtime boundaries and allowed/forb
 
 ## Recording integration ownership
 
+Local-finalization repair contract (November 26, 2026): a required mapped local
+file close owns Core Stop completion. Artifact verification and existing cloud
+commit/completion run as a separate background stage; an unresponsive cloud call
+cannot retain local capture ownership. Cloud status is pending until resolved,
+never manufactured as success. Each stage retains its captured authority,
+strategy and media diagnostics; stale results must not relabel a newer take or
+open a stale decision dialog. Failed local writes retain the existing explicit
+retry and block another take. Deliberate cloud-only configuration retains its
+existing canonical-completion requirements; no local receipt is invented.
+
+Arm cleanup binds to the acquired API/stream identity. A replacement mic/camera
+acquisition belongs to its new consumer and must survive both Disarm and failure
+cleanup. Cleanup ownership never establishes readiness: current live mic/camera
+state determines Core armed status, including after Stop and external closure.
+
 Control/readiness contract (November 26, 2026): the upper-right OBS pill is
 visible independently of the session summary and is rendered only by
 `obs-status-bind` from authenticated connection state. Connection, arming and

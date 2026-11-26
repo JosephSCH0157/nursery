@@ -220,6 +220,7 @@ describe('local-auto recorder safety guards', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(mockStartSpeechBackendForSession).not.toHaveBeenCalled();
       await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(mockStopSpeechBackendForSession).not.toHaveBeenCalled();
@@ -233,6 +234,7 @@ describe('local-auto recorder safety guards', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockStartSpeechBackendForSession).toHaveBeenCalledWith({ reason: 'recording-transcript', mode });
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(mockStopSpeechBackendForSession).toHaveBeenCalledWith('recording-stop');
@@ -276,6 +278,7 @@ describe('local-auto recorder safety guards', () => {
 
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const attemptedFailure = localSafetyEvents.find((row) => row.attempted === true && row.success === false);
@@ -332,11 +335,12 @@ describe('local-auto recorder safety guards', () => {
 
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const missingHandleFailure = localSafetyEvents.find(
+    const missingHandleFailure = localSafetyEvents.filter(
       (row) => row.attempted === true && row.success === false && row.errorCode === 'directory_file_creation_failed',
-    );
+    ).slice(-1)[0];
     expect(missingHandleFailure).toBeTruthy();
     expect(missingHandleFailure).toEqual(expect.objectContaining({
       attempted: true,
@@ -400,6 +404,7 @@ describe('local-auto recorder safety guards', () => {
 
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(destinationEvents[destinationEvents.length - 1]).toEqual(expect.objectContaining({
@@ -437,6 +442,7 @@ describe('local-auto recorder safety guards', () => {
 
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(destinationEvents[destinationEvents.length - 1]).toEqual(expect.objectContaining({
@@ -479,6 +485,7 @@ describe('local-auto recorder safety guards', () => {
 
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const missingHandleFailure = localSafetyEvents.find(
@@ -525,6 +532,7 @@ describe('local-auto recorder safety guards', () => {
 
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const result = destinationEvents[destinationEvents.length - 1];
@@ -567,6 +575,7 @@ describe('local-auto recorder safety guards', () => {
     });
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalledWith(expect.objectContaining({ originalName: expect.any(String) }));
@@ -582,6 +591,7 @@ describe('local-auto recorder safety guards', () => {
     await (window as any).__tpAutoRecord.start();
     lastAudioTrack?.stop();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalled();
     expect((window as any).toast).toHaveBeenCalledWith(
@@ -594,6 +604,7 @@ describe('local-auto recorder safety guards', () => {
     FakeMediaRecorder.outputBytes = 0;
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalled();
     expect((window as any).toast).toHaveBeenCalledWith(
@@ -609,6 +620,7 @@ describe('local-auto recorder safety guards', () => {
     }));
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalled();
   });
@@ -626,6 +638,7 @@ describe('local-auto recorder safety guards', () => {
     }));
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockCommitRecordingBytesToTongs).toHaveBeenCalled();
   });
@@ -643,22 +656,56 @@ describe('local-auto recorder safety guards', () => {
     }));
     await (window as any).__tpAutoRecord.start();
     await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 15)); // Cloud is a separate background stage.
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockCommitRecordingBytesToTongs).toHaveBeenCalled();
   });
-  test('closes the local file while cloud completion is still pending', async () => {
+  test('finishes local Stop and permits another take while cloud completion never settles', async () => {
+    const registry = await import('../../src/recording/recorderRegistry');
+    (await import('../../src/recording/registerRecorders')).initRecorderBackends();
+    const destinations: unknown[] = [];
+    const listener = (event: Event) => destinations.push((event as CustomEvent).detail);
+    window.addEventListener('tp:recording:destination-status', listener);
     let finishCloud!: (result: unknown) => void;
     mockCommitRecordingBytesToTongs.mockImplementationOnce(() => new Promise((resolve) => { finishCloud = resolve; }));
     const close = jest.fn(async () => {});
     const dir = { name: 'Hearth', queryPermission: async () => 'granted', getFileHandle: async () => ({ createWritable: async () => ({ write: async () => {}, close }) }) };
     (window as any).__tpRecDir.get.mockReturnValue(dir);
-    await (window as any).__tpAutoRecord.start();
+    await registry.startSessionRecording({ engine: 'core' });
     let stopResolved = false;
-    const stopped = (window as any).__tpAutoRecord.stop().then(() => { stopResolved = true; });
+    const stopped = registry.stopSessionRecording().then(() => { stopResolved = true; });
     for (let attempt = 0; attempt < 20 && (!finishCloud || !close.mock.calls.length); attempt++) await new Promise((resolve) => setTimeout(resolve, 5));
-    expect(close).toHaveBeenCalledTimes(1); expect(stopResolved).toBe(false);
+    expect(close).toHaveBeenCalledTimes(1); expect(stopResolved).toBe(true);
+    expect(registry.isRecordingBusy()).toBe(false);
+    await registry.startSessionRecording({ engine: 'core' });
+    expect((window as any).__tpAutoRecord.isActive()).toBe(true);
+    await registry.stopSessionRecording();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const latest = destinations[destinations.length - 1]; const eventCount = destinations.length;
     finishCloud({ ok: false, reason: 'isolated_cloud_failure' });
-    await stopped; expect(stopResolved).toBe(true);
+    await stopped; await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(stopResolved).toBe(true); expect(registry.isRecordingBusy()).toBe(false);
+    expect(destinations.length).toBe(eventCount); expect(destinations[destinations.length - 1]).toBe(latest);
+    window.removeEventListener('tp:recording:destination-status', listener);
+  });
+
+  test('late cloud failure cannot undo a successful explicit local retry', async () => {
+    let finishCloud!: (result: unknown) => void;
+    mockCommitRecordingBytesToTongs.mockImplementationOnce(() => new Promise((resolve) => { finishCloud = resolve; }));
+    const dir = { name: 'Hearth', queryPermission: async () => 'granted', getFileHandle: jest.fn(async () => { throw new Error('folder write unavailable'); }) };
+    (window as any).__tpRecDir.get.mockReturnValue(dir);
+    const statuses: any[] = []; const listener = (event: Event) => statuses.push((event as CustomEvent).detail);
+    window.addEventListener('tp:recording:local-safety-copy', listener);
+    try {
+      await (window as any).__tpAutoRecord.start(); await (window as any).__tpAutoRecord.stop();
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      await expect((window as any).__tpAutoRecord.start()).rejects.toThrow('Retry');
+      (window as any).__tpRecDir.get.mockReturnValue({ name: 'Hearth', queryPermission: async () => 'granted', getFileHandle: async () => ({ createWritable: async () => ({ write: async () => {}, close: async () => {} }) }) });
+      document.getElementById('retryLocalRecordingSave')!.click(); await new Promise((resolve) => setTimeout(resolve, 15));
+      expect(document.getElementById('retryLocalRecordingSave')).toBeNull();
+      finishCloud({ ok: false, reason: 'late_502' }); await new Promise((resolve) => setTimeout(resolve, 15));
+      expect(statuses[statuses.length - 1]).toEqual(expect.objectContaining({ success: true, safeToLeave: true, canonicalCommitSucceeded: false }));
+    } finally { window.removeEventListener('tp:recording:local-safety-copy', listener); }
   });
 
   test('a microphone failure releases a camera already acquired by Core', async () => {

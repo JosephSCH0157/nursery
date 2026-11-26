@@ -16,6 +16,7 @@ type CameraAPI = {
   setOpacity: (opacity: number) => void;
   setMirror: (on: boolean) => void;
   isActive: () => boolean;
+  getStream: () => MediaStream | null;
   startCamera?: () => Promise<boolean>;
   stopCamera?: () => void;
   switchCamera?: (id: string) => Promise<boolean> | boolean;
@@ -162,7 +163,8 @@ let lastStartFailure: 'permission_denied' | 'failed' | null = null;
 
   async function doStart(attemptedFallback = false): Promise<boolean> {
     if (isStarting) return false;
-    if (currentStream) return true;
+    if (currentStream && isActive()) return true;
+    if (currentStream) doStop();
     if (!navigator.mediaDevices?.getUserMedia) {
       try { console.warn('[CAM] getUserMedia not supported'); } catch {}
       updateChip('CamRTC: unsupported');
@@ -260,7 +262,7 @@ let lastStartFailure: 'permission_denied' | 'failed' | null = null;
   }
 
   function isActive(): boolean {
-    return !!currentStream;
+    return !!currentStream?.getVideoTracks().some((track) => track.readyState === 'live');
   }
 
   try {
@@ -307,6 +309,7 @@ let lastStartFailure: 'permission_denied' | 'failed' | null = null;
 
   // Expose API globally
   const api: CameraAPI = window.__tpCamera || ({} as CameraAPI);
+  api.getStream = () => currentStream;
   api.start = doStart;
   api.stop = doStop;
   api.setDevice = (id: string | null) => setDevice(id);

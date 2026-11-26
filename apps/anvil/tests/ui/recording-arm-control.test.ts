@@ -25,10 +25,11 @@ beforeEach(() => {
       enumerateDevices: jest.fn(async () => []),
     },
   });
+  let micStream: MediaStream | null = null;
   (window as any).__tpMic = {
-    isOpen: () => false,
-    requestMic: jest.fn(async () => ({ getTracks: () => [] } as unknown as MediaStream)),
-    releaseMic: jest.fn(),
+    get __lastStream() { return micStream; }, isOpen: () => !!micStream,
+    requestMic: jest.fn(async () => { micStream = { getTracks: () => [] } as unknown as MediaStream; return micStream; }),
+    releaseMic: jest.fn(() => { micStream = null; }),
   };
   (window as any).__tpCamera = {
     isActive: () => false,

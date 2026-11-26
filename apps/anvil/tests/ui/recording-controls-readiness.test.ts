@@ -16,7 +16,8 @@ async function setup(engine: 'core' | 'obs' = 'obs', auto = false) {
     maybeConnect: jest.fn(async () => connected), on: jest.fn(() => () => {}),
   };
   (window as any).__tpObs = connection; (window as any).__obsBridge = connection;
-  (window as any).__tpMic = { isOpen: () => false, requestMic: jest.fn(async () => ({})), releaseMic: jest.fn() };
+  let micStream: MediaStream | null = null;
+  (window as any).__tpMic = { get __lastStream() { return micStream; }, isOpen: () => !!micStream, requestMic: jest.fn(async () => { micStream = { getTracks: () => [] } as unknown as MediaStream; return micStream; }), releaseMic: jest.fn(() => { micStream = null; }) };
   (window as any).__tpCamera = { isActive: () => false, start: jest.fn(), stop: jest.fn() };
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: jest.fn(), enumerateDevices: jest.fn(async () => []) } });
   const registry = await import('../../src/recording/recorderRegistry');
@@ -83,6 +84,18 @@ test('switching an armed Core configuration to OBS resets both arm controls with
   expect(document.getElementById('settingsArmRecordingBtn')!.textContent).toBe('Arm Recording');
   expect((window as any).__tpMic.requestMic).toHaveBeenCalledTimes(1);
   expect((window as any).__tpCamera.start).not.toHaveBeenCalled(); expect(h.connection.setArmed).not.toHaveBeenCalled();
+});
+
+test('Stop after microphone closure clears armed readiness on the toolbar and Settings', async () => {
+  const h = await setup('core');
+  document.getElementById('armRecordingBtn')!.click(); await settle();
+  document.getElementById('toolbarStartRecBtn')!.click(); await settle();
+  (window as any).__tpMic.releaseMic();
+  document.getElementById('toolbarStopRecBtn')!.click(); await settle();
+  expect(h.registry.isRecordingBusy()).toBe(false);
+  expect(document.getElementById('armRecordingBtn')!.textContent).toBe('Arm Recording');
+  expect(document.getElementById('settingsArmRecordingBtn')!.textContent).toBe('Arm Recording');
+  expect(document.querySelector('[data-recording-readiness]')!.textContent).toContain('disarmed');
 });
 
 test('manual failure remains visible across settings remount; connection is distinct from capture readiness', async () => {

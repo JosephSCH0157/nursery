@@ -1,6 +1,7 @@
 import { createRecordingArmController, type RecordingArmFailure, type RecordingArmState } from '../recording/recording-arm';
 import { isRecordingBusy } from '../recording/recorderRegistry';
 import { subscribeRecorderSettings } from '../state/recorder-settings';
+import { appStore } from '../state/app-store';
 
 let initialized = false;
 let cleanup: (() => void) | null = null;
@@ -100,12 +101,16 @@ export function initRecordingArmControl(): void {
   window.addEventListener('tp:recording:state', onRecording);
   const refresh = () => { void controller.refreshConfiguration(); };
   window.addEventListener('tp:recording-settings:changed', refresh);
+  window.addEventListener('tp:mic:state', refresh);
   const offSettings = subscribeRecorderSettings(refresh);
+  const offCamera = [appStore.subscribe('cameraEnabled', refresh), appStore.subscribe('cameraAvailable', refresh)];
   cleanup = () => {
     offController(); offSettings();
+    offCamera.forEach((off) => off());
     document.removeEventListener('tp:settings:rendered', onSettings);
     window.removeEventListener('tp:recording:state', onRecording);
     window.removeEventListener('tp:recording-settings:changed', refresh);
+    window.removeEventListener('tp:mic:state', refresh);
   };
   (window as any).__tpRecordingArm = controller;
 }
