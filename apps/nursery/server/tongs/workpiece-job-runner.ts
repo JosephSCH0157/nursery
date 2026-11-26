@@ -33,6 +33,7 @@ import {
   readOpenAiTranscriptionUsage,
 } from "../../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
 import { OpenAiTextPostPersistenceContinuationError } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import { storageReleasePauseResponse } from "../../../../supabase/functions/_shared/storage-release-pause";
 
 type WorkpieceJobRow = Database["tongs"]["Tables"]["workpiece_jobs"]["Row"];
 
@@ -1571,6 +1572,9 @@ async function disposeRunnerState(state: RunnerState): Promise<void> {
 
 function queueRunnerTick(state: RunnerState): void {
   if (state.disposed || state.currentTick) return;
+  // Stop new claims. An admitted tick must finish (including its financial
+  // settlement); disposeRunnerState awaits it before the operator cuts over.
+  if (storageReleasePauseResponse(process.env.FORGE_STORAGE_RELEASE_MODE)) return;
   state.currentTick = state.tick().finally(() => {
     state.currentTick = null;
   });

@@ -1,0 +1,72 @@
+{
+  "schema": "forge.stripe-sandbox-storage-catalog.v1",
+  "observedAt": "2026-11-11T21:37:16.672Z",
+  "sourceAccount": "acct_1Spw8c1OSG3CCNl8",
+  "sandboxAccount": "acct_1Spw8m0v1TAfIsgZ",
+  "livemode": false,
+  "offers": [
+    {
+      "level": "50gb_v2",
+      "sourcePriceId": "price_1THQiC1OSG3CCNl8KMwHQFQU",
+      "sourceProductId": "prod_UFwW0QUSUgTyV8",
+      "productId": "prod_Vbx1M86ZW7gIMB",
+      "priceId": "price_1Uaj7f0v1TAfIsgZHtYtQGh6",
+      "created": 1794432723,
+      "currency": "usd",
+      "unitAmount": 500,
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "type": "service",
+      "taxCode": null,
+      "taxBehavior": "unspecified",
+      "capacityBytes": "53687091200"
+    },
+    {
+      "level": "150gb",
+      "sourcePriceId": "price_1THQiD1OSG3CCNl8Krar9qOv",
+      "sourceProductId": "prod_UFwWplSyzDWtG7",
+      "productId": "prod_Vbx1VHvjQUGhlj",
+      "priceId": "price_1Uaj7g0v1TAfIsgZ9YJEklY0",
+      "created": 1794432724,
+      "currency": "usd",
+      "unitAmount": 1000,
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "type": "service",
+      "taxCode": null,
+      "taxBehavior": "unspecified",
+      "capacityBytes": "161061273600"
+    },
+    {
+      "level": "500gb",
+      "sourcePriceId": "price_1THQiE1OSG3CCNl87lJEVjIO",
+      "sourceProductId": "prod_UFwWI0YdAoLb3z",
+      "productId": "prod_Vbx1XLguEmEvJF",
+      "priceId": "price_1Uaj7i0v1TAfIsgZ8E61NzZ4",
+      "created": 1794432726,
+      "currency": "usd",
+      "unitAmount": 2000,
+      "recurring": {
+        "interval": "month",
+        "interval_count": 1,
+        "meter": null,
+        "trial_period_days": null,
+        "usage_type": "licensed"
+      },
+      "type": "service",
+      "taxCode": null,
+      "taxBehavior": "unspecified",
+      "capacityBytes": "536870912000"
+    }
+  ]
+}

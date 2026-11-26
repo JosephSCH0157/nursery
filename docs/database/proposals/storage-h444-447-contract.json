@@ -1,0 +1,44 @@
+{
+  "schema": "forge.storage-h444-447-certification-proposal.v1",
+  "status": "PROPOSED-NON-EXECUTING",
+  "sourceCandidate": "660a8d62732393a5e61e72d1a6fa9658c3c53f81",
+  "executionAuthorized": false,
+  "evidenceAcceptanceAuthorized": false,
+  "requiredSupabaseCliVersion": "2.84.2",
+  "sourceProject": "wtvdjndyxegudufrompx",
+  "predecessorContract": "docs/database/certification/storage-full-tail-446.json",
+  "predecessorContractSha256": "6c101ad50695d99364a593087680e13c009678fb36069da282ce8b1cdc74cde5",
+  "admissionContract": "docs/database/certification/storage-admission-447.json",
+  "admissionContractSha256": "358c6d04d7d2aba2c47be5c73c5864974b348f58c5eeffc085d7ef6e48bf82d2",
+  "migrationManifestSha256": "6c113ffea724d77ea543bed82e0569d115f40dd185acf1f5f1fb817f470a7e52",
+  "baseline": {
+    "path": "database/canonical-baseline-v1/supabase/migrations/20261021020814_canonical_baseline_v1.sql",
+    "sha256": "73d2779c406b9428e7fdf189ab7ad084671cf1d03908041dbbe855816556c62e"
+  },
+  "lineages": ["historical-v1", "baseline-v1"],
+  "privilegeModes": ["permissive", "restrictive"],
+  "historyColumns": ["created_by", "idempotency_key", "name", "rollback", "statements", "version"],
+  "stages": [
+    {"historicalCount": 444, "baselineCount": 31, "version": "20261111201029", "checks": {"billing": 4, "successor": 4}},
+    {"historicalCount": 445, "baselineCount": 32, "version": "20261113175455", "checks": {"billing": 4, "successor": 5}},
+    {"historicalCount": 446, "baselineCount": 33, "version": "20261113214832", "checks": {"billing": 4, "successor": 6}},
+    {"historicalCount": 447, "baselineCount": 34, "version": "20261120161347", "checks": {"billing": 4, "successor": 6, "admission": 7}}
+  ],
+  "executionChecks": {
+    "billing": {"path": "supabase/tests/storage_billing_hosted_release_contract.sql", "sha256": "655b42fc665c4f2a5b0f4a5d0d7dfad595e4bb238997bd867aa3bd059a5c9620"},
+    "successor": {"path": "supabase/tests/storage_successor_hosted_release_contract.sql", "sha256": "5b6045de79421e87f85fddc3ea0281ba5f7f0de894f9cc6178b1709312e1f171"},
+    "admission": {"path": "supabase/tests/storage_admission_447_contract.sql", "sha256": "07ea6c20f716ba589d495d47535b594fc443ba8589d1c36470929614cbd4635f"}
+  },
+  "requiredFinancialAuthorities": ["pricing", "rollout", "costPolicy", "rateCondition"],
+  "requiredOriginalStorageObjects": 475,
+  "requiredOriginalStorageBytes": 447475,
+  "finalParity": {
+    "requiredCatalogs": ["H447-permissive", "H447-restrictive", "B1-34-permissive", "B1-34-restrictive"],
+    "normalizationContract": "docs/database/baseline/v1-gate3/wrappers-extension-compatibility.json",
+    "otherParityExceptionsAllowed": false,
+    "expectedCatalogSha256": null,
+    "syntheticEvidenceEstablishesAuthenticity": false
+  },
+  "approvalState": "NOT_ISSUED",
+  "certificationState": "NOT_RUN"
+}

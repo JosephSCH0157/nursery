@@ -109,6 +109,263 @@ entrypoint remains unimplemented and unauthorized. Do not use `--include-all`,
 **Not yet implemented/certified:** any unbounded or general historical-upgrade
 executor. Only the version-specific entrypoints named here are governed.
 
+### Closed H444 Quench security intervention (separate hosted approval)
+
+Owner-authorized local procedure, 2026-11-24. **No hosted execution is approved.**
+This is the sole pre-convergence security intervention: on the pinned Forge
+project, at the exact historical-v1 444-version/six-column prefix, remove only
+PUBLIC EXECUTE from the three signatures in
+[`h444-quench-public-execute-correction.sql`](proposals/h444-quench-public-execute-correction.sql).
+It is not a general SQL executor, migration shortcut, permission to skip 445–447,
+or authorization to change any function body, role, grant recipient or data.
+The missing Quench retry-helper repair is excluded.
+
+The demonstrated necessity is that direct PostgreSQL clients can override
+read-only defaults and supply JWT session settings; PUBLIC execution of the
+finalization/enqueue SECURITY DEFINER routines then permits writes. Existing
+authenticated/service_role grants, definitions, owners and search paths must be
+preserved. The independently reviewed synthetic checks establish that narrow
+correction, not actual source state or permission to execute it.
+
+Before dispatch, the owner must confirm the independently reviewed exact
+`forge.h444-quench-acl-authorization.v1` digest for the clean candidate, source,
+three-function SQL/observation hashes and convergence migration hash, security
+necessity, operator/reviewer, cost ceiling, 30-minute-or-shorter UTC window,
+recovery plan and private evidence custody. The reviewer must be distinct from
+the operator. Preserve the original full catalog using the existing canonical
+catalog-row query in a read-only snapshot with `SET LOCAL search_path=pg_catalog`
+(the receipt pins `catalogContext=search_path=pg_catalog`), the exact six-column history and lineage commitment, and
+the existing financial/Storage commitments. Any fresh protected financial
+observation needs its own explicit scope; do not reuse a consumed authorization.
+Record function OIDs, definitions, owners, configuration and expanded ACLs using
+[`h444-quench-public-execute-observation.sql`](proposals/h444-quench-public-execute-observation.sql).
+Independently predict the after-records by deleting exactly the three PUBLIC
+EXECUTE entries. No other catalog entry may change. Incomplete original catalog
+evidence is a STOP; scoped function observations are not a full catalog backup.
+
+Supervised dispatch uses only the fixed, hash-verified correction payload on the
+approved direct verify-full endpoint with the explicitly designated existing
+operator; never an arbitrary SQL path, changed reserved role or implicit credential
+fallback. Verify source identity and exact history immediately beforehand.
+Coordinate exclusive DDL ownership and verify the approved recovery evidence.
+Persist a create-only, fsynced attempt containing authorization/SQL hashes and
+candidate before sending the payload once; preserve it on every exit. The SQL
+requires independently supplied before/after fingerprints and enforces a single
+serializable transaction, 30-second statement, 2-second lock, 30-second idle and
+60-second transaction limits. This does not authorize opening a connection now.
+
+SQL NOTICE output is provisional, never proof of commit. Fresh read-only
+PostVerify on a separate snapshot must prove the committed after-state, unchanged
+original history/lineage/financial/Storage commitments and the full original-to-
+corrected catalog delta. Independently approve that evidence as
+`forge.h444-quench-acl-intervention.v1`. Retain raw before/after catalogs and
+receipts; never rewrite an original observation, add a migration-history row,
+or normalize the security delta away. An error before commit rolls back. A lost
+response, interruption, expired window or failed PostVerify is a HOLD: no retry,
+automatic PUBLIC regrant, or assumption of rollback. Reconcile read-only;
+unexpected changes require a separately authorized recovery decision. No restore
+or recovery action is implicit in this procedure.
+
+The corrected source is explicitly **H444 plus the recorded Quench ACL
+intervention**. Acquisition approval v3 binds its independent receipt and checks
+the corrected full catalog and function identities inside the acquisition
+snapshot before row extraction; existing v1/v2 approvals cannot select this
+state. The encrypted six-artifact package retains the receipt and observed
+catalog in its role/ACL artifact and binds them in source provenance. Principal
+provisioning, owner-assigned Credential Index, confidential enrollment, and the
+complete effective-capability review remain separate gates.
+
+Restoration execution approval v3 uses the existing coordinator through ordered
+445, 446, 447 and **448 / `20261125023622`**, with independent Apply/PostVerify
+receipts. The new shared-tail migration receives the same bytes on H and B1,
+accepts only the exact original or corrected ACL state, and converges both to
+the corrected state. It must never be applied ahead of 445–447 or recorded
+retroactively. Source correction and external-effect isolation are separately
+accounted transitions. Final H448/B1-35 parity is exact, except the existing
+wrappers compatibility rule; no Quench catalog exception survives convergence.
+Both privilege modes and original financial/Storage/recovery/release gates remain
+mandatory. No H447 completion is substituted for the new H448 completion.
+
+### Storage billing successors 441–444 (separate hosted authorization required)
+
+The four fixed entrypoints below pin project `wtvdjndyxegudufrompx`, historical
+lineage, payload ancestor `d3a481eaf5b688cbefe4ad1314a52446d5bd6a22`, Test financial
+mode, and the exact migration bytes. They are not a general upgrade executor.
+
+| Entrypoint under `scripts/` | Required predecessor / count | Target / count |
+|---|---|---|
+| `invoke-storage-billing-441-hosted-deployment.ps1` | `20261105025313` / 440 | `20261111180013` / 441 |
+| `invoke-storage-billing-442-hosted-deployment.ps1` | `20261111180013` / 441 | `20261111185031` / 442 |
+| `invoke-storage-billing-443-hosted-deployment.ps1` | `20261111185031` / 442 | `20261111192458` / 443 |
+| `invoke-storage-billing-444-hosted-deployment.ps1` | `20261111192458` / 443 | `20261111201029` / 444 |
+
+Each invocation validates the original canonical historical root/linked lineage.
+It then uses a private **migration-only** workdir containing the committed prefix
+through its fixed target. The checkout, linked project and canonical directory
+are not changed. Only the other three explicitly certified later successors may
+be absent from a prefix: new, missing or changed root migrations are rejected.
+Historical bytes come from Git objects, avoiding newline conversion. Exact prefix
+bytes are rechecked immediately before Apply, and the CLI dry-run must contain
+exactly that one target. No extra pending version is accepted or silently applied.
+
+`Preflight` requires fresh v2 Management API recovery evidence with approval
+reference prefix `FORGE-STORAGE-441:` (or the corresponding number). It independently
+re-observes that backup using the existing managed capacity-read credential.
+Existing managed database credentials are required; no passwordless linked CLI
+operation, credential enrollment, or rotation is performed. Preflight makes only
+authenticated database reads and a dry-run; local temporary files are removed.
+
+After explicit owner approval, invoke each stage separately, never as an automatic
+four-stage loop. Stages 442–444 additionally require `-PredecessorAuthorizationSha256`
+identifying the preceding successful PostVerify receipt. The fresh financial
+fingerprint must still match that receipt; drift stops the release for review.
+For example, with privately supplied values:
+
+```powershell
+./scripts/invoke-storage-billing-441-hosted-deployment.ps1 -Action Preflight -Operator $operator -RecoveryEvidencePath $reviewedEvidence
+# Only after the owner approves this exact stage:
+./scripts/invoke-storage-billing-441-hosted-deployment.ps1 -Action Apply -Operator $operator -RecoveryEvidencePath $reviewedEvidence -Authorization $ownerToken -AuthorizationSha256 $approvedCommitment
+./scripts/invoke-storage-billing-441-hosted-deployment.ps1 -Action PostVerify -Operator $operator -AuthorizationSha256 $approvedCommitment
+```
+
+Owner-issued Apply tokens must begin
+`FORGE-STORAGE-441:wtvdjndyxegudufrompx:20261111180013:`; each later stage requires
+its own number/version and separately approved SHA-256 commitment. Tokens are not
+generated by the tooling. Recovery evidence and Apply authorizations are consumed
+with create-only durable local markers before the one CLI push. Preserve these
+private records. Apply fingerprints protected financial authority, billing
+projections, receipts and financial mode before and after execution; concurrent
+legitimate changes also fail this conservative verification and require review.
+
+Successful Apply performs immediate PostVerify. A lost response, timeout or
+interrupted process is **not** permission to repeat Apply. Use PostVerify with
+the original commitment: it reads the durable attempt fingerprint and independently
+verifies installed count/head, cumulative Storage functions/ACLs/RLS/triggers and
+unchanged financial evidence. If the migration was not installed, PostVerify fails;
+inspect the actual state and obtain fresh recovery evidence and authorization
+before another attempt. If installed but checks fail, stop and recover forward.
+Never rewrite history, drop guards or assume a database rollback. A later stage
+requires the predecessor's complete cumulative contract, not merely its version.
+
+These scripts do not deploy code, observe/approve quarantine objects, change
+financial mode, grant capacity or charge customers. Capacity enforcement can
+restrict additions until separately authorized exact-object quarantine and usage
+reconciliation complete; deletion remains governed by existing authorization.
+Authentic historical financial-state equivalence is not supplied by these tools.
+The release owner must resolve any policy requiring that certificate separately.
+
+### Storage successors 445–446: offline preparation only
+
+Status: **Release blocked; fixed wrappers prepared with Apply disabled.** These helpers
+do not extend the operating scope of the 441–444 entrypoints above.
+
+The separate `invoke-storage-billing-445-hosted-deployment.ps1` and
+`invoke-storage-billing-446-hosted-deployment.ps1` wrappers now collect linked
+read-only Preflight/PostVerify observations, use the cumulative successor
+contract, and retain exact predecessor receipts, financial fingerprints,
+fresh backup evidence, durable single-use attempt records and one-version dry
+runs. The 444 predecessor receipt retains its original payload identity.
+Both wrappers reject Apply **before credentials or network access**, independently
+of the policy-level hold. Removing either hold is not tonight's authorization.
+Their migration-only linked staging helper is separate from the unlinked helper
+below; neither stager connects or creates a snapshot. No hosted run is claimed.
+See the [November 19 checklist](../releases/pr92-morning-checklist-2026-11-19.md)
+for preparation evidence, pause limitations and remaining release gates.
+
+The closed successor contract in `scripts/lib/storage-successor-release-contract.mjs`
+pins migration/configuration source commit
+`4de38126e51070ea4b5e90b418f1e66e5b7095f0`. This is a source identity, not a
+certification result. The only targets are:
+
+| Target / count | Exact predecessor / count | Predecessor receipt payload |
+|---|---|---|
+| `20261113175455` / 445 | `20261111201029` / 444 | `d3a481eaf5b688cbefe4ad1314a52446d5bd6a22` |
+| `20261113214832` / 446 | `20261113175455` / 445 | `4de38126e51070ea4b5e90b418f1e66e5b7095f0` |
+
+Offline package preparation and verification require no database or Docker:
+
+```powershell
+$package = node scripts/prepare-storage-successor-hosted-workdir.mjs (Get-Location).Path 20261113175455
+node scripts/prepare-storage-successor-hosted-workdir.mjs (Get-Location).Path 20261113175455 $package
+```
+
+Use `20261113214832` for the second target. Packages are bounded migration/config
+materializations under `.git/forge-private-evidence/storage-successor-release`,
+not source checkouts. They contain the exact Git-byte prefix and required email
+template. They are unlinked, contain no connection descriptors or credentials,
+and record `certification: BLOCKED`. Do not link or apply these packages. Package
+verification rejects added, missing, changed, or linked files and changed
+configuration dependencies.
+
+The two `verify-storage-billing-445-hosted-deployment-policy.mjs` and
+`verify-storage-billing-446-hosted-deployment-policy.mjs` tools validate supplied
+JSON only. They do not collect or authenticate hosted observations and cannot
+issue an Apply or verified-stage receipt. Their `policyInputOnly` output is not
+a hosted preflight/postverification certificate. Preflight inputs must include
+`--state`, `--operator`, `--predecessor`,
+`--predecessor-authorization-sha256`, `--recovery`, and `--observation`.
+All Apply requests fail on the checked-in historical-certification hold, even
+with a syntactically valid owner token. No environment variable or caller flag
+waives that hold.
+
+`supabase/tests/storage_successor_hosted_release_contract.sql` adds cumulative
+catalog/ACL/RLS/trigger checks for exact-version historical exclusions and
+manifest publication. The existing guarded CI collector checks it alongside the
+unchanged 441–444 contract. Adding that check does not mean it has run, and a
+synthetic B1 result cannot establish historical equivalence.
+
+The exact blocker and authentic predecessor requirements remain in
+[`STORAGE_FULL_TAIL_CERTIFICATION.md`](STORAGE_FULL_TAIL_CERTIFICATION.md).
+No known owner-approved, restorable authentic H444 snapshot is available.
+Completing authentic H certification through 446 and comparing H/B1 outcomes,
+then completing and certifying a hosted executor, requires a separately approved
+continuation. No snapshot acquisition, cloud infrastructure, entitlement
+activation, merge, or deployment is part of this offline procedure.
+
+The versioned logical-restoration evidence contract in
+[`STORAGE_FULL_TAIL_CERTIFICATION.md`](STORAGE_FULL_TAIL_CERTIFICATION.md#logical-restoration-evidence-contract-v1)
+and its validator at
+[`storage-logical-restoration-certification.mjs`](../../scripts/lib/storage-logical-restoration-certification.mjs)
+support offline validation of a separately owner-authorized, authentic logical
+H444 restoration. The validator does not export or restore data, access a hosted
+database, execute migrations, authorize release execution, or issue a hosted
+certification receipt. Its evidence method does not replace the required
+production physical-backup recovery certification gate or modify the existing
+physical-provider restoration contract.
+
+The same guarded restoration coordinator also implements the separately
+versioned logical v2 route through 447, described in
+[Isolated logical execution through 447](STORAGE_FULL_TAIL_CERTIFICATION.md#isolated-logical-execution-through-447-v2).
+It requires an already restored, independently approved H444 package, a clean
+candidate-bound checkout, a non-production target and per-stage verification.
+The existing physical approval remains restricted to 446. Completed logical
+behavior/parity evidence needs a separate independent approval after execution;
+v1 receipts and the unsigned 447 proposal cannot authorize this route.
+The full-tail B1 runner's opt-in `-IncludeAdmission` supports B1-34 in both
+privilege modes. Its default and historical synthetic boundary remain unchanged.
+These local implementation capabilities neither enable the held production
+445/446 wrappers nor create a production 447 executor. Export, confidentiality
+handling, restoration, actual certification and production release each retain
+their separate authorization boundaries.
+
+Logical restoration v4 adds an explicit immutable intervention-origin binding
+while preserving the current executable candidate and all v3 convergence gates.
+The [isolated restoration preparation procedure](proposals/H444_ISOLATED_RESTORATION_PREPARATION.md)
+defines the separate pre-import isolation, plain-SQL import, exact original
+Storage restoration and actual-receipt handoff requirements. It is local
+preparation, not a target creator or importer. A provider-supported exact-identity
+Storage capability must be proved for the selected target before restoration
+approval. No execution window or hosted authority follows from this procedure.
+
+The existing H444 exporter now includes a separately guarded acquisition route:
+[`H444_OFFLINE_INTEGRATION.md`](proposals/H444_OFFLINE_INTEGRATION.md#guarded-acquisition-extension-2026-11-24-not-executed).
+It requires a new independently pinned acquisition approval, a clean candidate,
+verified direct PostgreSQL TLS, the complete reviewed extraction scope and
+restricted encrypted output. It reuses preserved Storage bodies only after
+snapshot identity and byte reconciliation. The original synthetic route remains
+isolated; synthetic tests do not authorize a live connection. This capability
+does not provide an approved source package or remove the acquisition hold.
+
 ## 4. Create a disposable fresh database
 
 Choose an unused local port range and a destination that does not exist:
@@ -1399,3 +1656,13 @@ Emergency deactivation is also separately authorized. Keep application/server en
 ```
 
 Never retry an interrupted or ambiguous activation/deactivation blindly. Inspect hosted state read-only; do not use `--include-all`, migration repair, historical-root reset, direct migration-history writes, or an application rollback that removes guards before database deactivation.
+
+### Storage complete-tail certification through 446 (isolated only)
+
+Use [STORAGE_FULL_TAIL_CERTIFICATION.md](STORAGE_FULL_TAIL_CERTIFICATION.md) and
+its pinned 446-migration contract for PR #89's full-tail certification. This is a
+separate scope: existing version-specific exact-prefix guards remain unchanged.
+It distinguishes complete B1 operational-fixture results, the synthetic H
+prerequisite boundary, and unavailable authentic historical financial evidence.
+A blocked authentic H result never counts as complete lineage certification.
+No hosted execution or financial activation is authorized by these tests.

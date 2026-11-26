@@ -85,6 +85,8 @@ jobs:
           ./scripts/new-forge-database-workdir.ps1 -OutputPath $workdir -ProjectId nursery -ApiPort 54321 -Lineage baseline
           "FORGE_BARSTOCK_SUPABASE_WORKDIR=$workdir" | Out-File -FilePath $env:GITHUB_ENV -Append
           ./scripts/start-forge-disposable-ci-database.ps1 -Workdir $workdir -DisposableCI
+      - name: Verify full-tail Storage hosted-release contract (read-only)
+        run: node scripts/certify-storage-hosted-ci-contract.mjs
       - name: Run Barstock production gate
         run: pnpm gate:barstock-release
       - name: Stop disposable local Supabase
@@ -101,9 +103,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20.20.0
+      - name: Verify offline Storage restoration evidence contracts
+        run: node --test scripts/test-storage-authentic-certification.mjs scripts/test-storage-logical-restoration-certification.mjs scripts/test-storage-logical-execution-wiring.mjs scripts/test-storage-h444-restoration-preparation.mjs scripts/test-storage-h444-exporter.mjs scripts/test-storage-h444-authorization.mjs scripts/test-storage-h444-extraction-scope.mjs scripts/test-storage-h444-principal.mjs scripts/test-storage-h444-managed.mjs scripts/test-storage-quench-intervention.mjs
       - uses: supabase/setup-cli@v1
         with:
           version: 2.84.2
@@ -115,6 +121,8 @@ jobs:
           ./scripts/test-supabase-lineage-guard.ps1
       - name: Verify disposable CI database setup contract
         run: node --test scripts/tests/disposable-ci-database.test.mjs
+      - name: Verify exact-version Storage deployment policies
+        run: node --test scripts/test-storage-billing-hosted-deployment.mjs scripts/test-storage-successor-hosted-deployment.mjs scripts/test-storage-successor-executors.mjs scripts/test-storage-http-source.mjs scripts/test-storage-historical-inventory-evidence.mjs scripts/test-storage-full-tail.mjs scripts/test-storage-admission-successor.mjs
       - name: Verify hosted smoke isolation
         run: node --test scripts/tests/hosted-smoke-authorization.test.mjs
       - name: Certify fresh baseline and shared tail
@@ -160,6 +168,44 @@ jobs:
       - name: Certify reviewed financial-alignment catalog and behavior
         shell: pwsh
         run: ./scripts/certify-canonical-baseline-v1.ps1 -CatalogStage provider-alignment -DefaultPrivilegeMode ${{ matrix.privileges }}
+
+  storage-review-regression:
+    name: storage:review (${{ matrix.privileges }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        privileges: [permissive, restrictive]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.84.2
+      - run: pnpm install --frozen-lockfile
+      - name: Build Storage HTTP client dependencies
+        run: pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build
+      - name: Verify subscription lifecycle and Storage authority regressions
+        run: pnpm --filter nursery exec tsx --test tests/subscription-lifecycle.test.mts tests/storage-subscription-authority.test.mts tests/storage-capacity.test.mts tests/storage-release-pause.test.mts tests/storage-checkout-release.test.mts
+      - name: Verify synthetic Storage review corrections
+        shell: pwsh
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP 'storage-review'
+          New-Item -ItemType Directory -Path $evidence | Out-Null
+          ./scripts/test-storage-review-database.ps1 -Lineage baseline -DefaultPrivilegeMode ${{ matrix.privileges }} -EvidenceDirectory $evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storage-review-${{ matrix.privileges }}
+          path: ${{ runner.temp }}/storage-review/*review-regression.log
+          retention-days: 7
 
   nursery-media-gate:
     name: nursery:media

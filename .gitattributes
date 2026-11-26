@@ -1,9 +1,14 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+docs/database/proposals/h444-quench-public-execute-*.sql text eol=lf
+docs/database/certification/quench-acl-convergence-448.json text eol=lf
 
 # Frozen database evidence and its executable certification inputs are hashed
 # as exact Git blob bytes. Never let platform checkout conversion rewrite them.
 supabase/migrations/** -text
+docs/database/certification/storage-admission-447.json text eol=lf
+supabase/tests/storage_admission_447_contract.sql text eol=lf
+database/proposals/20261120161347_storage_accounting_identity_admission.sql text eol=lf
 supabase/tests/** -text
 database/canonical-baseline-v1/** -text
 database/historical-pre-slice-a-v1/** -text
@@ -70,6 +75,8 @@ supabase/migrations/20260917095336_hearth_script_proposal_legacy_supersession.sq
 # Canonical baseline v1 is byte-hashed certification evidence. Keep the same
 # LF bytes in Git and Windows working trees.
 database/canonical-baseline-v1/** text eol=lf
+# Proposed one-shot observation is reviewed by exact SQL byte hash.
+docs/database/proposals/h444-financial-fingerprint-observation.sql text eol=lf
 docs/database/baseline/v1-gate3/** text eol=lf
 scripts/build-canonical-baseline-v1.ps1 text eol=lf
 scripts/capture-canonical-baseline-v1-catalog.ps1 text eol=lf
@@ -91,6 +98,10 @@ supabase/tests/pre_slice_a_fixture_behavior.sql text eol=lf
 # across Windows checkouts.
 scripts/certify-gate5d-integrated-synthetic.ps1 text eol=lf
 supabase/tests/public_slice_a_security_behavior.sql text eol=lf
+
+# Candidate-bound temporary acquisition-role procedure hashes (new proposals only).
+docs/database/proposals/h444-temporary-role-create.sql text eol=lf
+docs/database/proposals/h444-temporary-role-cleanup.sql text eol=lf
 
 # Generated artifacts/mirrors (do not hand edit)
 apps/anvil/dist/** linguist-generated=true
