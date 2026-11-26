@@ -1,5 +1,10 @@
 # PR #88 recording integration repair
 
+Later owner-reported hardware passes and the remaining confirmation/warning
+refinements are recorded in
+[`anvil-recording-refinements-2026-11-26.md`](anvil-recording-refinements-2026-11-26.md).
+This earlier record preserves the pre-hardware acceptance window and procedure.
+
 Status: Draft candidate and manual acceptance runbook; not production evidence.
 Date: November 26, 2026 (America/New_York).
 Baseline: PR #88 `21a8179e987f2b7e0f5d52d8de2facba370a2ccd`.

@@ -65,12 +65,14 @@ export function wireRecordButtons(store?: AppStore | null, opts: WireRecordButto
     startBtn.addEventListener('click', async () => {
       if (startBtn.disabled) return;
       startBtn.disabled = true;
+      startBtn.dataset.recStarting = 'true';
       try {
         await startSessionRecording({ obsEnabled: getObsEnabled(), engine: getRecordingEngine() });
       } catch (err) {
         console.warn('[recording] manual start failed', err);
       } finally {
-        startBtn.disabled = false;
+        delete startBtn.dataset.recStarting;
+        startBtn.disabled = startBtn.dataset.destinationBlocked === 'true' || isRecordingBusy();
       }
     });
   });

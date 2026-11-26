@@ -310,6 +310,10 @@ function setSettings(next) {
   };
   persistSettings();
   applyConfigs();
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording-settings:changed"));
+  } catch {
+  }
 }
 function getSettings() {
   return JSON.parse(JSON.stringify(settings));

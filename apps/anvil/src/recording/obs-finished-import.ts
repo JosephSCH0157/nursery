@@ -68,8 +68,9 @@ export async function prepareObsRecordingImport(): Promise<boolean> {
 
 export async function importFinishedObsRecording(result: ObsStopResult): Promise<void> {
   state.lastStop = result;
+  const report = (detail: Record<string, unknown>) => announce('tp:obs:recording-import', { ...detail, outputPath: result.outputPath ?? null });
   if (!result.stopped || !result.outputPath) {
-    announce('tp:obs:recording-import', { phase: 'needs-file', reason: 'output_path_missing' });
+    report({ phase: 'needs-file', reason: 'output_path_missing' });
     return;
   }
   let captureAuthority = state.authority;
@@ -78,39 +79,39 @@ export async function importFinishedObsRecording(result: ObsStopResult): Promise
     if (target.ok) captureAuthority = target.captureAuthority;
   }
   if (!captureAuthority) {
-    announce('tp:obs:recording-import', { phase: 'failed', reason: 'capture_authority_missing' });
+    report({ phase: 'failed', reason: 'capture_authority_missing' });
     return;
   }
   let file: File | null = state.selectedFile;
   state.selectedFile = null;
   if (!file) try { file = await resolveFromLinkedDirectory(result.outputPath); } catch {}
   if (!file) {
-    announce('tp:obs:recording-import', { phase: 'needs-file', reason: 'local_file_permission_required', retryAvailable: true });
+    report({ phase: 'needs-file', reason: 'local_file_permission_required', retryAvailable: true });
     return;
   }
-  announce('tp:obs:recording-import', { phase: 'uploading', name: file.name, bytes: file.size });
+  report({ phase: 'uploading', name: file.name, bytes: file.size });
   const committed = await commitRecordingFileToTongs({ file, originalName: file.name, captureAuthority });
   if (!committed.ok) {
-    announce('tp:obs:recording-import', { phase: 'failed', reason: committed.reason, errorCode: committed.errorCode ?? null });
+    report({ phase: 'failed', reason: committed.reason, errorCode: committed.errorCode ?? null });
     return;
   }
   const completed = await transitionRecordingCompleted({ commit: committed });
   if (!completed.ok || !completed.completionId) {
-    announce('tp:obs:recording-import', { phase: 'failed', reason: completed.reason ?? completed.outcome });
+    report({ phase: 'failed', reason: completed.reason ?? completed.outcome });
     return;
   }
-  announce('tp:obs:recording-import', { phase: 'decision-required', completionId: completed.completionId });
+  report({ phase: 'decision-required', completionId: completed.completionId });
   await showRecordingDecisionDialog({
     takeName: file.name,
     onKeep: async () => {
       const decision = await transitionRecordingKept({ commit: committed, completionId: completed.completionId! });
       if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
-      announce('tp:obs:recording-import', { phase: 'kept', completionId: completed.completionId });
+      report({ phase: 'kept', completionId: completed.completionId });
     },
     onDiscard: async () => {
       const decision = await transitionRecordingDiscarded({ commit: committed, completionId: completed.completionId! });
       if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
-      announce('tp:obs:recording-import', { phase: 'discarded', completionId: completed.completionId });
+      report({ phase: 'discarded', completionId: completed.completionId });
     },
   });
 }

@@ -108,3 +108,127 @@ test('lost start confirmation retains uncertainty so the caller can still stop O
     assert.equal(f.clients[0].recording, true);
   } finally { f.bridge.disconnect(); }
 });
+
+for (const early of [false, true]) test(`Start uses ${early ? 'early' : 'delayed'} terminal OBS event despite stale status`, async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0];
+    client.call = async (name) => {
+      if (name === 'StartRecord') {
+        const started = () => client.emit('RecordStateChanged', { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTED' });
+        if (early) started(); else setTimeout(started, 20);
+        return {};
+      }
+      if (name === 'GetRecordStatus') return { outputActive: false };
+      return {};
+    };
+    await f.bridge.start();
+  } finally { f.bridge.disconnect(); }
+});
+
+test('successful StopRecord path is local completion even if a later status RPC would fail', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0];
+    client.call = async (name) => {
+      if (name === 'StopRecord') return { outputPath: 'E:/OBS/finished.mkv' };
+      if (name === 'GetRecordStatus') throw new Error('late status RPC unavailable');
+      return {};
+    };
+    await assert.doesNotReject(f.bridge.stop());
+  } finally { f.bridge.disconnect(); }
+});
+
+test('Stop can use the command-correlated stopped event path if response path is absent', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0];
+    client.call = async (name) => {
+      if (name === 'StopRecord') {
+        client.emit('RecordStateChanged', { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPED', outputPath: 'E:/OBS/event.mkv' });
+        return {};
+      }
+      if (name === 'GetRecordStatus') return { outputActive: true };
+      return {};
+    };
+    assert.equal((await f.bridge.stop()).outputPath, 'E:/OBS/event.mkv');
+  } finally { f.bridge.disconnect(); }
+});
+
+
+test('polling confirms a delayed active output when events are unavailable', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    let probes = 0;
+    f.clients[0].call = async (name) => name === 'GetRecordStatus' ? { outputActive: ++probes >= 3 } : {};
+    await f.bridge.start(); assert.ok(probes >= 3);
+  } finally { f.bridge.disconnect(); }
+});
+
+test('STARTING is not recording confirmation; a delayed STARTED event is required', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0]; let confirmed = false;
+    client.call = async (name) => {
+      if (name === 'StartRecord') {
+        client.emit('RecordStateChanged', { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTING' });
+        return {};
+      }
+      return { outputActive: false };
+    };
+    const started = f.bridge.start().then(() => { confirmed = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20)); assert.equal(confirmed, false);
+    client.emit('RecordStateChanged', { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTED' });
+    await started; assert.equal(confirmed, true);
+  } finally { f.bridge.disconnect(); }
+});
+
+test('stale and failed status probes cannot override an early successful start event', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0];
+    client.call = async (name) => {
+      if (name === 'StartRecord') { client.emit('RecordStateChanged', { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTED' }); return {}; }
+      throw new Error('status RPC unavailable');
+    };
+    await f.bridge.start();
+  } finally { f.bridge.disconnect(); }
+});
+
+test('delayed STOPPED event provides local path after an empty stop response', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0];
+    client.call = async (name) => {
+      if (name === 'StopRecord') { setTimeout(() => client.emit('RecordStateChanged', { outputActive: false, outputState: 'OBS_WEBSOCKET_OUTPUT_STOPPED', outputPath: 'E:/OBS/delayed.mkv' }), 20); return {}; }
+      return { outputActive: false };
+    };
+    assert.equal((await f.bridge.stop()).outputPath, 'E:/OBS/delayed.mkv');
+  } finally { f.bridge.disconnect(); }
+});
+
+test('genuine command rejection is not hidden by an unrelated active event', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    const client = f.clients[0];
+    client.call = async () => { client.emit('RecordStateChanged', { outputActive: true, outputState: 'OBS_WEBSOCKET_OUTPUT_STARTED' }); throw new Error('OBS output configuration failed'); };
+    await assert.rejects(f.bridge.start(), /output configuration failed/);
+  } finally { f.bridge.disconnect(); }
+});
+
+test('genuine missing stop-path confirmation fails visibly', async () => {
+  const f = await fixture();
+  try {
+    f.authenticate(); await f.bridge.connect();
+    f.clients[0].call = async () => ({ outputActive: false });
+    await assert.rejects(f.bridge.stop(), /finalized recording path/);
+  } finally { f.bridge.disconnect(); }
+});

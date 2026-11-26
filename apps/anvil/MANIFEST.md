@@ -545,6 +545,20 @@ See `docs/scroll-contract.md` for executable runtime boundaries and allowed/forb
 
 ## Recording integration ownership
 
+Refinement contract (November 26, 2026): destination warning UI is a read-only
+projection of the existing Hearth/Forge directory API. Mapping/grants remain in
+the existing settings. Core Start is blocked until those requirements recover;
+OBS bypasses the Core-only folder projection. Mapping notifications, storage
+events and focus/visibility return refresh readiness without reloading a take.
+
+OBS command confirmation observes RecordStateChanged before sending a command,
+retains early events, and uses bounded status polling for Start as a fallback.
+A successful StopRecord saved-path response is completion evidence; a subsequent
+status RPC is not required. Uncertain capture retains Stop ownership separately
+from confirmed-active truth. Local completion and cloud persistence have distinct
+messages. Cloud feedback includes its take's output path for correlation; it
+cannot undo a successful local Stop or relabel a newer take.
+
 - `recorders-core.ts` owns the in-session selected recording engine and capture mode.
   `src/recording/recording-settings.ts` translates that selection for device ownership,
   pre-roll and command dispatch. The existing settings cache must preserve fields

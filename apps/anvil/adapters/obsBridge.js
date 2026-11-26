@@ -114,6 +114,7 @@ function _connectOnce() {
     try { client.on('Identified', () => { try { window.HUD?.log?.('obs:identified'); } catch {} }); } catch {}
     try { client.on('CurrentProgramSceneChanged', (e) => { try { _emit('scene', e); window.HUD?.log?.('obs:scene', e); } catch {} }); } catch {}
     client.on('RecordStateChanged', (ev) => {
+      if (generation !== _generation || client !== _obsClient) return;
       try {
         const active = !!(ev && (ev.outputActive || ev.outputActive === true));
         _emit('recordstate', active, ev);
@@ -185,6 +186,76 @@ function _emit(name, ...args) {
   } catch {}
 }
 
+// Observe before sending the command so an event delivered before its ACK is
+// retained. Polling is a bounded fallback, not a second mandatory success gate.
+const RECORD_CONFIRM_TIMEOUT_MS = 5000;
+const RECORD_CONFIRM_POLL_MS = 200;
+let _recordCommand = null;
+function _recordingConfirmation(client, generation, active) {
+  let settled = false;
+  let begun = false;
+  let deadline = null;
+  let pollTimer = null;
+  let finish;
+  const result = new Promise((resolve) => { finish = resolve; });
+  const clean = () => {
+    clearTimeout(deadline); clearTimeout(pollTimer);
+    bridge.off('recordstate', onState); bridge.off('disconnect', onDisconnect);
+  };
+  const complete = (value) => {
+    if (settled) return;
+    settled = true; clean(); finish(value);
+  };
+  const onDisconnect = () => complete({ ok: false, reason: 'OBS disconnected before recording confirmation. Check OBS before retrying Stop.' });
+  const onState = (outputActive, event) => {
+    if (generation !== _generation || client !== _obsClient) return;
+    const state = event?.outputState;
+    if (active && outputActive === true && state !== 'OBS_WEBSOCKET_OUTPUT_STARTING' && state !== 'OBS_WEBSOCKET_OUTPUT_STOPPING') {
+      complete({ ok: true, via: 'event' });
+    } else if (!active && outputActive === false && state === 'OBS_WEBSOCKET_OUTPUT_STOPPED' && typeof event.outputPath === 'string' && event.outputPath.trim()) {
+      complete({ ok: true, via: 'event', outputPath: event.outputPath.trim() });
+    }
+  };
+  bridge.on('recordstate', onState); bridge.on('disconnect', onDisconnect);
+  const probe = async () => {
+    if (settled) return;
+    if (generation !== _generation || client !== _obsClient || !_connected) { onDisconnect(); return; }
+    try {
+      const status = await client.call('GetRecordStatus');
+      if (!settled && generation === _generation && client === _obsClient && active && status?.outputActive === true) {
+        complete({ ok: true, via: 'status' });
+      }
+      // Inactive status alone cannot supply the saved file path for Stop.
+    } catch { /* A later terminal event can still provide authoritative proof. */ }
+    if (!settled) pollTimer = setTimeout(probe, RECORD_CONFIRM_POLL_MS);
+  };
+  return {
+    wait() {
+      if (!begun && !settled) {
+        begun = true;
+        deadline = setTimeout(() => complete({ ok: false, reason: active
+          ? 'OBS recording was not confirmed. Check OBS, then use Stop before trying another take.'
+          : 'OBS did not return a finalized recording path. Check the local file in OBS before retrying.' }), RECORD_CONFIRM_TIMEOUT_MS);
+        void probe();
+      }
+      return result;
+    },
+    dispose: clean,
+  };
+}
+function _runRecordCommand(kind, action) {
+  if (_recordCommand) {
+    if (_recordCommand.kind === kind) return _recordCommand.promise;
+    return _recordCommand.promise.catch(() => {}).then(() => _runRecordCommand(kind, action));
+  }
+  const promise = action();
+  const operation = { kind, promise };
+  _recordCommand = operation;
+  const clear = () => { if (_recordCommand === operation) _recordCommand = null; };
+  void promise.then(clear, clear);
+  return promise;
+}
+
 const bridge = {
   connect: _connectOnce,
   maybeConnect: _connectOnce,
@@ -194,39 +265,45 @@ const bridge = {
   configure(next) {
     _cfg = { ..._cfg, ...(next || {}) };
   },
-  async start() {
-    let requested = false;
-    try {
-      await _connectOnce();
-      if (!_connected || !_obsClient) throw new Error('OBS is disconnected. Connect OBS in Recording Settings.');
-      requested = true;
-      await _obsClient.call('StartRecord');
-      const status = await _obsClient.call('GetRecordStatus');
-      if (!status?.outputActive) throw new Error('OBS did not confirm recording. Check OBS output settings.');
-    } catch (e) {
-      if (requested && e && typeof e === 'object') e.captureMayBeActive = true;
-      _emit('error', e);
-      throw e;
-    }
+  start() {
+    return _runRecordCommand('start', async () => {
+      let requested = false;
+      let confirmation;
+      try {
+        await _connectOnce();
+        if (!_connected || !_obsClient) throw new Error('OBS is disconnected. Connect OBS in Recording Settings.');
+        const client = _obsClient;
+        confirmation = _recordingConfirmation(client, _generation, true);
+        requested = true;
+        await client.call('StartRecord');
+        const confirmed = await confirmation.wait();
+        if (!confirmed.ok) throw new Error(confirmed.reason);
+      } catch (error) {
+        if (requested && error && typeof error === 'object') error.captureMayBeActive = true;
+        _emit('recordingerror', error);
+        throw error;
+      } finally { confirmation?.dispose(); }
+    });
   },
-  async stop() {
-    try {
-      if (!_connected || !_obsClient) throw new Error('OBS is disconnected. Check recording status in OBS.');
-      const response = await _obsClient.call('StopRecord');
-      const outputPath = response && typeof response.outputPath === 'string'
-        ? response.outputPath.trim()
-        : '';
-      const status = await _obsClient.call('GetRecordStatus');
-      if (status?.outputActive || !outputPath) throw new Error('OBS did not confirm a finalized recording path. Check the recording in OBS.');
-      return {
-        adapter: 'obs',
-        stopped: true,
-        ...(outputPath ? { outputPath } : {}),
-      };
-    } catch (e) {
-      _emit('error', e);
-      throw e;
-    }
+  stop() {
+    return _runRecordCommand('stop', async () => {
+      let confirmation;
+      try {
+        if (!_connected || !_obsClient) throw new Error('OBS is disconnected. Check recording status in OBS.');
+        const client = _obsClient;
+        confirmation = _recordingConfirmation(client, _generation, false);
+        const response = await client.call('StopRecord');
+        const responsePath = typeof response?.outputPath === 'string' ? response.outputPath.trim() : '';
+        // StopRecord's successful saved-path response is completion evidence.
+        // A subsequent failed/stale status probe must not undo that evidence.
+        const confirmed = responsePath ? { ok: true, outputPath: responsePath } : await confirmation.wait();
+        if (!confirmed.ok) throw new Error(confirmed.reason);
+        return { adapter: 'obs', stopped: true, outputPath: confirmed.outputPath };
+      } catch (error) {
+        _emit('recordingerror', error);
+        throw error;
+      } finally { confirmation?.dispose(); }
+    });
   },
   async getRecordStatus() {
     try {
@@ -234,7 +311,7 @@ const bridge = {
       if (!_connected || !_obsClient) throw new Error('OBS connection unavailable');
       return await _obsClient.call('GetRecordStatus');
     } catch (e) {
-      _emit('error', e);
+      _emit('recordingerror', e);
       throw e;
     }
   },

@@ -19,6 +19,24 @@ export async function resolveLocalRecordingDestination(): Promise<LocalDestinati
   return { handle, expected, hint };
 }
 
+export type LocalDestinationReadiness = { ready: boolean; message: string };
+// Read-only projection of the existing destination API. Permission and mapping
+// changes remain owned by Hearth/The Forge; capture still performs its hard gate.
+export async function readLocalDestinationReadiness(): Promise<LocalDestinationReadiness> {
+  try {
+    const destination = await resolveLocalRecordingDestination();
+    if (!destination.expected) return { ready: true, message: '' };
+    if (!destination.handle) return { ready: false, message: 'Core recording is blocked: no recording folder is mapped for this browser. Map the recording destination in Hearth / The Forge Settings > Storage, grant folder access, then return here.' };
+    const handle = destination.handle as any;
+    if (handle.queryPermission && await handle.queryPermission({ mode: 'readwrite' }) !== 'granted') {
+      return { ready: false, message: 'Core recording is blocked: the mapped recording folder needs write permission. Grant folder access in Hearth / The Forge Settings > Storage, then return here.' };
+    }
+    return { ready: true, message: '' };
+  } catch {
+    return { ready: false, message: 'Core recording is blocked: the recording destination could not be checked. Relink the recording folder in Hearth / The Forge Settings > Storage, then return here.' };
+  }
+}
+
 export async function requireLocalRecordingDestination(): Promise<LocalDestination> {
   const destination = await resolveLocalRecordingDestination();
   if (!destination.expected) return destination;

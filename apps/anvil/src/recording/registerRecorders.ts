@@ -82,6 +82,7 @@ function createObsRecorder(): RecorderBackend {
       const { prepareObsRecordingImport } = await import('./obs-finished-import');
       if (!await prepareObsRecordingImport()) throw new Error('Capture authorization unavailable. Bind the current approved script in Hearth before recording.');
       await obs.start();
+      window.dispatchEvent(new CustomEvent('tp:recording:obs-started'));
     },
     async stop() {
       const obs = window?.__obsBridge;
@@ -90,8 +91,8 @@ function createObsRecorder(): RecorderBackend {
       window.dispatchEvent(new CustomEvent('tp:recording:obs-local-complete', { detail: result }));
       // Local OBS completion and authorized cloud import are separate stages.
       // The existing importer owns file access, authority, and Storage safeguards.
-      void Promise.resolve(window.__tpObsImport?.acceptStopResult?.(result)).catch((error) => {
-        window.dispatchEvent(new CustomEvent('tp:obs:recording-import', { detail: { phase: 'failed', reason: String(error) } }));
+      void Promise.resolve().then(() => window.__tpObsImport?.acceptStopResult?.(result)).catch((error) => {
+        window.dispatchEvent(new CustomEvent('tp:obs:recording-import', { detail: { phase: 'failed', reason: String(error), outputPath: result?.outputPath ?? null } }));
       });
     },
   };

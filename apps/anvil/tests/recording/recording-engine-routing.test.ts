@@ -11,7 +11,7 @@ async function setup() {
   (await import('../../src/recording/registerRecorders')).initRecorderBackends();
   return { core, obs, registry };
 }
-afterEach(() => { delete (window as any).__tpLocalRecorder; delete (window as any).__obsBridge; });
+afterEach(() => { delete (window as any).__tpLocalRecorder; delete (window as any).__obsBridge; delete (window as any).__tpObsImport; });
 
 test('manual OBS start and stop use bridge, require authority, and never acquire Core devices', async () => {
   const { core, obs, registry } = await setup();
@@ -24,6 +24,20 @@ test('manual Core capture works with Auto-record disabled', async () => {
   await registry.startSessionRecording({ engine: 'core', obsEnabled: true });
   expect(core.start).toHaveBeenCalledTimes(1); expect(obs.start).not.toHaveBeenCalled();
   await registry.stopSessionRecording(); expect(core.stop).toHaveBeenCalledTimes(1);
+});
+
+test('completed Stop publishes readiness after its busy lock is released', async () => {
+  const { registry } = await setup();
+  await registry.startSessionRecording({ engine: 'core' });
+  const states: boolean[] = [];
+  const listener = (event: Event) => {
+    if (!(event as CustomEvent).detail.recording) states.push(registry.isRecordingBusy());
+  };
+  window.addEventListener('tp:recording:state', listener);
+  try {
+    await registry.stopSessionRecording();
+    expect(states).toEqual([false]);
+  } finally { window.removeEventListener('tp:recording:state', listener); }
 });
 test('disconnected selected OBS fails visibly and never falls back', async () => {
   const { core, obs, registry } = await setup(); obs.isConnected.mockReturnValue(false);
@@ -51,7 +65,8 @@ test('uncertain OBS start retains Stop ownership without starting Core', async (
   const { core, obs, registry } = await setup();
   obs.start.mockRejectedValueOnce(Object.assign(new Error('OBS start confirmation lost; check OBS'), { captureMayBeActive: true }) as never);
   await expect(registry.startSessionRecording({ engine: 'obs' })).rejects.toThrow('confirmation lost');
-  expect(registry.isSessionRecording()).toBe(true); expect(core.start).not.toHaveBeenCalled();
+  expect(registry.isSessionRecording()).toBe(false); expect(registry.isRecordingBusy()).toBe(true);
+  expect(core.start).not.toHaveBeenCalled();
   await registry.stopSessionRecording(); expect(obs.stop).toHaveBeenCalledTimes(1);
 });
 
@@ -66,4 +81,23 @@ test('Stop during a pending start waits and stops that capture, without leaving 
   finish(); await Promise.all([started, stopped]);
   expect(core.stop).toHaveBeenCalledTimes(1);
   expect(registry.isSessionRecording()).toBe(false); expect(registry.isRecordingBusy()).toBe(false);
+});
+
+for (const synchronous of [false, true]) test(`local OBS Stop succeeds despite ${synchronous ? 'synchronous' : 'asynchronous'} downstream Tongs 502`, async () => {
+  const { obs, registry } = await setup();
+  const local: any[] = []; const cloud: any[] = [];
+  const onLocal = (event: Event) => local.push((event as CustomEvent).detail);
+  const onCloud = (event: Event) => cloud.push((event as CustomEvent).detail);
+  window.addEventListener('tp:recording:obs-local-complete', onLocal);
+  window.addEventListener('tp:obs:recording-import', onCloud);
+  (obs.stop as jest.Mock).mockResolvedValueOnce({ stopped: true, adapter: 'obs', outputPath: 'E:/OBS/take.mkv' });
+  (window as any).__tpObsImport = { acceptStopResult: () => { if (synchronous) throw new Error('Tongs HTTP 502'); return Promise.reject(new Error('Tongs HTTP 502')); } };
+  try {
+    await registry.startSessionRecording({ engine: 'obs' });
+    await expect(registry.stopSessionRecording()).resolves.toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(registry.isSessionRecording()).toBe(false); expect(registry.isRecordingBusy()).toBe(false);
+    expect(local).toHaveLength(1); expect(local[0].outputPath).toBe('E:/OBS/take.mkv');
+    expect(cloud).toHaveLength(1); expect(cloud[0].reason).toContain('502');
+  } finally { window.removeEventListener('tp:recording:obs-local-complete', onLocal); window.removeEventListener('tp:obs:recording-import', onCloud); }
 });

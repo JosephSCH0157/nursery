@@ -378,6 +378,7 @@ export function setSettings(next: Partial<RecorderSettings> | null | undefined) 
   };
   persistSettings();
   applyConfigs();
+  try { window.dispatchEvent(new CustomEvent('tp:recording-settings:changed')); } catch {}
 }
 
 export function getSettings(): RecorderSettings {

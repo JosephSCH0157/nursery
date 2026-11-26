@@ -97,6 +97,7 @@ export async function startSessionRecording(opts: { obsEnabled?: boolean; engine
   if (stopInFlight) await stopInFlight;
   if (sessionRecording) return;
   if (startInFlight) return startInFlight;
+  if (activeSessionRecorderIds.size) throw new Error('Recording status is unconfirmed. Check the selected recorder and use Stop before starting another take.');
   startInFlight = (async () => {
     const engine = opts.engine ?? getRecordingEngine();
     const backend = registry.get(engine);
@@ -109,8 +110,9 @@ export async function startSessionRecording(opts: { obsEnabled?: boolean; engine
     catch (error) {
       if ((error as { captureMayBeActive?: boolean })?.captureMayBeActive) {
         activeSessionRecorderIds.add(engine);
-        sessionRecording = true;
-        emitRecordingState(true);
+        // Retain Stop ownership without claiming that capture was confirmed.
+        emitRecordingState(false);
+        try { window.dispatchEvent(new CustomEvent('tp:recording:uncertain', { detail: { engine } })); } catch {}
       }
       throw error;
     }
@@ -133,9 +135,9 @@ function reportRecordingError(error: unknown): void {
 export async function stopSessionRecording(): Promise<void> {
   if (startInFlight) {
     try { await startInFlight; }
-    catch (error) { if (!sessionRecording) throw error; }
+    catch (error) { if (!activeSessionRecorderIds.size) throw error; }
   }
-  if (!sessionRecording) return;
+  if (!sessionRecording && !activeSessionRecorderIds.size) return;
   if (stopInFlight) return stopInFlight;
   stopInFlight = (async () => {
     const startedAt = Date.now();
@@ -151,12 +153,14 @@ export async function stopSessionRecording(): Promise<void> {
       activeSessionRecorderIds.delete(id);
     }
     sessionRecording = false;
-    emitRecordingState(false);
     emitStopPhase('end', { elapsedMs: Date.now() - startedAt });
   })();
   try { await stopInFlight; }
   catch (error) { reportRecordingError(error); throw error; }
-  finally { stopInFlight = null; }
+  finally {
+    stopInFlight = null;
+    if (!sessionRecording && !activeSessionRecorderIds.size) emitRecordingState(false);
+  }
 }
 
 export function isSessionRecording(): boolean {
@@ -164,5 +168,5 @@ export function isSessionRecording(): boolean {
 }
 
 export function isRecordingBusy(): boolean {
-  return sessionRecording || startInFlight !== null || stopInFlight !== null;
+  return sessionRecording || activeSessionRecorderIds.size > 0 || startInFlight !== null || stopInFlight !== null;
 }

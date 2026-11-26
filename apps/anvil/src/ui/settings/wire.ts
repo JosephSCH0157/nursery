@@ -162,7 +162,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
             const r = await existing.requestPermission?.({ mode: 'readwrite' });
             if (r !== 'granted') {
               (window as any).toast?.(
-                'Recordings folder is mapped but write permission is not granted yet. Recording will continue and download fallback will be used until access is granted.',
+                'Recordings folder is mapped but write permission is not granted yet. Core recording is blocked until folder access is granted.',
                 { type: 'warn' },
               );
             }
@@ -172,7 +172,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
       }
       const settingsUrl = getNurseryStorageSettingsUrl();
       (window as any).toast?.(
-        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Core recording is blocked until the recording folder is linked (${settingsUrl}).`,
         { type: 'warn' },
       );
       return true;

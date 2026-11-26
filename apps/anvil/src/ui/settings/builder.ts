@@ -220,6 +220,8 @@ export function buildSettingsContent(rootEl: HTMLElement | null) {
 
       <div class="settings-card anim-in">
         <h4>Manual session control</h4>
+        <div class="recording-destination-warning" data-recording-destination-warning role="alert" aria-live="polite" hidden></div>
+        <div class="obs-recording-feedback" data-obs-recording-feedback role="status" aria-live="polite" hidden></div>
         <div class="row gap" style="margin-bottom:8px">
           <button id="settingsArmRecordingBtn" class="btn" type="button" data-action="recording-arm-toggle" aria-pressed="false">Arm Recording</button>
           <span id="recordingArmStatus" class="settings-small muted" role="status" aria-live="polite">Recording devices: idle</span>

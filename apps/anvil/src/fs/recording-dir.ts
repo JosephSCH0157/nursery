@@ -144,11 +144,13 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
     _dir = h || null;
     if (h) await idbSet(KEY, h);
     else await idbDel(KEY);
+    window.dispatchEvent(new CustomEvent('tp:recording-directory:changed'));
   }
   async function clearRecordingDir() {
     if (_managedByNursery) return;
     _dir = null;
     await idbDel(KEY);
+    window.dispatchEvent(new CustomEvent('tp:recording-directory:changed'));
   }
   async function pickRecordingDir(): Promise<DirHandle | null> {
     if (_managedByNursery) return _dir || null;
