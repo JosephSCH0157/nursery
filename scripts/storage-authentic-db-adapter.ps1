@@ -18,7 +18,7 @@ if($TargetProject -ceq 'wtvdjndyxegudufrompx'){throw 'Production target forbidde
 & node (Join-Path $PSScriptRoot 'certify-storage-authentic-restoration.mjs') --action Validate --approval $ApprovalPath --approval-sha256 $ApprovalSha256 --workdir $Workdir --target $TargetProject | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Restoration approval or package validation failed.'}
 $approval=Get-Content -LiteralPath $ApprovalPath -Raw | ConvertFrom-Json
-$intervention=$approval.schema -ceq 'forge.storage-h444-logical-restoration-approval.v3'
+$intervention=$approval.schema -cin @('forge.storage-h444-logical-restoration-approval.v3','forge.storage-h444-logical-restoration-approval.v4')
 $logical=$intervention -or $approval.schema -ceq 'forge.storage-h444-logical-restoration-approval.v2'
 if($Action -eq 'Apply448' -and -not $intervention){throw '448 requires the separate intervention execution approval.'}
 if($Action -eq 'Apply447' -and -not $logical){throw '447 requires the separate logical execution approval.'}

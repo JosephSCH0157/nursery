@@ -9,7 +9,7 @@ import {normalizeCatalogForProduction} from './lib/forge-catalog-production-norm
 import {sha256,validateRestorationApproval,validateHistoricalObservation} from './lib/storage-authentic-certification.mjs';
 import {readPinned} from './lib/forge-storage-full-tail.mjs';
 import {proposalPath,validateStorage447Proposal} from './verify-storage-h444-447-proposal.mjs';
-import {LOGICAL_EXECUTION_APPROVAL_SCHEMA,LOGICAL_INTERVENTION_SCHEMA,isLogicalExecutionSchema,validateLogicalExecutionPrerequisites,
+import {LOGICAL_EXECUTION_APPROVAL_SCHEMA,isLogicalInterventionSchema,isLogicalExecutionSchema,validateLogicalExecutionPrerequisites,
  validateLogicalExecutionObservation,validateLogicalRestoredCatalog,
  validateLogicalExecutionCompletion} from './lib/storage-logical-restoration-certification.mjs';
 
@@ -40,7 +40,7 @@ export function validatePackage(workdir,a,payload){
  const dir=dirname(workdir);regular(workdir);
  const pkg=JSON.parse(readFileSync(workdir));
  assert.equal(pkg.targetProject,a.targetProject);assert.equal(pkg.candidate,a.candidate);
- assert.ok((a.schema===LOGICAL_INTERVENTION_SCHEMA?[445,446,447,448]:a.schema===LOGICAL_EXECUTION_APPROVAL_SCHEMA?[445,446,447]:[445,446]).includes(pkg.through));
+ assert.ok((isLogicalInterventionSchema(a.schema)?[445,446,447,448]:a.schema===LOGICAL_EXECUTION_APPROVAL_SCHEMA?[445,446,447]:[445,446]).includes(pkg.through));
  const names=payload.names.slice(0,pkg.through);
  for(const part of ['supabase','supabase/migrations','supabase/templates','supabase/.temp'])assert.ok(lstatSync(join(dir,part)).isDirectory()&&!lstatSync(join(dir,part)).isSymbolicLink(),'package_directory_link');
  assert.deepEqual(readdirSync(join(dir,'supabase/migrations')).sort(),names.map(p=>p.split('/').at(-1)),'staged_prefix');
@@ -82,7 +82,7 @@ async function main(){
  const args=parse(process.argv.slice(2));
  const approvalBytes=readFileSync(regular(privatePath(args.approval)));
  const logical=isLogicalExecutionSchema(JSON.parse(approvalBytes).schema);
- const intervention=JSON.parse(approvalBytes).schema===LOGICAL_INTERVENTION_SCHEMA;
+ const intervention=isLogicalInterventionSchema(JSON.parse(approvalBytes).schema);
  assert.ok(logical||(!args.completion&&!args['completion-sha256']&&!args['final-storage-manifest']&&args.action!=='Certify'),'physical_route_unchanged');
  const logicalInputs=()=>{
   const directory=dirname(resolve(args.approval));

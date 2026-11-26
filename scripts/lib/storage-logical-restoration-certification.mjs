@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {LOGICAL_INTERVENTION_SCHEMA,INTERVENTION_COMPLETION_SCHEMA,validateInterventionBinding,validateInterventionReceipt,validateInterventionSnapshot,catalogCommitment,canonical} from './storage-quench-intervention.mjs';
 export {LOGICAL_INTERVENTION_SCHEMA};
-export const isLogicalExecutionSchema=s=>[LOGICAL_EXECUTION_APPROVAL_SCHEMA,LOGICAL_INTERVENTION_SCHEMA].includes(s);
-const withIntervention=a=>a.schema===LOGICAL_INTERVENTION_SCHEMA;
+export const LOGICAL_INTERVENTION_ORIGIN_SCHEMA='forge.storage-h444-logical-restoration-approval.v4';
+export const isLogicalInterventionSchema=s=>[LOGICAL_INTERVENTION_SCHEMA,LOGICAL_INTERVENTION_ORIGIN_SCHEMA].includes(s);
+export const isLogicalExecutionSchema=s=>s===LOGICAL_EXECUTION_APPROVAL_SCHEMA||isLogicalInterventionSchema(s);
+const withIntervention=a=>isLogicalInterventionSchema(a.schema);
 const executionMigrations=(p,a)=>[...p.contract.migrations,p.admission.migration,...(withIntervention(a)?[p.convergence.migration]:[])];
 import {createHash} from 'node:crypto';
 import {lstat, open, readdir} from 'node:fs/promises';
@@ -129,10 +131,11 @@ function validateApproval(bytes, approvedSha256, pinned, now, execution = false)
   assert.equal(sha256(bytes), approvedSha256, 'approval_bytes_changed');
   const approval = parseJson(bytes, 'logical_approval');
   const intervention=execution&&withIntervention(approval);
+  const separateOrigin=execution&&approval.schema===LOGICAL_INTERVENTION_ORIGIN_SCHEMA;
   exactKeys(approval, execution
-    ? [...APPROVAL_KEYS.filter(key => key !== 'behaviorReceiptSha256'), 'privilegeMode', 'connectionSha256',...(intervention?['intervention']:[])]
+    ? [...APPROVAL_KEYS.filter(key => key !== 'behaviorReceiptSha256'), 'privilegeMode', 'connectionSha256',...(intervention?['intervention']:[]),...(separateOrigin?['interventionCandidate']:[])]
     : APPROVAL_KEYS, 'logical_approval');
-  assert.equal(approval.schema, intervention ? LOGICAL_INTERVENTION_SCHEMA : execution ? LOGICAL_EXECUTION_APPROVAL_SCHEMA : LOGICAL_RESTORATION_APPROVAL_SCHEMA);
+  assert.equal(approval.schema, separateOrigin ? LOGICAL_INTERVENTION_ORIGIN_SCHEMA : intervention ? LOGICAL_INTERVENTION_SCHEMA : execution ? LOGICAL_EXECUTION_APPROVAL_SCHEMA : LOGICAL_RESTORATION_APPROVAL_SCHEMA);
   assert.equal(approval.sourceProject, PROJECT, 'source_project');
   assert.match(approval.targetProject ?? '', /^[a-z]{20}$/, 'target_project');
   assert.notEqual(approval.targetProject, PROJECT, 'production_target_forbidden');
@@ -173,6 +176,7 @@ function validateApproval(bytes, approvedSha256, pinned, now, execution = false)
     digest(approval.connectionSha256, 'connection_digest');
   }
   if(intervention)validateInterventionBinding(approval.intervention);
+  if(separateOrigin)assert.match(approval.interventionCandidate??'',/^[a-f0-9]{40}$/,'intervention_candidate_required');
   return approval;
 }
 
@@ -524,7 +528,7 @@ function inventoryDigest(inventory, kind) {
   return sha256(JSON.stringify(entries));
 }
 
-function validateIsolationManifest(bytes, approval) {
+export function validateIsolationManifest(bytes, approval) {
   const manifest = verifyBytes(bytes, approval.isolationManifestSha256, 'isolation_manifest');
   exactKeys(manifest, [
     'schema', 'sourceProject', 'targetProject', 'candidate', 'sourceSnapshotId',
@@ -754,7 +758,10 @@ export async function validateLogicalExecutionPrerequisites({
     'approved_original_storage_bytes');
   const isolation=validateIsolationManifest(isolationManifestBytes, approval);
   if(withIntervention(approval)){
-    const intervention=validateInterventionReceipt(interventionReceiptBytes,approval.intervention,{...approval,now});
+    // Only the immutable certificate is evaluated at its explicitly approved
+    // origin. Source/import/execution candidates remain the current pinned head.
+    const intervention=validateInterventionReceipt(interventionReceiptBytes,approval.intervention,{...approval,
+      candidate:approval.schema===LOGICAL_INTERVENTION_ORIGIN_SCHEMA?approval.interventionCandidate:approval.candidate,now});
     const source=JSON.parse(sourceObservationBytes);
     assert.equal(source.observation.provenance?.interventionReceiptSha256,approval.intervention.receiptSha256,'source_intervention_link');
     assert.equal(source.observation.provenance?.correctedCatalogSha256,approval.intervention.correctedCatalogSha256,'source_corrected_catalog_link');

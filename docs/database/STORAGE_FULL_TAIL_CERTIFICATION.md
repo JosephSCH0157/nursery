@@ -214,6 +214,19 @@ claim the separately broken retry helper has been repaired. No production
 physical-backup recovery, financial, isolation, confidentiality or release gate
 is removed. This is synthetic-tested infrastructure, not authentic certification.
 
+### Immutable intervention origin binding (v4)
+
+Logical execution v4 (`forge.storage-h444-logical-restoration-approval.v4`)
+retains every v3 execution and four-lane completion gate. Its required
+`interventionCandidate` binds the immutable certificate origin separately from
+the current restoration executable `candidate`. The shared certificate validator
+is unchanged; v3 remains fail closed on different candidates. Source provenance
+and genuine import/target observations are not rewritten. Initial isolation,
+import and Storage handling remain separate from the coordinator; see the
+[local preparation procedure](proposals/H444_ISOLATED_RESTORATION_PREPARATION.md).
+It issues no import receipt or execution authority and holds an unsupported
+exact-identity Storage restoration target.
+
 Keep separate outcomes for B1 synthetic operational certification, H synthetic boundary verification, and authentic H full-tail certification. Missing authentic evidence is a release blocker, not an exemption. Empty-B1 operational initialization remains a separate reviewed contract; never seed commercial authority into fresh installations to conceal that limitation.
 
 Retain exact candidate SHA, CLI version, pinned input hashes, per-stage pending sets, applied history, all test output, catalog fingerprints and cleanup verification in restricted evidence. Run affected application tests on the same SHA. Preserve prior accepted receipts and all 475 original objects and references. No exclusion/quarantine activation, ownership assignment, capacity grant, hosted write, merge or deployment belongs to this procedure. Production deployment policy remains the canonical AGENTS.md policy.

@@ -348,6 +348,15 @@ These local implementation capabilities neither enable the held production
 handling, restoration, actual certification and production release each retain
 their separate authorization boundaries.
 
+Logical restoration v4 adds an explicit immutable intervention-origin binding
+while preserving the current executable candidate and all v3 convergence gates.
+The [isolated restoration preparation procedure](proposals/H444_ISOLATED_RESTORATION_PREPARATION.md)
+defines the separate pre-import isolation, plain-SQL import, exact original
+Storage restoration and actual-receipt handoff requirements. It is local
+preparation, not a target creator or importer. A provider-supported exact-identity
+Storage capability must be proved for the selected target before restoration
+approval. No execution window or hosted authority follows from this procedure.
+
 The existing H444 exporter now includes a separately guarded acquisition route:
 [`H444_OFFLINE_INTEGRATION.md`](proposals/H444_OFFLINE_INTEGRATION.md#guarded-acquisition-extension-2026-11-24-not-executed).
 It requires a new independently pinned acquisition approval, a clean candidate,

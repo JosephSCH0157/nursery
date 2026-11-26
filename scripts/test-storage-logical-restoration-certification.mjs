@@ -22,6 +22,7 @@ import {
   LOGICAL_EXECUTION_APPROVAL_SCHEMA, LOGICAL_COMPLETION_SCHEMA, REQUIRED_447_BEHAVIOR_CHECKS,
   validateLogicalExecutionPrerequisites, validateLogicalExecutionObservation,
   validateLogicalRestoredCatalog, validateLogicalExecutionCompletion,
+  LOGICAL_INTERVENTION_ORIGIN_SCHEMA,isLogicalInterventionSchema,isLogicalExecutionSchema,
 } from './lib/storage-logical-restoration-certification.mjs';
 import {runUpgrade} from './certify-storage-authentic-restoration.mjs';
 import {interventionFixture} from './fixtures/storage-quench-intervention-fixture.mjs';
@@ -560,9 +561,9 @@ async getEvidence => {
   }
 });
 
-for(const finalStage of [447,448])logicalTest('CLI prepares and validates exact logical packages through '+finalStage+' without connecting',
+for(const [finalStage,version] of [[447,2],[448,3],[448,4]])logicalTest('CLI prepares and validates exact logical packages through '+finalStage+' v'+version+' without connecting',
 async getEvidence => {
-  const e = finalStage===448?await interventionExecutionFixture(getEvidence):await executionFixture(getEvidence);
+  const e = finalStage===448?await interventionExecutionFixture(getEvidence,'restrictive',()=>{},undefined,version===4?immutableOrigin:undefined):await executionFixture(getEvidence);
   const migrations=[...pinned.contract.migrations,pinned.admission.migration,...(finalStage===448?[pinned.convergence.migration]:[])];
   e.approval.expiresAt = new Date(Date.now() + 3600000).toISOString();
   e.approval.cleanupDeadline = new Date(Date.now() + 7200000).toISOString();
@@ -822,11 +823,12 @@ async getEvidence => {
 });
 
 // The new route reuses the same artifact validator and guarded coordinator.
-async function interventionExecutionFixture(getEvidence,mode='restrictive',mutateRole=()=>{},snapshotStartedAt){
- const e=await executionFixture(getEvidence,mode),f=interventionFixture(e.approval);
+async function interventionExecutionFixture(getEvidence,mode='restrictive',mutateRole=()=>{},snapshotStartedAt,interventionCandidate){
+ const e=await executionFixture(getEvidence,mode),f=interventionFixture({...e.approval,candidate:interventionCandidate??e.approval.candidate});
  const migrations=[...pinned.contract.migrations,pinned.admission.migration,pinned.convergence.migration];
  Object.assign(e.approval,{schema:LOGICAL_INTERVENTION_SCHEMA,allowedOperation:'isolated-corrected-h444-to-448-certification',intervention:f.binding,
    migrations:migrations.slice(444).map(({version,sha256})=>({version,sha256})),migrationManifestSha256:migrationManifestSha256({migrations})});
+ if(interventionCandidate)Object.assign(e.approval,{schema:LOGICAL_INTERVENTION_ORIGIN_SCHEMA,interventionCandidate});
  e.interventionReceiptBytes=f.bytes;
  e.sourceObservation.observation.provenance={interventionReceiptSha256:f.binding.receiptSha256,correctedCatalogSha256:f.binding.correctedCatalogSha256,snapshotStartedAt:snapshotStartedAt??e.exportReceipt.snapshotStartedAt};
  e.isolationManifest.sourceCatalog=catalogCommitment(f.receipt.correctedCatalog).entries;
@@ -846,8 +848,12 @@ async function interventionExecutionFixture(getEvidence,mode='restrictive',mutat
 const convergenceVersions=[...executionVersions,pinned.convergence.migration.version];
 const convergenceReleases=[...executionReleases,{number:448,...pinned.convergence.migration}];
 const convergenceObservation=count=>({...executionObservation(Math.min(count,447)),versions:convergenceVersions.slice(0,count),admissionContractOk:count>=447,quenchStage:8,quenchContractOk:true});
-for(const mode of ['permissive','restrictive'])logicalTest('v3 preserves original evidence and executes ordered445-448 '+mode,async getEvidence=>{
- const e=await interventionExecutionFixture(getEvidence,mode),a=await validateExecution(e),calls=[],records=new Map();let count=444;
+const immutableOrigin='66f6050dc7b6d639552f2a3736e75516cbb39198';
+for(const version of [3,4])for(const mode of ['permissive','restrictive'])logicalTest('v'+version+' preserves original evidence and executes ordered445-448 '+mode,async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,mode,()=>{},undefined,version===4?immutableOrigin:undefined),a=await validateExecution(e),calls=[],records=new Map();let count=444;
+ assert.equal(a.candidate,candidate);
+ assert.equal(JSON.parse(e.interventionReceiptBytes).candidate,version===4?immutableOrigin:candidate);
+ assert.ok(isLogicalExecutionSchema(a.schema)&&isLogicalInterventionSchema(a.schema));
  const result=await runUpgrade({approval:a,versions:convergenceVersions,releases:convergenceReleases,validateObservation:validateLogicalExecutionObservation,
   checkApproval:()=>validateExecution(e),observe:()=>convergenceObservation(count),persist:(name,v)=>{assert.ok(!records.has(name));records.set(name,v);},apply:r=>{assert.ok(records.has('attempt-'+r.number+'.json'));calls.push(r.number);count=r.number;}});
  assert.deepEqual(calls,[445,446,447,448]);assert.equal(result.status,'UPGRADE_VERIFIED');
@@ -861,8 +867,8 @@ for(const [name,mutate] of [
  ['wrong corrected isolation source',e=>e.isolationManifest.sourceCatalog[1].sha256=hash('wrong')],
  ['downgrade',e=>{e.approval.schema=LOGICAL_EXECUTION_APPROVAL_SCHEMA;e.approval.allowedOperation='isolated-h444-to-447-certification';delete e.approval.intervention;}]
 ])logicalTest('v3 rejects '+name,async getEvidence=>{const e=await interventionExecutionFixture(getEvidence);mutate(e);resealExecution(e);await assert.rejects(()=>validateExecution(e));});
-logicalTest('v3 completion requires four448 lanes and strict parity, never a447 receipt',async getEvidence=>{
- const e=await interventionExecutionFixture(getEvidence),approval=await validateExecution(e),finalObservation=convergenceObservation(448),stageReceiptsSha256=hash('four-verified-stages');
+for(const version of [3,4])logicalTest('v'+version+' completion requires four448 lanes and strict parity, never a447 receipt',async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},undefined,version===4?immutableOrigin:undefined),approval=await validateExecution(e),finalObservation=convergenceObservation(448),stageReceiptsSha256=hash('four-verified-stages');
  const completion={schema:INTERVENTION_COMPLETION_SCHEMA,candidate,executionApprovalSha256:e.approvedSha256,targetProject,sourceSnapshotId,privilegeMode:approval.privilegeMode,observedAt:'2026-11-19T22:59:00Z',reviewerReference:'SYNTHETIC_REVIEWER',finalObservationSha256:hash(finalObservation),stageReceiptsSha256,storageManifestSha256:hash(e.storageManifestBytes),
  lanes:['H448-permissive','H448-restrictive','B1-35-permissive','B1-35-restrictive'].map((name,i)=>({name,candidate,targetProject:i===1?targetProject:i===0?'v'.repeat(20):'forge-baseline-v1-'+String(i).repeat(12),lineage:i<2?'historical-v1':'baseline-v1',versions:i<2?convergenceVersions:['20261021020814',...convergenceVersions.filter(v=>v>='20261022000000')],evidenceKind:i<2?'authentic-logical-restoration':'synthetic-operational-baseline',sourceSnapshotId:i<2?sourceSnapshotId:null,storageManifest:i<2?{...e.storageManifest,targetProject:i===1?targetProject:'v'.repeat(20)}:null,catalogSha256:baselineCatalogSha256,observationSha256:i===1?hash(finalObservation):hash(name),checks:Object.fromEntries([...REQUIRED_447_BEHAVIOR_CHECKS,'quench-acquisition-denied','quench-authorized-callers'].map(c=>[c,{result:'PASS',evidenceSha256:hash(c),procedure:'SYNTHETIC_ONLY'}]))}))};
  const verify=c=>validateLogicalExecutionCompletion({approval,approvedSha256:e.approvedSha256,completionBytes:bytes(c),completionSha256:hash(c),finalObservation,catalogSha256:baselineCatalogSha256,stageReceiptsSha256,storageManifestBytes:e.storageManifestBytes,initialStorageManifestBytes:e.storageManifestBytes,importCompletedAt:e.importReceipt.importCompletedAt,repositoryRoot,now});
@@ -875,4 +881,23 @@ for(const [name,change] of [['missing function observation',x=>delete x.security
 });
 logicalTest('v3 requires independent review before acquisition snapshot',async getEvidence=>{
  const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},'2026-11-19T21:03:30Z');await assert.rejects(()=>validateExecution(e),/intervention_snapshot_time_binding|intervention_precedes_acquisition/);
+});
+
+for(const [name,mutate] of [
+ ['missing origin',e=>delete e.approval.interventionCandidate],
+ ['malformed origin',e=>e.approval.interventionCandidate='not-a-commit'],
+ ['wrong origin',e=>e.approval.interventionCandidate='1'.repeat(40)],
+ ['current candidate substituted for origin',e=>e.approval.interventionCandidate=candidate],
+ ['origin substituted for executable candidate',e=>e.approval.candidate=immutableOrigin],
+ ['receipt bytes changed',e=>e.interventionReceiptBytes=Buffer.concat([e.interventionReceiptBytes,Buffer.from(' ')])],
+ ['v3 downgrade with origin',e=>e.approval.schema=LOGICAL_INTERVENTION_SCHEMA],
+ ['v3 downgrade dropping origin',e=>{e.approval.schema=LOGICAL_INTERVENTION_SCHEMA;delete e.approval.interventionCandidate;}],
+ ['v2 downgrade',e=>{e.approval.schema=LOGICAL_EXECUTION_APPROVAL_SCHEMA;delete e.approval.interventionCandidate;delete e.approval.intervention;}],
+])logicalTest('v4 rejects '+name,async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},undefined,immutableOrigin);mutate(e);resealExecution(e);await assert.rejects(()=>validateExecution(e));
+});
+logicalTest('v4 retains full certificate protected-state validation at its origin',async getEvidence=>{
+ const e=await interventionExecutionFixture(getEvidence,'restrictive',()=>{},undefined,immutableOrigin);
+ e.approval.financialSha256=hash('substituted-protected-context');resealExecution(e);
+ await assert.rejects(()=>validateExecution(e));
 });
