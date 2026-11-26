@@ -86,6 +86,19 @@ beforeEach(() => {
 });
 
 describe('recording device arming', () => {
+  test('engine changes release only owned media and leave OBS unarmed until explicit intent', async () => {
+    const options: { engine: 'core' | 'obs' } = { engine: 'core' };
+    const h = harness(options);
+    await h.controller.arm();
+    options.engine = 'obs';
+    await h.controller.refreshConfiguration();
+    expect(h.controller.getSnapshot().state).toBe('idle');
+    expect(h.releaseMic).toHaveBeenCalledTimes(1); expect(h.stopCamera).toHaveBeenCalledTimes(1);
+    expect(h.setObsArmed).not.toHaveBeenCalled();
+    await h.controller.arm();
+    expect(h.controller.getSnapshot()).toMatchObject({ state: 'armed', configuration: { engine: 'obs' } });
+    expect(h.requestMic).toHaveBeenCalledTimes(1); expect(h.startCamera).toHaveBeenCalledTimes(1);
+  });
   test.each([
     ['missing', 'configuration_missing'],
     ['invalid', 'configuration_invalid'],

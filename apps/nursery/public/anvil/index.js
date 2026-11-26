@@ -33015,7 +33015,7 @@ function promptSaveCollision(name) {
         </div>
       </div>
     `;
-    const cleanup = (choice) => {
+    const cleanup2 = (choice) => {
       try {
         overlay.remove();
       } catch {
@@ -33024,20 +33024,20 @@ function promptSaveCollision(name) {
     };
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) {
-        cleanup("cancel");
+        cleanup2("cancel");
       }
     });
     overlay.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const action = btn.dataset.action;
         if (!action) {
-          cleanup("cancel");
+          cleanup2("cancel");
           return;
         }
         if (action === "overwrite" || action === "copy" || action === "cancel") {
-          cleanup(action);
+          cleanup2(action);
         } else {
-          cleanup("cancel");
+          cleanup2("cancel");
         }
       });
     });
@@ -87548,15 +87548,19 @@ function createStartOnPlay(store3) {
     const activeStore = resolveStore(store3);
     const autoRecord = readStoreBoolean(activeStore, "autoRecord");
     const obsEnabled = readStoreBoolean(activeStore, "obsEnabled");
-    const engine = getRecordingEngine();
     if (!autoRecord) {
       console.info("[Anvil][Recording] autoRecord=false \u2192 not starting recording");
       return;
     }
-    await startSessionRecording({ obsEnabled, engine });
+    try {
+      await startSessionRecording({ obsEnabled, engine: getRecordingEngine() });
+    } catch (error) {
+      reportRecordingError(error);
+      throw error;
+    }
   }
   async function onSessionStop() {
-    if (!isSessionRecording()) return;
+    if (!isRecordingBusy()) return;
     await stopSessionRecording();
   }
   return { onSessionStart, onSessionStop };
@@ -91203,12 +91207,12 @@ var init_display_ws_client = __esm({
         flushQueue();
       });
       ws.addEventListener("message", handleMessage);
-      const cleanup = () => {
+      const cleanup2 = () => {
         updateStatus({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
         socket = null;
         scheduleReconnect();
       };
-      ws.addEventListener("close", cleanup);
+      ws.addEventListener("close", cleanup2);
       ws.addEventListener("error", (event) => {
         updateStatus({ state: "error", lastError: String(event?.reason || "WebSocket error") });
       });
@@ -93325,6 +93329,7 @@ function wireRecordButtons(store3, opts = {}) {
       try {
         await startSessionRecording({ obsEnabled: getObsEnabled(), engine: getRecordingEngine() });
       } catch (err) {
+        reportRecordingError(err);
         console.warn("[recording] manual start failed", err);
       } finally {
         delete startBtn.dataset.recStarting;
@@ -93378,6 +93383,76 @@ var init_recording_mode_ui = __esm({
   "src/ui/recording-mode-ui.ts"() {
     "use strict";
     init_recording_settings();
+  }
+});
+
+// src/ui/recording-readiness.ts
+function initRecordingReadiness() {
+  if (disposeCurrent) return disposeCurrent;
+  let error = "";
+  const render = () => {
+    let engine = "Recording engine not selected";
+    try {
+      engine = getRecordingEngine() === "obs" ? "OBS" : "Core Recorder";
+    } catch {
+    }
+    const arm = window.__tpRecordingArm?.getSnapshot?.();
+    const active = isSessionRecording();
+    const connection = engine === "OBS" ? `OBS connection: ${getRecorderSettings().obsStatus}. ` : "";
+    const armLabel = arm?.state === "armed" ? "armed (capture has not started)" : arm?.state === "arming" ? "arming" : arm?.state === "error" ? `arming failed (${String(arm.failure || "unavailable").replace(/_/g, " ")}); check Recording Settings` : "disarmed";
+    const policy = appStoreSingleton.get("autoRecord") ? "Auto-record is on: starting a script session requests recording when ready." : "Auto-record is off: starting script scrolling will not start recording. Use Start recording for a manual take.";
+    const reason = appStoreSingleton.get("session.recordReason");
+    const skipped = {
+      "no-camera": "Camera is not ready. Arm Core Recorder or check camera settings.",
+      "no-mic": "Microphone is not ready. Arm Core Recorder or check microphone settings.",
+      "recorder-not-ready": "The recorder is unavailable. Check Recording Settings.",
+      "rehearsal-mode": "Rehearsal does not automatically record. Use manual Start recording for a take.",
+      error: "Recording readiness could not be established. Check the selected engine in Recording Settings."
+    };
+    const sessionBlocked = !active && ["preroll", "live"].includes(String(appStoreSingleton.get("session.phase"))) && !appStoreSingleton.get("session.recordOnLive") ? skipped[String(reason)] || "" : "";
+    const message = active ? `${engine}: recording active (confirmed).` : `${connection}${engine}: ${armLabel}. ${policy}${isRecordingBusy() ? " Capture status is pending or unconfirmed; check the recorder and use Stop before another take." : ""}`;
+    const text = [message, error ? `Recording could not proceed: ${error}` : sessionBlocked].filter(Boolean).join("\n");
+    document.querySelectorAll("[data-recording-readiness]").forEach((element) => {
+      if (element.textContent !== text) element.textContent = text;
+      element.dataset.state = error || sessionBlocked ? "error" : active ? "recording" : "ready";
+    });
+  };
+  const onError = (event) => {
+    error = String(event.detail?.message || "Check Recording Settings.");
+    render();
+  };
+  const onState = () => {
+    if (isSessionRecording()) error = "";
+    render();
+  };
+  const events = [
+    ["tp:recording:error", onError],
+    ["tp:recording:state", onState],
+    ["tp:recording:arm-state", render],
+    ["tp:recording-settings:changed", render]
+  ];
+  events.forEach(([name, listener]) => window.addEventListener(name, listener));
+  const off2 = [subscribeRecorderSettings(render), ...["autoRecord", "session.phase", "session.recordReason", "session.recordOnLive"].map((key) => appStoreSingleton.subscribe(key, render))];
+  const observer = new MutationObserver(render);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  render();
+  disposeCurrent = () => {
+    observer.disconnect();
+    off2.forEach((fn) => fn());
+    events.forEach(([name, listener]) => window.removeEventListener(name, listener));
+    disposeCurrent = null;
+  };
+  return disposeCurrent;
+}
+var disposeCurrent;
+var init_recording_readiness = __esm({
+  "src/ui/recording-readiness.ts"() {
+    "use strict";
+    init_app_store();
+    init_recorder_settings();
+    init_recording_settings();
+    init_recorderRegistry();
+    disposeCurrent = null;
   }
 });
 
@@ -94396,7 +94471,7 @@ function maybeStartOnLive2(phase) {
   if (phase !== "live") return;
   const shouldRecord = !!appStoreSingleton.get("session.recordOnLive");
   const reason = appStoreSingleton.get("session.recordReason");
-  if (!shouldRecord) {
+  if (!shouldRecord || !appStoreSingleton.get("autoRecord")) {
     try {
       console.log("[session] recording not armed; reason=", reason);
     } catch {
@@ -94428,6 +94503,7 @@ function maybeStartOnLive2(phase) {
       console.warn("[session] startSessionRecording failed", err);
     });
   } catch (err) {
+    reportRecordingError(err);
     try {
       console.warn("[session] recorder start failed", err);
     } catch {
@@ -95046,11 +95122,11 @@ function createRecordingArmController(overrides = {}) {
           const connectResult = await obs.maybeConnect?.();
           if (connectResult === false || !obs.armed() || !obs.isConnected()) return fail3("obs_failed", configuration);
           if (obs.on) {
-            const cleanup = obs.on("disconnect", () => {
+            const cleanup2 = obs.on("disconnect", () => {
               if (snapshot.configuration?.engine !== "obs") return;
               publish({ state: "error", configuration, failure: "obs_disconnected" });
             });
-            if (typeof cleanup === "function") removeObsDisconnectListener = cleanup;
+            if (typeof cleanup2 === "function") removeObsDisconnectListener = cleanup2;
           }
           publish({ state: "armed", configuration, failure: null });
           return { ok: true };
@@ -95112,9 +95188,23 @@ function createRecordingArmController(overrides = {}) {
       publish({ state: "idle", configuration: null, failure: null });
       return true;
     },
+    async refreshConfiguration() {
+      if (snapshot.state === "arming" || deps.isRecording()) return;
+      const saved = deps.readConfiguration();
+      if (snapshot.configuration && (!saved.ok || saved.configuration.engine !== snapshot.configuration.engine || saved.configuration.mode !== snapshot.configuration.mode)) {
+        await cleanupOwnedMedia();
+        publish({ state: "idle", configuration: null, failure: null });
+        return;
+      }
+      if (snapshot.state === "armed" && snapshot.configuration?.engine === "obs") {
+        const obs = deps.getObsApi();
+        if (!obs?.armed?.() || !obs.isConnected?.()) publish({ state: "error", configuration: snapshot.configuration, failure: "obs_disconnected" });
+      }
+    },
     setRecordingActive(active) {
       if (active) {
-        publish({ state: "recording", configuration: snapshot.configuration, failure: null });
+        const saved = deps.readConfiguration();
+        publish({ state: "recording", configuration: snapshot.configuration || (saved.ok ? saved.configuration : null), failure: null });
       } else if (snapshot.state === "recording") {
         const configuration = snapshot.configuration;
         const browserReady = configuration?.engine === "core" && (ownsMic || !!deps.getMicApi()?.isOpen?.()) && (configuration.mode === "audio" || ownsCamera || !!deps.getCameraApi()?.isActive?.());
@@ -95195,7 +95285,7 @@ function initRecordingArmControl() {
     const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
     buttons.forEach((button) => {
       button.textContent = buttonLabel(state9);
-      button.disabled = state9 === "arming" || state9 === "recording";
+      button.disabled = state9 === "arming" || isRecordingBusy();
       button.setAttribute("aria-pressed", state9 === "armed" || state9 === "recording" ? "true" : "false");
       button.dataset.state = state9;
     });
@@ -95205,7 +95295,7 @@ function initRecordingArmControl() {
       status2.dataset.state = state9;
     }
   };
-  controller.subscribe((next) => render(next.state, next.failure));
+  const offController = controller.subscribe((next) => render(next.state, next.failure));
   const wireButtons2 = () => {
     const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
     buttons.forEach((button) => {
@@ -95231,29 +95321,42 @@ function initRecordingArmControl() {
     });
   };
   wireButtons2();
-  document.addEventListener("tp:settings:rendered", () => {
+  const onSettings = () => {
     wireButtons2();
     const next = controller.getSnapshot();
     render(next.state, next.failure);
-  });
-  const syncRecordingState = (event) => {
-    const state9 = String(event?.detail?.state || "").toLowerCase();
-    if (state9 === "recording") controller.setRecordingActive(true);
-    if (state9 === "idle") controller.setRecordingActive(false);
   };
-  window.addEventListener("rec:state", syncRecordingState);
-  window.addEventListener("tp:recording:state", (event) => {
+  document.addEventListener("tp:settings:rendered", onSettings);
+  const onRecording = (event) => {
     const recording = event?.detail?.recording;
     if (typeof recording === "boolean") controller.setRecordingActive(recording);
-  });
+    const next = controller.getSnapshot();
+    render(next.state, next.failure);
+  };
+  window.addEventListener("tp:recording:state", onRecording);
+  const refresh = () => {
+    void controller.refreshConfiguration();
+  };
+  window.addEventListener("tp:recording-settings:changed", refresh);
+  const offSettings = subscribeRecorderSettings(refresh);
+  cleanup = () => {
+    offController();
+    offSettings();
+    document.removeEventListener("tp:settings:rendered", onSettings);
+    window.removeEventListener("tp:recording:state", onRecording);
+    window.removeEventListener("tp:recording-settings:changed", refresh);
+  };
   window.__tpRecordingArm = controller;
 }
-var initialized3;
+var initialized3, cleanup;
 var init_recording_arm_control = __esm({
   "src/features/recording-arm-control.ts"() {
     "use strict";
     init_recording_arm();
+    init_recorderRegistry();
+    init_recorder_settings();
     initialized3 = false;
+    cleanup = null;
   }
 });
 
@@ -102934,13 +103037,14 @@ function buildSettingsContent(rootEl2) {
         <div class="obs-recording-feedback" data-obs-recording-feedback role="status" aria-live="polite" hidden></div>
         <div class="row gap" style="margin-bottom:8px">
           <button id="settingsArmRecordingBtn" class="btn" type="button" data-action="recording-arm-toggle" aria-pressed="false">Arm Recording</button>
-          <span id="recordingArmStatus" class="settings-small muted" role="status" aria-live="polite">Recording devices: idle</span>
+          <span id="recordingArmStatus" data-recording-arm-status class="settings-small muted" role="status" aria-live="polite">Recording disarmed</span>
         </div>
         <div class="row gap">
           <button id="startRecBtn" class="btn primary" type="button">Start recording</button>
           <button id="stopRecBtn" class="btn" type="button">Stop recording</button>
         </div>
-        <small class="muted">These buttons call the recorder registry so Bridge + OBS stay in sync.</small>
+        <div class="recording-readiness" data-recording-readiness role="status" aria-live="polite"></div>
+        <small class="muted">Manual Start/Stop works independently of Auto-record. Arming prepares the selected engine; it does not start recording.</small>
       </div>
 
       <div class="settings-card anim-in" id="recordingUploadAuditCard">
@@ -104044,12 +104148,16 @@ function wireRecordingModeControls(rootEl2) {
     }
     applyRecordingModeUi(recordingMode);
   };
-  const setEngine = (engine) => {
+  const setEngine = async (engine) => {
     if (!guardRecordingChange("Stop recording to change recording engine.")) return;
     const arm = window.__tpRecordingArm;
     if (arm?.getSnapshot?.().state === "arming") return;
-    void Promise.resolve(arm?.disarm?.()).catch(() => {
-    });
+    try {
+      if (await arm?.disarm?.() === false) return;
+    } catch (error) {
+      reportRecordingError(error);
+      return;
+    }
     try {
       setMode("single");
     } catch {
@@ -112707,7 +112815,7 @@ function installDbMeter() {
 function installObsChip() {
   once("obs-chip", () => {
     try {
-      const topbar = document.querySelector(".topbar") || document.body;
+      const topbar = document.getElementById("topbarRight") || document.querySelector(".topbar") || document.body;
       let chip = document.getElementById("obsChip");
       if (!chip) {
         chip = document.createElement("span");
@@ -118386,13 +118494,13 @@ function triggerSettingsImport() {
   input.accept = "application/json";
   input.style.position = "fixed";
   input.style.left = "-9999px";
-  const cleanup = () => {
+  const cleanup2 = () => {
     input.remove();
   };
   input.addEventListener("change", () => {
     const file = input.files && input.files[0];
     if (!file) {
-      cleanup();
+      cleanup2();
       return;
     }
     const reader = new FileReader();
@@ -118414,7 +118522,7 @@ function triggerSettingsImport() {
         }
         showToast("Failed to import settings. Is this an Anvil settings file?", { type: "error" });
       } finally {
-        cleanup();
+        cleanup2();
       }
     };
     reader.onerror = () => {
@@ -118423,7 +118531,7 @@ function triggerSettingsImport() {
       } catch {
       }
       showToast("Could not read settings file.", { type: "error" });
-      cleanup();
+      cleanup2();
     };
     reader.readAsText(file);
   });
@@ -120811,6 +120919,10 @@ async function boot() {
         } catch {
         }
         try {
+          initRecordingReadiness();
+        } catch {
+        }
+        try {
           initRecordingDestinationWarning();
           initObsRecordingFeedback();
         } catch {
@@ -121401,6 +121513,7 @@ var init_index_app = __esm({
     init_typography_ssot();
     init_recordButtons();
     init_recording_mode_ui();
+    init_recording_readiness();
     init_recording_destination_warning();
     init_obs_recording_feedback();
     init_eggs();

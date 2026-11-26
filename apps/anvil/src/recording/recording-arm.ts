@@ -265,9 +265,23 @@ export function createRecordingArmController(overrides: Partial<RecordingArmDepe
       publish({ state: 'idle', configuration: null, failure: null });
       return true;
     },
+    async refreshConfiguration() {
+      if (snapshot.state === 'arming' || deps.isRecording()) return;
+      const saved = deps.readConfiguration();
+      if (snapshot.configuration && (!saved.ok || saved.configuration.engine !== snapshot.configuration.engine || saved.configuration.mode !== snapshot.configuration.mode)) {
+        await cleanupOwnedMedia();
+        publish({ state: 'idle', configuration: null, failure: null });
+        return;
+      }
+      if (snapshot.state === 'armed' && snapshot.configuration?.engine === 'obs') {
+        const obs = deps.getObsApi();
+        if (!obs?.armed?.() || !obs.isConnected?.()) publish({ state: 'error', configuration: snapshot.configuration, failure: 'obs_disconnected' });
+      }
+    },
     setRecordingActive(active: boolean) {
       if (active) {
-        publish({ state: 'recording', configuration: snapshot.configuration, failure: null });
+        const saved = deps.readConfiguration();
+        publish({ state: 'recording', configuration: snapshot.configuration || (saved.ok ? saved.configuration : null), failure: null });
       } else if (snapshot.state === 'recording') {
         const configuration = snapshot.configuration;
         const browserReady = configuration?.engine === 'core'

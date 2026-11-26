@@ -106,7 +106,7 @@ describe('Settings recording UI (TS overlay)', () => {
     expect(store.state.recordAudioOnly).toBe(false);
   });
 
-  it('applies recorder adapter selections to registry', () => {
+  it('applies recorder adapter selections to registry', async () => {
     mountSettingsOverlay();
     const root = document.getElementById('settingsBody') as HTMLElement;
     wireSettingsDynamic(root);
@@ -117,6 +117,7 @@ describe('Settings recording UI (TS overlay)', () => {
     expect(RecorderApi.setRecordingMode).toHaveBeenCalledWith('audio');
 
     obsBtn.click();
+    await Promise.resolve();
     expect(RecorderApi.setMode).toHaveBeenCalledWith('single');
     expect(RecorderApi.setSelected).toHaveBeenCalledWith(['obs']);
     expect(RecorderApi.setRecordingMode).toHaveBeenCalledWith('av');
@@ -136,5 +137,17 @@ describe('Settings recording UI (TS overlay)', () => {
     (root.querySelector('#stopRecBtn') as HTMLButtonElement).click();
     await Promise.resolve();
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the previous engine to disarm before selecting OBS', async () => {
+    let finish!: (ok: boolean) => void;
+    (window as any).__tpRecordingArm = { getSnapshot: () => ({ state: 'armed' }), disarm: () => new Promise((resolve) => { finish = resolve; }) };
+    try {
+      mountSettingsOverlay();
+      document.getElementById('recEngineObs')!.click();
+      expect(RecorderApi.setSelected).not.toHaveBeenCalled();
+      finish(true); await Promise.resolve();
+      expect(RecorderApi.setSelected).toHaveBeenCalledWith(['obs']);
+    } finally { delete (window as any).__tpRecordingArm; }
   });
 });

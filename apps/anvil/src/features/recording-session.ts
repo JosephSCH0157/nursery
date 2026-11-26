@@ -7,6 +7,7 @@ import {
   startSessionRecording,
   stopSessionRecording,
   listRecorders,
+  reportRecordingError,
 } from '../recording/recorderRegistry';
 import { getRecordingEngine } from '../recording/recording-settings';
 
@@ -15,7 +16,7 @@ function maybeStartOnLive(phase: SessionPhase): void {
 
   const shouldRecord = !!appStore.get('session.recordOnLive');
   const reason = appStore.get('session.recordReason');
-  if (!shouldRecord) {
+  if (!shouldRecord || !appStore.get('autoRecord')) {
     try {
       console.log('[session] recording not armed; reason=', reason);
     } catch {
@@ -47,6 +48,7 @@ function maybeStartOnLive(phase: SessionPhase): void {
       console.warn('[session] startSessionRecording failed', err);
     });
   } catch (err) {
+    reportRecordingError(err);
     try {
       console.warn('[session] recorder start failed', err);
     } catch {

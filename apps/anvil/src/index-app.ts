@@ -114,6 +114,7 @@ import { initUiScale } from './ui/ui-scale';
 import { DEFAULT_SCRIPT_FONT_PX } from './ui/typography-ssot';
 import { wireRecordButtons } from './ui/recordButtons';
 import { initRecordingModeUi } from './ui/recording-mode-ui';
+import { initRecordingReadiness } from './ui/recording-readiness';
 import { initRecordingDestinationWarning } from './ui/recording-destination-warning';
 import { initObsRecordingFeedback } from './ui/obs-recording-feedback';
 import { installAboutPopover, installCKEgg, installEasterEggs } from './ui/eggs';
@@ -1999,6 +2000,7 @@ export async function boot() {
           try { bindMicUI(); } catch {}
           try { wireSidebarCalibrationUI(); } catch {}
           try { initRecordingModeUi(); } catch {}
+          try { initRecordingReadiness(); } catch {}
           try { initRecordingDestinationWarning(); initObsRecordingFeedback(); } catch {}
           try { bindCameraUI(); } catch {}
           try { initRecPillsMain(appStore); } catch {}

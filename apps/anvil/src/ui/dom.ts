@@ -692,7 +692,7 @@ function installDbMeter() {
 function installObsChip() {
   once('obs-chip', () => {
     try {
-      const topbar = document.querySelector('.topbar') || document.body;
+      const topbar = document.getElementById('topbarRight') || document.querySelector('.topbar') || document.body;
       let chip = document.getElementById('obsChip');
       if (!chip) {
         chip = document.createElement('span');
@@ -709,6 +709,7 @@ function installObsChip() {
         chip.appendChild(icon);
         topbar && topbar.appendChild(chip);
       }
+      // Static markup owns placement; this installer only supplies optional test feedback.
       const iconEl = chip.querySelector('.obs-test-icon');
       let hideTimer = null;
       // obs-status-bind owns connection labels and chip status.

@@ -1,5 +1,5 @@
 import type { AppStore } from '../state/app-store';
-import { isSessionRecording, startSessionRecording, stopSessionRecording } from './recorderRegistry';
+import { isRecordingBusy, reportRecordingError, startSessionRecording, stopSessionRecording } from './recorderRegistry';
 import { getRecordingEngine } from './recording-settings';
 
 function readStoreBoolean(store: AppStore | null | undefined, key: 'autoRecord' | 'obsEnabled'): boolean {
@@ -35,18 +35,18 @@ export function createStartOnPlay(store?: AppStore | null) {
     const activeStore = resolveStore(store);
     const autoRecord = readStoreBoolean(activeStore, 'autoRecord');
     const obsEnabled = readStoreBoolean(activeStore, 'obsEnabled');
-    const engine = getRecordingEngine();
 
     if (!autoRecord) {
       console.info('[Anvil][Recording] autoRecord=false → not starting recording');
       return;
     }
 
-    await startSessionRecording({ obsEnabled, engine });
+    try { await startSessionRecording({ obsEnabled, engine: getRecordingEngine() }); }
+    catch (error) { reportRecordingError(error); throw error; }
   }
 
   async function onSessionStop(): Promise<void> {
-    if (!isSessionRecording()) return;
+    if (!isRecordingBusy()) return;
     await stopSessionRecording();
   }
 

@@ -1599,6 +1599,10 @@ html.tp-mode-rehearsal::after{
   display: none !important;
 }
 
+.recording-readiness { flex: 0 0 auto; width: 100%; box-sizing: border-box; padding: 8px 12px; white-space: pre-line; color: #d9e5ef; border-left: 3px solid #8caecb; font-size: 14px; line-height: 1.5; }
+.recording-readiness[data-state="error"] { color: #ffe2b8; background: #392a12; border-color: #ffbc48; }
+.topbar:has(> .recording-readiness) { flex-wrap: wrap; overflow-x: visible; }
+
 .topbar-priority-actions > * {
   flex: 0 0 auto;
 }

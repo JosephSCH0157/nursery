@@ -1,4 +1,4 @@
-import { isRecordingBusy, startSessionRecording, stopSessionRecording } from '../recording/recorderRegistry';
+import { isRecordingBusy, reportRecordingError, startSessionRecording, stopSessionRecording } from '../recording/recorderRegistry';
 import { getRecordingEngine } from '../recording/recording-settings';
 import type { AppStore } from '../state/app-store';
 
@@ -69,6 +69,7 @@ export function wireRecordButtons(store?: AppStore | null, opts: WireRecordButto
       try {
         await startSessionRecording({ obsEnabled: getObsEnabled(), engine: getRecordingEngine() });
       } catch (err) {
+        reportRecordingError(err);
         console.warn('[recording] manual start failed', err);
       } finally {
         delete startBtn.dataset.recStarting;

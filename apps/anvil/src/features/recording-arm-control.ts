@@ -1,6 +1,9 @@
 import { createRecordingArmController, type RecordingArmFailure, type RecordingArmState } from '../recording/recording-arm';
+import { isRecordingBusy } from '../recording/recorderRegistry';
+import { subscribeRecorderSettings } from '../state/recorder-settings';
 
 let initialized = false;
+let cleanup: (() => void) | null = null;
 
 function openRecordingSettings(): void {
   try { document.getElementById('settingsBtn')?.click(); } catch {}
@@ -46,7 +49,7 @@ export function initRecordingArmControl(): void {
     const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-action="recording-arm-toggle"]'));
     buttons.forEach((button) => {
       button.textContent = buttonLabel(state);
-      button.disabled = state === 'arming' || state === 'recording';
+      button.disabled = state === 'arming' || isRecordingBusy();
       button.setAttribute('aria-pressed', state === 'armed' || state === 'recording' ? 'true' : 'false');
       button.dataset.state = state;
     });
@@ -57,7 +60,7 @@ export function initRecordingArmControl(): void {
     }
   };
 
-  controller.subscribe((next) => render(next.state, next.failure));
+  const offController = controller.subscribe((next) => render(next.state, next.failure));
   const wireButtons = () => {
     const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-action="recording-arm-toggle"]'));
     buttons.forEach((button) => {
@@ -80,25 +83,34 @@ export function initRecordingArmControl(): void {
     });
   };
   wireButtons();
-  document.addEventListener('tp:settings:rendered', () => {
+  const onSettings = () => {
     wireButtons();
     const next = controller.getSnapshot();
     render(next.state, next.failure);
-  });
-
-  const syncRecordingState = (event: Event) => {
-    const state = String((event as CustomEvent)?.detail?.state || '').toLowerCase();
-    if (state === 'recording') controller.setRecordingActive(true);
-    if (state === 'idle') controller.setRecordingActive(false);
   };
-  window.addEventListener('rec:state', syncRecordingState);
-  window.addEventListener('tp:recording:state', (event: Event) => {
+  document.addEventListener('tp:settings:rendered', onSettings);
+  // Registry confirmation owns active capture. Legacy rec:state is not an
+  // independent recording truth and must not strand Arm in a disabled state.
+  const onRecording = (event: Event) => {
     const recording = (event as CustomEvent)?.detail?.recording;
     if (typeof recording === 'boolean') controller.setRecordingActive(recording);
-  });
+    const next = controller.getSnapshot();
+    render(next.state, next.failure);
+  };
+  window.addEventListener('tp:recording:state', onRecording);
+  const refresh = () => { void controller.refreshConfiguration(); };
+  window.addEventListener('tp:recording-settings:changed', refresh);
+  const offSettings = subscribeRecorderSettings(refresh);
+  cleanup = () => {
+    offController(); offSettings();
+    document.removeEventListener('tp:settings:rendered', onSettings);
+    window.removeEventListener('tp:recording:state', onRecording);
+    window.removeEventListener('tp:recording-settings:changed', refresh);
+  };
   (window as any).__tpRecordingArm = controller;
 }
 
 export function __resetRecordingArmControlForTests(): void {
+  cleanup?.(); cleanup = null;
   initialized = false;
 }

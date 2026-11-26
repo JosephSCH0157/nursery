@@ -545,6 +545,21 @@ See `docs/scroll-contract.md` for executable runtime boundaries and allowed/forb
 
 ## Recording integration ownership
 
+Control/readiness contract (November 26, 2026): the upper-right OBS pill is
+visible independently of the session summary and is rendered only by
+`obs-status-bind` from authenticated connection state. Connection, arming and
+confirmed capture are separate truths. `recording-arm-control` consumes registry
+confirmation, never legacy `rec:state`, for active capture. Engine changes await
+owned-resource cleanup and never arm the next engine implicitly. OBS arming and
+selection must not request browser capture devices.
+
+Toolbar and Settings expose the same manual Start/Stop commands, independently
+of Auto-record. `recording-readiness` projects the current Auto-record preference,
+arm snapshot, connection state, session refusal reason and persistent command
+failure into both surfaces. Scrolling with Auto-record off does not capture;
+revoking that preference during pre-roll cancels automatic capture on live.
+These views do not grant capture authorization or own destination management.
+
 Refinement contract (November 26, 2026): destination warning UI is a read-only
 projection of the existing Hearth/Forge directory API. Mapping/grants remain in
 the existing settings. Core Start is blocked until those requirements recover;

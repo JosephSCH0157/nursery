@@ -126,7 +126,7 @@ export async function startSessionRecording(opts: { obsEnabled?: boolean; engine
   finally { startInFlight = null; }
 }
 
-function reportRecordingError(error: unknown): void {
+export function reportRecordingError(error: unknown): void {
   const message = (error as Error)?.message || String(error);
   try { (window as any).toast?.(message, { type: 'error' }); } catch {}
   try { window.dispatchEvent(new CustomEvent('tp:recording:error', { detail: { message } })); } catch {}

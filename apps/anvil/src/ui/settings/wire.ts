@@ -8,7 +8,7 @@ import {
 import type { AppStore } from '../../state/app-store';
 import { wireRecordButtons } from '../recordButtons';
 import { setRecorderEnabled } from '../../state/recorder-settings';
-import { isRecordingBusy } from '../../recording/recorderRegistry';
+import { isRecordingBusy, reportRecordingError } from '../../recording/recorderRegistry';
 import { applyRecordingModeUi } from '../recording-mode-ui';
 import { getNurseryStorageSettingsUrl } from '../../forge/nursery-mounts';
 
@@ -421,12 +421,13 @@ function wireRecordingModeControls(rootEl: HTMLElement) {
     applyRecordingModeUi(recordingMode);
   };
 
-  const setEngine = (engine: 'core' | 'obs') => {
+  const setEngine = async (engine: 'core' | 'obs') => {
     if (!guardRecordingChange('Stop recording to change recording engine.')) return;
     const arm = (window as any).__tpRecordingArm;
     if (arm?.getSnapshot?.().state === 'arming') return;
     // Release only resources owned by the arm control before the new engine arms.
-    void Promise.resolve(arm?.disarm?.()).catch(() => {});
+    try { if (await arm?.disarm?.() === false) return; }
+    catch (error) { reportRecordingError(error); return; }
     try { setRecorderMode('single'); } catch {}
     try { setRecorderSelected([engine]); } catch {}
     try { setRecorderEnabled('obs', engine === 'obs'); } catch {}
