@@ -115,7 +115,12 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
       _dir = managed.handle ?? null;
       return true;
     } catch {
-      return false;
+      // A managed lookup failure must not select a stale standalone folder.
+      _managedByNursery = true;
+      _localPersistenceExpected = true;
+      _managedHint = 'Hearth recording folder unavailable';
+      _dir = null;
+      return true;
     }
   }
 
@@ -139,11 +144,13 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
     _dir = h || null;
     if (h) await idbSet(KEY, h);
     else await idbDel(KEY);
+    window.dispatchEvent(new CustomEvent('tp:recording-directory:changed'));
   }
   async function clearRecordingDir() {
     if (_managedByNursery) return;
     _dir = null;
     await idbDel(KEY);
+    window.dispatchEvent(new CustomEvent('tp:recording-directory:changed'));
   }
   async function pickRecordingDir(): Promise<DirHandle | null> {
     if (_managedByNursery) return _dir || null;

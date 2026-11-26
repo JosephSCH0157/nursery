@@ -6,8 +6,9 @@ import {
   setRecordingMode as setRecorderRecordingMode,
 } from '../../../recorders';
 import type { AppStore } from '../../state/app-store';
+import { wireRecordButtons } from '../recordButtons';
 import { setRecorderEnabled } from '../../state/recorder-settings';
-import { isSessionRecording } from '../../recording/recorderRegistry';
+import { isRecordingBusy, reportRecordingError } from '../../recording/recorderRegistry';
 import { applyRecordingModeUi } from '../recording-mode-ui';
 import { getNurseryStorageSettingsUrl } from '../../forge/nursery-mounts';
 
@@ -161,7 +162,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
             const r = await existing.requestPermission?.({ mode: 'readwrite' });
             if (r !== 'granted') {
               (window as any).toast?.(
-                'Recordings folder is mapped but write permission is not granted yet. Recording will continue and download fallback will be used until access is granted.',
+                'Recordings folder is mapped but write permission is not granted yet. Core recording is blocked until folder access is granted.',
                 { type: 'warn' },
               );
             }
@@ -171,7 +172,7 @@ async function pickFolder({ force }: { force?: boolean } = {}) {
       }
       const settingsUrl = getNurseryStorageSettingsUrl();
       (window as any).toast?.(
-        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Core recording is blocked until the recording folder is linked (${settingsUrl}).`,
         { type: 'warn' },
       );
       return true;
@@ -384,7 +385,7 @@ function wireRecordingModeControls(rootEl: HTMLElement) {
   };
 
   const guardRecordingChange = (message: string) => {
-    if (!isSessionRecording()) return true;
+    if (!isRecordingBusy()) return true;
     try { (window as any).toast?.(message || 'Stop recording to change recording mode.', { type: 'warn' }); } catch {}
     return false;
   };
@@ -420,8 +421,13 @@ function wireRecordingModeControls(rootEl: HTMLElement) {
     applyRecordingModeUi(recordingMode);
   };
 
-  const setEngine = (engine: 'core' | 'obs') => {
+  const setEngine = async (engine: 'core' | 'obs') => {
     if (!guardRecordingChange('Stop recording to change recording engine.')) return;
+    const arm = (window as any).__tpRecordingArm;
+    if (arm?.getSnapshot?.().state === 'arming') return;
+    // Release only resources owned by the arm control before the new engine arms.
+    try { if (await arm?.disarm?.() === false) return; }
+    catch (error) { reportRecordingError(error); return; }
     try { setRecorderMode('single'); } catch {}
     try { setRecorderSelected([engine]); } catch {}
     try { setRecorderEnabled('obs', engine === 'obs'); } catch {}
@@ -473,6 +479,7 @@ export function wireSettingsDynamic(rootEl: HTMLElement | null, store?: AppStore
     rootEl.dataset[DATASET_SETTINGS_WIRED] = '1';
   } catch {}
   try { wireSettingsTabs(rootEl, store); } catch {}
+  try { wireRecordButtons(store, { startSelector: '#startRecBtn', stopSelector: '#stopRecBtn' }); } catch {}
   // attach a minimal mutation observer to demonstrate wiring
   try {
     const obs = new MutationObserver(() => {});

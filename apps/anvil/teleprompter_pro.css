@@ -1599,6 +1599,10 @@ html.tp-mode-rehearsal::after{
   display: none !important;
 }
 
+.recording-readiness { flex: 0 0 auto; width: 100%; box-sizing: border-box; padding: 8px 12px; white-space: pre-line; color: #d9e5ef; border-left: 3px solid #8caecb; font-size: 14px; line-height: 1.5; }
+.recording-readiness[data-state="error"] { color: #ffe2b8; background: #392a12; border-color: #ffbc48; }
+.topbar:has(> .recording-readiness) { flex-wrap: wrap; overflow-x: visible; }
+
 .topbar-priority-actions > * {
   flex: 0 0 auto;
 }
@@ -1679,3 +1683,11 @@ html.tp-mode-rehearsal::after{
 #scriptSelectSidebar {
   min-width: 180px;
 }
+
+/* Capture readiness stays visible next to the primary recording controls. */
+.recording-destination-warning { flex: 0 0 auto; width: 100%; box-sizing: border-box; padding: 12px 16px; border: 2px solid #ffbc48; border-radius: 8px; background: #392a12; color: #fff1cf; font-size: 14px; font-weight: 650; line-height: 1.5; }
+.recording-destination-warning a { color: #ffe1a0; text-decoration: underline; }
+.obs-recording-feedback { flex: 0 0 auto; width: 100%; box-sizing: border-box; padding: 8px 12px; border-left: 3px solid #72c9b1; color: inherit; white-space: pre-line; overflow-wrap: anywhere; }
+.recording-destination-warning[hidden], .obs-recording-feedback[hidden] { display: none; }
+.topbar:has(> .recording-destination-warning:not([hidden])), .topbar:has(> .obs-recording-feedback:not([hidden])) { flex-wrap: wrap; overflow-x: visible; }
+.topbar > .recording-destination-warning, .topbar > .obs-recording-feedback { flex-basis: 100%; }

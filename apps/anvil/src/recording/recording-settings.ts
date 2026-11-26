@@ -1,26 +1,13 @@
 export type RecordingMode = 'av' | 'audio';
 export type RecordingEngine = 'core' | 'obs';
+export type SavedRecordingConfiguration = { engine: RecordingEngine; mode: RecordingMode };
+export type SavedRecordingConfigurationResult =
+  | { ok: true; configuration: SavedRecordingConfiguration }
+  | { ok: false; reason: 'missing' | 'invalid' };
 
-const SETTINGS_KEY = 'tp_rec_settings_v1';
+import { getSettings } from '../../recorders-core';
 
-type RawRecorderSettings = {
-  mode?: string;
-  selected?: unknown;
-  recordingMode?: string;
-};
-
-function readRawSettings(): RawRecorderSettings | null {
-  try {
-    if (typeof window === 'undefined') return null;
-    const raw = window.localStorage?.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed as RawRecorderSettings;
-  } catch {
-    return null;
-  }
-}
+const readRawSettings = getSettings;
 
 function normalizeSelected(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -40,13 +27,10 @@ export function getRecordingEngine(): RecordingEngine {
   const selected = normalizeSelected(raw?.selected);
   const mode = String(raw?.mode || '').toLowerCase();
 
-  if (mode === 'single') {
-    if (selected.includes('obs')) return 'obs';
-    if (selected.includes('core')) return 'core';
+  if ((mode !== 'single' && mode !== 'multi') || selected.length !== 1 || !['obs', 'core'].includes(selected[0])) {
+    throw new Error('Select one recording engine in Recording Settings.');
   }
-
-  if (selected.includes('obs') && !selected.includes('core')) return 'obs';
-  return 'core';
+  return selected[0] as RecordingEngine;
 }
 
 export function isAudioOnlyRecording(): boolean {
@@ -55,4 +39,23 @@ export function isAudioOnlyRecording(): boolean {
 
 export function isObsEngineSelected(): boolean {
   return getRecordingEngine() === 'obs';
+}
+
+export function readSavedRecordingConfiguration(): SavedRecordingConfigurationResult {
+  if (!window.localStorage.getItem('tp_rec_settings_v1')) return { ok: false, reason: 'missing' };
+  const raw = readRawSettings();
+
+  const selected = normalizeSelected(raw.selected);
+  const mode = String(raw.mode || '').toLowerCase();
+  const recordingMode = String(raw.recordingMode || '').toLowerCase();
+  if ((mode !== 'single' && mode !== 'multi') || (recordingMode !== 'av' && recordingMode !== 'audio')) {
+    return { ok: false, reason: 'invalid' };
+  }
+  if (selected.length !== 1 || selected.some((id) => id !== 'core' && id !== 'obs')) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  const engine: RecordingEngine = selected.includes('obs') && !selected.includes('core') ? 'obs' : 'core';
+  if (engine === 'obs' && recordingMode === 'audio') return { ok: false, reason: 'invalid' };
+  return { ok: true, configuration: { engine, mode: recordingMode } };
 }

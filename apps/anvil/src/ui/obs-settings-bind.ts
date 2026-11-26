@@ -108,115 +108,52 @@ function buildUrl(hostWithPort: string, explicitPort?: string): string {
   return `ws://${host}:${port}`;
 }
 
-export function bindObsSettingsUI(doc: Document = document): void {
-  let syncing = false;
-  let wired = false;
-
-  const wire = () => {
-    const enableEl = doc.getElementById(ENABLE_ID) as HTMLInputElement | null;
-    const sidebarEnableEl = doc.getElementById(SIDEBAR_ENABLE_ID) as HTMLInputElement | null;
-    const toggleEls = Array.from(
-      new Set(
-        Array.from(doc.querySelectorAll<HTMLInputElement>('[data-tp-obs-toggle]')).concat(
-          enableEl ? [enableEl] : [],
-          sidebarEnableEl ? [sidebarEnableEl] : [],
-        ),
-      ),
-    ).filter((el) => el instanceof HTMLInputElement) as HTMLInputElement[];
-    const hostEl = doc.getElementById(HOST_ID) as HTMLInputElement | null;
-    const portEl = doc.getElementById(PORT_ID) as HTMLInputElement | null;
-    const passEl = doc.getElementById(PASS_ID) as HTMLInputElement | null;
-
-    if (toggleEls.length === 0 && !hostEl && !portEl && !passEl) {
-      return false;
-    }
-
-    if (wired) return true;
-    wired = true;
-    try { console.info('[OBS-UI] wiring settings/sidebar controls'); } catch {}
-
-    // Store -> UI
-    subscribeRecorderSettings((state) => {
-      syncing = true;
-      try {
-        syncEnabledCheckboxes(doc, !!state.enabled.obs);
-
-        const url = state.configs.obs.url || '';
-        try {
-          const parsed = new URL(url);
-          if (hostEl && hostEl !== doc.activeElement) {
-            const hostPort = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname || '';
-            hostEl.value = hostPort;
-          }
-          if (portEl && portEl !== doc.activeElement) portEl.value = parsed.port || '4455';
-        } catch {
-          if (hostEl && hostEl !== doc.activeElement) hostEl.value = '';
-          if (portEl && portEl !== doc.activeElement) portEl.value = '4455';
-        }
-
-        if (passEl && passEl !== doc.activeElement) {
-          passEl.value = state.configs.obs.password || '';
-        }
-      } finally {
-        syncing = false;
-      }
-    });
-
-    const writeEnabled = (on: boolean, src?: HTMLInputElement | null) => {
-      if (syncing) return;
-      handleToggle(on, src?.id);
-    };
-
-    toggleEls.forEach((el) => {
-      el.addEventListener('change', () => writeEnabled(!!el.checked, el));
-    });
-
-    const pushUrl = () => {
-      if (syncing) return;
-      const next = buildUrl(hostEl?.value ?? '', portEl?.value ?? '');
-      const cur = getRecorderSettings().configs.obs.url;
-      if (next === cur) return;
-      try { console.info('[OBS-UI] setObsConfig url', next); } catch {}
-      setObsConfig({ url: next });
-    };
-
-    hostEl?.addEventListener('blur', pushUrl);
-    hostEl?.addEventListener('change', pushUrl);
-    portEl?.addEventListener('blur', pushUrl);
-    portEl?.addEventListener('change', pushUrl);
-
-    passEl?.addEventListener('change', () => {
-      if (syncing) return;
-      try { console.info('[OBS-UI] setObsConfig password'); } catch {}
-      setObsConfig({ password: passEl.value });
-    });
-
-    return true;
-  };
-
-  // Try immediately; if elements not yet in DOM, observe until they appear
-  if (!wire()) {
+const boundDocuments = new WeakSet<Document>();
+export function bindObsSettingsUI(doc: Document = document): (() => void) | undefined {
+  if (boundDocuments.has(doc)) return;
+  boundDocuments.add(doc);
+  const sync = () => {
+    const state = getRecorderSettings();
+    syncEnabledCheckboxes(doc, state.enabled.obs);
+    doc.querySelectorAll<HTMLInputElement>('[data-tp-obs-toggle]').forEach((el) => { el.checked = state.enabled.obs; });
+    const host = doc.getElementById(HOST_ID) as HTMLInputElement | null;
+    const port = doc.getElementById(PORT_ID) as HTMLInputElement | null;
+    const pass = doc.getElementById(PASS_ID) as HTMLInputElement | null;
     try {
-      const mo = new MutationObserver(() => {
-        if (wire()) {
-          mo.disconnect();
-        }
-      });
-      mo.observe(doc.documentElement, { childList: true, subtree: true });
+      const url = new URL(state.configs.obs.url);
+      if (host && host !== doc.activeElement) host.value = url.host;
+      if (port && port !== doc.activeElement) port.value = url.port || '4455';
     } catch {}
-  }
-
-  // Delegated safety net for late-mounted toggles
-  try {
-    doc.addEventListener(
-      'change',
-      (ev) => {
-        const t = ev.target as HTMLElement | null;
-        const input = (t && t.closest('[data-tp-obs-toggle]')) as HTMLInputElement | null;
-        if (!input) return;
-        handleToggle(!!input.checked, input.id);
-      },
-      { capture: true },
-    );
-  } catch {}
+    if (pass && pass !== doc.activeElement) pass.value = state.configs.obs.password || '';
+  };
+  const unsubscribe = subscribeRecorderSettings(sync);
+  const observer = new MutationObserver((changes) => {
+    if (changes.some((change) => change.addedNodes.length)) sync();
+  });
+  observer.observe(doc.documentElement, { childList: true, subtree: true });
+  const pushConfig = (ev: Event) => {
+    const input = ev.target as HTMLInputElement | null;
+    if (!input) return;
+    if (input.id === PASS_ID) {
+      if (input.value !== getRecorderSettings().configs.obs.password) setObsConfig({ password: input.value });
+    } else if (input.id === HOST_ID || input.id === PORT_ID) {
+      const host = doc.getElementById(HOST_ID) as HTMLInputElement | null;
+      const port = doc.getElementById(PORT_ID) as HTMLInputElement | null;
+      const url = buildUrl(host?.value || '', port?.value);
+      if (url !== getRecorderSettings().configs.obs.url) setObsConfig({ url });
+    }
+  };
+  const onChange = (ev: Event) => {
+    const input = ev.target as HTMLInputElement | null;
+    if (input?.matches(`[data-tp-obs-toggle], #${ENABLE_ID}, #${SIDEBAR_ENABLE_ID}`)) handleToggle(input.checked, input.id);
+    else pushConfig(ev);
+  };
+  doc.addEventListener('change', onChange);
+  doc.addEventListener('blur', pushConfig, true);
+  return () => {
+    observer.disconnect(); unsubscribe();
+    doc.removeEventListener('change', onChange);
+    doc.removeEventListener('blur', pushConfig, true);
+    boundDocuments.delete(doc);
+  };
 }

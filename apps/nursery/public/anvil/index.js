@@ -20633,16 +20633,16 @@ function scrollByPx(dy, getScroller3 = defaultViewer) {
     }
     return;
   }
-  const current2 = sc.scrollTop || 0;
-  const { target, guardDenied } = clampScrollTop(sc, current2 + (Number(dy) || 0));
+  const current4 = sc.scrollTop || 0;
+  const { target, guardDenied } = clampScrollTop(sc, current4 + (Number(dy) || 0));
   if (guardDenied) {
     if (logEnabled) {
-      logScrollWrite({ caller, target, current: current2, accepted: false, reason: "clamp-guard" });
+      logScrollWrite({ caller, target, current: current4, accepted: false, reason: "clamp-guard" });
     }
     return;
   }
   if (logEnabled) {
-    logScrollWrite({ caller, target, current: current2, accepted: true, reason: "scrollByPx" });
+    logScrollWrite({ caller, target, current: current4, accepted: true, reason: "scrollByPx" });
   }
   requestWrite(() => {
     try {
@@ -20767,16 +20767,16 @@ function createScrollerHelpers(getScroller3) {
         }
         return;
       }
-      const current2 = sc.scrollTop || 0;
+      const current4 = sc.scrollTop || 0;
       const { target, guardDenied } = clampScrollTop(sc, top);
       if (guardDenied) {
         if (logEnabled) {
-          logScrollWrite({ caller, target, current: current2, accepted: false, reason: "clamp-guard" });
+          logScrollWrite({ caller, target, current: current4, accepted: false, reason: "clamp-guard" });
         }
         return;
       }
       if (logEnabled) {
-        logScrollWrite({ caller, target, current: current2, accepted: true, reason: "requestScroll" });
+        logScrollWrite({ caller, target, current: current4, accepted: true, reason: "requestScroll" });
       }
       requestWrite(() => {
         try {
@@ -21848,20 +21848,20 @@ function createHybridWpmMotor(deps) {
   };
   const tick = () => {
     if (!running2) return;
-    const current2 = now3();
-    const prev2 = lastNow ?? current2;
-    const deltaMs = current2 - prev2;
+    const current4 = now3();
+    const prev2 = lastNow ?? current4;
+    const deltaMs = current4 - prev2;
     const dt = clamp(deltaMs / 1e3, 0, 0.2);
     if (deltaMs > 200) {
-      if (current2 - lastDtClampLogAtMs >= DT_CLAMP_LOG_INTERVAL_MS) {
-        lastDtClampLogAtMs = current2;
+      if (current4 - lastDtClampLogAtMs >= DT_CLAMP_LOG_INTERVAL_MS) {
+        lastDtClampLogAtMs = current4;
         log("dt-clamp", {
           dtRaw: deltaMs / 1e3,
           dtClamped: dt
         });
       }
     }
-    lastNow = current2;
+    lastNow = current4;
     if (velocityPxPerSec !== 0) {
       if (!writer) {
         if (!warnedNoWriter) {
@@ -22294,12 +22294,12 @@ function initScrollPrefsPersistence(store3) {
   if (!store3) return;
   const fromStore = normalizeMode(store3.get?.("scrollMode"));
   const persisted = normalizeMode(loadScrollPrefs()?.mode);
-  const initial2 = normalizeMode(fromStore || persisted || "hybrid") || "hybrid";
+  const initial = normalizeMode(fromStore || persisted || "hybrid") || "hybrid";
   try {
-    if (!fromStore || fromStore !== initial2) {
+    if (!fromStore || fromStore !== initial) {
       withScrollModeWriter("state/app-store", () => {
         try {
-          store3.set?.("scrollMode", initial2);
+          store3.set?.("scrollMode", initial);
         } catch {
         }
       }, { source: "migration" });
@@ -22402,8 +22402,8 @@ function readInitialAsrEngine(legacyAsrSettings) {
 }
 function migrateAutoRecordFlag() {
   try {
-    const current2 = localStorage.getItem(AUTO_RECORD_KEY);
-    if (current2 !== null && typeof current2 !== "undefined") {
+    const current4 = localStorage.getItem(AUTO_RECORD_KEY);
+    if (current4 !== null && typeof current4 !== "undefined") {
       if (localStorage.getItem(LEGACY_AUTO_RECORD_KEY) !== null) {
         try {
           localStorage.removeItem(LEGACY_AUTO_RECORD_KEY);
@@ -22919,7 +22919,7 @@ function sanitizeState(state9) {
   }
   return state9;
 }
-function createAppStore(initial2) {
+function createAppStore(initial) {
   const subs7 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
   migrateLegacyAsrSettings(loadLegacyAsrSettings());
@@ -22928,7 +22928,7 @@ function createAppStore(initial2) {
       {},
       baseState,
       ensureExistingState(),
-      initial2 || {}
+      initial || {}
     )
   );
   function notify4(key, value) {
@@ -23399,8 +23399,8 @@ var init_profile_store = __esm({
       async saveProfilePatch(patch) {
         const user = await this.getUser();
         const userId = user.id;
-        const current2 = await this.getProfile();
-        const next = applyProfilePatch(current2, patch);
+        const current4 = await this.getProfile();
+        const next = applyProfilePatch(current4, patch);
         this.cache = next;
         const { error } = await this.supabase.from("tp_profiles").upsert(
           {
@@ -24711,18 +24711,18 @@ function computeLineTargetMultiplier(errorLines, eligible) {
   );
 }
 function updateHybridLineMult(targetMult, dtMs, allowFastUp = false) {
-  const current2 = Number.isFinite(hybridCtrl.lineMult) ? hybridCtrl.lineMult : 1;
+  const current4 = Number.isFinite(hybridCtrl.lineMult) ? hybridCtrl.lineMult : 1;
   const target = Number.isFinite(targetMult ?? NaN) ? Number(targetMult) : 1;
   if (!Number.isFinite(dtMs) || dtMs <= 0) {
     hybridCtrl.lineMult = target;
     return hybridCtrl.lineMult;
   }
   const alpha = 1 - Math.exp(-dtMs / HYBRID_CTRL_LINE_SMOOTH_TAU_MS);
-  const next = current2 + (target - current2) * alpha;
+  const next = current4 + (target - current4) * alpha;
   const maxDeltaDown = HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC * (dtMs / 1e3);
   const maxDeltaUp = HYBRID_CTRL_LINE_RATE_LIMIT_PER_SEC * (dtMs / 1e3) * (allowFastUp ? HYBRID_CTRL_LINE_RATE_LIMIT_BEHIND_MULT : 1);
-  const limited = clamp2(next, current2 - maxDeltaDown, current2 + maxDeltaUp);
-  hybridCtrl.lineMult = Number.isFinite(limited) ? limited : current2;
+  const limited = clamp2(next, current4 - maxDeltaDown, current4 + maxDeltaUp);
+  hybridCtrl.lineMult = Number.isFinite(limited) ? limited : current4;
   return hybridCtrl.lineMult;
 }
 function computeSilenceCapMultiplier(silenceMs) {
@@ -30134,10 +30134,10 @@ function installScrollRouter(opts) {
           return Number.NaN;
         }
       })();
-      const current2 = Number.isFinite(storeValue) && storeValue > 0 ? storeValue : Number.isFinite(sliderValue) && sliderValue > 0 ? sliderValue : Number.isFinite(storedValue) && storedValue > 0 ? storedValue : 150;
+      const current4 = Number.isFinite(storeValue) && storeValue > 0 ? storeValue : Number.isFinite(sliderValue) && sliderValue > 0 ? sliderValue : Number.isFinite(storedValue) && storedValue > 0 ? storedValue : 150;
       const fineStep = Number(slider?.step);
       const step = Number.isFinite(fineStep) && fineStep > 0 ? fineStep : 5;
-      const requestedWpm = current2 + direction * step * (coarse ? AUTO_STEP_COARSE2 : 1);
+      const requestedWpm = current4 + direction * step * (coarse ? AUTO_STEP_COARSE2 : 1);
       window.dispatchEvent(new CustomEvent(WPM_INTENT_EVENT, {
         detail: { wpm: requestedWpm, source: "hotkey" }
       }));
@@ -30487,8 +30487,8 @@ var init_router_impl = __esm({
       if (typeof window === "undefined") return false;
       let manualOverride = false;
       try {
-        const current2 = window.location.href || window.location.hash || window.location.search || "";
-        const url = new URL(current2, window.location.origin || void 0);
+        const current4 = window.location.href || window.location.hash || window.location.search || "";
+        const url = new URL(current4, window.location.origin || void 0);
         const fromSearch = url.searchParams.get("hybridCtrl");
         const fromHash = new URLSearchParams((url.hash || "").replace(/^#/, "")).get("hybridCtrl");
         if (fromSearch === "1" || fromHash === "1") manualOverride = true;
@@ -30699,8 +30699,8 @@ function getStore() {
 }
 function nextSeq() {
   const w3 = window;
-  const current2 = Number(w3[SEQ_KEY]);
-  const seq = Number.isFinite(current2) ? current2 + 1 : 1;
+  const current4 = Number(w3[SEQ_KEY]);
+  const seq = Number.isFinite(current4) ? current4 + 1 : 1;
   w3[SEQ_KEY] = seq;
   return seq;
 }
@@ -31060,14 +31060,14 @@ function combineTensAndOnes(tokens) {
   if (!tokens.length) return tokens;
   const combined = [];
   for (let i = 0; i < tokens.length; i += 1) {
-    const current2 = tokens[i];
+    const current4 = tokens[i];
     const next = tokens[i + 1];
-    if (TENS_TOKENS.has(current2) && typeof next === "string" && ONES_TOKEN_RE.test(next)) {
-      combined.push(String(Number(current2) + Number(next)));
+    if (TENS_TOKENS.has(current4) && typeof next === "string" && ONES_TOKEN_RE.test(next)) {
+      combined.push(String(Number(current4) + Number(next)));
       i += 1;
       continue;
     }
-    combined.push(current2);
+    combined.push(current4);
   }
   return combined;
 }
@@ -33015,7 +33015,7 @@ function promptSaveCollision(name) {
         </div>
       </div>
     `;
-    const cleanup = (choice) => {
+    const cleanup2 = (choice) => {
       try {
         overlay.remove();
       } catch {
@@ -33024,20 +33024,20 @@ function promptSaveCollision(name) {
     };
     overlay.addEventListener("click", (event) => {
       if (event.target === overlay) {
-        cleanup("cancel");
+        cleanup2("cancel");
       }
     });
     overlay.querySelectorAll("button[data-action]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const action = btn.dataset.action;
         if (!action) {
-          cleanup("cancel");
+          cleanup2("cancel");
           return;
         }
         if (action === "overwrite" || action === "copy" || action === "cancel") {
-          cleanup(action);
+          cleanup2(action);
         } else {
-          cleanup("cancel");
+          cleanup2("cancel");
         }
       });
     });
@@ -33253,25 +33253,25 @@ function saveScript(name) {
 function deleteCurrent() {
   const list = readList();
   if (!list.length) return;
-  let current2 = null;
+  let current4 = null;
   try {
-    current2 = localStorage.getItem(TITLE_KEY);
+    current4 = localStorage.getItem(TITLE_KEY);
   } catch {
   }
-  if (!current2) return;
-  writeList(list.filter((s) => s.title !== current2));
+  if (!current4) return;
+  writeList(list.filter((s) => s.title !== current4));
 }
 function renameCurrent() {
   const list = readList();
   if (!list.length) return;
-  let current2 = null;
+  let current4 = null;
   try {
-    current2 = localStorage.getItem(TITLE_KEY);
+    current4 = localStorage.getItem(TITLE_KEY);
   } catch {
   }
-  const next = prompt("Rename script to:", current2 || "Untitled");
+  const next = prompt("Rename script to:", current4 || "Untitled");
   if (!next) return;
-  const entry = list.find((s) => s.title === current2);
+  const entry = list.find((s) => s.title === current4);
   if (!entry) return;
   entry.title = next;
   entry.ts = Date.now();
@@ -33606,22 +33606,22 @@ var init_terminal_boundary_authority = __esm({
       const competing = input.competingGuardContradiction && !input.tailProgressionOverride && !genuine;
       return { blocked: genuine || competing, genuine, competing };
     };
-    evaluateTerminalProposal = (proposal, current2) => {
+    evaluateTerminalProposal = (proposal, current4) => {
       if (proposal.targetLine !== proposal.currentLine + 1 || proposal.targetLine !== proposal.lastSpeakableLine) {
         return { outcome: "stale", reason: "not_final_adjacent" };
       }
       if (!proposal.proofOwned || !proposal.responseFresh || !proposal.audioFresh) {
         return { outcome: "stale", reason: "proof_or_freshness_missing" };
       }
-      if (!proposal.responseAuthorityCurrent || !current2.responseAuthorityCurrent) {
+      if (!proposal.responseAuthorityCurrent || !current4.responseAuthorityCurrent) {
         return { outcome: "stale", reason: "response_authority_stale" };
       }
-      if (current2.line !== proposal.currentLine) return { outcome: "stale", reason: "cursor_changed" };
-      if (current2.runKey !== proposal.runKey || current2.runGeneration !== proposal.runGeneration) {
+      if (current4.line !== proposal.currentLine) return { outcome: "stale", reason: "cursor_changed" };
+      if (current4.runKey !== proposal.runKey || current4.runGeneration !== proposal.runGeneration) {
         return { outcome: "stale", reason: "run_identity_changed" };
       }
       if (proposal.genuineContradiction) return { outcome: "blocked", reason: "genuine_contradiction" };
-      if (proposal.competingContradiction && current2.competingContradictionActive) {
+      if (proposal.competingContradiction && current4.competingContradictionActive) {
         return { outcome: "blocked", reason: "competing_contradiction" };
       }
       return { outcome: "commit" };
@@ -35941,14 +35941,14 @@ function countSpeakableDistanceAhead(input) {
   return Number.POSITIVE_INFINITY;
 }
 function collectSkippedAsrRows(input) {
-  const current2 = Number.isFinite(input.currentLine) ? Math.floor(input.currentLine) : -1;
+  const current4 = Number.isFinite(input.currentLine) ? Math.floor(input.currentLine) : -1;
   const target = Number.isFinite(input.targetLine) ? Math.floor(input.targetLine) : -1;
   const skippedReasons = [];
-  if (target <= current2 + 1) {
+  if (target <= current4 + 1) {
     return { skippedReasons, skippedNonIgnorable: false };
   }
   const strict = input.strict !== false;
-  for (let idx = current2 + 1; idx < target; idx += 1) {
+  for (let idx = current4 + 1; idx < target; idx += 1) {
     const text = input.getLineText(idx);
     const reason = strict ? classifyStrictSkippableLineForCueBridge(text) : classifySkippableLineForCueBridge(text);
     if (reason == null) {
@@ -41632,8 +41632,8 @@ function createAsrScrollDriver(options = {}) {
     ]);
   }
   function sameVisualContext(expected) {
-    const current2 = captureReanchorLandingAuthority();
-    return Object.keys(expected).every((key) => expected[key] === current2[key]);
+    const current4 = captureReanchorLandingAuthority();
+    return Object.keys(expected).every((key) => expected[key] === current4[key]);
   }
   let pendingPacketRevision = 0;
   let pendingPacketHighWater = -1;
@@ -43955,9 +43955,9 @@ function createAsrScrollDriver(options = {}) {
       return { ...result, afterTop: after, appliedDeltaPx: after - before };
     } catch {
       const after = Number(input.scroller.scrollTop);
-      const current2 = completionWriteCurrent(state9);
-      if (current2) noteCompletion(state9, "execution_rejected");
-      return { ...hold("writer_rejected"), afterTop: after, appliedDeltaPx: after - before, ownershipLost: !current2 };
+      const current4 = completionWriteCurrent(state9);
+      if (current4) noteCompletion(state9, "execution_rejected");
+      return { ...hold("writer_rejected"), afterTop: after, appliedDeltaPx: after - before, ownershipLost: !current4 };
     } finally {
       state9.inFlight = false;
     }
@@ -44728,10 +44728,10 @@ function createAsrScrollDriver(options = {}) {
     }
     return true;
   };
-  const clearRecoveryLandingHold = (reason, now3, current2, bestIdx) => {
+  const clearRecoveryLandingHold = (reason, now3, current4, bestIdx) => {
     recoveryLandingHoldActive = false;
     warnGuard("asr_recovery_landing_hold_cleared", [
-      `current=${current2}`,
+      `current=${current4}`,
       `bestIdx=${bestIdx}`,
       `reason=${reason}`,
       recoveryLandingHoldSource ? `holdSource=${recoveryLandingHoldSource}` : "",
@@ -47208,9 +47208,9 @@ function createAsrScrollDriver(options = {}) {
     };
   }
   function isReanchorLandingAuthorityCurrent(landing) {
-    const current2 = captureReanchorLandingAuthority();
+    const current4 = captureReanchorLandingAuthority();
     const captured = landing.authority;
-    return !disposed && landing === reanchorLandingState && landing.revision === reanchorLandingRevision && landing.semanticEpoch === semanticEpoch && Object.keys(captured).every((key) => captured[key] === current2[key]) && current2.scroller != null && current2.scroller.isConnected && current2.scriptRoot != null && current2.scriptRoot.isConnected && Number.isFinite(landing.finalTargetScrollTop) && Number.isInteger(landing.finalTargetLineIdx);
+    return !disposed && landing === reanchorLandingState && landing.revision === reanchorLandingRevision && landing.semanticEpoch === semanticEpoch && Object.keys(captured).every((key) => captured[key] === current4[key]) && current4.scroller != null && current4.scroller.isConnected && current4.scriptRoot != null && current4.scriptRoot.isConnected && Number.isFinite(landing.finalTargetScrollTop) && Number.isInteger(landing.finalTargetLineIdx);
   }
   function ownsReanchorLandingFrame(frame) {
     return reanchorLandingFrame === frame && frame.revision === frame.landing.revision && frame.semanticEpoch === semanticEpoch && frame.targetLine === frame.landing.finalTargetLineIdx && frame.targetTop === frame.landing.finalTargetScrollTop && frame.targetElement != null && frame.targetElement.isConnected && frame.targetElement === getLineElementByIndex(frame.landing.authority.scroller, frame.targetLine) && isReanchorLandingAuthorityCurrent(frame.landing);
@@ -47281,8 +47281,8 @@ function createAsrScrollDriver(options = {}) {
         return;
       }
       const scroller = landing.authority.scroller;
-      const current2 = Number(scroller.scrollTop);
-      if (!Number.isFinite(current2)) {
+      const current4 = Number(scroller.scrollTop);
+      if (!Number.isFinite(current4)) {
         clearReanchorLandingState("non_finite_position");
         return;
       }
@@ -47298,8 +47298,8 @@ function createAsrScrollDriver(options = {}) {
       const maxExposeDeltaPx = Math.max(18, lineHeightPx * ASR_REANCHOR_LANDING_MAX_EXPOSED_LINES);
       const requestedFinalTargetTop = Number(landing.finalTargetScrollTop);
       const finalTargetTop = clamp5(requestedFinalTargetTop, 0, maxScrollTop);
-      const targetAhead = finalTargetTop >= current2;
-      const exposedTargetTop = targetAhead ? Math.min(finalTargetTop, current2 + maxExposeDeltaPx) : Math.max(finalTargetTop, current2 - maxExposeDeltaPx);
+      const targetAhead = finalTargetTop >= current4;
+      const exposedTargetTop = targetAhead ? Math.min(finalTargetTop, current4 + maxExposeDeltaPx) : Math.max(finalTargetTop, current4 - maxExposeDeltaPx);
       applyScrollWithHybridGuard(exposedTargetTop, {
         scroller,
         reason: "reanchor-landing",
@@ -47312,7 +47312,7 @@ function createAsrScrollDriver(options = {}) {
         landingWriteStillCurrent: () => ownsReanchorLandingFrame(frame) && canAsrMove(),
         backwardWriteStillCurrent: () => validateBackwardVisualDecision(backwardDecision, backwardIdentity, true)
       });
-      if (lastAsrBackwardRecenterBlockReason !== "none" && exposedTargetTop < current2 - ASR_POCKET_WALL_NOISE_DELTA_PX && Number(scroller.scrollTop) === current2 && !backwardDecisions.has("reanchor_landing") && !consumedBackwardDecisions.has(backwardDecision)) {
+      if (lastAsrBackwardRecenterBlockReason !== "none" && exposedTargetTop < current4 - ASR_POCKET_WALL_NOISE_DELTA_PX && Number(scroller.scrollTop) === current4 && !backwardDecisions.has("reanchor_landing") && !consumedBackwardDecisions.has(backwardDecision)) {
         if (ownsReanchorLandingFrame(frame)) clearReanchorLandingState("backward_authority_rejected");
         return;
       }
@@ -47325,8 +47325,8 @@ function createAsrScrollDriver(options = {}) {
         clearReanchorLandingState("non_finite_applied_position");
         return;
       }
-      const requestedDeltaPx = Math.abs(exposedTargetTop - current2);
-      const appliedDeltaPx = Math.abs(appliedTop - current2);
+      const requestedDeltaPx = Math.abs(exposedTargetTop - current4);
+      const appliedDeltaPx = Math.abs(appliedTop - current4);
       const actuatorNoProgress = requestedDeltaPx > 1 && appliedDeltaPx <= 0.5;
       landing.lastExposedTargetScrollTop = exposedTargetTop;
       landing.lastAppliedScrollTop = appliedTop;
@@ -47359,17 +47359,17 @@ function createAsrScrollDriver(options = {}) {
         markProgrammaticScroll();
       }
       const landingTolerancePx = Math.max(12, lineHeightPx * 0.5);
-      const landed = Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx || Math.abs(finalTargetTop - current2) <= 0.5;
+      const landed = Math.abs(finalTargetTop - appliedTop) <= landingTolerancePx || Math.abs(finalTargetTop - current4) <= 0.5;
       try {
         console.warn(
-          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`
+          `[ASR_REANCHOR_LANDING] owner=reanchor_landing semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current4)} exposedTargetScrollTop=${Math.round(exposedTargetTop)} finalTargetScrollTop=${Math.round(finalTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} landed=${landed ? 1 : 0}`
         );
       } catch {
       }
       if (landed && Number.isFinite(requestedFinalTargetTop) && Math.abs(requestedFinalTargetTop - finalTargetTop) > 0.5) {
         try {
           console.info(
-            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop)} currentScrollTop=${Math.round(current2)} appliedScrollTop=${Math.round(appliedTop)}`
+            `[ASR_REANCHOR_LANDING_SETTLED_AT_SCROLL_LIMIT] semanticEpoch=${landing.semanticEpoch} semanticTargetLine=${landing.finalTargetLineIdx} requestedTargetScrollTop=${Math.round(requestedFinalTargetTop)} clampedTargetScrollTop=${Math.round(finalTargetTop)} maxScrollTop=${Math.round(maxScrollTop)} currentScrollTop=${Math.round(current4)} appliedScrollTop=${Math.round(appliedTop)}`
           );
         } catch {
         }
@@ -47377,7 +47377,7 @@ function createAsrScrollDriver(options = {}) {
       if (landing.noProgressFrames >= ASR_REANCHOR_LANDING_STUCK_FRAME_THRESHOLD) {
         try {
           console.warn(
-            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current2)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || "unknown"}`
+            `[ASR_REANCHOR_LANDING_ACTUATOR_FAULT] semanticEpoch=${landing.semanticEpoch} anchorLineIdx=${landing.anchorLineIdx} finalTargetLineIdx=${landing.finalTargetLineIdx} currentScrollTop=${Math.round(current4)} requestedScrollTop=${Math.round(exposedTargetTop)} appliedScrollTop=${Math.round(appliedTop)} requestedDeltaPx=${Math.round(requestedDeltaPx)} appliedDeltaPx=${Math.round(appliedDeltaPx)} noProgressFrames=${landing.noProgressFrames} reason=${landing.lastActuatorFaultReason || "unknown"}`
           );
         } catch {
         }
@@ -48329,11 +48329,11 @@ function createAsrScrollDriver(options = {}) {
   const ASR_SHORT_LINE_STRONG_FORWARD_SIM_FLOOR = 0.84;
   const ASR_SHORT_LINE_REPEATED_FORWARD_PROOF_MIN = 2;
   const analyzeShortLineRegion = (currentLineIdx, acceptedLineIdx) => {
-    const current2 = Math.max(0, Math.floor(Number(currentLineIdx) || 0));
+    const current4 = Math.max(0, Math.floor(Number(currentLineIdx) || 0));
     const accepted = Math.max(0, Math.floor(Number(acceptedLineIdx) || 0));
     let shortSpeakableLines = 0;
     let totalWords = 0;
-    for (let idx = current2 + 1; idx <= accepted; idx += 1) {
+    for (let idx = current4 + 1; idx <= accepted; idx += 1) {
       if (!isSpeakableScriptLine(idx)) {
         return {
           shortSpeakableLines,
@@ -48366,9 +48366,9 @@ function createAsrScrollDriver(options = {}) {
     };
   };
   const resolveShortLineCommitBurst = (currentLineIdx, acceptedLineIdx, maxBurstSteps = ASR_SHORT_LINE_CATCHUP_MAX_BURST) => {
-    const current2 = Math.max(0, Math.floor(Number(currentLineIdx) || 0));
+    const current4 = Math.max(0, Math.floor(Number(currentLineIdx) || 0));
     const accepted = Math.max(0, Math.floor(Number(acceptedLineIdx) || 0));
-    const gap = Math.max(0, accepted - current2);
+    const gap = Math.max(0, accepted - current4);
     if (gap < ASR_SHORT_LINE_CATCHUP_MIN_GAP) {
       return {
         eligible: false,
@@ -48391,8 +48391,8 @@ function createAsrScrollDriver(options = {}) {
         shortLineDense: false
       };
     }
-    const cappedTarget = Math.min(accepted, current2 + Math.max(1, Math.floor(maxBurstSteps)));
-    const region = analyzeShortLineRegion(current2, accepted);
+    const cappedTarget = Math.min(accepted, current4 + Math.max(1, Math.floor(maxBurstSteps)));
+    const region = analyzeShortLineRegion(current4, accepted);
     if (region.rejectedReason) {
       return {
         eligible: false,
@@ -48405,9 +48405,9 @@ function createAsrScrollDriver(options = {}) {
       };
     }
     return {
-      eligible: cappedTarget > current2 + 1,
-      reason: cappedTarget > current2 + 1 ? "eligible" : "burst_target_not_forward",
-      burstTargetLine: cappedTarget > current2 ? cappedTarget : null,
+      eligible: cappedTarget > current4 + 1,
+      reason: cappedTarget > current4 + 1 ? "eligible" : "burst_target_not_forward",
+      burstTargetLine: cappedTarget > current4 ? cappedTarget : null,
       acceptedLineGap: gap,
       shortSpeakableLines: region.shortSpeakableLines,
       averageWordsPerInterveningLine: region.averageWordsPerInterveningLine,
@@ -48927,17 +48927,17 @@ function createAsrScrollDriver(options = {}) {
   };
   const chooseWithinBlockContinuityLine = (proposedLine, candidateScores, cursorLine, bestScore) => {
     const nextLine = Math.max(0, Math.floor(proposedLine));
-    const current2 = Math.max(0, Math.floor(cursorLine));
-    if (nextLine - current2 <= 1) return nextLine;
-    const minForwardLine = current2 + Math.max(1, minLineAdvance);
-    const cursorBlock = findBlockByLine(current2);
+    const current4 = Math.max(0, Math.floor(cursorLine));
+    if (nextLine - current4 <= 1) return nextLine;
+    const minForwardLine = current4 + Math.max(1, minLineAdvance);
+    const cursorBlock = findBlockByLine(current4);
     const targetBlock = findBlockByLine(nextLine);
     if (!cursorBlock || !targetBlock || cursorBlock.blockId !== targetBlock.blockId) {
       return nextLine;
     }
     const scoreFloor = Number.isFinite(bestScore) ? Math.max(0, bestScore - WITHIN_BLOCK_CONTINUITY_SIM_SLACK) : 0;
     let picked = nextLine;
-    let pickedDelta = nextLine - current2;
+    let pickedDelta = nextLine - current4;
     for (const entry of candidateScores) {
       const candidateLine = Math.max(0, Math.floor(Number(entry.idx)));
       const candidateScore = Number(entry.score);
@@ -48946,7 +48946,7 @@ function createAsrScrollDriver(options = {}) {
       if (candidateScore < scoreFloor) continue;
       const candidateBlock = findBlockByLine(candidateLine);
       if (!candidateBlock || candidateBlock.blockId !== targetBlock.blockId) continue;
-      const candidateDelta = candidateLine - current2;
+      const candidateDelta = candidateLine - current4;
       if (candidateDelta < pickedDelta) {
         picked = candidateLine;
         pickedDelta = candidateDelta;
@@ -48958,15 +48958,15 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return null;
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeSpan = Math.max(1, Math.floor(maxSpan));
-    const bridge = findNextSpeakableWithinBridge(safeCursor, safeSpan, { strict: true });
-    const targetLine = bridge.nextLine != null && bridge.nextLine > safeCursor ? Math.max(0, Math.floor(bridge.nextLine)) : -1;
+    const bridge2 = findNextSpeakableWithinBridge(safeCursor, safeSpan, { strict: true });
+    const targetLine = bridge2.nextLine != null && bridge2.nextLine > safeCursor ? Math.max(0, Math.floor(bridge2.nextLine)) : -1;
     if (targetLine <= safeCursor) return null;
     if (targetLine > safeCursor + safeSpan) return null;
     const expectedSkipped = Math.max(0, targetLine - safeCursor - 1);
-    if ((bridge.skippedReasons?.length ?? 0) !== expectedSkipped) return null;
+    if ((bridge2.skippedReasons?.length ?? 0) !== expectedSkipped) return null;
     return {
       targetLine,
-      skippedReasons: Array.isArray(bridge.skippedReasons) ? bridge.skippedReasons : []
+      skippedReasons: Array.isArray(bridge2.skippedReasons) ? bridge2.skippedReasons : []
     };
   };
   const _resolveNthNextSpeakableLine = (fromLine, steps) => {
@@ -49178,9 +49178,9 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
   };
-  const buildEarlyBridgeTrapKey = (current2, requestedTarget, commitTarget) => `${current2}->${requestedTarget}->${commitTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
-  const noteEarlyBridgeTrapHold = (current2, requestedTarget, commitTarget, now3) => {
-    const key = buildEarlyBridgeTrapKey(current2, requestedTarget, commitTarget);
+  const buildEarlyBridgeTrapKey = (current4, requestedTarget, commitTarget) => `${current4}->${requestedTarget}->${commitTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
+  const noteEarlyBridgeTrapHold = (current4, requestedTarget, commitTarget, now3) => {
+    const key = buildEarlyBridgeTrapKey(current4, requestedTarget, commitTarget);
     const prior = earlyBridgeTrapHoldCountByKey.get(key);
     const stale = !prior || now3 - prior.lastAt > 6e3;
     const next = {
@@ -49191,9 +49191,9 @@ function createAsrScrollDriver(options = {}) {
     earlyBridgeTrapHoldCountByKey.set(key, next);
     return next.count;
   };
-  const clearEarlyBridgeTrapHold = (current2, requestedTarget, commitTarget) => {
+  const clearEarlyBridgeTrapHold = (current4, requestedTarget, commitTarget) => {
     earlyBridgeTrapHoldCountByKey.delete(
-      buildEarlyBridgeTrapKey(current2, requestedTarget, commitTarget)
+      buildEarlyBridgeTrapKey(current4, requestedTarget, commitTarget)
     );
   };
   const maybeResolveEarlyBridgeTrapRelease = (args) => {
@@ -49488,13 +49488,13 @@ function createAsrScrollDriver(options = {}) {
     }
   }
   const resolveForwardGovernorSnapshot = (currentLine, requestedTarget, bestIdx, bestSim, proofSource) => {
-    const current2 = Math.max(0, Math.floor(Number(currentLine) || 0));
-    const target = Math.max(current2, Math.floor(Number(requestedTarget) || current2));
-    const best = Math.max(current2, Math.floor(Number(bestIdx) || current2));
+    const current4 = Math.max(0, Math.floor(Number(currentLine) || 0));
+    const target = Math.max(current4, Math.floor(Number(requestedTarget) || current4));
+    const best = Math.max(current4, Math.floor(Number(bestIdx) || current4));
     const confirmedSpoken = Math.max(
       0,
       Math.min(
-        current2,
+        current4,
         Math.max(
           lastStrongConfirmedSpokenLine,
           Number.isFinite(lastFreshProofLine) ? Math.max(0, lastFreshProofLine) : 0
@@ -49504,7 +49504,7 @@ function createAsrScrollDriver(options = {}) {
     const speakableLead = countSpeakableDistanceAhead2(confirmedSpoken, target);
     const renderedLead = Math.max(0, target - confirmedSpoken);
     return {
-      current: current2,
+      current: current4,
       target,
       best,
       bestSim: Number.isFinite(bestSim) ? bestSim : 0,
@@ -49777,10 +49777,10 @@ function createAsrScrollDriver(options = {}) {
   };
   const commitLiveAsrSafeStep = (args) => {
     const commitTs = Date.now();
-    const current2 = Math.max(0, Math.floor(Number(args.current) || 0));
-    let requestedTarget = Math.max(current2, Math.floor(Number(args.requestedTarget) || current2));
-    let semanticTargetRaw = Math.max(current2, Math.floor(Number(args.semanticTarget) || current2));
-    const visualTarget = Math.max(current2, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
+    const current4 = Math.max(0, Math.floor(Number(args.current) || 0));
+    let requestedTarget = Math.max(current4, Math.floor(Number(args.requestedTarget) || current4));
+    let semanticTargetRaw = Math.max(current4, Math.floor(Number(args.semanticTarget) || current4));
+    const visualTarget = Math.max(current4, Math.floor(Number(args.visualTarget ?? semanticTargetRaw) || semanticTargetRaw));
     const hardContradiction = !!args.hardContradiction;
     const sourceBranchLowerForLeash = String(args.sourceBranch || "").toLowerCase();
     const proofSourceLowerForLeash = String(args.proofSource || "").toLowerCase();
@@ -49800,18 +49800,18 @@ function createAsrScrollDriver(options = {}) {
       reason: args.reason,
       bypassedBlockers: args.bypassedBlockers,
       readerLeashActive: readerLeashPressureActive,
-      current: current2,
+      current: current4,
       requestedTarget,
       semanticTarget: semanticTargetRaw,
       skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length
     });
     if (recoveryLeashDecision.shouldConstrain) {
-      const adjacentTarget = resolveForwardSpeakableTarget2(current2, Math.max(requestedTarget, semanticTargetRaw), 1);
-      if (adjacentTarget > current2) {
+      const adjacentTarget = resolveForwardSpeakableTarget2(current4, Math.max(requestedTarget, semanticTargetRaw), 1);
+      if (adjacentTarget > current4) {
         if (adjacentTarget < requestedTarget || adjacentTarget < semanticTargetRaw) {
           try {
             console.warn(
-              `[ASR_RECOVERY_READER_LEASH_REDUCED_TO_ADJACENT] current=${current2} requestedTarget=${requestedTarget} reducedTarget=${adjacentTarget} deltaRaw=${Math.max(0, requestedTarget - current2)} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_adjacent_only_while_leashed`
+              `[ASR_RECOVERY_READER_LEASH_REDUCED_TO_ADJACENT] current=${current4} requestedTarget=${requestedTarget} reducedTarget=${adjacentTarget} deltaRaw=${Math.max(0, requestedTarget - current4)} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_adjacent_only_while_leashed`
             );
           } catch {
           }
@@ -49821,18 +49821,18 @@ function createAsrScrollDriver(options = {}) {
       } else {
         try {
           console.warn(
-            `[ASR_RECOVERY_READER_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} target=${semanticTargetRaw} deltaRaw=${Math.max(0, requestedTarget - current2)} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} stallMs=${Math.max(0, Math.round(Number(args.stallMs ?? 0)))} starvationMs=${Math.max(0, Math.round(Number(args.noCommitMs ?? 0)))} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_must_respect_reader_leash`
+            `[ASR_RECOVERY_READER_LEASH_HELD] current=${current4} requestedTarget=${requestedTarget} target=${semanticTargetRaw} deltaRaw=${Math.max(0, requestedTarget - current4)} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} stallMs=${Math.max(0, Math.round(Number(args.stallMs ?? 0)))} starvationMs=${Math.max(0, Math.round(Number(args.noCommitMs ?? 0)))} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=recovery_must_respect_reader_leash`
           );
         } catch {
         }
-        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
     const safeAdjacentProofAvailableForLeash = proofSourceLowerForLeash.includes("strict_adjacent_tail_progression") || proofSourceLowerForLeash.includes("live_strict_local_proof_ok") || proofSourceLowerForLeash.includes("adjacent_rescue_proofed") || proofSourceLowerForLeash.includes("cue_exit");
-    const bridgeAuthorityCarry = Math.max(0, Math.max(requestedTarget, semanticTargetRaw) - current2);
+    const bridgeAuthorityCarry = Math.max(0, Math.max(requestedTarget, semanticTargetRaw) - current4);
     const bridgeAuthorityLeashDecision = shouldConstrainBridgeAuthorityForReaderLeash({
       readerLeashActive: readerLeashPressureActive && !explicitNoMatchForLeashEarly,
-      current: current2,
+      current: current4,
       requestedTarget,
       semanticTarget: semanticTargetRaw,
       skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
@@ -49844,10 +49844,10 @@ function createAsrScrollDriver(options = {}) {
     });
     if (bridgeAuthorityLeashDecision.shouldConstrain) {
       if (bridgeAuthorityLeashDecision.shouldReduceToAdjacent) {
-        const reducedTarget2 = current2 + 1;
+        const reducedTarget2 = current4 + 1;
         try {
           console.warn(
-            `[ASR_BRIDGE_AUTHORITY_REDUCED_TO_VISUAL_ADJACENT] current=${current2} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget2} deltaRaw=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=visual_adjacent_only_while_leashed`
+            `[ASR_BRIDGE_AUTHORITY_REDUCED_TO_VISUAL_ADJACENT] current=${current4} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget2} deltaRaw=${Math.max(0, requestedTarget - current4)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} reason=visual_adjacent_only_while_leashed`
           );
         } catch {
         }
@@ -49856,16 +49856,16 @@ function createAsrScrollDriver(options = {}) {
       } else {
         try {
           console.warn(
-            `[ASR_BRIDGE_AUTHORITY_READER_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} readerLeashActive=${readerLeashPressureActive ? 1 : 0} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} reason=bridge_authority_must_respect_reader_leash`
+            `[ASR_BRIDGE_AUTHORITY_READER_LEASH_HELD] current=${current4} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current4)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] carry=${bridgeAuthorityCarry} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} leadState=${leadStateForLeash} speakableLead=${speakableLeadForLeash} renderedLead=${renderedLeadForLeash} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} readerLeashActive=${readerLeashPressureActive ? 1 : 0} visualGovernorHardHold=${liveAsrVisualGovernorHardHold ? 1 : 0} reason=bridge_authority_must_respect_reader_leash`
           );
         } catch {
         }
-        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
     const visualEnvelopeLeashDecision = shouldConstrainForVisualEnvelopeLeash({
       visualEnvelopeLeashActive: liveAsrVisualEnvelopeLeashActive,
-      current: current2,
+      current: current4,
       requestedTarget,
       semanticTarget: semanticTargetRaw,
       skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
@@ -49879,10 +49879,10 @@ function createAsrScrollDriver(options = {}) {
     if (visualEnvelopeLeashDecision.shouldConstrain) {
       const envelopeDeltaLines = Math.max(0, liveAsrVisualEnvelopeLeashDeltaLines, liveAsrBridgeVisualRecoveryDeltaLines);
       if (visualEnvelopeLeashDecision.shouldReduceToAdjacent) {
-        const reducedTarget2 = current2 + 1;
+        const reducedTarget2 = current4 + 1;
         try {
           console.warn(
-            `[ASR_VISUAL_ENVELOPE_REDUCED_TO_ADJACENT] current=${current2} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget2} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} reason=visual_envelope_adjacent_only`
+            `[ASR_VISUAL_ENVELOPE_REDUCED_TO_ADJACENT] current=${current4} requestedTarget=${requestedTarget} reducedTarget=${reducedTarget2} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} reason=visual_envelope_adjacent_only`
           );
         } catch {
         }
@@ -49891,15 +49891,15 @@ function createAsrScrollDriver(options = {}) {
       } else {
         try {
           console.warn(
-            `[ASR_VISUAL_ENVELOPE_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current2)} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] reason=visual_envelope_requires_adjacent_only`
+            `[ASR_VISUAL_ENVELOPE_LEASH_HELD] current=${current4} requestedTarget=${requestedTarget} deltaRaw=${Math.max(0, requestedTarget - current4)} currentEnvelopeDeltaLines=${formatLogScore(envelopeDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} authority=${args.authority || "unknown"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] reason=visual_envelope_requires_adjacent_only`
           );
         } catch {
         }
-        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
     const scrollerForProjection = getScroller();
-    const visualReducedTargetForProjection = current2 + 1;
+    const visualReducedTargetForProjection = current4 + 1;
     let projectedDeltaLines = Number.NaN;
     if (scrollerForProjection) {
       const semanticTelemetry = resolveLineVisualTelemetry(scrollerForProjection, semanticTargetRaw);
@@ -49911,7 +49911,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (Number.isFinite(projectedDeltaLines) && projectedDeltaLines >= 0) {
       const visualProjectionLeashDecision = shouldConstrainForVisualProjectionLeash({
-        current: current2,
+        current: current4,
         requestedTarget,
         semanticTarget: semanticTargetRaw,
         skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
@@ -49927,38 +49927,38 @@ function createAsrScrollDriver(options = {}) {
       if (visualProjectionLeashDecision.shouldConstrain) {
         try {
           console.warn(
-            `[ASR_VISUAL_PROJECTION_UNSAFE_PRECOMMIT] current=${current2} requestedTarget=${requestedTarget} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=${visualProjectionLeashDecision.reason || "visual_projection_requires_adjacent_only"}`
+            `[ASR_VISUAL_PROJECTION_UNSAFE_PRECOMMIT] current=${current4} requestedTarget=${requestedTarget} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=${visualProjectionLeashDecision.reason || "visual_projection_requires_adjacent_only"}`
           );
         } catch {
         }
         if (visualProjectionLeashDecision.shouldReduceToAdjacent) {
           const reducedTarget2 = Math.max(
-            current2,
+            current4,
             Math.min(Math.max(requestedTarget, semanticTargetRaw), visualReducedTargetForProjection)
           );
           try {
             console.warn(
-              `[ASR_VISUAL_PROJECTION_REDUCED_TO_ADJACENT] current=${current2} requestedTarget=${requestedTarget} target=${Math.max(requestedTarget, semanticTargetRaw)} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} reducedTarget=${reducedTarget2} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_projection_adjacent_only`
+              `[ASR_VISUAL_PROJECTION_REDUCED_TO_ADJACENT] current=${current4} requestedTarget=${requestedTarget} target=${Math.max(requestedTarget, semanticTargetRaw)} semanticTarget=${semanticTargetRaw} visualReducedTarget=${visualReducedTargetForProjection} reducedTarget=${reducedTarget2} projectedDeltaLines=${formatLogScore(projectedDeltaLines)} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_projection_adjacent_only`
             );
           } catch {
           }
           requestedTarget = reducedTarget2;
           semanticTargetRaw = Math.min(semanticTargetRaw, reducedTarget2);
         } else {
-          return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+          return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
         }
       }
     }
     const equivalentBridgeTarget = Math.max(requestedTarget, semanticTargetRaw);
-    const bridgeBlockKey = `${current2}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
+    const bridgeBlockKey = `${current4}->${equivalentBridgeTarget}:${lastFinalTranscriptRunGeneration ?? -1}`;
     const bridgeBlockRecord = liveBridgeDownstreamBlockUntilByKey.get(bridgeBlockKey);
     const bridgeBlockUntil = bridgeBlockRecord?.until || 0;
     const speechFresh = !!args.speechRunningActual || !!args.finalPacketFresh;
-    const bridgeLikeCommitCandidateEarly = requestedTarget > current2 + 1 || semanticTargetRaw > current2 + 1 || (args.skippedIgnorableLines || []).length > 0;
-    const adjacentCommitCandidateEarly = requestedTarget === current2 + 1 || semanticTargetRaw === current2 + 1;
+    const bridgeLikeCommitCandidateEarly = requestedTarget > current4 + 1 || semanticTargetRaw > current4 + 1 || (args.skippedIgnorableLines || []).length > 0;
+    const adjacentCommitCandidateEarly = requestedTarget === current4 + 1 || semanticTargetRaw === current4 + 1;
     const bridgeCommitDeltaLinesForLeashEarly = Math.max(
       liveAsrBridgeVisualRecoveryDeltaLines,
-      Math.max(0, requestedTarget - current2)
+      Math.max(0, requestedTarget - current4)
     );
     const bridgeComfortLeashDecisionEarly = shouldHoldBridgeCommitForVisualRecovery({
       liveAsrFollowMode: getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed(),
@@ -49974,14 +49974,14 @@ function createAsrScrollDriver(options = {}) {
       const comfortWindowRemainingMs = Math.max(0, Math.round(liveAsrBridgeVisualComfortUntilMs - commitTs));
       try {
         console.warn(
-          `[ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD] current=${current2} requestedTarget=${requestedTarget} target=${requestedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} deltaRaw=${Math.max(0, semanticTargetRaw - current2)} deltaLines=${formatLogScore(bridgeCommitDeltaLinesForLeashEarly)} comfortWindowRemainingMs=${comfortWindowRemainingMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] reason=bridge_comfort_visual_recovery_pending`
+          `[ASR_BRIDGE_COMFORT_COMMIT_LEASH_HELD] current=${current4} requestedTarget=${requestedTarget} target=${requestedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} deltaRaw=${Math.max(0, semanticTargetRaw - current4)} deltaLines=${formatLogScore(bridgeCommitDeltaLinesForLeashEarly)} comfortWindowRemainingMs=${comfortWindowRemainingMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] reason=bridge_comfort_visual_recovery_pending`
         );
       } catch {
       }
-      return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+      return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
     }
     const equivalentBridgeBlock = shouldBlockEquivalentBridgeCommit({
-      current: current2,
+      current: current4,
       requestedTarget,
       semanticTarget: semanticTargetRaw,
       commitTs,
@@ -50007,14 +50007,14 @@ function createAsrScrollDriver(options = {}) {
     );
     if (equivalentBridgeBlock.shouldBlock) {
       const blockedHoldCount = noteEarlyBridgeTrapHold(
-        current2,
+        current4,
         requestedTarget,
-        Math.max(current2 + 1, resolveLiveStrictNextSpeakableStep(current2, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? current2),
+        Math.max(current4 + 1, resolveLiveStrictNextSpeakableStep(current4, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? current4),
         commitTs
       );
       const release = maybeResolveEarlyBridgeTrapRelease({
         now: commitTs,
-        current: current2,
+        current: current4,
         requestedTarget,
         proofSource: args.proofSource || "none",
         finalPacketFresh: !!args.finalPacketFresh || lastFinalTranscriptAt > 0 && commitTs - lastFinalTranscriptAt <= 1800,
@@ -50025,14 +50025,14 @@ function createAsrScrollDriver(options = {}) {
       });
       if (release) {
         clearOnlyMatchingBridgeBlockToken(liveBridgeDownstreamBlockUntilByKey, bridgeBlockKey);
-        clearEarlyBridgeTrapHold(current2, requestedTarget, release.commitTarget);
+        clearEarlyBridgeTrapHold(current4, requestedTarget, release.commitTarget);
         requestedTarget = release.commitTarget;
         semanticTargetRaw = Math.min(semanticTargetRaw, release.commitTarget);
         earlyBridgeTrapReleaseActive = true;
         try {
           console.warn(
             buildAsrEarlyBridgeTrapReleasedDiagnostic({
-              current: current2,
+              current: current4,
               requestedTarget: equivalentBridgeTarget,
               commitTarget: release.commitTarget,
               skippedIgnorableLines: release.skippedIgnorableLines,
@@ -50052,14 +50052,14 @@ function createAsrScrollDriver(options = {}) {
       } else {
         try {
           console.warn(
-            `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current2} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} reason=bridge_block_token`
+            `[ASR_LIVE_BRIDGE_DOWNSTREAM_COMMIT_BLOCKED] current=${current4} requestedTarget=${requestedTarget} sourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} reason=bridge_block_token`
           );
           console.warn(
-            `[ASR_LIVE_BRIDGE_EQUIVALENT_COMMIT_BLOCKED] current=${current2} requestedTarget=${bridgeBlockRecord?.requestedTarget ?? requestedTarget} attemptedTarget=${equivalentBridgeTarget} originalSourceBranch=${bridgeBlockRecord?.originalSourceBranch || "unknown"} attemptedSourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} renderedDelta=${Math.max(0, equivalentBridgeTarget - current2)} reason=equivalent_bridge_target_blocked`
+            `[ASR_LIVE_BRIDGE_EQUIVALENT_COMMIT_BLOCKED] current=${current4} requestedTarget=${bridgeBlockRecord?.requestedTarget ?? requestedTarget} attemptedTarget=${equivalentBridgeTarget} originalSourceBranch=${bridgeBlockRecord?.originalSourceBranch || "unknown"} attemptedSourceBranch=${args.sourceBranch || "unknown"} proofSource=${args.proofSource || "none"} renderedDelta=${Math.max(0, equivalentBridgeTarget - current4)} reason=equivalent_bridge_target_blocked`
           );
         } catch {
         }
-        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
     const repeatedHoldReasons = /* @__PURE__ */ new Set([
@@ -50086,15 +50086,15 @@ function createAsrScrollDriver(options = {}) {
     const sourceBranchLowerEarly = String(args.sourceBranch || "unknown").toLowerCase();
     const bypassedBlockersLowerEarly = String(args.bypassedBlockers || "none").toLowerCase();
     const riskyBridgeBypassSourceEarly = sourceBranchLowerEarly.includes("movement_authority_forced_reconcile_single_step") || sourceBranchLowerEarly.includes("sustained_read") || sourceBranchLowerEarly.includes("pending_visual_cap") || sourceBranchLowerEarly.includes("live_unleashed") || sourceBranchLowerEarly.includes("rescue") || sourceBranchLowerEarly.includes("stall_rescue") || sourceBranchLowerEarly.includes("soft_runtime_rebase") || sourceBranchLowerEarly.includes("reader_leash") || bypassedBlockersLowerEarly.includes("asr_reader_leash_hold") || bypassedBlockersLowerEarly.includes("pending_visual_cap") || bypassedBlockersLowerEarly.includes("visible_bridge_step_cap");
-    let reducedTarget = resolveForwardSpeakableTarget2(current2, semanticTargetRaw, 1);
+    let reducedTarget = resolveForwardSpeakableTarget2(current4, semanticTargetRaw, 1);
     const activeLiveSpeech = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed() && (!!args.speechRunningActual || hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs));
-    const bridgeLikeVisualMovement = requestedTarget > current2 + 1 || semanticTargetRaw > current2 + 1 || (args.skippedIgnorableLines || []).length > 0;
+    const bridgeLikeVisualMovement = requestedTarget > current4 + 1 || semanticTargetRaw > current4 + 1 || (args.skippedIgnorableLines || []).length > 0;
     const maxLiveVisualStepLines = bridgeLikeVisualMovement ? ASR_LIVE_VISUAL_BRIDGE_STEP_MAX_LINES : ASR_LIVE_VISUAL_STEP_MAX_LINES;
     let projectedLayoutDeltaLines = 0;
     try {
       const scroller = getScroller();
       if (scroller) {
-        const currentEl = getLineElementByIndex(scroller, current2);
+        const currentEl = getLineElementByIndex(scroller, current4);
         const targetEl = getLineElementByIndex(scroller, reducedTarget);
         const currentTop = finiteNumberOrNull("visualProjection.currentTop", computeLineTargetTop(scroller, currentEl));
         const targetTop = finiteNumberOrNull("visualProjection.targetTop", computeLineTargetTop(scroller, targetEl));
@@ -50108,22 +50108,22 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
     const projectedVisualDeltaLines = Math.max(
-      Math.max(0, reducedTarget - current2),
+      Math.max(0, reducedTarget - current4),
       Number.isFinite(projectedLayoutDeltaLines) ? Math.max(0, Math.ceil(projectedLayoutDeltaLines)) : 0,
       Number.isFinite(liveAsrBridgeVisualRecoveryDeltaLines) ? Math.max(0, Math.ceil(liveAsrBridgeVisualRecoveryDeltaLines)) : 0
     );
     if (activeLiveSpeech && projectedVisualDeltaLines > maxLiveVisualStepLines) {
       const boundedVisualCandidate = resolveForwardSpeakableTarget2(
-        current2,
-        Math.min(reducedTarget, current2 + maxLiveVisualStepLines),
+        current4,
+        Math.min(reducedTarget, current4 + maxLiveVisualStepLines),
         maxLiveVisualStepLines
       );
-      if (boundedVisualCandidate > current2) {
+      if (boundedVisualCandidate > current4) {
         const priorReduced = reducedTarget;
         reducedTarget = boundedVisualCandidate;
         try {
           console.warn(
-            `[ASR_VISUAL_SAFETY_CAP_HELD] current=${current2} requestedSemanticTarget=${semanticTargetRaw} visualReducedTarget=${reducedTarget} projectedDeltaLines=${projectedVisualDeltaLines} maxAllowedLines=${maxLiveVisualStepLines} recoverySource=${args.sourceBranch || "unknown"} reason=active_live_visual_step_cap`
+            `[ASR_VISUAL_SAFETY_CAP_HELD] current=${current4} requestedSemanticTarget=${semanticTargetRaw} visualReducedTarget=${reducedTarget} projectedDeltaLines=${projectedVisualDeltaLines} maxAllowedLines=${maxLiveVisualStepLines} recoverySource=${args.sourceBranch || "unknown"} reason=active_live_visual_step_cap`
           );
         } catch {
         }
@@ -50133,20 +50133,20 @@ function createAsrScrollDriver(options = {}) {
       } else {
         try {
           console.warn(
-            `[ASR_VISUAL_SAFETY_CAP_HELD] current=${current2} requestedSemanticTarget=${semanticTargetRaw} visualReducedTarget=${current2} projectedDeltaLines=${projectedVisualDeltaLines} maxAllowedLines=${maxLiveVisualStepLines} recoverySource=${args.sourceBranch || "unknown"} reason=active_live_visual_step_cap_hold`
+            `[ASR_VISUAL_SAFETY_CAP_HELD] current=${current4} requestedSemanticTarget=${semanticTargetRaw} visualReducedTarget=${current4} projectedDeltaLines=${projectedVisualDeltaLines} maxAllowedLines=${maxLiveVisualStepLines} recoverySource=${args.sourceBranch || "unknown"} reason=active_live_visual_step_cap_hold`
           );
         } catch {
         }
-        return { accepted: false, target: current2, thresholdMs, actualDelayMs, commitTs };
+        return { accepted: false, target: current4, thresholdMs, actualDelayMs, commitTs };
       }
     }
     const allowSemanticBridgeCompletion = sourceBranchLowerEarly.includes("pending_speakable_bridge_complete") || String(args.reason || "").toLowerCase().includes("pending_speakable_bridge_complete") || String(args.proofSource || "").toLowerCase().includes("strict_speakable_bridge_landing");
-    if (getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed() && !allowSemanticBridgeCompletion && !bridgeTrapEscapePath && !earlyBridgeTrapReleaseActive && (requestedTarget > current2 + 1 || reducedTarget > current2 + 1)) {
-      const bridgeReducedTarget = resolveForwardSpeakableTarget2(current2, reducedTarget, 1);
-      const visualReducedTarget = Math.max(current2, Math.min(requestedTarget, current2 + 1));
+    if (getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed() && !allowSemanticBridgeCompletion && !bridgeTrapEscapePath && !earlyBridgeTrapReleaseActive && (requestedTarget > current4 + 1 || reducedTarget > current4 + 1)) {
+      const bridgeReducedTarget = resolveForwardSpeakableTarget2(current4, reducedTarget, 1);
+      const visualReducedTarget = Math.max(current4, Math.min(requestedTarget, current4 + 1));
       try {
         console.warn(
-          `[ASR_LIVE_BRIDGE_STAGED_VISUAL_ONLY] current=${current2} requestedTarget=${requestedTarget} semanticTarget=${reducedTarget} visualReducedTarget=${visualReducedTarget} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=stage_before_semantic_commit`
+          `[ASR_LIVE_BRIDGE_STAGED_VISUAL_ONLY] current=${current4} requestedTarget=${requestedTarget} semanticTarget=${reducedTarget} visualReducedTarget=${visualReducedTarget} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=stage_before_semantic_commit`
         );
       } catch {
       }
@@ -50164,7 +50164,7 @@ function createAsrScrollDriver(options = {}) {
       }
       const adjacentReductionDecision = shouldReduceBridgeToAdjacentRenderedRow({
         bridgeReducedTarget,
-        currentIndex: current2,
+        currentIndex: current4,
         originalTargetIndex: requestedTarget,
         skippedRows: args.skippedIgnorableLines || []
       });
@@ -50181,12 +50181,12 @@ function createAsrScrollDriver(options = {}) {
       const stagedSourceBranchLower = String(args.sourceBranch || "unknown").toLowerCase();
       const stagedAdjacentProofAllowed = stagedProofSourceLower.includes("live_strict_local_proof_ok") || stagedProofSourceLower.includes("live_strict_rescue_tail_progression_proof") || stagedProofSourceLower.includes("strict_adjacent_tail_progression") || stagedProofSourceLower.includes("adjacent_rescue_proofed") || stagedSourceBranchLower.includes("sustained_read") || stagedSourceBranchLower.includes("starvation_future_speech_reconcile") || stagedSourceBranchLower.includes("movement_authority_starvation_reconcile_single_step") || stagedSourceBranchLower.includes("stage_before_semantic_commit") || stagedSourceBranchLower.includes("live_bridge_single_step_policy");
       const stagedPendingBridgeCompatible = !pendingSpeakableBridgeState || String(pendingSpeakableBridgeState.sourceBranch || "").toLowerCase().includes("movement_authority_starvation_reconcile_single_step") || String(pendingSpeakableBridgeState.sourceBranch || "").toLowerCase().includes("starvation_future_speech_reconcile");
-      const stagedAdjacentProgressionLaneEligible = bridgeReducedTarget === current2 + 1 && stagedPendingBridgeCompatible && stagedSpeechFresh && stagedResponseFresh && stagedAudioFreshOrUnavailable && stagedRunIdentityFresh && !stagedStaleResponseInvalidated && !stagedNoMatchOrOffscript && !hardContradiction && stagedAdjacentProofAllowed;
-      const finalSpeechBackedAdjacentRelease = !!args.finalPacketFresh && speechFresh && !!args.speechRunningActual && equivalentBridgeTarget > current2 + 1 && !hardContradiction;
+      const stagedAdjacentProgressionLaneEligible = bridgeReducedTarget === current4 + 1 && stagedPendingBridgeCompatible && stagedSpeechFresh && stagedResponseFresh && stagedAudioFreshOrUnavailable && stagedRunIdentityFresh && !stagedStaleResponseInvalidated && !stagedNoMatchOrOffscript && !hardContradiction && stagedAdjacentProofAllowed;
+      const finalSpeechBackedAdjacentRelease = !!args.finalPacketFresh && speechFresh && !!args.speechRunningActual && equivalentBridgeTarget > current4 + 1 && !hardContradiction;
       if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible || finalSpeechBackedAdjacentRelease) {
         try {
           console.warn(
-            `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current2} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=${adjacentReductionDecision.shouldReduce ? "live_bridge_single_step_policy" : "adjacent_safe_semantic_progression_lane"}`
+            `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current4} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=${adjacentReductionDecision.shouldReduce ? "live_bridge_single_step_policy" : "adjacent_safe_semantic_progression_lane"}`
           );
         } catch {
         }
@@ -50195,7 +50195,7 @@ function createAsrScrollDriver(options = {}) {
           blockedReasonBeforeBypass = "staged_bridge_non_adjacent_guard";
           try {
             console.warn(
-              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} reducedSemanticTargetLine=${bridgeReducedTarget} currentLineIdx=${current2} proposedCommitLine=${bridgeReducedTarget} proofSource=${args.proofSource || "none"} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${stagedSpeechFresh ? 1 : 0} responseFresh=${stagedResponseFresh ? 1 : 0} audioFresh=${stagedAudioFresh ? 1 : 0}`
+              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} reducedSemanticTargetLine=${bridgeReducedTarget} currentLineIdx=${current4} proposedCommitLine=${bridgeReducedTarget} proofSource=${args.proofSource || "none"} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${stagedSpeechFresh ? 1 : 0} responseFresh=${stagedResponseFresh ? 1 : 0} audioFresh=${stagedAudioFresh ? 1 : 0}`
             );
           } catch {
           }
@@ -50205,10 +50205,10 @@ function createAsrScrollDriver(options = {}) {
       } else {
         const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
         const stagedBridgeOverdue = actualDelayMs >= thresholdMs;
-        const shouldSeedPendingBridgeCompletion = speechFresh && !!args.speechRunningActual && equivalentBridgeTarget > current2 + 1 && !pendingSpeakableBridgeState && (stagedBridgeRepeated || stagedBridgeOverdue);
+        const shouldSeedPendingBridgeCompletion = speechFresh && !!args.speechRunningActual && equivalentBridgeTarget > current4 + 1 && !pendingSpeakableBridgeState && (stagedBridgeRepeated || stagedBridgeOverdue);
         if (shouldSeedPendingBridgeCompletion) {
           pendingSpeakableBridgeState = {
-            semanticFrom: current2,
+            semanticFrom: current4,
             semanticTarget: equivalentBridgeTarget,
             visualCurrent: visualReducedTarget,
             visualReducedTarget,
@@ -50221,7 +50221,7 @@ function createAsrScrollDriver(options = {}) {
           };
           try {
             console.warn(
-              `[ASR_LIVE_BRIDGE_PENDING_COMPLETION_SEEDED] semanticFrom=${current2} semanticTarget=${equivalentBridgeTarget} visualReducedTarget=${visualReducedTarget} repeated=${stagedBridgeRepeated ? 1 : 0} overdue=${stagedBridgeOverdue ? 1 : 0} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=staged_visual_only_overdue`
+              `[ASR_LIVE_BRIDGE_PENDING_COMPLETION_SEEDED] semanticFrom=${current4} semanticTarget=${equivalentBridgeTarget} visualReducedTarget=${visualReducedTarget} repeated=${stagedBridgeRepeated ? 1 : 0} overdue=${stagedBridgeOverdue ? 1 : 0} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=staged_visual_only_overdue`
             );
           } catch {
           }
@@ -50231,33 +50231,33 @@ function createAsrScrollDriver(options = {}) {
             until: commitTs + 2500,
             originalSourceBranch: String(args.sourceBranch || "unknown"),
             requestedTarget: equivalentBridgeTarget,
-            current: current2
+            current: current4
           });
         }
-        return { accepted: false, target: current2, thresholdMs: 900, actualDelayMs: 0, commitTs };
+        return { accepted: false, target: current4, thresholdMs: 900, actualDelayMs: 0, commitTs };
       }
     }
-    const nextSpeakable = resolveLiveStrictNextSpeakableStep(current2, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? null;
-    const safeAdjacentOrBridge = reducedTarget > current2 && reducedTarget <= requestedTarget && (reducedTarget === current2 + 1 || nextSpeakable != null && reducedTarget === nextSpeakable);
+    const nextSpeakable = resolveLiveStrictNextSpeakableStep(current4, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? null;
+    const safeAdjacentOrBridge = reducedTarget > current4 && reducedTarget <= requestedTarget && (reducedTarget === current4 + 1 || nextSpeakable != null && reducedTarget === nextSpeakable);
     const gatePassCore = getScrollMode3() === "asr" && isSessionLivePhase() && isSessionAsrArmed() && speechFresh && hasAuthority && safeAdjacentOrBridge && !hardContradiction;
     const proofSourceLower = String(args.proofSource || "none").toLowerCase();
     const sourceBranchLower = String(args.sourceBranch || "unknown").toLowerCase();
     const bypassedBlockersLower = String(args.bypassedBlockers || "none").toLowerCase();
     const rescueBypassLike = bypassedBlockersLower.includes("asr_reader_leash_hold") || bypassedBlockersLower.includes("pending_visual_cap") || bypassedBlockersLower.includes("visible_bridge_step_cap") || sourceBranchLower.includes("asr_reader_leash_hold") || sourceBranchLower.includes("sustained_read") || sourceBranchLower.includes("stall_rescue") || sourceBranchLower.includes("cue_stall_rescue_blocked") || sourceBranchLower.includes("live_strict_rescue_hold_no_local_proof") || sourceBranchLower.includes("pending_visual_cap") || proofSourceLower.includes("starvation") || proofSourceLower.includes("adjacent_completion") || proofSourceLower.includes("cue_stall") || proofSourceLower.includes("rescue");
     const speechFreshNow = !!args.speechRunningActual || !!args.finalPacketFresh || hasRecentActualSpeech(commitTs);
-    const directAdjacentLocalProof = reducedTarget === current2 + 1 && speechFreshNow && (proofSourceLower.includes("live_strict_local_proof_ok") || proofSourceLower.includes("adjacent_rescue_proofed") || proofSourceLower.includes("cue_exit"));
+    const directAdjacentLocalProof = reducedTarget === current4 + 1 && speechFreshNow && (proofSourceLower.includes("live_strict_local_proof_ok") || proofSourceLower.includes("adjacent_rescue_proofed") || proofSourceLower.includes("cue_exit"));
     const currentGenerationFinalPacketFresh = !!args.finalPacketFresh && (lastFinalTranscriptRunGeneration == null || resolveActiveRunGeneration() == null || lastFinalTranscriptRunGeneration === resolveActiveRunGeneration()) && (!lastFinalTranscriptRunKey || !resolveActiveRunKey() || lastFinalTranscriptRunKey === resolveActiveRunKey());
-    if (readerIdleForwardHoldActive && reducedTarget > current2) {
+    if (readerIdleForwardHoldActive && reducedTarget > current4) {
       const idleHoldLocalSafeRelease = currentGenerationFinalPacketFresh && directAdjacentLocalProof && !proofSourceLower.includes("stale") && !proofSourceLower.includes("tail");
       if (!idleHoldLocalSafeRelease) {
         emitDevDiagnostic(
           "ASR_IDLE_STALE_TRANSCRIPT_ADVANCE_SUPPRESSED",
           "warn",
-          `[ASR_IDLE_STALE_TRANSCRIPT_ADVANCE_SUPPRESSED] current=${current2} target=${reducedTarget} requestedTarget=${requestedTarget} semanticTarget=${semanticTargetRaw} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} currentGenerationFinalPacket=${currentGenerationFinalPacketFresh ? 1 : 0} directAdjacentLocalProof=${directAdjacentLocalProof ? 1 : 0} speechFresh=${speechFreshNow ? 1 : 0} pendingBridge=${pendingSpeakableBridgeState ? 1 : 0} reason=reader_idle_hold_requires_current_adjacent_local_proof`,
+          `[ASR_IDLE_STALE_TRANSCRIPT_ADVANCE_SUPPRESSED] current=${current4} target=${reducedTarget} requestedTarget=${requestedTarget} semanticTarget=${semanticTargetRaw} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} currentGenerationFinalPacket=${currentGenerationFinalPacketFresh ? 1 : 0} directAdjacentLocalProof=${directAdjacentLocalProof ? 1 : 0} speechFresh=${speechFreshNow ? 1 : 0} pendingBridge=${pendingSpeakableBridgeState ? 1 : 0} reason=reader_idle_hold_requires_current_adjacent_local_proof`,
           {
             minMs: 120,
             signature: [
-              current2,
+              current4,
               reducedTarget,
               requestedTarget,
               semanticTargetRaw,
@@ -50268,7 +50268,7 @@ function createAsrScrollDriver(options = {}) {
         );
         return {
           accepted: false,
-          target: current2,
+          target: current4,
           thresholdMs: 900,
           actualDelayMs: Math.max(0, Math.round(Number(args.noCommitMs ?? args.stallMs ?? 0))),
           commitTs
@@ -50292,7 +50292,7 @@ function createAsrScrollDriver(options = {}) {
         {
           minMs: 120,
           signature: [
-            current2,
+            current4,
             reducedTarget,
             currentGenerationFinalPacketFresh ? 1 : 0,
             directAdjacentLocalProof ? 1 : 0
@@ -50302,7 +50302,7 @@ function createAsrScrollDriver(options = {}) {
     }
     const freshAdjacentFastCommitEligible = shouldAllowFreshAdjacentFastCommit({
       reducedTarget,
-      current: current2,
+      current: current4,
       speechFreshNow,
       finalPacketFresh: !!args.finalPacketFresh,
       speechRunningActual: !!args.speechRunningActual,
@@ -50312,10 +50312,10 @@ function createAsrScrollDriver(options = {}) {
     if (freshAdjacentFastCommitEligible) {
       thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MAX_MS);
       thresholdMs = Math.max(ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS, thresholdMs);
-      if (current2 <= 1 && reducedTarget === current2 + 1) {
+      if (current4 <= 1 && reducedTarget === current4 + 1) {
         try {
           console.warn(
-            `[ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT] current=${current2} target=${reducedTarget} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`
+            `[ASR_STARTUP_FRESH_ADJACENT_FAST_COMMIT] current=${current4} target=${reducedTarget} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`
           );
         } catch {
         }
@@ -50334,7 +50334,7 @@ function createAsrScrollDriver(options = {}) {
     })) {
       try {
         console.warn(
-          `[ASR_RESCUE_BYPASS_BUDGET_HELD] current=${current2} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} recentBypassCount=${recentBypassCount} windowMs=${ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS} reason=bypass_budget_exhausted`
+          `[ASR_RESCUE_BYPASS_BUDGET_HELD] current=${current4} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} recentBypassCount=${recentBypassCount} windowMs=${ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS} reason=bypass_budget_exhausted`
         );
       } catch {
       }
@@ -50353,29 +50353,29 @@ function createAsrScrollDriver(options = {}) {
       if (!readerLeashBypassDecision.shouldAllow) {
         try {
           console.warn(
-            `[ASR_READER_LEASH_BYPASS_HELD] current=${current2} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} blocker=asr_reader_leash_hold lastBypassAgeMs=${Number.isFinite(lastBypassAgeMs) ? Math.round(lastBypassAgeMs) : -1} reason=insufficient_leash_bypass_proof`
+            `[ASR_READER_LEASH_BYPASS_HELD] current=${current4} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} blocker=asr_reader_leash_hold lastBypassAgeMs=${Number.isFinite(lastBypassAgeMs) ? Math.round(lastBypassAgeMs) : -1} reason=insufficient_leash_bypass_proof`
           );
         } catch {
         }
         return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
       }
     }
-    if (gatePassCore && rescueBypassLike && reducedTarget > current2 + 1 && lastBypassAgeMs <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS) {
+    if (gatePassCore && rescueBypassLike && reducedTarget > current4 + 1 && lastBypassAgeMs <= ASR_RESCUE_BYPASS_BUDGET_WINDOW_MS) {
       const strongBridgeProof = speechFreshNow && !!args.speechRunningActual && !proofSourceLower.includes("stale") && !proofSourceLower.includes("tail") && (proofSourceLower.includes("landing") || proofSourceLower.includes("live_strict_local_proof_ok"));
-      const aheadNow = Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), current2)) > 0;
+      const aheadNow = Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), current4)) > 0;
       if (!strongBridgeProof || aheadNow) {
-        if (isSpeakableScriptLine(current2 + 1)) {
-          reducedTarget = current2 + 1;
+        if (isSpeakableScriptLine(current4 + 1)) {
+          reducedTarget = current4 + 1;
           try {
             console.warn(
-              `[ASR_RESCUE_BRIDGE_REDUCED_TO_ADJACENT] current=${current2} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=recent_rescue_requires_stronger_bridge_proof`
+              `[ASR_RESCUE_BRIDGE_REDUCED_TO_ADJACENT] current=${current4} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=recent_rescue_requires_stronger_bridge_proof`
             );
           } catch {
           }
         } else {
           try {
             console.warn(
-              `[ASR_RESCUE_BRIDGE_HELD_AFTER_BYPASS] current=${current2} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=recent_rescue_bridge_blocked`
+              `[ASR_RESCUE_BRIDGE_HELD_AFTER_BYPASS] current=${current4} requested=${requestedTarget} target=${reducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=recent_rescue_bridge_blocked`
             );
           } catch {
           }
@@ -50384,7 +50384,7 @@ function createAsrScrollDriver(options = {}) {
               until: commitTs + 2500,
               originalSourceBranch: String(args.sourceBranch || "unknown"),
               requestedTarget: equivalentBridgeTarget,
-              current: current2
+              current: current4
             });
           }
           return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
@@ -50393,7 +50393,7 @@ function createAsrScrollDriver(options = {}) {
     }
     const renderedDelta = Math.max(
       0,
-      Math.max(requestedTarget, semanticTargetRaw, visualTarget) - current2
+      Math.max(requestedTarget, semanticTargetRaw, visualTarget) - current4
     );
     const runAgeMs = Math.max(0, commitTs - sessionStartAt);
     const proofSource = String(args.proofSource || "none");
@@ -50421,15 +50421,15 @@ function createAsrScrollDriver(options = {}) {
     const shortTailWordCount = shortTailWords.length;
     const startupAdjacentEvidenceSim = Math.max(tailHitRatio, clueHitRatio);
     const startupConfirmedSpoken = Math.max(0, lastStrongConfirmedSpokenLine);
-    const startupSpeakableLead = Math.max(0, countSpeakableDistanceAhead2(startupConfirmedSpoken, current2));
-    const startupRenderedLead = Math.max(0, current2 - startupConfirmedSpoken);
+    const startupSpeakableLead = Math.max(0, countSpeakableDistanceAhead2(startupConfirmedSpoken, current4));
+    const startupRenderedLead = Math.max(0, current4 - startupConfirmedSpoken);
     const startupLeadAhead = startupSpeakableLead >= 1 || startupRenderedLead >= 1;
     const startupReaderLeashActive = String(args.sourceBranch || "").toLowerCase().includes("reader_leash") || String(args.bypassedBlockers || "").toLowerCase().includes("asr_reader_leash_hold") || liveAsrVisualGovernorHardHold || liveAsrBridgeVisualComfortUntilMs > commitTs && liveAsrBridgeVisualRecoveryDeltaLines > 3.5;
     const startupOffscriptOrNoMatch = String(args.proofSource || "").toLowerCase().includes("nomatch") || String(args.reason || "").toLowerCase().includes("nomatch") || String(args.sourceBranch || "").toLowerCase().includes("offscript");
     const startupFutureReconcilePath = String(args.sourceBranch || "").toLowerCase().includes("starvation_future_speech_reconcile") || String(args.reason || "").toLowerCase().includes("starvation_future_speech_reconcile");
     const startupShortMemoryDecision = shouldAllowStartupShortMemoryAdjacentCommit({
       startupSettlingActive,
-      current: current2,
+      current: current4,
       requestedTarget,
       semanticTarget: semanticTargetRaw,
       skippedIgnorableLinesCount: (args.skippedIgnorableLines || []).length,
@@ -50450,30 +50450,30 @@ function createAsrScrollDriver(options = {}) {
         thresholdMs = Math.min(thresholdMs, ASR_FRESH_ADJACENT_FAST_COMMIT_MIN_MS);
         try {
           console.warn(
-            `[ASR_STARTUP_SHORT_MEMORY_ADJACENT_COMMIT] current=${current2} target=${requestedTarget} commitCount=${commitCount} runAgeMs=${runAgeMs} adjacentSim=${formatLogScore(startupAdjacentEvidenceSim)} shortTailWordCount=${shortTailWordCount} proofSource=startup_short_memory_adjacent reason=startup_settling_adjacent_only`
+            `[ASR_STARTUP_SHORT_MEMORY_ADJACENT_COMMIT] current=${current4} target=${requestedTarget} commitCount=${commitCount} runAgeMs=${runAgeMs} adjacentSim=${formatLogScore(startupAdjacentEvidenceSim)} shortTailWordCount=${shortTailWordCount} proofSource=startup_short_memory_adjacent reason=startup_settling_adjacent_only`
           );
         } catch {
         }
-      } else if (requestedTarget > current2) {
+      } else if (requestedTarget > current4) {
         try {
           console.warn(
-            `[ASR_STARTUP_SHORT_MEMORY_BLOCKED] current=${current2} requestedTarget=${requestedTarget} reason=${startupShortMemoryDecision.reason} commitCount=${commitCount} runAgeMs=${runAgeMs} targetDelta=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] speakableLead=${startupSpeakableLead} renderedLead=${startupRenderedLead} offscriptNoMatch=${startupOffscriptOrNoMatch ? 1 : 0}`
+            `[ASR_STARTUP_SHORT_MEMORY_BLOCKED] current=${current4} requestedTarget=${requestedTarget} reason=${startupShortMemoryDecision.reason} commitCount=${commitCount} runAgeMs=${runAgeMs} targetDelta=${Math.max(0, requestedTarget - current4)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] speakableLead=${startupSpeakableLead} renderedLead=${startupRenderedLead} offscriptNoMatch=${startupOffscriptOrNoMatch ? 1 : 0}`
           );
         } catch {
         }
       }
     }
-    const earlyBridgeHold = gatePassCore && current2 <= 3 && requestedTarget > current2 + 1 && commitCount < ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS && renderedDelta > ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA && (!landingProofDirect || !speechEvidenceFresh || stalePrefixIgnored);
+    const earlyBridgeHold = gatePassCore && current4 <= 3 && requestedTarget > current4 + 1 && commitCount < ASR_EARLY_BRIDGE_GOVERNOR_MAX_COMMITS && renderedDelta > ASR_EARLY_BRIDGE_GOVERNOR_MAX_RENDERED_DELTA && (!landingProofDirect || !speechEvidenceFresh || stalePrefixIgnored);
     if (earlyBridgeHold) {
       const heldCount = noteEarlyBridgeTrapHold(
-        current2,
+        current4,
         requestedTarget,
-        Math.max(current2 + 1, resolveLiveStrictNextSpeakableStep(current2, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? current2),
+        Math.max(current4 + 1, resolveLiveStrictNextSpeakableStep(current4, LIVE_STRICT_MAX_CUE_BRIDGE_SPAN)?.targetLine ?? current4),
         commitTs
       );
       const release = maybeResolveEarlyBridgeTrapRelease({
         now: commitTs,
-        current: current2,
+        current: current4,
         requestedTarget,
         proofSource,
         finalPacketFresh,
@@ -50484,7 +50484,7 @@ function createAsrScrollDriver(options = {}) {
       });
       if (release) {
         clearOnlyMatchingBridgeBlockToken(liveBridgeDownstreamBlockUntilByKey, bridgeBlockKey);
-        clearEarlyBridgeTrapHold(current2, requestedTarget, release.commitTarget);
+        clearEarlyBridgeTrapHold(current4, requestedTarget, release.commitTarget);
         requestedTarget = release.commitTarget;
         semanticTargetRaw = Math.min(semanticTargetRaw, release.commitTarget);
         reducedTarget = release.commitTarget;
@@ -50492,7 +50492,7 @@ function createAsrScrollDriver(options = {}) {
         try {
           console.warn(
             buildAsrEarlyBridgeTrapReleasedDiagnostic({
-              current: current2,
+              current: current4,
               requestedTarget: equivalentBridgeTarget,
               commitTarget: release.commitTarget,
               skippedIgnorableLines: release.skippedIgnorableLines,
@@ -50512,14 +50512,14 @@ function createAsrScrollDriver(options = {}) {
       } else {
         try {
           console.warn(
-            `[ASR_EARLY_BRIDGE_GOVERNOR_HELD] current=${current2} target=${requestedTarget} renderedDelta=${renderedDelta} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] commitCount=${commitCount} runAgeMs=${runAgeMs} proofSource=${proofSource} speechFresh=${runtimeFreshSpeech ? 1 : 0} finalPacketFresh=${finalPacketFresh ? 1 : 0} stalePrefixIgnored=${stalePrefixIgnored ? 1 : 0} tailProofUsed=${tailProofUsed ? 1 : 0} reason=early_bridge_requires_direct_fresh_landing_proof`
+            `[ASR_EARLY_BRIDGE_GOVERNOR_HELD] current=${current4} target=${requestedTarget} renderedDelta=${renderedDelta} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] commitCount=${commitCount} runAgeMs=${runAgeMs} proofSource=${proofSource} speechFresh=${runtimeFreshSpeech ? 1 : 0} finalPacketFresh=${finalPacketFresh ? 1 : 0} stalePrefixIgnored=${stalePrefixIgnored ? 1 : 0} tailProofUsed=${tailProofUsed ? 1 : 0} reason=early_bridge_requires_direct_fresh_landing_proof`
           );
         } catch {
         }
         return { accepted: false, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
       }
     }
-    const eligibilityKey = `${current2}->${reducedTarget}:${args.sourceBranch || "unknown"}:${args.reason}`;
+    const eligibilityKey = `${current4}->${reducedTarget}:${args.sourceBranch || "unknown"}:${args.reason}`;
     if (gatePassCore) {
       if (!liveEligibilityFirstSeenByKey.has(eligibilityKey)) {
         liveEligibilityFirstSeenByKey.set(eligibilityKey, commitTs);
@@ -50529,10 +50529,10 @@ function createAsrScrollDriver(options = {}) {
     }
     let accepted = gatePassCore && (earlyBridgeTrapReleaseActive || actualDelayMs >= thresholdMs);
     const liveSpeechFresh = hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
-    if (accepted && reducedTarget > current2) {
+    if (accepted && reducedTarget > current4) {
       const scroller = getScroller();
       const markerIdx = scroller ? computeCueSafeMarkerIndex(scroller) : -1;
-      const markerLeadLines = markerIdx >= 0 ? Math.max(0, current2 - markerIdx) : 0;
+      const markerLeadLines = markerIdx >= 0 ? Math.max(0, current4 - markerIdx) : 0;
       const speechFreshForPace = hasRecentActualSpeech(commitTs) || hasRecentVadSpeechNow(commitTs) || !!args.speechRunningActual;
       const latestSpeechTs = Math.max(lastRuntimeSpeechAt || 0, lastVadSpeechAt || 0, lastSpeechRunningActualAtMs || 0);
       const noSpeechMs = latestSpeechTs > 0 ? Math.max(0, commitTs - latestSpeechTs) : Number.POSITIVE_INFINITY;
@@ -50541,7 +50541,7 @@ function createAsrScrollDriver(options = {}) {
       if (markerLeadLines >= ASR_READER_PACE_MAX_MARKER_LEAD_LINES && !speechFreshForPace && !args.finalPacketFresh && !args.speechRunningActual && noSpeechMs >= ASR_READER_PACE_NO_SPEECH_HOLD_MS && !directProofLike) {
         try {
           console.warn(
-            `[ASR_READER_PACE_HOLD] current=${current2} target=${reducedTarget} markerIdx=${markerIdx} markerLeadLines=${markerLeadLines} noSpeechMs=${Number.isFinite(noSpeechMs) ? Math.round(noSpeechMs) : -1} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=reader_not_driving`
+            `[ASR_READER_PACE_HOLD] current=${current4} target=${reducedTarget} markerIdx=${markerIdx} markerLeadLines=${markerLeadLines} noSpeechMs=${Number.isFinite(noSpeechMs) ? Math.round(noSpeechMs) : -1} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=reader_not_driving`
           );
         } catch {
         }
@@ -50573,7 +50573,7 @@ function createAsrScrollDriver(options = {}) {
     const completionProofSourceAllowed = proofSourceLower.includes("live_strict_local_proof_ok") || proofSourceLower.includes("live_strict_rescue_tail_progression_proof") || proofSourceLower.includes("strict_adjacent_tail_progression") || proofSourceLower.includes("adjacent_rescue_proofed") || sourceBranchLowerForLeash.includes("sustained_read") || sourceBranchLowerForLeash.includes("starvation_future_speech_reconcile") || sourceBranchLowerForLeash.includes("movement_authority_starvation_reconcile_single_step") || sourceBranchLowerForLeash.includes("stage_before_semantic_commit") || sourceBranchLowerForLeash.includes("live_bridge_single_step_policy");
     const completionPendingBridgeCompatible = !pendingSpeakableBridgeState || String(pendingSpeakableBridgeState.sourceBranch || "").toLowerCase().includes("movement_authority_starvation_reconcile_single_step") || String(pendingSpeakableBridgeState.sourceBranch || "").toLowerCase().includes("starvation_future_speech_reconcile");
     const completionProposedCommitLine = reducedTarget;
-    const completionAdjacentOnly = completionProposedCommitLine === current2 + 1;
+    const completionAdjacentOnly = completionProposedCommitLine === current4 + 1;
     const completionAdjacentProgressionLaneEligible = gatePassCore && completionAdjacentOnly && completionPendingBridgeCompatible && completionSpeechFresh && completionResponseFresh && completionAudioFreshOrUnavailable && completionRunIdentityFresh && !completionStaleResponseInvalidated && !completionNoMatchOrOffscript && !hardContradiction && completionProofSourceAllowed;
     if (liveAsrVisualGovernorHardHold) {
       const farAheadEscapeDecision = shouldAllowFarAheadHardHoldAdjacentEscape({
@@ -50581,9 +50581,9 @@ function createAsrScrollDriver(options = {}) {
         leadState: farAheadLeadState,
         holdAgeMs: farAheadHoldAgeMs,
         minHoldAgeMs: ASR_FAR_AHEAD_HOLD_ADJ_ESCAPE_TIMEOUT_MS,
-        current: current2,
-        target: current2 + 1,
-        semanticTarget: current2 + 1,
+        current: current4,
+        target: current4 + 1,
+        semanticTarget: current4 + 1,
         skippedIgnorableLinesCount: 0,
         speechFresh: liveSpeechFresh,
         finalFresh: !!args.finalPacketFresh,
@@ -50594,15 +50594,15 @@ function createAsrScrollDriver(options = {}) {
         bridgeLeashActive: farAheadBridgeLeashActive
       });
       farAheadAdjacentEscapeReason = farAheadEscapeDecision.reason;
-      if (farAheadEscapeDecision.allow && reducedTarget > current2 + 1 && (args.skippedIgnorableLines || []).length === 0) {
-        requestedTarget = current2 + 1;
-        semanticTargetRaw = current2 + 1;
-        reducedTarget = current2 + 1;
+      if (farAheadEscapeDecision.allow && reducedTarget > current4 + 1 && (args.skippedIgnorableLines || []).length === 0) {
+        requestedTarget = current4 + 1;
+        semanticTargetRaw = current4 + 1;
+        reducedTarget = current4 + 1;
         farAheadAdjacentEscapeApplied = true;
-      } else if (!farAheadEscapeDecision.allow && reducedTarget > current2 + 1) {
+      } else if (!farAheadEscapeDecision.allow && reducedTarget > current4 + 1) {
         try {
           console.warn(
-            `[ASR_FAR_AHEAD_HOLD_ESCAPE_BLOCKED] current=${current2} requestedTarget=${requestedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} reason=${farAheadEscapeDecision.reason} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} targetDelta=${Math.max(0, requestedTarget - current2)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] offscriptNoMatch=${farAheadOffscriptOrNoMatch ? 1 : 0}`
+            `[ASR_FAR_AHEAD_HOLD_ESCAPE_BLOCKED] current=${current4} requestedTarget=${requestedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} reason=${farAheadEscapeDecision.reason} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} targetDelta=${Math.max(0, requestedTarget - current4)} skippedIgnorableLines=[${(args.skippedIgnorableLines || []).join(",")}] offscriptNoMatch=${farAheadOffscriptOrNoMatch ? 1 : 0}`
           );
         } catch {
         }
@@ -50612,7 +50612,7 @@ function createAsrScrollDriver(options = {}) {
       accepted,
       liveAsrVisualGovernorHardHold,
       reducedTarget,
-      current: current2,
+      current: current4,
       hardContradiction,
       requestedTarget,
       liveSpeechFresh,
@@ -50624,7 +50624,7 @@ function createAsrScrollDriver(options = {}) {
     try {
       console.warn(
         buildAsrVisualGovernorDeadScreenUnlockEvaluatedDiagnostic({
-          currentLineIdx: current2,
+          currentLineIdx: current4,
           requestedTargetIdx: reducedTarget,
           acceptedCommitTargetIdx: reducedTarget,
           proofSource: args.proofSource || "none",
@@ -50649,7 +50649,7 @@ function createAsrScrollDriver(options = {}) {
       );
       console.warn(
         visualGovernorHoldDecision.shouldUnlock ? buildAsrVisualGovernorDeadScreenUnlockAllowedDiagnostic({
-          currentLineIdx: current2,
+          currentLineIdx: current4,
           requestedTargetIdx: reducedTarget,
           acceptedCommitTargetIdx: reducedTarget,
           proofSource: args.proofSource || "none",
@@ -50658,7 +50658,7 @@ function createAsrScrollDriver(options = {}) {
           terminalCommitSuppressedByVisualGovernor: deadScreenTerminalCommitSuppressedByVisualGovernor,
           reason: "fresh_adjacent_under_hold"
         }) : buildAsrVisualGovernorDeadScreenUnlockDeniedDiagnostic({
-          currentLineIdx: current2,
+          currentLineIdx: current4,
           requestedTargetIdx: reducedTarget,
           acceptedCommitTargetIdx: reducedTarget,
           proofSource: args.proofSource || "none",
@@ -50675,16 +50675,16 @@ function createAsrScrollDriver(options = {}) {
         deadScreenFreshAdjacentUnlockSeen = true;
         try {
           console.warn(
-            `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`
+            `[ASR_VISUAL_GOVERNOR_FRESH_ADJACENT_UNLOCK] current=${current4} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0} liveSpeechFresh=${liveSpeechFresh ? 1 : 0} noCommitMs=${noCommitMs} reason=fresh_adjacent_under_hold`
           );
           if (farAheadAdjacentEscapeApplied) {
             console.warn(
-              `[ASR_FAR_AHEAD_HOLD_ADJACENT_ESCAPE] current=${current2} target=${reducedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} proofSource=${args.proofSource || "none"} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} speechFresh=${liveSpeechFresh ? 1 : 0} finalFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${farAheadTranscriptGrowing ? 1 : 0} reason=${farAheadAdjacentEscapeReason || "far_ahead_timeout_adjacent_escape"}`
+              `[ASR_FAR_AHEAD_HOLD_ADJACENT_ESCAPE] current=${current4} target=${reducedTarget} holdAgeMs=${Math.round(farAheadHoldAgeMs)} leadState=${farAheadLeadState} speakableLead=${farAheadSpeakableLead} renderedLead=${farAheadRenderedLead} visualDeltaLines=${formatLogScore(liveAsrBridgeVisualRecoveryDeltaLines)} proofSource=${args.proofSource || "none"} authority=${args.authority || "unknown"} sourceBranch=${args.sourceBranch || "unknown"} speechFresh=${liveSpeechFresh ? 1 : 0} finalFresh=${args.finalPacketFresh ? 1 : 0} transcriptGrowing=${farAheadTranscriptGrowing ? 1 : 0} reason=${farAheadAdjacentEscapeReason || "far_ahead_timeout_adjacent_escape"}`
             );
           }
           if (liveAsrVisualSuppressionLoopCount >= 2) {
             console.warn(
-              `[ASR_VISUAL_GOVERNOR_SUPPRESSION_LOOP_BROKEN] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} noCommitMs=${noCommitMs} suppressions=${liveAsrVisualSuppressionLoopCount} reason=fresh_adjacent_unlock`
+              `[ASR_VISUAL_GOVERNOR_SUPPRESSION_LOOP_BROKEN] current=${current4} target=${reducedTarget} bestIdx=${requestedTarget} noCommitMs=${noCommitMs} suppressions=${liveAsrVisualSuppressionLoopCount} reason=fresh_adjacent_unlock`
             );
           }
         } catch {
@@ -50695,7 +50695,7 @@ function createAsrScrollDriver(options = {}) {
         try {
           console.warn(
             buildAsrVisualGovernorDeadScreenUnlockAppliedDiagnostic({
-              currentLineIdx: current2,
+              currentLineIdx: current4,
               requestedTargetIdx: reducedTarget,
               acceptedCommitTargetIdx: reducedTarget,
               proofSource: args.proofSource || "none",
@@ -50714,7 +50714,7 @@ function createAsrScrollDriver(options = {}) {
           semanticCompletionBypassLane = "adjacent_safe_semantic_progression";
           try {
             console.warn(
-              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} currentLineIdx=${current2} proposedCommitLine=${completionProposedCommitLine} proofSource=${args.proofSource || "none"} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0}`
+              `[ASR_ADJACENT_SAFE_SEMANTIC_BYPASS] adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} currentLineIdx=${current4} proposedCommitLine=${completionProposedCommitLine} proofSource=${args.proofSource || "none"} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0}`
             );
           } catch {
           }
@@ -50722,7 +50722,7 @@ function createAsrScrollDriver(options = {}) {
       }
       if (visualGovernorHoldDecision.shouldHold && semanticCompletionBypassLane === "none") {
         deadScreenTerminalCommitSuppressedByVisualGovernor = true;
-        const suppressionKey = `${current2}->${reducedTarget}`;
+        const suppressionKey = `${current4}->${reducedTarget}`;
         if (liveAsrVisualSuppressionKey === suppressionKey) {
           liveAsrVisualSuppressionLoopCount += 1;
         } else {
@@ -50731,13 +50731,13 @@ function createAsrScrollDriver(options = {}) {
         }
         try {
           console.warn(
-            `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
+            `[ASR_TERMINAL_COMMIT_SUPPRESSED_BY_VISUAL_GOVERNOR] current=${current4} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
           );
         } catch {
         }
         try {
           console.warn(
-            `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current2} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
+            `[ASR_SEMANTIC_COMMIT_HELD_BY_VISUAL_GOVERNOR] current=${current4} target=${reducedTarget} bestIdx=${requestedTarget} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), reducedTarget))} renderedLead=${Math.max(0, reducedTarget - Math.max(0, lastStrongConfirmedSpokenLine))} lastStrongConfirmedSpokenLine=${Math.max(0, lastStrongConfirmedSpokenLine)} speechFresh=${hasRecentActualSpeech(Date.now()) ? 1 : 0} transcriptGrowing=${lastFinalTranscriptNorm.length > lastCommitTranscriptTextLength ? 1 : 0} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=visual_governor_hard_hold`
           );
         } catch {
         }
@@ -50757,16 +50757,16 @@ function createAsrScrollDriver(options = {}) {
       deadScreenAcceptedCommitTargetIdx = Math.max(0, reducedTarget);
       if (args.emitSameLineReleased) {
         console.warn(
-          `[ASR_SAME_LINE_TRAP_RELEASED] current=${current2} target=${reducedTarget} bestIdx=${current2} fallbackTarget=${reducedTarget} tailProofUsed=0 transcriptGrowing=1 heldMs=${actualDelayMs} thresholdMs=${thresholdMs} reason=same_line_noop_live_release`
+          `[ASR_SAME_LINE_TRAP_RELEASED] current=${current4} target=${reducedTarget} bestIdx=${current4} fallbackTarget=${reducedTarget} tailProofUsed=0 transcriptGrowing=1 heldMs=${actualDelayMs} thresholdMs=${thresholdMs} reason=same_line_noop_live_release`
         );
       }
       if (args.emitVisibleBridgeBypass) {
         console.warn(
-          `[ASR_VISIBLE_BRIDGE_CAP_BYPASSED_TERMINAL] current=${current2} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} skippedIgnorableLines=[] reason=live_safe_terminal`
+          `[ASR_VISIBLE_BRIDGE_CAP_BYPASSED_TERMINAL] current=${current4} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} skippedIgnorableLines=[] reason=live_safe_terminal`
         );
       }
       console.warn(
-        `[ASR_LIVE_FINAL_COMMIT] current=${current2} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} authority=${args.authority || "unknown"} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} eligibleAtMs=${eligibleAtMs} committedAtMs=${commitTs} waitAfterEligibilityMs=${waitAfterEligibilityMs} thresholdMs=${thresholdMs} bypassedBlockers=${args.bypassedBlockers || "none"} finalAuthority=1 hardContradiction=0 adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} proposedCommitLine=${completionProposedCommitLine} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0} reason=${args.reason}`
+        `[ASR_LIVE_FINAL_COMMIT] current=${current4} target=${reducedTarget} semanticTarget=${semanticTargetRaw} visualTarget=${visualTarget} authority=${args.authority || "unknown"} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} eligibleAtMs=${eligibleAtMs} committedAtMs=${commitTs} waitAfterEligibilityMs=${waitAfterEligibilityMs} thresholdMs=${thresholdMs} bypassedBlockers=${args.bypassedBlockers || "none"} finalAuthority=1 hardContradiction=0 adjacentProgressionLane=${semanticCompletionBypassLane} originalMatchBestIdx=${originalMatchBestIdx} reducedSemanticTargetLine=${reducedTarget} proposedCommitLine=${completionProposedCommitLine} blockedReasonBeforeBypass=${blockedReasonBeforeBypass} speechFresh=${completionSpeechFresh ? 1 : 0} responseFresh=${completionResponseFresh ? 1 : 0} audioFresh=${completionAudioFresh ? 1 : 0} reason=${args.reason}`
       );
       emitReaderLineMarkerError({
         event: "commit_accepted",
@@ -50777,7 +50777,7 @@ function createAsrScrollDriver(options = {}) {
       });
       if (lateDiscovered) {
         console.warn(
-          `[ASR_LIVE_ELIGIBILITY_LATE_DISCOVERED] current=${current2} target=${reducedTarget} stallMs=${actualDelayMs} reason=${args.reason} sourceBranch=${args.sourceBranch || "unknown"}`
+          `[ASR_LIVE_ELIGIBILITY_LATE_DISCOVERED] current=${current4} target=${reducedTarget} stallMs=${actualDelayMs} reason=${args.reason} sourceBranch=${args.sourceBranch || "unknown"}`
         );
       }
     } catch {
@@ -50786,11 +50786,11 @@ function createAsrScrollDriver(options = {}) {
       recentRescueBypassAtMs.push(commitTs);
       lastRescueBypassAtMs = commitTs;
     }
-    if (reducedTarget === current2 + 1) {
+    if (reducedTarget === current4 + 1) {
       liveAsrNormalAdjacentFollowBoostUntilMs = Date.now() + 2200;
       try {
         console.warn(
-          `[ASR_FRESH_ADJACENT_FAST_COMMIT] current=${current2} target=${reducedTarget} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`
+          `[ASR_FRESH_ADJACENT_FAST_COMMIT] current=${current4} target=${reducedTarget} noCommitMs=${actualDelayMs} thresholdMs=${thresholdMs} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} speechRunningActual=${args.speechRunningActual ? 1 : 0} finalPacketFresh=${args.finalPacketFresh ? 1 : 0}`
         );
       } catch {
       }
@@ -50800,17 +50800,17 @@ function createAsrScrollDriver(options = {}) {
     const committedSourceBranchLower = String(args.sourceBranch || "").toLowerCase();
     const committedProofSourceLower = String(args.proofSource || "").toLowerCase();
     const committedAuthorityLower = String(args.authority || "").toLowerCase();
-    if (reducedTarget === current2 + 1 && committedSourceBranchLower.includes("rescue_hold") && committedProofSourceLower.includes("adjacent_release") && hasLiveSpeechForStallRecoveryHint() && !isSameLineFinalNudgeForceReason(args.sourceBranch) && !isFarFutureStallRecoveryLineage(args.sourceBranch) && completionSpeechFresh && completionResponseFresh && !completionStaleResponseInvalidated && !completionNoMatchOrOffscript && !hardContradiction) {
+    if (reducedTarget === current4 + 1 && committedSourceBranchLower.includes("rescue_hold") && committedProofSourceLower.includes("adjacent_release") && hasLiveSpeechForStallRecoveryHint() && !isSameLineFinalNudgeForceReason(args.sourceBranch) && !isFarFutureStallRecoveryLineage(args.sourceBranch) && completionSpeechFresh && completionResponseFresh && !completionStaleResponseInvalidated && !completionNoMatchOrOffscript && !hardContradiction) {
       lastStallRecoveryOverrideHintAt = commitTs;
       lastStallRecoveryOverrideHintTarget = reducedTarget;
     }
-    const committedBridgeRecoveryLike = reducedTarget > current2 + 1 || semanticTargetRaw > current2 + 1 || (args.skippedIgnorableLines || []).length > 0 || committedSourceBranchLower.includes("bridge") || committedSourceBranchLower.includes("reconcile") || committedSourceBranchLower.includes("pending_speakable_bridge_complete") || committedProofSourceLower.includes("bridge") || committedProofSourceLower.includes("strict_speakable_bridge_landing") || committedAuthorityLower.includes("reconcile");
+    const committedBridgeRecoveryLike = reducedTarget > current4 + 1 || semanticTargetRaw > current4 + 1 || (args.skippedIgnorableLines || []).length > 0 || committedSourceBranchLower.includes("bridge") || committedSourceBranchLower.includes("reconcile") || committedSourceBranchLower.includes("pending_speakable_bridge_complete") || committedProofSourceLower.includes("bridge") || committedProofSourceLower.includes("strict_speakable_bridge_landing") || committedAuthorityLower.includes("reconcile");
     if (committedBridgeRecoveryLike) {
       liveAsrVisualEnvelopeLeashSourceBranch = String(args.sourceBranch || "unknown");
       liveAsrVisualEnvelopeLeashProofSource = String(args.proofSource || "none");
       liveAsrVisualEnvelopeLeashAuthority = String(args.authority || "unknown");
     }
-    updateAsr4ShadowAfterLegacyMovement(current2, reducedTarget);
+    updateAsr4ShadowAfterLegacyMovement(current4, reducedTarget);
     return { accepted: true, target: reducedTarget, thresholdMs, actualDelayMs, commitTs };
   };
   const allowAsrReaderLeashAdvance = (args) => {
@@ -53692,7 +53692,7 @@ function createAsrScrollDriver(options = {}) {
     pursuitLastTs = now3;
     const wallNow = Date.now();
     const keepLivePocketMaintenanceActive = shouldKeepLiveAsrPocketMaintenanceActive(wallNow);
-    const current2 = scroller.scrollTop || 0;
+    const current4 = scroller.scrollTop || 0;
     if (shortLinePreReanchorGraceState) {
       const grace = shortLinePreReanchorGraceState;
       const targetIdentityChanged = grace.currentLineIdx !== lastLineIndex || grace.semanticEpoch !== semanticEpoch;
@@ -53702,7 +53702,7 @@ function createAsrScrollDriver(options = {}) {
         const elapsedMs = Math.max(0, wallNow - grace.triggerTimeMs);
         if (!grace.visualBridgeSpent) {
           const maxScrollTop2 = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
-          const terminalClampActive = current2 >= maxScrollTop2 - 0.5;
+          const terminalClampActive = current4 >= maxScrollTop2 - 0.5;
           const pendingBridgeConflict = !!pendingSpeakableBridgeState && (pendingSpeakableBridgeState.semanticFrom !== grace.currentLineIdx || pendingSpeakableBridgeState.visualReducedTarget !== grace.safeAdjacentVisualTargetIdx);
           const blockerReason = grace.safeAdjacentVisualTargetIdx <= grace.currentLineIdx ? "backward_target" : !Number.isFinite(grace.safeAdjacentVisualTargetScrollTop) ? "unsafe_target" : terminalClampActive ? "terminal_clamp" : pendingBridgeConflict ? "pending_bridge_conflict" : reanchorPendingState || reanchorLandingState ? "authority_conflict" : null;
           if (blockerReason) {
@@ -53717,7 +53717,7 @@ function createAsrScrollDriver(options = {}) {
               grace.visualBridgeDeniedReason = blockerReason;
               try {
                 console.warn(
-                  `[ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_DENIED] currentLineIdx=${grace.currentLineIdx} visualTargetIdx=${grace.safeAdjacentVisualTargetIdx} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(grace.safeAdjacentVisualTargetScrollTop)} appliedStepPx=0 semanticEpoch=${semanticEpoch} rawMatchIndex=${grace.rawMatchIndex} assembledMatchIndex=${grace.assembledMatchIndex} triggerRequestSeq=${grace.triggerRequestSeq} blockerReason=${blockerReason}`
+                  `[ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_DENIED] currentLineIdx=${grace.currentLineIdx} visualTargetIdx=${grace.safeAdjacentVisualTargetIdx} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(grace.safeAdjacentVisualTargetScrollTop)} appliedStepPx=0 semanticEpoch=${semanticEpoch} rawMatchIndex=${grace.rawMatchIndex} assembledMatchIndex=${grace.assembledMatchIndex} triggerRequestSeq=${grace.triggerRequestSeq} blockerReason=${blockerReason}`
                 );
               } catch {
               }
@@ -53728,10 +53728,10 @@ function createAsrScrollDriver(options = {}) {
               reason: "short-line-pre-reanchor-grace",
               source: "asr-follow"
             });
-            scheduleAsrWriteCheck(scroller, current2, "short-line-pre-reanchor-grace", grace.safeAdjacentVisualTargetScrollTop, "asr-follow");
-            noteVisualWrite("short_line_pre_reanchor_grace", current2, appliedTop);
-            const appliedStepPx = Math.round(appliedTop - current2);
-            if (appliedTop > current2 + 0.5) {
+            scheduleAsrWriteCheck(scroller, current4, "short-line-pre-reanchor-grace", grace.safeAdjacentVisualTargetScrollTop, "asr-follow");
+            noteVisualWrite("short_line_pre_reanchor_grace", current4, appliedTop);
+            const appliedStepPx = Math.round(appliedTop - current4);
+            if (appliedTop > current4 + 0.5) {
               grace.visualBridgeSpent = true;
               lastKnownScrollTop = appliedTop;
               lastMoveAt = Date.now();
@@ -53740,7 +53740,7 @@ function createAsrScrollDriver(options = {}) {
               pursuitVel = 0;
               try {
                 console.warn(
-                  `[ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_WRITTEN] currentLineIdx=${grace.currentLineIdx} visualTargetIdx=${grace.safeAdjacentVisualTargetIdx} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(grace.safeAdjacentVisualTargetScrollTop)} appliedStepPx=${appliedStepPx} semanticEpoch=${semanticEpoch} rawMatchIndex=${grace.rawMatchIndex} assembledMatchIndex=${grace.assembledMatchIndex} triggerRequestSeq=${grace.triggerRequestSeq} blockerReason=none`
+                  `[ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_WRITTEN] currentLineIdx=${grace.currentLineIdx} visualTargetIdx=${grace.safeAdjacentVisualTargetIdx} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(grace.safeAdjacentVisualTargetScrollTop)} appliedStepPx=${appliedStepPx} semanticEpoch=${semanticEpoch} rawMatchIndex=${grace.rawMatchIndex} assembledMatchIndex=${grace.assembledMatchIndex} triggerRequestSeq=${grace.triggerRequestSeq} blockerReason=none`
                 );
               } catch {
               }
@@ -53756,7 +53756,7 @@ function createAsrScrollDriver(options = {}) {
                 grace.visualBridgeDeniedReason = "writer_no_progress";
                 try {
                   console.warn(
-                    `[ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_DENIED] currentLineIdx=${grace.currentLineIdx} visualTargetIdx=${grace.safeAdjacentVisualTargetIdx} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(grace.safeAdjacentVisualTargetScrollTop)} appliedStepPx=0 semanticEpoch=${semanticEpoch} rawMatchIndex=${grace.rawMatchIndex} assembledMatchIndex=${grace.assembledMatchIndex} triggerRequestSeq=${grace.triggerRequestSeq} blockerReason=writer_no_progress`
+                    `[ASR_SHORT_LINE_PRE_REANCHOR_VISUAL_BRIDGE_DENIED] currentLineIdx=${grace.currentLineIdx} visualTargetIdx=${grace.safeAdjacentVisualTargetIdx} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(grace.safeAdjacentVisualTargetScrollTop)} appliedStepPx=0 semanticEpoch=${semanticEpoch} rawMatchIndex=${grace.rawMatchIndex} assembledMatchIndex=${grace.assembledMatchIndex} triggerRequestSeq=${grace.triggerRequestSeq} blockerReason=writer_no_progress`
                   );
                 } catch {
                 }
@@ -53792,18 +53792,18 @@ function createAsrScrollDriver(options = {}) {
       cancelAutomaticVisualAuthorities("reanchor_pending_tick");
       try {
         console.warn(
-          `[ASR_VISUAL_OWNER_FROZEN] owner=reanchor_pending semanticEpoch=${semanticEpoch} currentScrollTop=${Math.round(current2)} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits}`
+          `[ASR_VISUAL_OWNER_FROZEN] owner=reanchor_pending semanticEpoch=${semanticEpoch} currentScrollTop=${Math.round(current4)} candidateLineIdx=${reanchorPendingState.candidateLineIdx} hits=${reanchorPendingState.candidateHits}`
         );
       } catch {
       }
       return;
     }
-    appliedTopPx = current2;
-    const manualDelta = Math.abs(current2 - lastKnownScrollTop);
+    appliedTopPx = current4;
+    const manualDelta = Math.abs(current4 - lastKnownScrollTop);
     if (pursuitActive && lastMoveAt && manualDelta > DEFAULT_PURSUE_MANUAL_CANCEL_PX) {
       emitLivePocketMaintenanceCallsiteReached({
         nowTs: wallNow,
-        currentScrollTop: current2,
+        currentScrollTop: current4,
         markerTopPx: lastAsrMarkerY,
         callsiteReason: "tick_manual_cancel",
         skippedBeforeEvaluation: true,
@@ -53815,11 +53815,11 @@ function createAsrScrollDriver(options = {}) {
       preservedAsrAuthorityTargetReason = "manual_scroll";
       preservedAsrAuthorityTargetSourcePath = "manual_scroll";
       pursuitVel = 0;
-      lastKnownScrollTop = current2;
+      lastKnownScrollTop = current4;
       logDev("pursuit canceled (manual scroll)", { delta: Math.round(manualDelta) });
       return;
     }
-    if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX && (pursuitTargetTop == null || !Number.isFinite(pursuitTargetTop) || pursuitTargetTop < preservedAsrAuthorityTargetTop)) {
+    if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current4 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX && (pursuitTargetTop == null || !Number.isFinite(pursuitTargetTop) || pursuitTargetTop < preservedAsrAuthorityTargetTop)) {
       const previousTarget = Number.isFinite(pursuitTargetTop) ? Number(pursuitTargetTop) : -1;
       pursuitTargetTop = preservedAsrAuthorityTargetTop;
       const suppressionSignature = [
@@ -53827,12 +53827,12 @@ function createAsrScrollDriver(options = {}) {
         preservedAsrAuthorityTargetReason,
         Math.round(previousTarget / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
         Math.round(Number(preservedAsrAuthorityTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-        Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+        Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
       ].join("|");
       if (shouldEmitFrameDiagnostic("ASR_TARGET_SUPPRESSION_PREVENTED", suppressionSignature)) {
         try {
           console.warn(
-            `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(previousTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current2))} targetPreserved=1`
+            `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(previousTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current4)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current4))} targetPreserved=1`
           );
         } catch {
         }
@@ -53845,7 +53845,7 @@ function createAsrScrollDriver(options = {}) {
       );
       const leaseDebtState = resolveLeasedReaderCorrectionDebtState({
         authority: lastAsrSelectedAuthority,
-        currentTop: current2,
+        currentTop: current4,
         targetScrollTop: preservedAsrAuthorityTargetTop,
         lineHeightPx: earlyLeaseLineHeightPx,
         markerErrorPx: Number.isFinite(lastAsrMatchedMarkerErrorPx) ? Number(lastAsrMatchedMarkerErrorPx) : Number.NaN,
@@ -53857,12 +53857,12 @@ function createAsrScrollDriver(options = {}) {
       });
       const graceTargetStillFresh = lastLocalPursuitTargetTop != null && Number.isFinite(lastLocalPursuitTargetTop) && wallNow - lastLocalPursuitTargetAt <= ASR_PURSUE_TARGET_GRACE_MS && lastLocalPursuitTargetLineIdx >= 0 && lastLocalPursuitTargetLineIdx <= lastLineIndex + ASR_PURSUE_TARGET_GRACE_MAX_SEMANTIC_DISTANCE;
       if (graceTargetStillFresh) {
-        pursuitTargetTop = Math.max(current2, Number(lastLocalPursuitTargetTop));
+        pursuitTargetTop = Math.max(current4, Number(lastLocalPursuitTargetTop));
       }
       if (liveAsrFollowMode && keepLivePocketMaintenanceActive) {
         emitLivePocketMaintenanceCallsiteReached({
           nowTs: wallNow,
-          currentScrollTop: current2,
+          currentScrollTop: current4,
           markerTopPx: lastAsrMarkerY,
           callsiteReason: "tick_keep_alive_without_target",
           skippedBeforeEvaluation: false,
@@ -53871,22 +53871,22 @@ function createAsrScrollDriver(options = {}) {
         if (pursuitTargetTop == null) {
           if (leaseDebtState.leaseActive && leaseDebtState.targetForward && leaseDebtState.leaseDebtRemaining > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX && (leaseDebtState.matchedBelowMarker || leaseDebtState.semanticAhead)) {
             pursuitTargetTop = Math.max(
-              current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX + 1,
-              Number.isFinite(preservedAsrAuthorityTargetTop) ? Number(preservedAsrAuthorityTargetTop) : current2 + Math.min(
+              current4 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX + 1,
+              Number.isFinite(preservedAsrAuthorityTargetTop) ? Number(preservedAsrAuthorityTargetTop) : current4 + Math.min(
                 Math.max(18, earlyLeaseLineHeightPx * 0.35),
                 leaseDebtState.leaseDebtRemaining
               )
             );
             lastAsrLeaseTargetNullWhileActive = false;
           } else {
-            pursuitTargetTop = current2;
+            pursuitTargetTop = current4;
             lastAsrLeaseTargetNullWhileActive = leaseDebtState.leaseActive;
           }
         }
       } else {
         emitLivePocketMaintenanceCallsiteReached({
           nowTs: wallNow,
-          currentScrollTop: current2,
+          currentScrollTop: current4,
           markerTopPx: lastAsrMarkerY,
           callsiteReason: "tick_no_target_inactive",
           skippedBeforeEvaluation: true,
@@ -53900,23 +53900,23 @@ function createAsrScrollDriver(options = {}) {
     let liveTickSelectedAuthority = "hold";
     let liveTickAuthorityReason = null;
     let targetCollapseReason = null;
-    if (pursuitTargetTop < current2) {
+    if (pursuitTargetTop < current4) {
       targetCollapseReason = "target_behind_current";
       rememberCompletionBlocker(targetCollapseReason, pursuitTargetTop);
       emitDevDiagnostic(
         "ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED",
         "warn",
-        `[ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED] currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(Number(pursuitTargetTop))} rawTargetScrollTop=${Math.round(Number(pursuitTargetTop))} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(Number(pursuitTargetTop))} proposedDeltaPx=${Math.round(Number(pursuitTargetTop) - current2)} targetDebtPx=${Math.round(Number(pursuitTargetTop) - current2)} movementSource=${preservedAsrAuthorityTargetReason || liveTickAuthorityReason || lastAsrSelectedAuthority || "unknown"} targetCollapseReason=${targetCollapseReason} holdReason=target_behind_current`,
+        `[ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED] currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(Number(pursuitTargetTop))} rawTargetScrollTop=${Math.round(Number(pursuitTargetTop))} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(Number(pursuitTargetTop))} proposedDeltaPx=${Math.round(Number(pursuitTargetTop) - current4)} targetDebtPx=${Math.round(Number(pursuitTargetTop) - current4)} movementSource=${preservedAsrAuthorityTargetReason || liveTickAuthorityReason || lastAsrSelectedAuthority || "unknown"} targetCollapseReason=${targetCollapseReason} holdReason=target_behind_current`,
         {
           minMs: 120,
           signature: [
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             preservedAsrAuthorityTargetReason || liveTickAuthorityReason || lastAsrSelectedAuthority || "unknown"
           ].join("|")
         }
       );
-      pursuitTargetTop = current2;
+      pursuitTargetTop = current4;
     }
     const lastPartialAgeMs = lastPartialTranscriptAt > 0 ? Math.max(0, wallNow - lastPartialTranscriptAt) : Number.POSITIVE_INFINITY;
     const lastFinalAgeMs = lastFinalTranscriptAt > 0 ? Math.max(0, wallNow - lastFinalTranscriptAt) : Number.POSITIVE_INFINITY;
@@ -53943,11 +53943,11 @@ function createAsrScrollDriver(options = {}) {
       emitDevDiagnostic(
         "ASR_READER_IDLE_FORWARD_HOLD_RELEASED",
         "warn",
-        `[ASR_READER_IDLE_FORWARD_HOLD_RELEASED] lastPartialAgeMs=${Number.isFinite(lastPartialAgeMs) ? Math.round(lastPartialAgeMs) : -1} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} speechActive=${asrRuntimeSpeechRunningActual ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} vadPresent=${asrVadSeen ? 1 : 0} silenceEventPresent=${lastAsrSilenceStartAt > 0 || lastAsrSilenceEndAt > 0 ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(Number(pursuitTargetTop))} proposedDeltaPx=${Math.round(Number(pursuitTargetTop) - current2)} targetDebtPx=${Math.round(Number(pursuitTargetTop) - current2)} movementSource=${preservedAsrAuthorityTargetReason || liveTickAuthorityReason || lastAsrSelectedAuthority || "unknown"} holdReason=fresh_adjacent_or_current_generation_release`,
+        `[ASR_READER_IDLE_FORWARD_HOLD_RELEASED] lastPartialAgeMs=${Number.isFinite(lastPartialAgeMs) ? Math.round(lastPartialAgeMs) : -1} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} speechActive=${asrRuntimeSpeechRunningActual ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} vadPresent=${asrVadSeen ? 1 : 0} silenceEventPresent=${lastAsrSilenceStartAt > 0 || lastAsrSilenceEndAt > 0 ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(Number(pursuitTargetTop))} proposedDeltaPx=${Math.round(Number(pursuitTargetTop) - current4)} targetDebtPx=${Math.round(Number(pursuitTargetTop) - current4)} movementSource=${preservedAsrAuthorityTargetReason || liveTickAuthorityReason || lastAsrSelectedAuthority || "unknown"} holdReason=fresh_adjacent_or_current_generation_release`,
         {
           minMs: 120,
           signature: [
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             lastLineIndex
           ].join("|")
@@ -53960,7 +53960,7 @@ function createAsrScrollDriver(options = {}) {
       1,
       Number(getLineElementByIndex(scroller, Math.max(0, lastLineIndex))?.clientHeight || 24)
     );
-    const rawPursuitTargetTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2;
+    const rawPursuitTargetTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4;
     const readerIdleFreshVoiceBackedTranscriptActivity = !!lastTranscriptSpeechActive && lastTranscriptPacketAt > 0 && lastTranscriptAgeMs < ASR_READER_IDLE_FORWARD_HOLD_THRESHOLD_MS && !asrSilenceActive;
     const readerIdleLiveEvidenceBasis = readerIdleRuntimeSpeechRecent && readerIdleVadSpeechRecent ? "runtime_and_vad_recent" : readerIdleRuntimeSpeechRecent ? "runtime_recent" : readerIdleVadSpeechRecent ? "vad_recent" : readerIdleFreshVoiceBackedTranscriptActivity ? "fresh_voice_backed_transcript" : asrSilenceActive ? "confirmed_silence" : !asrRuntimeRecognizerAttached ? "recognizer_detached" : "no_recent_live_evidence";
     const readerIdleLiveEvidenceActive = liveAsrFollowMode && keepLivePocketMaintenanceActive && asrRuntimeRecognizerAttached && !asrSilenceActive && (readerIdleRuntimeSpeechRecent || readerIdleVadSpeechRecent || readerIdleFreshVoiceBackedTranscriptActivity);
@@ -53970,7 +53970,7 @@ function createAsrScrollDriver(options = {}) {
     const readerIdleLatchedSnapshotSameTarget = readerIdleLatchedSnapshotSameEpoch && readerIdleForwardHoldStableTargetLineIdx === readerIdlePreservedTargetLineIdx && Number.isFinite(readerIdleForwardHoldStableTargetTop) && Math.abs(Number(readerIdleForwardHoldStableTargetTop) - rawPursuitTargetTop) <= readerIdlePreservedTargetTolerancePx;
     const readerIdlePreservedMarkerSameEpoch = safeForwardResidualTargetEpoch === visualTargetEpoch || readerIdleLatchedSnapshotSameEpoch;
     const readerIdlePreservedMarkerSameTarget = readerIdlePreservedMarkerSameEpoch && safeForwardResidualTargetLineIdx === readerIdlePreservedTargetLineIdx && Number.isFinite(safeForwardResidualTargetScrollTop) && Number.isFinite(rawPursuitTargetTop) && Math.abs(Number(safeForwardResidualTargetScrollTop) - rawPursuitTargetTop) <= readerIdlePreservedTargetTolerancePx || readerIdleLatchedSnapshotSameTarget;
-    const readerIdleMaturedPreservedMarkerMaintenance = liveAsrFollowMode && commitCount >= 2 && lastAsrNormalMarkerFollowOwnsTarget && lastCommittedLine === lastLineIndex && readerIdlePreservedTargetLineIdx === lastLineIndex && readerIdlePreservedMarkerSameEpoch && readerIdlePreservedMarkerSameTarget && safeForwardResidualDebtPx > getVisualTargetTolerancePx(readerIdleLineHeightPx) && safeForwardResidualNextEligibleAtMs > 0 && wallNow >= safeForwardResidualNextEligibleAtMs && rawPursuitTargetTop > current2 + getVisualTargetTolerancePx(readerIdleLineHeightPx) && safeForwardResidualOwner !== "none";
+    const readerIdleMaturedPreservedMarkerMaintenance = liveAsrFollowMode && commitCount >= 2 && lastAsrNormalMarkerFollowOwnsTarget && lastCommittedLine === lastLineIndex && readerIdlePreservedTargetLineIdx === lastLineIndex && readerIdlePreservedMarkerSameEpoch && readerIdlePreservedMarkerSameTarget && safeForwardResidualDebtPx > getVisualTargetTolerancePx(readerIdleLineHeightPx) && safeForwardResidualNextEligibleAtMs > 0 && wallNow >= safeForwardResidualNextEligibleAtMs && rawPursuitTargetTop > current4 + getVisualTargetTolerancePx(readerIdleLineHeightPx) && safeForwardResidualOwner !== "none";
     const readerIdleStableTargetTolerancePx = Math.max(2, ASR_POCKET_WALL_NOISE_DELTA_PX);
     const readerIdleStableTargetInWindow = readerIdleForwardHoldActive && Number.isFinite(readerIdleForwardHoldStableTargetTop) && Math.abs(Number(readerIdleForwardHoldStableTargetTop) - rawPursuitTargetTop) <= readerIdleStableTargetTolerancePx && readerIdleForwardHoldStableTargetLineIdx === readerIdlePreservedTargetLineIdx;
     const readerIdleSameCommitWindow = readerIdleForwardHoldStableCommitCount === commitCount;
@@ -53984,7 +53984,7 @@ function createAsrScrollDriver(options = {}) {
     const readerIdleForwardHoldInteraction = evaluateReaderIdleForwardHoldInteraction({
       liveAsrFollowMode,
       keepLivePocketMaintenanceActive,
-      currentScrollTop: current2,
+      currentScrollTop: current4,
       rawTargetScrollTop: rawPursuitTargetTop,
       speechFresh: readerIdleSpeechFresh,
       lastPartialAgeMs,
@@ -54011,14 +54011,14 @@ function createAsrScrollDriver(options = {}) {
       terminalClampActive: liveAsrTerminalScriptHoldActive,
       pendingBridgeActive: readerIdlePendingBridgeActive,
       unsafeTargetActive: readerIdleUnsafeTargetActive,
-      backwardCandidate: rawPursuitTargetTop <= current2,
+      backwardCandidate: rawPursuitTargetTop <= current4,
       authorityConflictActive: readerIdleAuthorityConflictActive,
       reanchorOrRescueActive: readerIdleReanchorOrRescueActive
     });
     lastDebugRawTargetScrollTop = rawPursuitTargetTop;
-    lastDebugEffectiveTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2;
-    lastDebugCurrentScrollTop = current2;
-    lastDebugTargetDebtPx = Math.max(0, rawPursuitTargetTop - current2);
+    lastDebugEffectiveTargetScrollTop = Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4;
+    lastDebugCurrentScrollTop = current4;
+    lastDebugTargetDebtPx = Math.max(0, rawPursuitTargetTop - current4);
     lastDebugSpeechFresh = readerIdleSpeechFresh;
     lastDebugLastFinalAgeMs = lastFinalAgeMs;
     lastDebugLastTranscriptAgeMs = lastTranscriptAgeMs;
@@ -54037,11 +54037,11 @@ function createAsrScrollDriver(options = {}) {
       emitDevDiagnostic(
         "ASR_READER_IDLE_FORWARD_HOLD_EVALUATED",
         "warn",
-        `[ASR_READER_IDLE_FORWARD_HOLD_EVALUATED] lastPartialAgeMs=${Number.isFinite(lastPartialAgeMs) ? Math.round(lastPartialAgeMs) : -1} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} speechActive=${asrRuntimeSpeechRunningActual ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} vadPresent=${asrVadSeen ? 1 : 0} silenceEventPresent=${lastAsrSilenceStartAt > 0 || lastAsrSilenceEndAt > 0 ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(rawPursuitTargetTop)} proposedScrollTop=${Math.round(rawPursuitTargetTop)} proposedDeltaPx=${Math.round(rawPursuitTargetTop - current2)} targetDebtPx=${Math.round(rawPursuitTargetTop - current2)} movementSource=${readerIdleMovementSource} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority} holdReason=reader_idle_forward_hold_candidate`,
+        `[ASR_READER_IDLE_FORWARD_HOLD_EVALUATED] lastPartialAgeMs=${Number.isFinite(lastPartialAgeMs) ? Math.round(lastPartialAgeMs) : -1} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} speechActive=${asrRuntimeSpeechRunningActual ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} vadPresent=${asrVadSeen ? 1 : 0} silenceEventPresent=${lastAsrSilenceStartAt > 0 || lastAsrSilenceEndAt > 0 ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(rawPursuitTargetTop)} proposedScrollTop=${Math.round(rawPursuitTargetTop)} proposedDeltaPx=${Math.round(rawPursuitTargetTop - current4)} targetDebtPx=${Math.round(rawPursuitTargetTop - current4)} movementSource=${readerIdleMovementSource} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority} holdReason=reader_idle_forward_hold_candidate`,
         {
           minMs: 120,
           signature: [
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             readerIdleMovementSource,
             readerIdleForwardHoldActive ? 1 : 0
@@ -54065,11 +54065,11 @@ function createAsrScrollDriver(options = {}) {
         emitDevDiagnostic(
           "ASR_READER_IDLE_FORWARD_HOLD_BYPASSED_FRESH_DEBT",
           "warn",
-          `[ASR_READER_IDLE_FORWARD_HOLD_BYPASSED_FRESH_DEBT] currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(rawPursuitTargetTop)} targetDebtPx=${Math.round(readerIdleForwardHoldInteraction.rawTargetDebtPx)} speechFresh=${readerIdleSpeechFresh ? 1 : 0} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} movementSource=${readerIdleMovementSource} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority}`,
+          `[ASR_READER_IDLE_FORWARD_HOLD_BYPASSED_FRESH_DEBT] currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(rawPursuitTargetTop)} targetDebtPx=${Math.round(readerIdleForwardHoldInteraction.rawTargetDebtPx)} speechFresh=${readerIdleSpeechFresh ? 1 : 0} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} movementSource=${readerIdleMovementSource} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority}`,
           {
             minMs: 120,
             signature: [
-              Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               Math.round(rawPursuitTargetTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               readerIdleForwardHoldInteraction.selectedAuthority
             ].join("|")
@@ -54096,7 +54096,7 @@ function createAsrScrollDriver(options = {}) {
         emitDevDiagnostic(
           "ASR_MATURED_MARKER_DEBT_OWNER_RESTORED",
           "warn",
-          `[ASR_MATURED_MARKER_DEBT_OWNER_RESTORED] maturedDebtOwnerRestored=1 readerIdleHoldDisposition=${readerIdleForwardHoldInteraction.readerIdleHoldDisposition} originalOwner=${readerIdleForwardHoldInteraction.originalOwner} restoredOwner=${readerIdleForwardHoldInteraction.selectedAuthority} liveEvidenceBasis=${readerIdleForwardHoldInteraction.liveEvidenceBasis} sameTargetProof=${readerIdleForwardHoldInteraction.sameTargetProof ? 1 : 0} sameEpochProof=${readerIdleForwardHoldInteraction.sameEpochProof ? 1 : 0} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(rawPursuitTargetTop)} targetDebtPx=${Math.round(readerIdleForwardHoldInteraction.rawTargetDebtPx)}`,
+          `[ASR_MATURED_MARKER_DEBT_OWNER_RESTORED] maturedDebtOwnerRestored=1 readerIdleHoldDisposition=${readerIdleForwardHoldInteraction.readerIdleHoldDisposition} originalOwner=${readerIdleForwardHoldInteraction.originalOwner} restoredOwner=${readerIdleForwardHoldInteraction.selectedAuthority} liveEvidenceBasis=${readerIdleForwardHoldInteraction.liveEvidenceBasis} sameTargetProof=${readerIdleForwardHoldInteraction.sameTargetProof ? 1 : 0} sameEpochProof=${readerIdleForwardHoldInteraction.sameEpochProof ? 1 : 0} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(rawPursuitTargetTop)} targetDebtPx=${Math.round(readerIdleForwardHoldInteraction.rawTargetDebtPx)}`,
           {
             minMs: 0,
             signature: [
@@ -54134,18 +54134,18 @@ function createAsrScrollDriver(options = {}) {
         lastDebugHoldApplied = true;
         lastDebugHoldReason = targetCollapseReason || "reader_idle_forward_hold";
         lastDebugTargetCollapseReason = targetCollapseReason || "none";
-        if (Number(pursuitTargetTop) <= current2 + ASR_POCKET_WALL_NOISE_DELTA_PX) {
+        if (Number(pursuitTargetTop) <= current4 + ASR_POCKET_WALL_NOISE_DELTA_PX) {
           pursuitVel = 0;
         }
         lastDebugPursuitVel = pursuitVel;
         emitDevDiagnostic(
           "ASR_READER_IDLE_FORWARD_HOLD_APPLIED",
           "warn",
-          `[ASR_READER_IDLE_FORWARD_HOLD_APPLIED] lastPartialAgeMs=${Number.isFinite(lastPartialAgeMs) ? Math.round(lastPartialAgeMs) : -1} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} speechActive=${asrRuntimeSpeechRunningActual ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} vadPresent=${asrVadSeen ? 1 : 0} silenceEventPresent=${lastAsrSilenceStartAt > 0 || lastAsrSilenceEndAt > 0 ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(proposedScrollTop)} rawTargetScrollTop=${Math.round(proposedScrollTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(proposedScrollTop)} proposedDeltaPx=${Math.round(proposedScrollTop - current2)} targetDebtPx=${Math.round(proposedScrollTop - current2)} movementSource=${readerIdleMovementSource} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority} targetCollapseReason=${targetCollapseReason || "none"} holdReason=${readerIdleForwardHoldSettleUsed && Number(pursuitTargetTop) > current2 ? "single_settle_step" : "reader_idle_forward_hold"}`,
+          `[ASR_READER_IDLE_FORWARD_HOLD_APPLIED] lastPartialAgeMs=${Number.isFinite(lastPartialAgeMs) ? Math.round(lastPartialAgeMs) : -1} lastFinalAgeMs=${Number.isFinite(lastFinalAgeMs) ? Math.round(lastFinalAgeMs) : -1} lastTranscriptAgeMs=${Number.isFinite(lastTranscriptAgeMs) ? Math.round(lastTranscriptAgeMs) : -1} speechActive=${asrRuntimeSpeechRunningActual ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} vadPresent=${asrVadSeen ? 1 : 0} silenceEventPresent=${lastAsrSilenceStartAt > 0 || lastAsrSilenceEndAt > 0 ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(proposedScrollTop)} rawTargetScrollTop=${Math.round(proposedScrollTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(proposedScrollTop)} proposedDeltaPx=${Math.round(proposedScrollTop - current4)} targetDebtPx=${Math.round(proposedScrollTop - current4)} movementSource=${readerIdleMovementSource} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority} targetCollapseReason=${targetCollapseReason || "none"} holdReason=${readerIdleForwardHoldSettleUsed && Number(pursuitTargetTop) > current4 ? "single_settle_step" : "reader_idle_forward_hold"}`,
           {
             minMs: 120,
             signature: [
-              Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               Math.round(proposedScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               readerIdleForwardHoldSettleUsed ? 1 : 0
@@ -54156,11 +54156,11 @@ function createAsrScrollDriver(options = {}) {
           emitDevDiagnostic(
             "ASR_READER_IDLE_FORWARD_SETTLE_RELEASED",
             "warn",
-            `[ASR_READER_IDLE_FORWARD_SETTLE_RELEASED] currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(proposedScrollTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} deltaPx=${Math.round(Number(pursuitTargetTop) - current2)} lineCapPx=${Math.round(readerIdleForwardHoldInteraction.settleCapPx)} committedLine=${Math.max(lastCommittedLine, lastLineIndex)} targetLine=${readerIdlePreservedTargetLineIdx} originalAuthority=${readerIdleForwardHoldInteraction.originalOwner} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority} selectedAuthorityFromLatchedSnapshot=${readerIdleForwardHoldInteraction.selectedAuthorityFromLatchedSnapshot ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} terminalClampActive=${liveAsrTerminalScriptHoldActive ? 1 : 0} physicallyReachable=${readerIdlePhysicallyReachable ? 1 : 0} pendingBridgeActive=${readerIdlePendingBridgeActive ? 1 : 0} unsafeTargetActive=${readerIdleUnsafeTargetActive ? 1 : 0} authorityConflictActive=${readerIdleAuthorityConflictActive ? 1 : 0} reanchorOrRescueActive=${readerIdleReanchorOrRescueActive ? 1 : 0} stableTargetInWindow=${readerIdleStableTargetInWindow ? 1 : 0} sameCommitWindow=${readerIdleSameCommitWindow ? 1 : 0}`,
+            `[ASR_READER_IDLE_FORWARD_SETTLE_RELEASED] currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(proposedScrollTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} deltaPx=${Math.round(Number(pursuitTargetTop) - current4)} lineCapPx=${Math.round(readerIdleForwardHoldInteraction.settleCapPx)} committedLine=${Math.max(lastCommittedLine, lastLineIndex)} targetLine=${readerIdlePreservedTargetLineIdx} originalAuthority=${readerIdleForwardHoldInteraction.originalOwner} selectedAuthority=${readerIdleForwardHoldInteraction.selectedAuthority} selectedAuthorityFromLatchedSnapshot=${readerIdleForwardHoldInteraction.selectedAuthorityFromLatchedSnapshot ? 1 : 0} speechFresh=${readerIdleSpeechFresh ? 1 : 0} pendingFinalPacket=${readerIdleCurrentGenerationFinalPending ? 1 : 0} terminalClampActive=${liveAsrTerminalScriptHoldActive ? 1 : 0} physicallyReachable=${readerIdlePhysicallyReachable ? 1 : 0} pendingBridgeActive=${readerIdlePendingBridgeActive ? 1 : 0} unsafeTargetActive=${readerIdleUnsafeTargetActive ? 1 : 0} authorityConflictActive=${readerIdleAuthorityConflictActive ? 1 : 0} reanchorOrRescueActive=${readerIdleReanchorOrRescueActive ? 1 : 0} stableTargetInWindow=${readerIdleStableTargetInWindow ? 1 : 0} sameCommitWindow=${readerIdleSameCommitWindow ? 1 : 0}`,
             {
               minMs: 0,
               signature: [
-                Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+                Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
                 Math.round(proposedScrollTop / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
                 Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
                 readerIdlePreservedTargetLineIdx
@@ -54175,26 +54175,26 @@ function createAsrScrollDriver(options = {}) {
       lastLocalPursuitTargetLineIdx = Math.max(0, Math.floor(Number(liveAsrVisualPursuitLineIdx)));
       lastLocalPursuitTargetAt = wallNow;
     }
-    let err = pursuitTargetTop - current2;
+    let err = pursuitTargetTop - current4;
     if (Number.isFinite(pursuitTargetTop) && readerIdleForwardHoldInteraction.shouldEmitTargetSatisfied) {
       targetCollapseReason = targetCollapseReason || "target_satisfied_within_tolerance";
       lastDebugTargetCollapseReason = targetCollapseReason;
       emitDevDiagnostic(
         "ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED",
         "warn",
-        `[ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED] currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(Number(pursuitTargetTop))} rawTargetScrollTop=${Math.round(rawPursuitTargetTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(Number(pursuitTargetTop))} proposedDeltaPx=${Math.round(Number(pursuitTargetTop) - current2)} targetDebtPx=${Math.round(rawPursuitTargetTop - current2)} movementSource=${readerIdleMovementSource} targetCollapseReason=${targetCollapseReason || "none"} holdReason=target_satisfied_within_tolerance`,
+        `[ASR_FORWARD_WRITE_SUPPRESSED_TARGET_SATISFIED] currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(Number(pursuitTargetTop))} rawTargetScrollTop=${Math.round(rawPursuitTargetTop)} effectiveTargetScrollTop=${Math.round(Number(pursuitTargetTop))} proposedScrollTop=${Math.round(Number(pursuitTargetTop))} proposedDeltaPx=${Math.round(Number(pursuitTargetTop) - current4)} targetDebtPx=${Math.round(rawPursuitTargetTop - current4)} movementSource=${readerIdleMovementSource} targetCollapseReason=${targetCollapseReason || "none"} holdReason=target_satisfied_within_tolerance`,
         {
           minMs: 120,
           signature: [
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             Math.round(Number(pursuitTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             readerIdleMovementSource
           ].join("|")
         }
       );
-      pursuitTargetTop = current2;
+      pursuitTargetTop = current4;
       err = 0;
-      lastDebugEffectiveTargetScrollTop = current2;
+      lastDebugEffectiveTargetScrollTop = current4;
     }
     const microActive = microPursuitUntil > now3;
     const allowCreep = microActive || motionTuning.minPursuitPxPerSec > 0;
@@ -54213,7 +54213,7 @@ function createAsrScrollDriver(options = {}) {
       );
       const leaseDebtState = resolveLeasedReaderCorrectionDebtState({
         authority: lastAsrSelectedAuthority,
-        currentTop: current2,
+        currentTop: current4,
         targetScrollTop: pursuitTargetTop,
         lineHeightPx: earlyLeaseLineHeightPx,
         markerErrorPx: Number.isFinite(lastAsrMatchedMarkerErrorPx) ? Number(lastAsrMatchedMarkerErrorPx) : Number.NaN,
@@ -54225,19 +54225,19 @@ function createAsrScrollDriver(options = {}) {
       });
       if (liveAsrFollowMode && keepLivePocketMaintenanceActive && leaseDebtState.leaseActive && leaseDebtState.leaseDebtRemaining > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX && (leaseDebtState.matchedBelowMarker || leaseDebtState.semanticAhead)) {
         pursuitTargetTop = Math.max(
-          current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX + 1,
-          Number.isFinite(target) ? Number(target) : current2
+          current4 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX + 1,
+          Number.isFinite(target) ? Number(target) : current4
         );
         lastAsrLeaseTargetNullWhileActive = false;
       } else if (liveAsrFollowMode && keepLivePocketMaintenanceActive) {
-        pursuitTargetTop = current2;
+        pursuitTargetTop = current4;
         lastAsrLeaseTargetNullWhileActive = leaseDebtState.leaseActive;
       } else {
         pursuitActive = false;
         pursuitTargetTop = null;
         lastAsrLeaseTargetNullWhileActive = leaseDebtState.leaseActive;
       }
-      if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && Math.abs(Number(preservedAsrAuthorityTargetTop) - current2) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) {
+      if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && Math.abs(Number(preservedAsrAuthorityTargetTop) - current4) <= ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) {
         preservedAsrAuthorityTargetTop = null;
         preservedAsrAuthorityTargetReason = "target_reached";
         preservedAsrAuthorityTargetSourcePath = "target_reached";
@@ -54245,13 +54245,13 @@ function createAsrScrollDriver(options = {}) {
       if (!(liveAsrFollowMode && keepLivePocketMaintenanceActive)) {
         emitLivePocketMaintenanceCallsiteReached({
           nowTs: wallNow,
-          currentScrollTop: current2,
+          currentScrollTop: current4,
           markerTopPx: lastAsrMarkerY,
           callsiteReason: "tick_deadband_stop",
           skippedBeforeEvaluation: true,
           skippedReason: "deadband_stop_without_maintenance"
         });
-        emitPursuitHud(err, pursuitVel, target, current2);
+        emitPursuitHud(err, pursuitVel, target, current4);
         return;
       }
       err = 0;
@@ -54261,7 +54261,7 @@ function createAsrScrollDriver(options = {}) {
     if (liveAsrFollowMode) {
       emitLivePocketMaintenanceCallsiteReached({
         nowTs: wallNow,
-        currentScrollTop: current2,
+        currentScrollTop: current4,
         markerTopPx: lastAsrMarkerY,
         callsiteReason: "tick_live_follow_pre_geometry",
         skippedBeforeEvaluation: false,
@@ -54500,10 +54500,10 @@ function createAsrScrollDriver(options = {}) {
       const lowerPocketAcceptanceIgnored = normalMarkerFollowOwnsTarget && !visualErrorWithinHoldTolerance;
       const holdSafeBottomY = desiredLineY + Math.min(tolerancePx, 0.35 * measuredLineHeightPx);
       const maxScrollTop2 = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-      let markerErrorTargetTop = Number.isFinite(visualErrorPx) ? clamp5(current2 + visualErrorPx, 0, maxScrollTop2) : current2;
+      let markerErrorTargetTop = Number.isFinite(visualErrorPx) ? clamp5(current4 + visualErrorPx, 0, maxScrollTop2) : current4;
       const pocketAuthorityNoMatchOrOffscript = String(lastAsrGuardReason || "").toLowerCase().includes("no_match") || String(lastAsrHudGuardText || "").toLowerCase().includes("offscript");
       const pocketAuthorityHardContradiction = String(lastAsrGuardReason || "").toLowerCase().includes("contradiction");
-      const pocketAuthorityTerminalClampActive = Math.abs(maxScrollTop2 - current2) <= 0.5;
+      const pocketAuthorityTerminalClampActive = Math.abs(maxScrollTop2 - current4) <= 0.5;
       const targetDebtPx = Number.isFinite(visualErrorPx) ? visualErrorPx : Number.NaN;
       const earlyForwardOwnerActive = isAsrVisualChairpersonOwnershipEnabled();
       const earlyForwardRunAgeMs = Math.max(0, nowTs2 - sessionStartAt);
@@ -54511,9 +54511,9 @@ function createAsrScrollDriver(options = {}) {
       const earlyForwardSpeechFresh = asrRuntimeSpeechRunningActual || hasRecentActualSpeech(nowTs2) || hasRecentVadSpeechNow(nowTs2) || lastFinalTranscriptAt > 0 && nowTs2 - lastFinalTranscriptAt <= 1200;
       const earlyForwardCurrentGenFinalFresh = lastFinalTranscriptAt > lastCommitTranscriptTimestamp && lastFinalTranscriptAt > 0 && nowTs2 - lastFinalTranscriptAt <= 1800 && (lastFinalTranscriptRunGeneration == null || resolveActiveRunGeneration() == null || lastFinalTranscriptRunGeneration === resolveActiveRunGeneration()) && (!lastFinalTranscriptRunKey || !resolveActiveRunKey() || lastFinalTranscriptRunKey === resolveActiveRunKey());
       const earlyForwardHasAdditionalFreshAdjacentProof = earlyForwardCurrentGenFinalFresh && finalsSinceCommit > ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_FINALS && Number.isFinite(lastAuthorityMatchBestIdx) && Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) <= lastLineIndex + 1;
-      if (liveAsrFollowMode && earlyForwardOwnerActive && earlyForwardWindowActive && !pocketAuthorityNoMatchOrOffscript && Number.isFinite(targetDebtPx) && targetDebtPx > 0 && markerErrorTargetTop > current2 && earlyForwardSpeechFresh && !earlyForwardHasAdditionalFreshAdjacentProof) {
+      if (liveAsrFollowMode && earlyForwardOwnerActive && earlyForwardWindowActive && !pocketAuthorityNoMatchOrOffscript && Number.isFinite(targetDebtPx) && targetDebtPx > 0 && markerErrorTargetTop > current4 && earlyForwardSpeechFresh && !earlyForwardHasAdditionalFreshAdjacentProof) {
         const proposedTargetScrollTop = markerErrorTargetTop;
-        const proposedDeltaPx = Math.max(0, proposedTargetScrollTop - current2);
+        const proposedDeltaPx = Math.max(0, proposedTargetScrollTop - current4);
         const proposedDeltaLines = measuredLineHeightPx > 0 ? proposedDeltaPx / measuredLineHeightPx : Number.NaN;
         const cappedDeltaPx = Math.min(
           proposedDeltaPx,
@@ -54522,13 +54522,13 @@ function createAsrScrollDriver(options = {}) {
             ASR_EARLY_FORWARD_AUTHORITY_CAP_MAX_PX
           )
         );
-        const cappedTargetScrollTop = clamp5(current2 + cappedDeltaPx, 0, maxScrollTop2);
+        const cappedTargetScrollTop = clamp5(current4 + cappedDeltaPx, 0, maxScrollTop2);
         if (cappedTargetScrollTop < proposedTargetScrollTop) {
           markerErrorTargetTop = cappedTargetScrollTop;
           emitDevDiagnostic(
             "ASR_EARLY_FORWARD_AUTHORITY_CAPPED",
             "warn",
-            `[ASR_EARLY_FORWARD_AUTHORITY_CAPPED] markerErrorPx=${Math.round(targetDebtPx)} proposedTargetScrollTop=${Math.round(proposedTargetScrollTop)} cappedTargetScrollTop=${Math.round(cappedTargetScrollTop)} proposedDeltaLines=${Number.isFinite(proposedDeltaLines) ? proposedDeltaLines.toFixed(2) : "NaN"} cappedDeltaLines=${measuredLineHeightPx > 0 ? ((cappedTargetScrollTop - current2) / measuredLineHeightPx).toFixed(2) : "NaN"} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} committedLineIdx=${Math.max(0, liveAsrCommitteeAcceptedCommitTargetIdx)} speechFresh=${earlyForwardSpeechFresh ? 1 : 0} ownerActive=${earlyForwardOwnerActive ? 1 : 0} reason=early_forward_authority_cap`,
+            `[ASR_EARLY_FORWARD_AUTHORITY_CAPPED] markerErrorPx=${Math.round(targetDebtPx)} proposedTargetScrollTop=${Math.round(proposedTargetScrollTop)} cappedTargetScrollTop=${Math.round(cappedTargetScrollTop)} proposedDeltaLines=${Number.isFinite(proposedDeltaLines) ? proposedDeltaLines.toFixed(2) : "NaN"} cappedDeltaLines=${measuredLineHeightPx > 0 ? ((cappedTargetScrollTop - current4) / measuredLineHeightPx).toFixed(2) : "NaN"} matchBestIdx=${Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1} committedLineIdx=${Math.max(0, liveAsrCommitteeAcceptedCommitTargetIdx)} speechFresh=${earlyForwardSpeechFresh ? 1 : 0} ownerActive=${earlyForwardOwnerActive ? 1 : 0} reason=early_forward_authority_cap`,
             {
               minMs: 120,
               signature: [
@@ -54554,7 +54554,7 @@ function createAsrScrollDriver(options = {}) {
         currentLineIdx: lastLineIndex,
         committedLineIdx: Number.isFinite(liveAsrCommitteeAcceptedCommitTargetIdx) ? Math.max(0, Math.floor(Number(liveAsrCommitteeAcceptedCommitTargetIdx))) : lastLineIndex,
         visualAnchorLineIdx,
-        currentScrollTop: current2,
+        currentScrollTop: current4,
         proposedTargetScrollTop: markerErrorTargetTop,
         targetDebtPx,
         tolerancePx,
@@ -54580,7 +54580,7 @@ function createAsrScrollDriver(options = {}) {
               visualAnchorLineIdx,
               targetDebtPx,
               tolerancePx,
-              currentScrollTop: current2,
+              currentScrollTop: current4,
               targetScrollTop: markerErrorTargetTop,
               leaseCleared: staleVisualDebtCoordination.clearLease,
               reason: staleVisualDebtCoordination.clearReason
@@ -54593,7 +54593,7 @@ function createAsrScrollDriver(options = {}) {
               visualAnchorLineIdx,
               targetDebtPx,
               tolerancePx,
-              currentScrollTop: current2,
+              currentScrollTop: current4,
               targetScrollTop: markerErrorTargetTop,
               unsafeTargetReason: "reader_marker_correction_inactive",
               reason: "semantic_ahead_near_marker_tolerance"
@@ -54617,7 +54617,7 @@ function createAsrScrollDriver(options = {}) {
         liveAsrActuatorMismatchStreak = 0;
         lastAsrSelectedAuthority = "terminal_script_hold";
         lastAsrResolvedAuthoritySignature = "";
-        pursuitTargetTop = current2;
+        pursuitTargetTop = current4;
         pursuitVel = 0;
         pursuitActive = false;
         if (terminalScriptHoldJustEntered) {
@@ -54626,14 +54626,14 @@ function createAsrScrollDriver(options = {}) {
             lastCommittedLine,
             nextSpeakableLineIdx,
             lastSpeakableLineIdx,
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             Math.round(maxScrollTop2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             terminalScriptHoldReason
           ].join("|");
           if (shouldEmitFrameDiagnostic("ASR_TERMINAL_SCRIPT_HOLD_ENTERED", holdSignature, 2e3)) {
             try {
               console.warn(
-                `[ASR_TERMINAL_SCRIPT_HOLD_ENTERED] currentLineIdx=${lastLineIndex} committedLineIdx=${lastCommittedLine} nextSpeakableLineIdx=${nextSpeakableLineIdx} lastSpeakableLineIdx=${lastSpeakableLineIdx} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(current2)} maxScrollTop=${Math.round(maxScrollTop2)} targetDebtPx=${Number.isFinite(targetDebtPx) ? Math.round(Math.max(0, targetDebtPx)) : -1} terminalClampActive=1 noFurtherSpeakableTarget=${noFurtherSpeakableTarget ? 1 : 0} reason=${terminalScriptHoldReason}`
+                `[ASR_TERMINAL_SCRIPT_HOLD_ENTERED] currentLineIdx=${lastLineIndex} committedLineIdx=${lastCommittedLine} nextSpeakableLineIdx=${nextSpeakableLineIdx} lastSpeakableLineIdx=${lastSpeakableLineIdx} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(current4)} maxScrollTop=${Math.round(maxScrollTop2)} targetDebtPx=${Number.isFinite(targetDebtPx) ? Math.round(Math.max(0, targetDebtPx)) : -1} terminalClampActive=1 noFurtherSpeakableTarget=${noFurtherSpeakableTarget ? 1 : 0} reason=${terminalScriptHoldReason}`
               );
             } catch {
             }
@@ -54646,9 +54646,9 @@ function createAsrScrollDriver(options = {}) {
                   nextSpeakableLineIdx,
                   selectedAuthority: "terminal_script_hold",
                   candidateAuthorities: ["terminal_script_hold"],
-                  beforeScrollTop: current2,
-                  targetScrollTop: current2,
-                  afterScrollTop: current2,
+                  beforeScrollTop: current4,
+                  targetScrollTop: current4,
+                  afterScrollTop: current4,
                   reason: terminalScriptHoldReason
                 })
               );
@@ -54656,8 +54656,8 @@ function createAsrScrollDriver(options = {}) {
             }
           }
         }
-        if (!shouldSuppressAsrPursueZeroSuccess(scroller, current2, current2)) {
-          emitPursuitHud(0, 0, current2, current2);
+        if (!shouldSuppressAsrPursueZeroSuccess(scroller, current4, current4)) {
+          emitPursuitHud(0, 0, current4, current4);
         }
         window.requestAnimationFrame(tickController);
         return;
@@ -54676,11 +54676,11 @@ function createAsrScrollDriver(options = {}) {
         liveTickReaderPocketZone = nextLineY > preferredBandBottom ? "bottom" : nextLineY < preferredBandTop ? "top" : "pocket";
         let authorityAction = "hold";
         let authorityReason = "marker_error_within_tolerance";
-        let desiredTopFromCurrent = current2;
+        let desiredTopFromCurrent = current4;
         if (nextTooHigh) {
           authorityAction = "clamp";
           authorityReason = "top_pressure_guard";
-          desiredTopFromCurrent = current2;
+          desiredTopFromCurrent = current4;
           noteLiveTickSpecificAuthority("top_pressure_clamp");
           liveTickSelectedAuthority = "top_pressure_clamp";
           lastDebugTopPressureActive = true;
@@ -54700,9 +54700,9 @@ function createAsrScrollDriver(options = {}) {
         }
         liveTickAuthorityReason = authorityReason;
         const expiredStalePreservedTarget = maybeExpireStalePreservedRecoveryTarget({
-          previousTargetScrollTop: Number.isFinite(oldTargetTop) ? Number(oldTargetTop) : current2,
+          previousTargetScrollTop: Number.isFinite(oldTargetTop) ? Number(oldTargetTop) : current4,
           pocketTargetScrollTop: desiredTopFromCurrent,
-          currentScrollTop: current2,
+          currentScrollTop: current4,
           currentLineIdx: lastLineIndex,
           committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
           nextSpeakableLineIdx,
@@ -54714,16 +54714,16 @@ function createAsrScrollDriver(options = {}) {
           noMatchOrOffscript: pocketAuthorityNoMatchOrOffscript,
           hardContradiction: pocketAuthorityHardContradiction
         });
-        const wouldOverrideStale = expiredStalePreservedTarget || stalePursuitLine || !Number.isFinite(oldTargetTop) || Math.abs((oldTargetTop || current2) - desiredTopFromCurrent) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+        const wouldOverrideStale = expiredStalePreservedTarget || stalePursuitLine || !Number.isFinite(oldTargetTop) || Math.abs((oldTargetTop || current4) - desiredTopFromCurrent) > ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
         if (wouldOverrideStale) {
           pursuitTargetTop = desiredTopFromCurrent;
           pursuitVel = 0;
           liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
-          err = pursuitTargetTop - current2;
+          err = pursuitTargetTop - current4;
           emitDevDiagnostic(
             "ASR_CURRENT_POCKET_AUTHORITY",
             "warn",
-            `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} markerHoldTop=${Math.round(markerCenteredHoldTop)} markerHoldBottom=${Math.round(markerCenteredHoldBottom)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} lowerPocketIgnored=${lowerPocketAcceptanceIgnored ? 1 : 0} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
+            `[ASR_CURRENT_POCKET_AUTHORITY] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} visualAnchorLineIdx=${visualAnchorLineIdx} visualAnchorLineY=${Math.round(visualAnchorLineY)} visualAnchorSource=${visualAnchorSource} desiredLineYMode=${desiredLineYMode} markerHoldTop=${Math.round(markerCenteredHoldTop)} markerHoldBottom=${Math.round(markerCenteredHoldBottom)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} lowerPocketIgnored=${lowerPocketAcceptanceIgnored ? 1 : 0} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${authorityReason} desiredLineY=${Math.round(desiredLineY)} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             {
               minMs: 500,
               signature: [
@@ -54741,7 +54741,7 @@ function createAsrScrollDriver(options = {}) {
           emitDevDiagnostic(
             "ASR_CURRENT_POCKET_AUTHORITY_SKIPPED",
             "info",
-            `[ASR_CURRENT_POCKET_AUTHORITY_SKIPPED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${nextSpeakableLineIdx} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${liveTickDeadbandHoldReason} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
+            `[ASR_CURRENT_POCKET_AUTHORITY_SKIPPED] currentLineIdx=${lastLineIndex} committedLineIdx=${liveAsrCommitteeAcceptedCommitTargetIdx} nextSpeakableLineIdx=${nextSpeakableLineIdx} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(desiredTopFromCurrent)} pocketZone=${liveTickAuthorityPocketZone} action=${authorityAction} reason=${liveTickDeadbandHoldReason} visualErrorPx=${Math.round(visualErrorPx)} tolerancePx=${Math.round(tolerancePx)}`,
             {
               minMs: 750,
               signature: [
@@ -54760,7 +54760,7 @@ function createAsrScrollDriver(options = {}) {
         lineIdx: nextSpeakableLineIdx,
         targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : Number.NaN
       });
-      const overshootSettleNegativeDebtPx = overshootSettleLock && Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) - current2 : Number.NaN;
+      const overshootSettleNegativeDebtPx = overshootSettleLock && Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) - current4 : Number.NaN;
       const overshootSettleSameTargetActive = !!overshootSettleLock;
       const overshootSettleHoldActive = overshootSettleSameTargetActive && Number.isFinite(overshootSettleNegativeDebtPx) && overshootSettleNegativeDebtPx <= 0 && Math.abs(overshootSettleNegativeDebtPx) <= Math.max(
         tolerancePx,
@@ -54768,7 +54768,7 @@ function createAsrScrollDriver(options = {}) {
       );
       const lowerPocketRecoveryContextActive = !normalMarkerFollowOwnsTarget || overshootSettleSameTargetActive || pocketAuthorityTerminalClampActive || activeRecoveryKindForCoordination !== "none" || acceptedAnchorHoldOrRecoveryContextActive;
       if (overshootSettleHoldActive && visualErrorWithinHoldTolerance && insidePreferredSettleZone) {
-        clearOvershootSettleLock("settled_within_hold_band", current2);
+        clearOvershootSettleLock("settled_within_hold_band", current4);
       }
       if (liveAsrPreferredLowerRailReleaseActive && insidePreferredSettleZone) {
         liveAsrPreferredLowerRailReleaseActive = false;
@@ -54833,7 +54833,7 @@ function createAsrScrollDriver(options = {}) {
         liveHardHold = false;
         try {
           console.warn(
-            `[ASR_PREFERRED_LOWER_RAIL_RELEASE] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} pocketOffsetPx=${Number.isFinite(pocketOffsetPx) ? Math.round(pocketOffsetPx) : -1} targetScrollTop=${Math.round(pursuitTargetTop || current2)} currentScrollTop=${Math.round(current2)} targetDebtPx=${Number.isFinite(targetDebtPx) ? Math.round(targetDebtPx) : -1} deltaLines=${Number.isFinite(pocketDeltaLines) ? pocketDeltaLines.toFixed(2) : "NaN"} pxps=${Math.round(comfortNudgePxps)} reason=preferred_lower_rail_not_settled`
+            `[ASR_PREFERRED_LOWER_RAIL_RELEASE] markerY=${Math.round(markerY)} nextLineY=${Math.round(nextLineY)} preferredBandTop=${Math.round(preferredBandTop)} preferredSettleBottom=${Math.round(preferredSettleBottom)} preferredBandBottom=${Math.round(preferredBandBottom)} toleratedBandBottom=${Math.round(toleratedBandBottom)} pocketOffsetPx=${Number.isFinite(pocketOffsetPx) ? Math.round(pocketOffsetPx) : -1} targetScrollTop=${Math.round(pursuitTargetTop || current4)} currentScrollTop=${Math.round(current4)} targetDebtPx=${Number.isFinite(targetDebtPx) ? Math.round(targetDebtPx) : -1} deltaLines=${Number.isFinite(pocketDeltaLines) ? pocketDeltaLines.toFixed(2) : "NaN"} pxps=${Math.round(comfortNudgePxps)} reason=preferred_lower_rail_not_settled`
           );
         } catch {
         }
@@ -54877,7 +54877,7 @@ function createAsrScrollDriver(options = {}) {
           pursuitTargetTop = markerErrorTargetTop;
           pursuitVel = 0;
           liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
-          err = pursuitTargetTop - current2;
+          err = pursuitTargetTop - current4;
         }
         if (shouldEmitFrameDiagnostic(
           "ASR_MARKER_ERROR_LOWER_RAIL_REJECTED",
@@ -54886,7 +54886,7 @@ function createAsrScrollDriver(options = {}) {
             nextSpeakableLineIdx,
             lowerRailHoldRejectedReason,
             Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
           ].join("|"),
           500
         )) {
@@ -54906,8 +54906,8 @@ function createAsrScrollDriver(options = {}) {
                 preferredSettleBottom,
                 preferredBandBottom,
                 holdSafeBottomY,
-                currentScrollTop: current2,
-                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
+                currentScrollTop: current4,
+                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4,
                 snapSuppressedInEpisode: alignmentEpisodes.isSnapSuppressedActive(),
                 reason: lowerRailHoldRejectedReason
               })
@@ -54927,7 +54927,7 @@ function createAsrScrollDriver(options = {}) {
           pursuitTargetTop = markerErrorTargetTop;
           pursuitVel = 0;
           liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
-          err = pursuitTargetTop - current2;
+          err = pursuitTargetTop - current4;
         }
         if (shouldEmitFrameDiagnostic(
           "ASR_MARKER_ERROR_HOLD_BAND_REJECTED",
@@ -54936,7 +54936,7 @@ function createAsrScrollDriver(options = {}) {
             nextSpeakableLineIdx,
             holdBandRejectedReason,
             Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
           ].join("|"),
           500
         )) {
@@ -54953,8 +54953,8 @@ function createAsrScrollDriver(options = {}) {
                 tolerancePx,
                 holdTolerancePx,
                 pocketZone: liveTickReaderPocketZone,
-                currentScrollTop: current2,
-                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
+                currentScrollTop: current4,
+                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4,
                 reason: holdBandRejectedReason
               })
             );
@@ -54967,8 +54967,8 @@ function createAsrScrollDriver(options = {}) {
         currentLineIdx: lastLineIndex,
         committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
         competingAuthority: liveTickSelectedAuthority,
-        competingTargetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
-        currentScrollTop: current2,
+        competingTargetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4,
+        currentScrollTop: current4,
         markerY,
         currentLineViewportY: Number.isFinite(currentVisual.lineCenterInViewport) ? Number(currentVisual.lineCenterInViewport) : Number.NaN,
         maxScrollTop: maxScrollTop2,
@@ -55011,7 +55011,7 @@ function createAsrScrollDriver(options = {}) {
           preservedAsrAuthorityTargetTop = postReleaseProtection.selectedTargetScrollTop;
           preservedAsrAuthorityTargetReason = "post_release_protected_follow";
           preservedAsrAuthorityTargetSourcePath = "post_release_protected_follow";
-          err = pursuitTargetTop - current2;
+          err = pursuitTargetTop - current4;
         }
       }
       const postFloorProtection = evaluatePostFloorAuthorityProtection({
@@ -55020,8 +55020,8 @@ function createAsrScrollDriver(options = {}) {
         committedLineIdx: liveAsrCommitteeAcceptedCommitTargetIdx,
         competingAuthority: liveTickSelectedAuthority,
         competingReason: liveTickAuthorityReason,
-        competingTargetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
-        currentScrollTop: current2,
+        competingTargetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4,
+        currentScrollTop: current4,
         markerY,
         currentLineViewportY: Number.isFinite(currentVisual.lineCenterInViewport) ? Number(currentVisual.lineCenterInViewport) : Number.NaN,
         maxScrollTop: maxScrollTop2,
@@ -55063,7 +55063,7 @@ function createAsrScrollDriver(options = {}) {
           preservedAsrAuthorityTargetTop = postFloorProtection.selectedTargetAfterProtection;
           preservedAsrAuthorityTargetReason = "post_floor_protected_follow";
           preservedAsrAuthorityTargetSourcePath = "post_floor_protected_follow";
-          err = pursuitTargetTop - current2;
+          err = pursuitTargetTop - current4;
         }
       }
       if (comfortHoldEligible && !holdBandRejected && !lowerRailHoldRejected && !visualGovernorHoldActive && !comfortNudgeActive) {
@@ -55116,7 +55116,7 @@ function createAsrScrollDriver(options = {}) {
             liveTickSelectedAuthority = "hold";
             liveTickAuthorityReason = markerCorrectionReason;
           }
-          pursuitTargetTop = current2;
+          pursuitTargetTop = current4;
           pursuitVel = 0;
           liveAsrVisualPursuitLineIdx = nextSpeakableLineIdx;
           err = 0;
@@ -55176,7 +55176,7 @@ function createAsrScrollDriver(options = {}) {
           markerCorrectionAction,
           markerCorrectionReason,
           Math.round(visualErrorPx / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-          Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+          Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
         ].join("|");
         const matchBestIdxForGeometry = Number.isFinite(lastAuthorityMatchBestIdx) ? Math.max(0, Math.floor(Number(lastAuthorityMatchBestIdx))) : -1;
         const matchBestVisual = matchBestIdxForGeometry >= 0 ? resolveLineVisualTelemetry(scroller, matchBestIdxForGeometry) : null;
@@ -55213,8 +55213,8 @@ function createAsrScrollDriver(options = {}) {
                 desiredReadAheadPx,
                 visualErrorPx,
                 tolerancePx,
-                currentScrollTop: current2,
-                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current2,
+                currentScrollTop: current4,
+                targetScrollTop: Number.isFinite(Number(pursuitTargetTop)) ? Number(pursuitTargetTop) : current4,
                 action: markerCorrectionAction,
                 reason: markerCorrectionReason
               })
@@ -55248,8 +55248,8 @@ function createAsrScrollDriver(options = {}) {
               adjacentCommit: postAdjacentCommitVisualRecoveryCommittedLine >= 0 && postAdjacentCommitVisualRecoveryCommittedLine === lastLineIndex + 1,
               snapSuppressed: postAdjacentCommitVisualRecoverySnapSuppressed,
               movedPx: postAdjacentCommitVisualRecoveryMovedPx,
-              scrollTopBefore: current2,
-              scrollTopAfter: current2,
+              scrollTopBefore: current4,
+              scrollTopAfter: current4,
               nextSpeakableLineY: nextLineY,
               markerY,
               visualErrorPx,
@@ -55563,11 +55563,11 @@ function createAsrScrollDriver(options = {}) {
           emitCoalescedDevDiagnostic(
             "ASR_VISUAL_FOLLOW_TARGET",
             "warn",
-            `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current2)} currentScrollTop=${Math.round(current2)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
+            `[ASR_VISUAL_FOLLOW_TARGET] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} desiredMarkerLineIdx=${lastLineIndex} targetScrollTop=${Math.round(pursuitTargetTop || current4)} currentScrollTop=${Math.round(current4)} deltaPx=${Math.round(err)} deltaLines=${deltaLinesApprox.toFixed(2)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=live_follow_tick`,
             [
               lastLineIndex,
-              Math.round((pursuitTargetTop || current2) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-              Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round((pursuitTargetTop || current4) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+              Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               Math.round(err / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
               speakableLead,
               renderedLead,
@@ -55597,13 +55597,13 @@ function createAsrScrollDriver(options = {}) {
           );
           if (readerPaceHold) {
             console.warn(
-              `[ASR_READER_PACE_VISUAL_HOLD] current=${lastLineIndex} markerIdx=${markerIdx} markerLeadLines=${markerLeadLines} noSpeechMs=${Number.isFinite(noSpeechMs) ? Math.round(noSpeechMs) : -1} targetScrollTop=${Math.round(pursuitTargetTop || current2)} currentScrollTop=${Math.round(current2)} reason=reader_not_driving`
+              `[ASR_READER_PACE_VISUAL_HOLD] current=${lastLineIndex} markerIdx=${markerIdx} markerLeadLines=${markerLeadLines} noSpeechMs=${Number.isFinite(noSpeechMs) ? Math.round(noSpeechMs) : -1} targetScrollTop=${Math.round(pursuitTargetTop || current4)} currentScrollTop=${Math.round(current4)} reason=reader_not_driving`
             );
           }
           if (liveHardHold) {
             deadScreenHardHoldTickCountInWindow += 1;
             console.warn(
-              `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} deltaPx=${Math.round(err)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=governor_hold source=tick_controller`
+              `[ASR_VISUAL_FOLLOW_HARD_HELD] currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(pursuitTargetTop || current4)} deltaPx=${Math.round(err)} speakableLead=${speakableLead} renderedLead=${renderedLead} reason=governor_hold source=tick_controller`
             );
             alignmentEpisodes.noteHold({ reason: "tick_controller:governor_hold" });
           }
@@ -55622,7 +55622,7 @@ function createAsrScrollDriver(options = {}) {
         liveAsrVisualSemanticMismatchHeld = true;
         try {
           console.warn(
-            `[ASR_VISUAL_SEMANTIC_MISMATCH_HELD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs} reason=visual_far_ahead_semantic_mismatch`
+            `[ASR_VISUAL_SEMANTIC_MISMATCH_HELD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(pursuitTargetTop || current4)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs} reason=visual_far_ahead_semantic_mismatch`
           );
         } catch {
         }
@@ -55631,28 +55631,28 @@ function createAsrScrollDriver(options = {}) {
       const hasFreshDirectAdjacentResumeProof = (asrRuntimeSpeechRunningActual || hasRecentActualSpeech(Date.now())) && hasRecentVadSpeechNow(Date.now()) && resumeEvidenceAgeMs <= DEFAULT_LIVE_STRICT_LOCAL_PROOF_MAX_AGE_MS && (lastRescueMatchEvidenceLine === lastLineIndex + 1 || lastFreshProofLine === lastLineIndex + 1);
       if (heldMs >= ASR_VISUAL_GOVERNOR_HOLD_CLEAR_TARGET_MS && pursuitTargetTop != null && !hasFreshDirectAdjacentResumeProof) {
         const oldTarget = pursuitTargetTop;
-        pursuitTargetTop = current2;
+        pursuitTargetTop = current4;
         pursuitVel = 0;
         pursuitActive = false;
         try {
           console.warn(
-            `[ASR_VISUAL_TARGET_CLEARED_BY_GOVERNOR_HOLD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} oldTargetScrollTop=${Math.round(oldTarget)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs}`
+            `[ASR_VISUAL_TARGET_CLEARED_BY_GOVERNOR_HOLD] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current4)} oldTargetScrollTop=${Math.round(oldTarget)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} heldMs=${heldMs}`
           );
           alignmentEpisodes.noteCleared({ reason: "governor_hold_clear_target" });
         } catch {
         }
-        if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) {
+        if (preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current4 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX) {
           const suppressionSignature = [
             preservedAsrAuthorityTargetSourcePath,
             preservedAsrAuthorityTargetReason,
             Math.round(oldTarget / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
             Math.round(Number(preservedAsrAuthorityTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-            Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
+            Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
           ].join("|");
           if (shouldEmitFrameDiagnostic("ASR_TARGET_SUPPRESSION_PREVENTED", suppressionSignature)) {
             try {
               console.warn(
-                `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(oldTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current2))} targetPreserved=1`
+                `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(oldTarget)} requestedTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} effectiveTargetScrollTop=${Math.round(preservedAsrAuthorityTargetTop)} currentScrollTop=${Math.round(current4)} deltaPxToTarget=${Math.round(Math.max(0, preservedAsrAuthorityTargetTop - current4))} targetPreserved=1`
               );
             } catch {
             }
@@ -55666,7 +55666,7 @@ function createAsrScrollDriver(options = {}) {
         liveAsrVisualSemanticMismatchHeld = false;
         try {
           console.warn(
-            `[ASR_VISUAL_SEMANTIC_MISMATCH_RECOVERED] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current2)} targetScrollTop=${Math.round(pursuitTargetTop || current2)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} reason=visual_semantic_mismatch_recovered`
+            `[ASR_VISUAL_SEMANTIC_MISMATCH_RECOVERED] currentVisualLineIdx=${lastLineIndex} committedLineIdx=${lastLineIndex} currentScrollTop=${Math.round(current4)} targetScrollTop=${Math.round(pursuitTargetTop || current4)} speakableLead=${Math.max(0, countSpeakableDistanceAhead2(Math.max(0, lastStrongConfirmedSpokenLine), lastLineIndex))} renderedLead=${Math.max(0, lastLineIndex - Math.max(0, lastStrongConfirmedSpokenLine))} reason=visual_semantic_mismatch_recovered`
           );
         } catch {
         }
@@ -55678,7 +55678,7 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
     let comfortOnlyHoldActive = liveHardHold && !visualGovernorHoldActive;
-    const preservedAuthorityTargetStillAhead = preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current2 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
+    const preservedAuthorityTargetStillAhead = preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) && preservedAsrAuthorityTargetTop > current4 + ASR_VISUAL_FOLLOW_STOP_DEADBAND_PX;
     if (comfortOnlyHoldActive && preservedAuthorityTargetStillAhead) {
       comfortOnlyHoldActive = false;
       liveHardHold = false;
@@ -55689,13 +55689,13 @@ function createAsrScrollDriver(options = {}) {
       const suppressionSignature = [
         preservedAsrAuthorityTargetSourcePath,
         preservedAsrAuthorityTargetReason,
-        Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+        Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
         Math.round(Number(preservedAsrAuthorityTargetTop) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX)
       ].join("|");
       if (shouldEmitFrameDiagnostic("ASR_TARGET_SUPPRESSION_PREVENTED", suppressionSignature)) {
         try {
           console.warn(
-            `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(current2)} requestedTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} effectiveTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} currentScrollTop=${Math.round(current2)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - current2))} targetPreserved=1`
+            `[ASR_TARGET_SUPPRESSION_PREVENTED] sourcePath=${preservedAsrAuthorityTargetSourcePath} reason=${preservedAsrAuthorityTargetReason} previousTargetScrollTop=${Math.round(current4)} requestedTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} effectiveTargetScrollTop=${Math.round(Number(preservedAsrAuthorityTargetTop))} currentScrollTop=${Math.round(current4)} deltaPxToTarget=${Math.round(Math.max(0, Number(preservedAsrAuthorityTargetTop) - current4))} targetPreserved=1`
           );
         } catch {
         }
@@ -55712,8 +55712,8 @@ function createAsrScrollDriver(options = {}) {
     let desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
     const plateauSignature = [
       Math.round(err / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-      Math.round((Number(pursuitTargetTop) - current2) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
-      Math.round(current2 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+      Math.round((Number(pursuitTargetTop) - current4) / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
+      Math.round(current4 / ASR_FRAME_DIAGNOSTIC_COARSE_DELTA_PX),
       Math.round(pursuitVel / 4)
     ].join("|");
     if (plateauSignature === pursuitPlateauSignature) {
@@ -55742,7 +55742,7 @@ function createAsrScrollDriver(options = {}) {
     if (err > 0 && pursuitVel < motionTuning.minPursuitPxPerSec) {
       pursuitVel = Math.min(maxVelForErr, Math.max(pursuitVel, motionTuning.minPursuitPxPerSec));
     }
-    const beforeScrollTop = current2;
+    const beforeScrollTop = current4;
     const previousPreservedTargetTopForOwnershipTrace = preservedAsrAuthorityTargetTop != null && Number.isFinite(preservedAsrAuthorityTargetTop) ? Number(preservedAsrAuthorityTargetTop) : Number.NaN;
     lastAsrBackwardRecenterBlockReason = "none";
     lastAsrRecoveryPathBlockReason = "none";
@@ -56002,7 +56002,7 @@ function createAsrScrollDriver(options = {}) {
           comfortOnlyHoldActive = false;
           liveScrollStallRecoveryApplied = true;
           lastAsrLiveScrollStallRecoveryAt = freshnessNowTs;
-          err = Math.max(0, Number(pursuitTargetTop) - current2);
+          err = Math.max(0, Number(pursuitTargetTop) - current4);
           desiredVel = Math.min(maxVelForErr, Math.max(0, err * DEFAULT_PURSUE_KP));
           pursuitVelBefore = pursuitVel;
           actuatorBoostActive = liveAsrFollowMode && liveAsrActuatorPursuitActive && !liveHardHold;
@@ -56060,7 +56060,7 @@ function createAsrScrollDriver(options = {}) {
       asr4PocketDriftLastAuthoritySignature = "";
     }
     if (comfortOnlyHoldActive && !liveScrollStallRecoveryApplied) {
-      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current2);
+      emitPursuitHud(err, pursuitVel, pursuitTargetTop, current4);
       window.requestAnimationFrame(tickController);
       return;
     }
@@ -58515,7 +58515,7 @@ function createAsrScrollDriver(options = {}) {
       liveAsrPreviousActuatorGear = "hold";
       lastAsrResolvedAuthoritySignature = "";
     }
-    emitPursuitHud(err, pursuitVel, pursuitTargetTop, current2);
+    emitPursuitHud(err, pursuitVel, pursuitTargetTop, current4);
     window.requestAnimationFrame(tickController);
   };
   const ensurePursuitActive = () => {
@@ -76157,24 +76157,1070 @@ var init_asr_log_buffer = __esm({
   }
 });
 
-// src/recording/recording-settings.ts
-function readRawSettings() {
+// recorders-core.ts
+function __tpReadAutoRecordPref() {
   try {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage?.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
+    if (typeof window !== "undefined") {
+      const store3 = window.__tpStore;
+      if (store3 && typeof store3.get === "function") {
+        const v = store3.get("autoRecord");
+        if (typeof v === "boolean") return v;
+      }
+    }
   } catch {
-    return null;
+  }
+  try {
+    const doc = typeof document !== "undefined" ? document : null;
+    if (doc) {
+      const el = doc.getElementById("autoRecordToggle") || doc.getElementById("autoRecord");
+      if (el) return !!el.checked;
+    }
+  } catch {
+  }
+  try {
+    return localStorage.getItem("tp_auto_record_on_start_v1") === "1";
+  } catch {
+    return false;
   }
 }
+function persistSettings() {
+  try {
+    const cached2 = JSON.parse(localStorage.getItem(LS_KEY2) || "{}");
+    const safeSettings = JSON.parse(JSON.stringify(settings));
+    delete safeSettings.enabled;
+    delete safeSettings.obsStatus;
+    delete safeSettings.obsLastError;
+    if (safeSettings.configs?.obs) {
+      safeSettings.configs.obs = { ...safeSettings.configs.obs, ...cached2.configs?.obs, password: "" };
+    }
+    localStorage.setItem(LS_KEY2, JSON.stringify({ ...cached2, ...safeSettings }));
+    try {
+      localStorage.setItem("tp_record_mode", String(settings.mode || "multi"));
+    } catch {
+    }
+    try {
+      localStorage.setItem("tp_adapters", JSON.stringify(Array.isArray(settings.selected) ? settings.selected : []));
+    } catch {
+    }
+  } catch {
+  }
+}
+function setSettings(next) {
+  if (!next || typeof next !== "object") return;
+  const prev2 = settings;
+  settings = {
+    ...prev2,
+    ..."mode" in next ? { mode: next.mode } : {},
+    ..."selected" in next ? { selected: Array.isArray(next.selected) ? next.selected.slice() : prev2.selected } : {},
+    ..."recordingMode" in next ? { recordingMode: next.recordingMode === "audio" ? "audio" : "av" } : {},
+    ..."preferObsHandoff" in next ? { preferObsHandoff: !!next.preferObsHandoff } : {},
+    ..."configs" in next ? { configs: { ...prev2.configs, ...next.configs || {} } } : {},
+    ..."timeouts" in next ? { timeouts: { ...prev2.timeouts, ...next.timeouts || {} } } : {},
+    ..."failPolicy" in next ? { failPolicy: next.failPolicy } : {}
+  };
+  persistSettings();
+  applyConfigs();
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording-settings:changed"));
+  } catch {
+  }
+}
+function getSettings() {
+  return JSON.parse(JSON.stringify(settings));
+}
+function setSelected(ids) {
+  setSettings({ selected: Array.isArray(ids) ? ids : [] });
+}
+function setMode(mode) {
+  setSettings({ mode });
+}
+function setRecordingMode(mode) {
+  setSettings({ recordingMode: mode });
+}
+function getRecordingMode() {
+  return settings.recordingMode === "audio" ? "audio" : "av";
+}
+function setTimeouts(t) {
+  setSettings({ timeouts: t });
+}
+function setFailPolicy(p) {
+  setSettings({ failPolicy: p });
+}
+function applyConfigs() {
+  for (const [id, a] of registry.entries()) {
+    try {
+      const cfg = settings.configs[id];
+      if (cfg && typeof a.configure === "function") a.configure(cfg);
+    } catch {
+    }
+  }
+}
+function callWithTimeout(promiseOrFn, ms = 0) {
+  const p = typeof promiseOrFn === "function" ? promiseOrFn() : promiseOrFn;
+  return Promise.race([
+    Promise.resolve().then(() => p),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), Math.max(0, ms || 0)))
+  ]);
+}
+async function guarded(fn) {
+  if (_busy) return { skipped: true };
+  _busy = true;
+  try {
+    return await fn();
+  } finally {
+    _busy = false;
+  }
+}
+function describeError(err) {
+  if (err instanceof Error && typeof err.message === "string") return err.message;
+  try {
+    return String(err);
+  } catch {
+    return "error";
+  }
+}
+function setTrackedTimeout(fn, ms) {
+  const h = setTimeout(() => {
+    try {
+      __recTimers.delete(h);
+    } catch {
+    }
+    try {
+      fn();
+    } catch {
+    }
+  }, Math.max(0, ms || 0));
+  try {
+    __recTimers.add(h);
+  } catch {
+  }
+  return h;
+}
+function _emitRecState(state9, detail = null) {
+  try {
+    _recState = state9;
+    _recDetail = detail || null;
+    if (typeof window !== "undefined") {
+      try {
+        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
+      } catch {
+      }
+      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
+      try {
+        const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
+        if (key === __lastRecKey) return;
+        __lastRecKey = key;
+      } catch {
+      }
+      window.dispatchEvent(new CustomEvent("rec:state", { detail: payload }));
+      try {
+        window.__tpHud?.log?.("[rec:state]", payload);
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+function _isActiveState(s) {
+  return s === "starting" || s === "recording";
+}
+function getRecState() {
+  return { state: _recState, adapter: _recAdapter, detail: _recDetail };
+}
+function isNoRecordMode() {
+  try {
+    return !!(window.__tpNoRecord || typeof document !== "undefined" && document.body && document.body.classList && document.body.classList.contains("mode-rehearsal"));
+  } catch {
+    return false;
+  }
+}
+function selectedIds() {
+  const ids = Array.isArray(settings.selected) ? settings.selected.slice() : [];
+  if (settings.mode === "single" && ids.length > 1) ids.length = 1;
+  return ids.filter((id) => registry.has(id));
+}
+function clearHandoffTimer() {
+  try {
+    if (__handoffTimer) {
+      clearInterval(__handoffTimer);
+      __handoffTimer = null;
+    }
+  } catch {
+  }
+}
+async function tryObsHandoffOnce(reason = "watchdog") {
+  try {
+    if (!settings?.preferObsHandoff) return false;
+    if (_recState !== "recording" || _recAdapter !== "bridge") return false;
+    const br = typeof window !== "undefined" ? window.__obsBridge || null : null;
+    if (!br || typeof br.getRecordStatus !== "function") return false;
+    let isRec = false;
+    try {
+      const s = await br.getRecordStatus();
+      isRec = !!(s && (s.outputActive === true || s.recording === true));
+    } catch {
+    }
+    if (!isRec) return false;
+    const bridgeAdapter = registry.get("bridge");
+    _emitRecState("stopping", { reason: "obs-handoff", via: reason });
+    try {
+      await bridgeAdapter?.stop?.();
+    } catch {
+    }
+    _recAdapter = "obs";
+    _emitRecState("recording", { handoff: true });
+    clearHandoffTimer();
+    return true;
+  } catch {
+    return false;
+  }
+}
+function armObsHandoffWatchdog() {
+  clearHandoffTimer();
+  try {
+    if (!settings?.preferObsHandoff) return;
+    if (_recState === "recording" && _recAdapter === "bridge") {
+      const t = setInterval(() => {
+        tryObsHandoffOnce("watchdog");
+      }, 1e3);
+      try {
+        const maybeTimer = t;
+        if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
+      } catch {
+      }
+      __handoffTimer = t;
+    }
+  } catch {
+  }
+}
+async function teardownRecorders() {
+  try {
+    __recEpoch++;
+  } catch {
+  }
+  try {
+    __lastBridgeTap = 0;
+  } catch {
+  }
+  try {
+    for (const h of Array.from(__recTimers)) {
+      clearTimeout(h);
+      __recTimers.delete(h);
+    }
+  } catch {
+  }
+  try {
+    clearHandoffTimer();
+  } catch {
+  }
+  try {
+    if (__recStatsTimer) {
+      clearInterval(__recStatsTimer);
+      __recStatsTimer = null;
+    }
+  } catch {
+  }
+  try {
+    const br = typeof window !== "undefined" ? window.__obsBridge : null;
+    if (br) {
+      if (typeof br.off === "function") {
+        try {
+          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
+            br.off("disconnect", _onObsDisconnectCb);
+            window.__tpObsDisconnectWired = false;
+          }
+        } catch {
+        }
+        try {
+          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
+            br.off("recordingStarted", _onObsRecordingStartedCb);
+            window.__tpObsHandoffWired = false;
+          }
+        } catch {
+        }
+      } else if (typeof br.removeListener === "function") {
+        try {
+          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
+            br.removeListener("disconnect", _onObsDisconnectCb);
+            window.__tpObsDisconnectWired = false;
+          }
+        } catch {
+        }
+        try {
+          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
+            br.removeListener("recordingStarted", _onObsRecordingStartedCb);
+            window.__tpObsHandoffWired = false;
+          }
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+}
+async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}) {
+  const obs = typeof window !== "undefined" ? window.__obsBridge || null : null;
+  const epoch = __recEpoch;
+  const isStale = () => epoch !== __recEpoch;
+  try {
+    window.__tpHud?.log?.("[rec] start obs");
+  } catch {
+  }
+  try {
+    _recAdapter = "obs";
+    _emitRecState("starting");
+  } catch {
+  }
+  const confirm = async () => {
+    try {
+      const s = await obs?.getRecordStatus?.();
+      return !!(s && s.outputActive === true);
+    } catch {
+      return false;
+    }
+  };
+  const tryStart = async () => {
+    try {
+      if (obs && typeof obs.start === "function") await obs.start();
+      else if (obs && typeof obs.startRecord === "function") await obs.startRecord();
+    } catch {
+    }
+  };
+  await tryStart();
+  let ok = false;
+  let deadline = __now() + timeoutMs;
+  while (!ok && __now() < deadline) {
+    if (isStale()) {
+      try {
+        window.__tpHud?.log?.("[rec] abort confirm (stale)");
+      } catch {
+      }
+      return { ok: false, adapter: "obs", error: "stale" };
+    }
+    ok = await confirm();
+    if (!ok) await __sleep(120);
+  }
+  if (!ok) {
+    try {
+      window.__tpHud?.log?.("[rec] retry");
+    } catch {
+    }
+    await __sleep(Math.max(0, retryDelayMs));
+    if (isStale()) {
+      try {
+        window.__tpHud?.log?.("[rec] abort retry (stale)");
+      } catch {
+      }
+      return { ok: false, adapter: "obs", error: "stale" };
+    }
+    await tryStart();
+    try {
+      recStats.retries++;
+    } catch {
+    }
+    ok = await confirm();
+  }
+  if (ok) {
+    try {
+      _recAdapter = "obs";
+      _emitRecState("recording");
+    } catch {
+    }
+    return { ok: true, adapter: "obs" };
+  }
+  try {
+    window.__tpHud?.log?.("[rec] drop (start-timeout)");
+  } catch {
+  }
+  try {
+    _recAdapter = "obs";
+    _emitRecState("error", { reason: "start-timeout" });
+  } catch {
+  }
+  return { ok: false, adapter: "obs", error: "start-timeout" };
+}
+async function startSelected() {
+  return guarded(async () => {
+    if (isNoRecordMode()) {
+      try {
+        window.HUD?.log?.("rehearsal", { skip: "startSelected (no-record)" });
+      } catch {
+      }
+      return { results: [], started: [] };
+    }
+    if (_recState === "stopping") {
+      try {
+        window.__tpHud?.log?.("[rec] busy (stopping)");
+      } catch {
+      }
+      return { results: [], started: [], reason: "idempotent-start-while-stopping" };
+    }
+    if (_isActiveState(_recState)) {
+      try {
+        window.__tpHud?.log?.("[rec] already recording");
+      } catch {
+      }
+      _emitRecState(_recState, { reason: "idempotent-start" });
+      return { results: [], started: selectedIds() };
+    }
+    applyConfigs();
+    try {
+      ensureObsDisconnectFallback();
+    } catch {
+    }
+    try {
+      ensureObsRecordingStartedHandoff();
+    } catch {
+    }
+    const ids = selectedIds();
+    _recAdapter = settings.mode === "single" ? ids[0] || null : ids[0] || null;
+    _emitRecState("starting");
+    const t0 = __now();
+    try {
+      recStats.starts++;
+    } catch {
+    }
+    const started = [];
+    const actions = ids.map((id) => ({ id, a: registry.get(id) }));
+    const doStart = async ({ id, a }) => {
+      if (!a) return { id, ok: false, error: "missing" };
+      try {
+        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.start);
+        if (!avail) return { id, ok: false, error: "unavailable" };
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+      try {
+        if (id === "obs") {
+          const res = await startObsWithConfirm({ timeoutMs: Math.min(2e3, settings.timeouts.start || 1500), retryDelayMs: 500 });
+          if (res && res.ok === false && res.error === "stale") {
+            return { id, ok: false, error: "stale" };
+          }
+          if (res.ok) {
+            started.push(id);
+            return { id, ok: true, detail: res };
+          }
+          return { id, ok: false, error: res.error || "failed" };
+        } else {
+          await callWithTimeout(() => a.start(), settings.timeouts.start);
+          started.push(id);
+          return { id, ok: true };
+        }
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+    };
+    const results = [];
+    if (settings.failPolicy === "abort-on-first-fail") {
+      for (const act of actions) {
+        const r = await doStart(act);
+        results.push(r);
+        if (!r.ok) break;
+      }
+    } else {
+      const rs = await Promise.all(actions.map(doStart));
+      results.push(...rs);
+    }
+    if (started.length) {
+      try {
+        window.__tpHud?.log?.("[rec] recording");
+      } catch {
+      }
+      const anyFallback = results.find((r) => r && r.id === "obs" && r.detail && r.detail.fallback);
+      if (anyFallback) {
+        _recAdapter = "bridge";
+        _emitRecState("recording", { fallback: true, via: "bridge" });
+      } else {
+        _emitRecState("recording");
+      }
+      try {
+        recStats.startLat.push(Math.max(0, __now() - t0));
+      } catch {
+      }
+    } else {
+      _emitRecState("error", { results });
+    }
+    return { results, started };
+  });
+}
+async function stopSelected() {
+  __recEpoch++;
+  __lastBridgeTap = 0;
+  clearHandoffTimer();
+  if (isNoRecordMode()) {
+    try {
+      window.HUD?.log?.("rehearsal", { note: "stopSelected (allowed during no-record)" });
+    } catch {
+    }
+  }
+  if (_recState === "idle" || _recState === "stopping") {
+    _emitRecState("idle", { reason: "idempotent-stop" });
+    return { results: [] };
+  }
+  try {
+    window.__tpHud?.log?.("[rec] stop");
+  } catch {
+  }
+  _emitRecState("stopping");
+  const t0 = __now();
+  const ids = selectedIds();
+  const actions = ids.map((id) => ({ id, a: registry.get(id) })).filter((x) => !!x.a);
+  const rs = await Promise.all(
+    actions.map(async ({ id, a }) => {
+      try {
+        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.stop);
+        if (!avail) return { id, ok: false, error: "unavailable" };
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+      try {
+        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
+        return { id, ok: true, ...detail && typeof detail === "object" ? { detail } : {} };
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+    })
+  );
+  _emitRecState("idle");
+  for (const result of rs) {
+    if (result.id !== "obs" || !result.ok || !result.detail) continue;
+    try {
+      void window.__tpObsImport?.acceptStopResult?.(result.detail);
+    } catch {
+    }
+  }
+  try {
+    recStats.stopLat.push(Math.max(0, __now() - t0));
+  } catch {
+  }
+  return { results: rs };
+}
+function register(adapter) {
+  registry.set(adapter.id, adapter);
+}
+function get2(id) {
+  return registry.get(id);
+}
+function all() {
+  return [...registry.values()];
+}
+async function initBuiltIns() {
+  if (_builtInsInit) return _builtInsReady;
+  _builtInsInit = true;
+  try {
+    const adapters = [];
+    const resolver = typeof window !== "undefined" && typeof window.__TP_ADDV === "function" ? window.__TP_ADDV.bind(window) : ((p) => p);
+    try {
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/bridge.js")
+      );
+      const a = m?.createBridgeAdapter?.();
+      if (a) adapters.push(a);
+    } catch {
+    }
+    try {
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/obs.js")
+      );
+      const a = m?.createOBSAdapter?.();
+      if (a) adapters.push(a);
+    } catch {
+    }
+    try {
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/hotkey.js")
+      );
+      const aPrem = m?.createHotkeyAdapter?.("premiere", "Adobe Premiere Pro");
+      if (aPrem) adapters.push(aPrem);
+    } catch {
+    }
+    try {
+      if (typeof window !== "undefined" && window.__obsBridge) {
+        const bridge2 = window.__obsBridge;
+        const wrapper = {
+          id: "obs",
+          label: "OBS (WebSocket) - bridge",
+          configure(cfg) {
+            try {
+              bridge2.configure(cfg);
+            } catch {
+            }
+          },
+          async isAvailable() {
+            try {
+              return bridge2.isConnected ? bridge2.isConnected() : bridge2.isConnected && bridge2.isConnected();
+            } catch {
+              return !!bridge2.isConnected && bridge2.isConnected();
+            }
+          },
+          async start() {
+            return bridge2.start();
+          },
+          async stop() {
+            return bridge2.stop();
+          },
+          async test() {
+            return bridge2.getRecordStatus();
+          }
+        };
+        adapters.push(wrapper);
+      }
+    } catch {
+    }
+    for (const a of adapters) {
+      try {
+        register(a);
+      } catch {
+      }
+    }
+    applyConfigs();
+    try {
+      ensureObsDisconnectFallback();
+    } catch {
+    }
+    try {
+      ensureObsRecordingStartedHandoff();
+    } catch {
+    }
+  } catch {
+  } finally {
+    _resolveBuiltInsReady?.();
+    _resolveBuiltInsReady = null;
+  }
+}
+function ensureObsDisconnectFallback() {
+  try {
+    if (typeof window === "undefined") return;
+    const br = window.__obsBridge;
+    if (!br || typeof br.on !== "function") return;
+    if (window.__tpObsDisconnectWired) return;
+    window.__tpObsDisconnectWired = true;
+    _onObsDisconnectCb = async () => {
+      try {
+        try {
+          recStats.disconnects++;
+        } catch {
+        }
+        if (_recAdapter === "obs" && (_recState === "starting" || _recState === "recording")) {
+          _emitRecState("error", { reason: "obs-disconnected", message: "OBS disconnected. Check capture status in OBS before retrying." });
+        }
+      } catch {
+      }
+    };
+    br.on("disconnect", _onObsDisconnectCb);
+  } catch {
+  }
+}
+function ensureObsRecordingStartedHandoff() {
+  try {
+    if (typeof window === "undefined") return;
+    const br = window.__obsBridge;
+    if (!br || typeof br.on !== "function") return;
+    if (window.__tpObsHandoffWired) return;
+    window.__tpObsHandoffWired = true;
+    _onObsRecordingStartedCb = async () => {
+      try {
+        const prefer = !!(settings && settings.preferObsHandoff);
+        if (_recState === "recording" && _recAdapter === "bridge") {
+          if (!prefer) {
+            try {
+              window.__tpHud?.log?.("[rec] obs up (handoff disabled)");
+            } catch {
+            }
+            return;
+          }
+          const bridgeAdapter = registry.get("bridge");
+          _emitRecState("stopping", { reason: "obs-handoff" });
+          try {
+            await bridgeAdapter?.stop?.();
+          } catch {
+          }
+          _recAdapter = "obs";
+          _emitRecState("recording", { handoff: true });
+        }
+      } catch {
+      }
+    };
+    br.on("recordingStarted", _onObsRecordingStartedCb);
+  } catch {
+  }
+}
+async function start() {
+  return startSelected();
+}
+async function stop2() {
+  return stopSelected();
+}
+function p95(arr) {
+  if (!arr || !arr.length) return 0;
+  const a = arr.slice().sort((x, y) => x - y);
+  const i = Math.min(a.length - 1, Math.floor(a.length * 0.95));
+  return a[i] || 0;
+}
+function emitRecStats(_final = false) {
+  try {
+    const payload = {
+      starts: recStats.starts | 0,
+      retries: recStats.retries | 0,
+      fallbacks: recStats.fallbacks | 0,
+      disconnects: recStats.disconnects | 0,
+      startP95Ms: Math.round(p95(recStats.startLat)),
+      stopP95Ms: Math.round(p95(recStats.stopLat))
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rec:stats", { detail: payload }));
+    }
+  } catch {
+  }
+}
+var registry, LS_KEY2, defaultSettings, settings, _busy, _recState, _recDetail, _recAdapter, __recEpoch, __lastBridgeTap, __recTimers, _onObsDisconnectCb, _onObsRecordingStartedCb, __now, __sleep, __lastRecKey, __handoffTimer, _builtInsInit, _resolveBuiltInsReady, _builtInsReady, recStats, __recStatsTimer;
+var init_recorders_core = __esm({
+  "recorders-core.ts"() {
+    "use strict";
+    (function() {
+      try {
+        let getJSON2 = function(k, d) {
+          try {
+            const raw = localStorage.getItem(k);
+            return raw ? JSON.parse(raw) : d;
+          } catch {
+            return d;
+          }
+        }, getCfg2 = function() {
+          const a = getJSON2(LS.cfg, {});
+          const b = getJSON2(LS.modern, {});
+          const inner = b && b.configs || {};
+          const merged = { ...inner, ...a };
+          if (a && a.recording) merged.recording = a.recording;
+          return merged;
+        }, getSelectedAdapterId2 = function() {
+          const cfg = getCfg2();
+          try {
+            return cfg.recording && cfg.recording.adapter || localStorage.getItem(LS.recAdapter) || DEFAULT_ADAPTER;
+          } catch {
+            return DEFAULT_ADAPTER;
+          }
+        }, wantsAuto2 = function() {
+          return __tpReadAutoRecordPref();
+        }, getAdapter2 = function(id) {
+          if (typeof id === "string" && id.length > 0) {
+            try {
+              return get2(id);
+            } catch {
+              return void 0;
+            }
+          }
+          return getSelectedAdapterId2();
+        }, bridgeCfg2 = function() {
+          const cfg = getCfg2().bridge || {};
+          return {
+            mode: cfg.mode || "hotkey",
+            baseUrl: String(cfg.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, ""),
+            startHotkey: cfg.startHotkey || cfg.preset || "Ctrl+R",
+            stopHotkey: cfg.stopHotkey || "",
+            startUrl: cfg.startUrl || "",
+            stopUrl: cfg.stopUrl || ""
+          };
+        }, getRecorderSurface2 = function() {
+          try {
+            const w3 = window;
+            return w3.__tpRecorder || w3.__recorder || null;
+          } catch {
+            return null;
+          }
+        };
+        var getJSON = getJSON2, getCfg = getCfg2, getSelectedAdapterId = getSelectedAdapterId2, wantsAuto = wantsAuto2, getAdapter = getAdapter2, bridgeCfg = bridgeCfg2, getRecorderSurface = getRecorderSurface2;
+        if (typeof window === "undefined") return;
+        const DEFAULT_ADAPTER = "recorder";
+        const LS = {
+          cfg: "configs",
+          // whole app config blob (optional)
+          recAdapter: "tp_rec_adapter",
+          // 'obs' | 'bridge' | 'premiere'
+          autoStart: "tp_auto_record_on_start_v1",
+          modern: "tp_rec_settings_v1"
+          // modern settings blob from registry (has .configs)
+        };
+        async function httpSend(url, body) {
+          if (!url) throw new Error("Missing URL");
+          const res = await fetch(url, {
+            method: body ? "POST" : "GET",
+            headers: body ? { "content-type": "application/json" } : void 0,
+            body: body ? JSON.stringify(body) : void 0,
+            mode: "no-cors"
+          });
+          try {
+            return !!res.ok || true;
+          } catch {
+            return true;
+          }
+        }
+        async function recorderStart() {
+          const rec2 = getRecorderSurface2();
+          if (!rec2 || typeof rec2.start !== "function") return true;
+          try {
+            await rec2.start();
+            return true;
+          } catch (err) {
+            try {
+              console.warn("[recorder] start failed", err);
+            } catch {
+            }
+            return false;
+          }
+        }
+        async function recorderStop() {
+          const rec2 = getRecorderSurface2();
+          if (!rec2 || typeof rec2.stop !== "function") return true;
+          try {
+            await rec2.stop();
+            return true;
+          } catch (err) {
+            try {
+              console.warn("[recorder] stop failed", err);
+            } catch {
+            }
+            return false;
+          }
+        }
+        async function bridgeStart() {
+          const b = bridgeCfg2();
+          if (b.mode === "http") {
+            return httpSend(b.startUrl);
+          }
+          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.startHotkey);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(b.baseUrl + "/send", { keys: b.startHotkey });
+          }
+        }
+        async function bridgeStop() {
+          const b = bridgeCfg2();
+          if (b.mode === "http") {
+            return b.stopUrl ? httpSend(b.stopUrl) : true;
+          }
+          if (!b.stopHotkey) return true;
+          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.stopHotkey);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(b.baseUrl + "/send", { keys: b.stopHotkey });
+          }
+        }
+        async function obsStart() {
+          try {
+            if (window.__obsBridge && typeof window.__obsBridge.start === "function") {
+              await window.__obsBridge.start();
+              return true;
+            }
+          } catch {
+          }
+          try {
+            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
+              return !!await window.__tpObs.ensureRecording(true);
+            }
+          } catch {
+          }
+          return false;
+        }
+        async function obsStop() {
+          try {
+            if (window.__obsBridge && typeof window.__obsBridge.stop === "function") {
+              await window.__obsBridge.stop();
+              return true;
+            }
+          } catch {
+          }
+          try {
+            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
+              return !!await window.__tpObs.ensureRecording(false);
+            }
+          } catch {
+          }
+          return false;
+        }
+        async function premStart() {
+          const p = getCfg2().premiere || {};
+          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
+          const hk = String(p.startHotkey || "Ctrl+R");
+          const url = base + "/send?keys=" + encodeURIComponent(hk);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(base + "/send", { keys: hk });
+          }
+        }
+        async function premStop() {
+          const p = getCfg2().premiere || {};
+          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
+          const hk = String(p.stopHotkey || "");
+          if (!hk) return true;
+          const url = base + "/send?keys=" + encodeURIComponent(hk);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(base + "/send", { keys: hk });
+          }
+        }
+        async function start2() {
+          const a = getSelectedAdapterId2();
+          try {
+            window.__tpHud?.log?.("[rec]", "start", a);
+          } catch {
+          }
+          if (a === "recorder") return recorderStart();
+          if (a === "obs") return obsStart();
+          if (a === "descript") return premStart();
+          if (a === "premiere") return premStart();
+          return bridgeStart();
+        }
+        async function stop3() {
+          const a = getSelectedAdapterId2();
+          try {
+            window.__tpHud?.log?.("[rec]", "stop", a);
+          } catch {
+          }
+          if (a === "recorder") return recorderStop();
+          if (a === "obs") return obsStop();
+          if (a === "descript") return premStop();
+          if (a === "premiere") return premStop();
+          return bridgeStop();
+        }
+        window.__tpRecording = { start: start2, stop: stop3, wantsAuto: wantsAuto2, getAdapter: getAdapter2 };
+      } catch {
+      }
+    })();
+    registry = /* @__PURE__ */ new Map();
+    LS_KEY2 = "tp_rec_settings_v1";
+    defaultSettings = {
+      mode: "single",
+      selected: ["core"],
+      recordingMode: "av",
+      preferObsHandoff: false,
+      configs: {
+        obs: { url: "ws://127.0.0.1:4455", password: "" },
+        companion: { url: "http://127.0.0.1:8000", buttonId: "1.1" },
+        bridge: { startUrl: "http://127.0.0.1:5723/record/start", stopUrl: "" },
+        descript: { startHotkey: "Ctrl+R", via: "bridge" },
+        capcut: { startHotkey: "Ctrl+R", via: "companion" },
+        winmedia: { startHotkey: "Ctrl+R", via: "bridge" },
+        premiere: { startHotkey: "Ctrl+R", stopHotkey: "", baseUrl: "http://127.0.0.1:5723" }
+      },
+      timeouts: { start: 3e3, stop: 3e3 },
+      failPolicy: "continue"
+    };
+    settings = JSON.parse(JSON.stringify(defaultSettings));
+    try {
+      const raw = localStorage.getItem(LS_KEY2);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") settings = { ...settings, ...parsed };
+      } else {
+        try {
+          localStorage.setItem(LS_KEY2, JSON.stringify(settings));
+        } catch {
+        }
+      }
+    } catch {
+    }
+    _busy = false;
+    _recState = "idle";
+    _recDetail = null;
+    _recAdapter = null;
+    __recEpoch = 0;
+    __lastBridgeTap = 0;
+    __recTimers = /* @__PURE__ */ new Set();
+    _onObsDisconnectCb = null;
+    _onObsRecordingStartedCb = null;
+    __now = () => typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    __sleep = (ms) => new Promise((resolve) => {
+      setTrackedTimeout(() => resolve(), Math.max(0, ms || 0));
+    });
+    __lastRecKey = "";
+    __handoffTimer = null;
+    try {
+      if (typeof window !== "undefined") {
+        window.__recorder = window.__recorder || {};
+        if (!window.__recorder.__finalizeForTests) {
+          window.__recorder.__finalizeForTests = () => {
+            try {
+              clearHandoffTimer();
+            } catch {
+            }
+            try {
+              __recEpoch++;
+            } catch {
+            }
+            try {
+              if (__recStatsTimer) {
+                clearInterval(__recStatsTimer);
+                __recStatsTimer = null;
+              }
+            } catch {
+            }
+          };
+        }
+      }
+    } catch {
+    }
+    _builtInsInit = false;
+    _resolveBuiltInsReady = null;
+    _builtInsReady = new Promise((resolve) => {
+      _resolveBuiltInsReady = resolve;
+    });
+    try {
+      initBuiltIns();
+    } catch {
+    }
+    (function wireRecStateWatchdog() {
+      try {
+        if (typeof window === "undefined") return;
+        if (window.__tpRecWatchdogWired) return;
+        window.__tpRecWatchdogWired = true;
+        window.addEventListener("rec:state", (e) => {
+          try {
+            const evt = e;
+            const d = evt && evt.detail || {};
+            if (d && d.state === "recording" && d.adapter === "bridge" && settings?.preferObsHandoff) {
+              armObsHandoffWatchdog();
+            }
+            if (d && (d.state === "idle" || d.state === "stopping")) {
+              clearHandoffTimer();
+            }
+          } catch {
+          }
+        });
+      } catch {
+      }
+    })();
+    recStats = { starts: 0, retries: 0, fallbacks: 0, disconnects: 0, startLat: [], stopLat: [] };
+    __recStatsTimer = null;
+    try {
+      if (typeof window !== "undefined") {
+        if (__recStatsTimer) clearInterval(__recStatsTimer);
+        __recStatsTimer = setInterval(() => emitRecStats(false), 5e3);
+        try {
+          const maybeTimer = __recStatsTimer;
+          if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
+        } catch {
+        }
+        window.addEventListener("beforeunload", () => emitRecStats(true));
+      }
+    } catch {
+    }
+  }
+});
+
+// src/recording/recording-settings.ts
 function normalizeSelected(raw) {
   if (!Array.isArray(raw)) return [];
   return raw.map((v) => String(v)).filter(Boolean);
 }
-function getRecordingMode() {
+function getRecordingMode2() {
   const raw = readRawSettings();
   const mode = String(raw?.recordingMode || "").toLowerCase();
   const resolved = mode === "audio" ? "audio" : "av";
@@ -76185,18 +77231,33 @@ function getRecordingEngine() {
   const raw = readRawSettings();
   const selected = normalizeSelected(raw?.selected);
   const mode = String(raw?.mode || "").toLowerCase();
-  if (mode === "single") {
-    if (selected.includes("obs")) return "obs";
-    if (selected.includes("core")) return "core";
+  if (mode !== "single" && mode !== "multi" || selected.length !== 1 || !["obs", "core"].includes(selected[0])) {
+    throw new Error("Select one recording engine in Recording Settings.");
   }
-  if (selected.includes("obs") && !selected.includes("core")) return "obs";
-  return "core";
+  return selected[0];
 }
-var SETTINGS_KEY;
+function readSavedRecordingConfiguration() {
+  if (!window.localStorage.getItem("tp_rec_settings_v1")) return { ok: false, reason: "missing" };
+  const raw = readRawSettings();
+  const selected = normalizeSelected(raw.selected);
+  const mode = String(raw.mode || "").toLowerCase();
+  const recordingMode = String(raw.recordingMode || "").toLowerCase();
+  if (mode !== "single" && mode !== "multi" || recordingMode !== "av" && recordingMode !== "audio") {
+    return { ok: false, reason: "invalid" };
+  }
+  if (selected.length !== 1 || selected.some((id) => id !== "core" && id !== "obs")) {
+    return { ok: false, reason: "invalid" };
+  }
+  const engine = selected.includes("obs") && !selected.includes("core") ? "obs" : "core";
+  if (engine === "obs" && recordingMode === "audio") return { ok: false, reason: "invalid" };
+  return { ok: true, configuration: { engine, mode: recordingMode } };
+}
+var readRawSettings;
 var init_recording_settings = __esm({
   "src/recording/recording-settings.ts"() {
     "use strict";
-    SETTINGS_KEY = "tp_rec_settings_v1";
+    init_recorders_core();
+    readRawSettings = getSettings;
   }
 });
 
@@ -76205,12 +77266,13 @@ function withTimeout(taskOrFactory, timeoutMs, context) {
   const timeout = Math.max(0, Math.floor(timeoutMs));
   const task = typeof taskOrFactory === "function" ? Promise.resolve().then(taskOrFactory) : Promise.resolve(taskOrFactory);
   if (timeout <= 0) return task;
+  let timer;
   return Promise.race([
     task,
     new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
+      timer = setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
     })
-  ]);
+  ]).finally(() => clearTimeout(timer));
 }
 function emitRecordingState(recording) {
   try {
@@ -76244,145 +77306,110 @@ function emitStopPhase(phase, detail = {}) {
 }
 function registerRecorder(backend) {
   if (!backend) return;
-  registry.set(backend.id, backend);
+  registry2.set(backend.id, backend);
 }
 function listRecorders() {
-  return [...registry.values()];
+  return [...registry2.values()];
 }
 function registerRecorders(options) {
   if (options?.core) registerRecorder(options.core);
   if (options?.obs) registerRecorder(options.obs);
 }
-async function startSessionRecording(opts) {
+async function startSessionRecording(opts = {}) {
+  if (stopInFlight) await stopInFlight;
   if (sessionRecording) return;
   if (startInFlight) return startInFlight;
+  if (activeSessionRecorderIds.size) throw new Error("Recording status is unconfirmed. Check the selected recorder and use Stop before starting another take.");
   startInFlight = (async () => {
-    const engine = opts?.engine ?? getRecordingEngine();
-    const obsEnabled = !!opts?.obsEnabled;
-    const tasks = [];
-    activeSessionRecorderIds.clear();
-    const queueStart = (backend) => {
-      tasks.push(
-        (async () => {
-          const id = backend.id;
-          const available = await withTimeout(
-            () => backend.isAvailable(),
-            RECORDER_TIMEOUT_MS.availability,
-            `${id}:isAvailable:start`
-          ).catch((err) => {
-            console.warn("[recording] availability probe failed (start)", id, err);
-            return false;
-          });
-          if (!available) return { id, started: false };
-          await withTimeout(
-            () => backend.start(),
-            RECORDER_TIMEOUT_MS.start,
-            `${id}:start`
-          ).catch((err) => {
-            console.warn("[recording] start failed", id, err);
-            throw err;
-          });
-          return { id, started: true };
-        })().catch(() => ({ id: backend.id, started: false }))
-      );
-    };
-    const core = registry.get("core");
-    if (core && engine === "core") {
-      try {
-        console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
-      } catch {
-      }
-      queueStart(core);
-    } else {
-      console.warn('[recording] no "core" recorder registered');
-    }
-    if (engine === "obs" && obsEnabled) {
-      const obs = registry.get("obs");
-      if (obs) {
+    const engine = opts.engine ?? getRecordingEngine();
+    const backend = registry2.get(engine);
+    if (!backend) throw new Error(`${engine === "obs" ? "OBS" : "Core Recorder"} is unavailable. Check Recording Settings.`);
+    const available = await withTimeout(() => backend.isAvailable(), RECORDER_TIMEOUT_MS.availability, `${engine}:isAvailable:start`);
+    if (!available) throw new Error(`${backend.label} is unavailable. ${engine === "obs" ? "Connect OBS in Recording Settings." : "Check camera and microphone permissions."}`);
+    try {
+      await backend.start();
+    } catch (error) {
+      if (error?.captureMayBeActive) {
+        activeSessionRecorderIds.add(engine);
+        emitRecordingState(false);
         try {
-          console.debug("[recording-session] startRecorders: obs available", { engine });
+          window.dispatchEvent(new CustomEvent("tp:recording:uncertain", { detail: { engine } }));
         } catch {
         }
-        queueStart(obs);
       }
+      throw error;
     }
-    if (tasks.length === 0) return;
-    try {
-      console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
-    } catch {
-    }
-    const results = await Promise.all(tasks);
-    results.forEach((result) => {
-      if (result?.started) activeSessionRecorderIds.add(result.id);
-    });
-    if (activeSessionRecorderIds.size === 0) return;
+    activeSessionRecorderIds.clear();
+    activeSessionRecorderIds.add(engine);
     sessionRecording = true;
     emitRecordingState(true);
   })();
   try {
     await startInFlight;
+  } catch (error) {
+    reportRecordingError(error);
+    throw error;
   } finally {
     startInFlight = null;
   }
 }
+function reportRecordingError(error) {
+  const message = error?.message || String(error);
+  try {
+    window.toast?.(message, { type: "error" });
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:error", { detail: { message } }));
+  } catch {
+  }
+}
 async function stopSessionRecording() {
-  if (!sessionRecording) return;
+  if (startInFlight) {
+    try {
+      await startInFlight;
+    } catch (error) {
+      if (!activeSessionRecorderIds.size) throw error;
+    }
+  }
+  if (!sessionRecording && !activeSessionRecorderIds.size) return;
   if (stopInFlight) return stopInFlight;
   stopInFlight = (async () => {
     const startedAt = Date.now();
-    const targetRecorders = activeSessionRecorderIds.size > 0 ? Array.from(activeSessionRecorderIds.values()).map((id) => registry.get(id)).filter((rec2) => !!rec2) : listRecorders();
-    emitStopPhase("begin", {
-      recorderCount: targetRecorders.length,
-      scopedToSession: activeSessionRecorderIds.size > 0
-    });
-    const tasks = targetRecorders.map(async (rec2) => {
-      emitStopPhase("probe", { recorderId: rec2.id });
-      const available = await withTimeout(
-        () => rec2.isAvailable(),
-        RECORDER_TIMEOUT_MS.availability,
-        `${rec2.id}:isAvailable:stop`
-      ).catch((err) => {
-        console.warn("[recording] availability probe failed (stop)", rec2.id, err);
-        return false;
-      });
-      if (!available) return;
-      emitStopPhase("stop-call", { recorderId: rec2.id });
-      await withTimeout(
-        () => rec2.stop(),
-        RECORDER_TIMEOUT_MS.stop,
-        `${rec2.id}:stop`
-      ).catch((err) => {
-        console.warn("[recording] stop failed", rec2.id, err);
-      });
-    });
-    await Promise.allSettled(tasks);
-    activeSessionRecorderIds.clear();
-    sessionRecording = false;
-    emitRecordingState(false);
-    const elapsedMs = Math.max(0, Date.now() - startedAt);
-    emitStopPhase("end", { elapsedMs });
-    if (elapsedMs > STOP_SLOW_WARN_MS) {
-      try {
-        console.warn("[recording] stop exceeded latency budget", { elapsedMs, budgetMs: STOP_SLOW_WARN_MS });
-      } catch {
-      }
+    emitStopPhase("begin", { recorderCount: activeSessionRecorderIds.size, scopedToSession: true });
+    for (const id of activeSessionRecorderIds) {
+      const rec2 = registry2.get(id);
+      if (!rec2) throw new Error(`Active recorder ${id} is unavailable. Check the recorder before leaving.`);
+      emitStopPhase("stop-call", { recorderId: id });
+      if (id === "core") await rec2.stop();
+      else await withTimeout(() => rec2.stop(), 15e3, `${id}:stop`);
+      activeSessionRecorderIds.delete(id);
     }
+    sessionRecording = false;
+    emitStopPhase("end", { elapsedMs: Date.now() - startedAt });
   })();
   try {
     await stopInFlight;
+  } catch (error) {
+    reportRecordingError(error);
+    throw error;
   } finally {
     stopInFlight = null;
+    if (!sessionRecording && !activeSessionRecorderIds.size) emitRecordingState(false);
   }
 }
 function isSessionRecording() {
   return sessionRecording;
 }
-var registry, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS, STOP_SLOW_WARN_MS;
+function isRecordingBusy() {
+  return sessionRecording || activeSessionRecorderIds.size > 0 || startInFlight !== null || stopInFlight !== null;
+}
+var registry2, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS;
 var init_recorderRegistry = __esm({
   "src/recording/recorderRegistry.ts"() {
     "use strict";
     init_recording_settings();
-    registry = /* @__PURE__ */ new Map();
+    registry2 = /* @__PURE__ */ new Map();
     sessionRecording = false;
     activeSessionRecorderIds = /* @__PURE__ */ new Set();
     startInFlight = null;
@@ -76392,7 +77419,6 @@ var init_recorderRegistry = __esm({
       start: 5e3,
       stop: 2e3
     };
-    STOP_SLOW_WARN_MS = 2e3;
   }
 });
 
@@ -76717,6 +77743,45 @@ var init_workpiece_context = __esm({
   }
 });
 
+// src/forge/recording-upload-limits.ts
+function assertRecordingSize(bytes) {
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > RECORDING_MAX_BYTES) {
+    throw new RecordingUploadAdmissionError(
+      "recording_size_unsupported",
+      "Recording exceeds the supported 500 MiB object size or has an invalid size. No upload was started."
+    );
+  }
+}
+function serializeRecordingRequest(payload) {
+  const body = JSON.stringify(payload);
+  if (new TextEncoder().encode(body).byteLength > RECORDING_REQUEST_MAX_BYTES) {
+    throw new RecordingUploadAdmissionError(
+      "recording_request_too_large",
+      "Recording upload request exceeds the safe request size, including metadata. The request was not sent."
+    );
+  }
+  return body;
+}
+function boundedUploadMb(value) {
+  return Number.isFinite(value) && value > 0 ? Math.min(value, 3) : 3;
+}
+var RECORDING_REQUEST_MAX_BYTES, RECORDING_CHUNK_MAX_BYTES, RECORDING_MAX_BYTES, RecordingUploadAdmissionError;
+var init_recording_upload_limits = __esm({
+  "src/forge/recording-upload-limits.ts"() {
+    "use strict";
+    RECORDING_REQUEST_MAX_BYTES = 45e5;
+    RECORDING_CHUNK_MAX_BYTES = 3 * 1024 * 1024;
+    RECORDING_MAX_BYTES = 500 * 1024 * 1024;
+    RecordingUploadAdmissionError = class extends Error {
+      constructor(code, message) {
+        super(message);
+        this.code = code;
+        this.name = "RecordingUploadAdmissionError";
+      }
+    };
+  }
+});
+
 // src/forge/workpiece-commit.ts
 function readString4(value) {
   if (typeof value !== "string") return null;
@@ -76781,9 +77846,9 @@ function mbToBytes(mb) {
 }
 function resolveUploadStrategyConfig() {
   const largeUploadWarnMb = readNumericConfig(LARGE_UPLOAD_WARN_MB_KEY) ?? DEFAULT_LARGE_UPLOAD_WARN_MB;
-  const chunkUploadThresholdMb = readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB;
+  const chunkUploadThresholdMb = boundedUploadMb(readNumericConfig(CHUNK_UPLOAD_THRESHOLD_MB_KEY) ?? DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
   const chunkSizeMbRaw = readNumericConfig(CHUNK_SIZE_MB_KEY) ?? DEFAULT_CHUNK_SIZE_MB;
-  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(chunkSizeMbRaw, chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
+  const chunkSizeMb = chunkSizeMbRaw > 0 ? Math.min(boundedUploadMb(chunkSizeMbRaw), chunkUploadThresholdMb) : DEFAULT_CHUNK_SIZE_MB;
   return {
     largeUploadWarnMb,
     chunkUploadThresholdMb,
@@ -76795,7 +77860,7 @@ function selectUploadStrategyForBytes(byteLength, config) {
     ...resolveUploadStrategyConfig(),
     ...config
   };
-  const thresholdBytes = mbToBytes(cfg.chunkUploadThresholdMb > 0 ? cfg.chunkUploadThresholdMb : DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB);
+  const thresholdBytes = mbToBytes(boundedUploadMb(cfg.chunkUploadThresholdMb));
   return byteLength > thresholdBytes ? "chunked" : "single";
 }
 function buildRecordingChunks(totalBytes, chunkSizeBytes) {
@@ -76984,43 +78049,47 @@ function encodeBase64(bytes) {
   return btoa(binary);
 }
 async function commitFileToWorkpiece(workpieceId, payload, apiToken) {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
     headers: await buildHeaders(apiToken),
-    body: JSON.stringify(payload)
+    body: requestBody
   });
   const body = await readBodyAsJson(response);
   return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
 async function beginChunkedRecordingUpload(workpieceId, payload, apiToken) {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/begin`, {
     method: "POST",
     headers: await buildHeaders(apiToken),
-    body: JSON.stringify(payload)
+    body: requestBody
   });
   const body = await readBodyAsJson(response);
   const data = body?.data ?? null;
   return { status: response.status, body, ok: response.ok && isCommitAck(body), data };
 }
 async function uploadChunkToSession(workpieceId, uploadId, payload, apiToken) {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/chunk`,
     {
       method: "POST",
       headers: await buildHeaders(apiToken),
-      body: JSON.stringify(payload)
+      body: requestBody
     }
   );
   const body = await readBodyAsJson(response);
   return { status: response.status, body, ok: response.ok && isCommitAck(body) };
 }
 async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, apiToken) {
+  const requestBody = serializeRecordingRequest(payload);
   const response = await fetch(
     `/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-upload/${encodeURIComponent(uploadId)}/finalize`,
     {
       method: "POST",
       headers: await buildHeaders(apiToken),
-      body: JSON.stringify(payload)
+      body: requestBody
     }
   );
   const body = await readBodyAsJson(response);
@@ -77188,6 +78257,7 @@ async function commitRecordingJsonArtifactToTongs(input) {
   };
 }
 async function uploadRecordingWithStrategy(args) {
+  assertRecordingSize(args.source.size);
   if (args.strategy === "single") {
     args.onStatus?.({
       phase: "uploading",
@@ -77205,7 +78275,7 @@ async function uploadRecordingWithStrategy(args) {
       args.apiToken
     );
   }
-  const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
+  const chunkSizeBytes = mbToBytes(boundedUploadMb(args.chunkSizeMb));
   const chunks = buildRecordingChunks(args.source.size, chunkSizeBytes);
   const begin = await beginChunkedRecordingUpload(
     args.workpieceId,
@@ -77490,6 +78560,9 @@ async function commitRecordingSourceToTongs(input) {
         errorMessage: status2.errorMessage ?? null
       });
     }
+  }).catch((error) => {
+    if (!(error instanceof RecordingUploadAdmissionError)) throw error;
+    return { status: 413, ok: false, body: { error: { code: error.code, message: error.message } } };
   });
   if (!commit.ok) {
     const apiError = extractApiError(commit.body);
@@ -77802,6 +78875,7 @@ var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, CAPTU
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
+    init_recording_upload_limits();
     init_tongs_user_auth();
     UUID_RE2 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_TOOL_VERSION = "1.8.5";
@@ -77814,8 +78888,8 @@ var init_workpiece_commit = __esm({
     CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
     CHUNK_SIZE_MB_KEY = "ANVIL_CHUNK_SIZE_MB";
     DEFAULT_LARGE_UPLOAD_WARN_MB = 100;
-    DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 32;
-    DEFAULT_CHUNK_SIZE_MB = 8;
+    DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB = 3;
+    DEFAULT_CHUNK_SIZE_MB = 3;
     CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
     CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
     correlationSeq = 0;
@@ -78032,17 +79106,17 @@ function uniqSeqs(values) {
   }
   return out;
 }
-function mergeTokenWindow(current2, incoming) {
+function mergeTokenWindow(current4, incoming) {
   if (!incoming.length) {
     return {
-      tokens: current2,
+      tokens: current4,
       overlap: 0,
       appendedTokenRange: null,
-      sourceRequestSeqs: uniqSeqs(current2.map((token) => token.sourceSeq)),
+      sourceRequestSeqs: uniqSeqs(current4.map((token) => token.sourceSeq)),
       appendedBySeq: []
     };
   }
-  if (!current2.length) {
+  if (!current4.length) {
     const tokens2 = incoming.slice(-MAX_WINDOW_WORDS);
     return {
       tokens: tokens2,
@@ -78052,12 +79126,12 @@ function mergeTokenWindow(current2, incoming) {
       appendedBySeq: uniqSeqs(tokens2.map((token) => token.sourceSeq))
     };
   }
-  const maxOverlap = Math.min(MAX_OVERLAP_WORDS, current2.length, incoming.length);
+  const maxOverlap = Math.min(MAX_OVERLAP_WORDS, current4.length, incoming.length);
   let overlap = 0;
   for (let size = maxOverlap; size >= 1; size -= 1) {
     let matches = true;
     for (let idx = 0; idx < size; idx += 1) {
-      const currentToken = current2[current2.length - size + idx];
+      const currentToken = current4[current4.length - size + idx];
       const incomingToken = incoming[idx];
       if (!currentToken || !incomingToken || currentToken.normalized !== incomingToken.normalized) {
         matches = false;
@@ -78069,7 +79143,7 @@ function mergeTokenWindow(current2, incoming) {
       break;
     }
   }
-  const merged = overlap >= incoming.length ? current2.slice() : current2.concat(incoming.slice(overlap));
+  const merged = overlap >= incoming.length ? current4.slice() : current4.concat(incoming.slice(overlap));
   const tokens = merged.slice(-MAX_WINDOW_WORDS);
   const appendedCount = Math.max(0, Math.min(incoming.length - overlap, tokens.length));
   const appendedTokenRange = appendedCount > 0 ? { start: tokens.length - appendedCount, end: tokens.length - 1 } : null;
@@ -80201,7 +81275,7 @@ function computeRecordArmOnLive(recordingEnabledOverride) {
     if (!recordingEnabled) {
       return { recordOnLive: false, reason: "disabled-by-settings" };
     }
-    const recordingMode = getRecordingMode();
+    const recordingMode = getRecordingMode2();
     const engine = getRecordingEngine();
     const needsCamera = recordingMode === "av" && engine === "core";
     if (needsCamera && !hasCameraActive()) {
@@ -80218,7 +81292,7 @@ function computeRecordArmOnLive(recordingEnabledOverride) {
       }
       return { recordOnLive: false, reason: "no-camera" };
     }
-    if (!hasMicDevice()) {
+    if (engine === "core" && !hasMicDevice()) {
       return { recordOnLive: false, reason: "no-mic" };
     }
     if (listRecorders().length === 0) {
@@ -85422,6 +86496,8 @@ function deepMergeDefaults(defaults, stored) {
   const result = cloneState2(defaults);
   for (const [key, value] of Object.entries(stored)) {
     if (!(key in result)) continue;
+    if (value === void 0) continue;
+    if (result[key] && typeof result[key] === "object" && !Array.isArray(result[key]) && (!value || typeof value !== "object" || Array.isArray(value))) continue;
     if (value && typeof value === "object" && !Array.isArray(value) && typeof result[key] === "object" && result[key] !== null) {
       result[key] = deepMergeDefaults(result[key], value);
     } else {
@@ -85456,6 +86532,7 @@ function persistState(state9) {
   try {
     if (typeof window === "undefined") return;
     const toStore = {
+      ...JSON.parse(window.localStorage.getItem(STORAGE_KEY8) || "{}"),
       enabled: cloneState2(state9.enabled),
       configs: cloneState2(state9.configs)
     };
@@ -85489,10 +86566,17 @@ function updateRecorderSettings(updater) {
   notify2();
 }
 function setRecorderEnabled(id, enabled2) {
+  if (currentState.enabled[id] === enabled2) return;
   updateRecorderSettings((prev2) => ({
     ...prev2,
     enabled: { ...prev2.enabled, [id]: enabled2 }
   }));
+  if (id === "obs") {
+    try {
+      window.__tpStore?.set?.("obsEnabled", enabled2);
+    } catch {
+    }
+  }
 }
 function setObsConfig(patch) {
   updateRecorderSettings((prev2) => ({
@@ -85552,1891 +86636,766 @@ var init_recorder_settings = __esm({
 });
 
 // src/obs/obs-connection.ts
-function logObsCommand(cmd, extra = {}) {
-  if (shouldSilenceObsLogs) return;
-  const payload = { cmd, ...extra };
-  try {
-    console.log("[OBS-CMD]", payload);
-  } catch {
-  }
-  try {
-    window.HUD?.log?.("obs:command", payload);
-  } catch {
-  }
+function resolveBridge() {
+  return window.__obsBridge ?? null;
 }
-function getBridge() {
-  try {
-    const w3 = window;
-    return w3.__obsBridge || null;
-  } catch {
-    return null;
-  }
-}
-function updateStatus(status2, err) {
-  setObsStatus(status2, err ?? null);
-}
-function toastObs(msg, type = "info") {
-  if (shouldSilenceObsLogs) return;
-  try {
-    const w3 = window;
-    const toast6 = w3._toast || w3.toast;
-    if (typeof toast6 === "function") {
-      toast6(msg, { type });
-      return;
-    }
-  } catch {
-  }
-  try {
-    console.log(msg);
-  } catch {
-  }
-}
-function wireBridgeEvents() {
-  if (wiredEvents) return;
-  const bridge = getBridge();
-  if (!bridge?.on) return;
-  bridge.on("connect", () => updateStatus("connected"));
-  bridge.on("disconnect", () => updateStatus("disconnected"));
-  bridge.on("error", (err) => {
-    const msg = err?.message || String(err || "error");
-    updateStatus("error", msg);
-  });
-  wiredEvents = true;
-}
-function closeBridge(reason) {
-  if (bridgeRetryTimer) {
-    try {
-      clearTimeout(bridgeRetryTimer);
-    } catch {
-    }
-    bridgeRetryTimer = 0;
-  }
-  connectQueued = false;
-  connectInFlight = null;
-  const bridge = getBridge();
-  if (reason === "disabled" && !bridgeArmed) return;
-  logObsCommand("close", { reason });
-  try {
-    void Promise.resolve(bridge?.enableAutoReconnect?.(false)).catch(() => {
-    });
-  } catch {
-  }
-  try {
-    void Promise.resolve(bridge?.setArmed?.(false)).catch(() => {
-    });
-  } catch {
-  }
-  try {
-    void Promise.resolve(bridge?.disconnect?.()).catch(() => {
-    });
-  } catch {
-  }
-  bridgeArmed = false;
-  updateStatus("disconnected", reason);
-}
-async function safeInvoke(label, fn) {
-  if (!fn) return { ok: false };
-  try {
-    const value = await fn();
-    return { ok: true, value };
-  } catch (err) {
-    logObsCommand(`bridge:${label}:error`, { error: String(err?.message || err) });
-    return { ok: false, error: err };
-  }
-}
-function notifyBridgeMissing() {
-  updateStatus("error", "OBS bridge unavailable");
-  const now3 = Date.now();
-  if (now3 - lastBridgeMissingToastAt >= BRIDGE_MISSING_TOAST_COOLDOWN_MS) {
-    lastBridgeMissingToastAt = now3;
-    toastObs("OBS bridge unavailable. Install/enable the OBS bridge to connect.", "warn");
-  } else {
-    try {
-      console.warn("[OBS] bridge unavailable");
-    } catch {
+async function connectObs() {
+  const state9 = getRecorderSettings();
+  const current4 = resolveBridge();
+  if (current4 !== bridge) {
+    unsubscribers.forEach((off2) => off2());
+    unsubscribers = [];
+    bridge = current4;
+    if (bridge) {
+      const source = bridge;
+      unsubscribers = [
+        source.on("connect", () => {
+          if (source === bridge && getRecorderSettings().enabled.obs && source.isConnected()) setObsStatus("connected");
+        }),
+        source.on("disconnect", () => {
+          if (source === bridge) setObsStatus("disconnected");
+        }),
+        source.on("error", (error) => {
+          if (source === bridge) setObsStatus("error", error?.message || String(error));
+        })
+      ];
     }
   }
-}
-function scheduleBridgeRetry(reason) {
-  if (bridgeRetryTimer) return;
-  if (!getRecorderSettings().enabled.obs) return;
-  bridgeRetryTimer = window.setTimeout(() => {
-    bridgeRetryTimer = 0;
-    connectViaBridge();
-  }, BRIDGE_RETRY_MS);
-  logObsCommand("bridge:retry", { reason, delayMs: BRIDGE_RETRY_MS });
-}
-function connectViaBridge() {
-  if (connectInFlight) {
-    connectQueued = true;
-    return;
+  if (!state9.enabled.obs) {
+    current4?.setArmed(false);
+    setObsStatus("disconnected");
+    return false;
   }
-  const run = async () => {
-    const state9 = getRecorderSettings();
-    if (!state9.enabled.obs) {
-      closeBridge();
-      return;
-    }
-    const bridge = getBridge();
-    wireBridgeEvents();
-    if (!bridge) {
-      notifyBridgeMissing();
-      scheduleBridgeRetry("missing-bridge");
-      return;
-    }
-    await safeInvoke(
-      "configure",
-      () => bridge.configure?.({ url: state9.configs.obs.url, password: state9.configs.obs.password || "" })
-    );
-    logObsCommand("configure", { url: state9.configs.obs.url });
-    await safeInvoke("setArmed", () => bridge.setArmed?.(true));
-    bridgeArmed = true;
-    logObsCommand("setArmed", { armed: true });
-    await safeInvoke("enableAutoReconnect", () => bridge.enableAutoReconnect?.(true));
-    logObsCommand("enableAutoReconnect", { on: true });
-    updateStatus("connecting");
-    await safeInvoke("maybeConnect", () => bridge.maybeConnect?.());
-    logObsCommand("connect:maybe");
-    const connectRes = await safeInvoke("connect", () => bridge.connect?.());
-    logObsCommand("connect:explicit");
-    if (connectRes.error || typeof connectRes.value === "boolean" && !connectRes.value) {
-      updateStatus("disconnected", "OBS connection failed");
-      toastObs("OBS connection failed. Make sure OBS is running.", "warn");
-      return;
-    }
-  };
-  connectInFlight = run().catch((err) => {
-    updateStatus("disconnected", "OBS connection failed");
-    try {
-      console.warn("[OBS] connect failed", err);
-    } catch {
-    }
-  }).finally(() => {
-    connectInFlight = null;
-    if (connectQueued) {
-      connectQueued = false;
-      connectViaBridge();
-    }
-  });
+  if (!current4) {
+    setObsStatus("error", "OBS bridge unavailable. Reload Anvil and check Recording Settings.");
+    if (!retry) retry = setTimeout(() => {
+      retry = null;
+      void connectObs();
+    }, 1200);
+    return false;
+  }
+  const attempt = revision;
+  try {
+    current4.configure(state9.configs.obs);
+    current4.setArmed(true);
+    if (!current4.isConnected()) setObsStatus("connecting");
+    const ok = await current4.connect();
+    if (attempt !== revision || !getRecorderSettings().enabled.obs) return false;
+    const connected = ok === true && current4.isConnected();
+    setObsStatus(connected ? "connected" : "error", connected ? null : "OBS connection failed. Check OBS WebSocket authentication and address.");
+    return connected;
+  } catch (error) {
+    if (attempt === revision) setObsStatus("error", error.message);
+    return false;
+  }
 }
 function initObsConnection() {
-  const initial2 = getRecorderSettings();
-  lastEnabled = initial2.enabled.obs;
-  lastUrl = initial2.configs.obs.url;
-  lastPassword = initial2.configs.obs.password;
-  subscribeRecorderSettings((s) => {
-    const prevEnabled = lastEnabled;
-    const prevUrl = lastUrl;
-    const prevPwd = lastPassword;
-    const urlChanged = s.configs.obs.url !== prevUrl;
-    const pwdChanged = s.configs.obs.password !== prevPwd;
-    const enabledChanged = s.enabled.obs !== prevEnabled;
-    lastEnabled = s.enabled.obs;
-    lastUrl = s.configs.obs.url;
-    lastPassword = s.configs.obs.password;
-    if (!s.enabled.obs) {
-      if (enabledChanged) {
-        closeBridge("disabled");
-      }
-      return;
+  if (initialized) return;
+  initialized = true;
+  subscribeRecorderSettings((state9) => {
+    const intent = JSON.stringify([state9.enabled.obs, state9.configs.obs]);
+    if (intent === lastIntent) return;
+    lastIntent = intent;
+    revision += 1;
+    if (retry) {
+      clearTimeout(retry);
+      retry = null;
     }
-    if (!enabledChanged && !urlChanged && !pwdChanged) return;
-    closeBridge(enabledChanged ? "reconnect" : void 0);
-    connectViaBridge();
+    resolveBridge()?.setArmed(false);
+    void connectObs();
   });
-  if (initial2.enabled.obs) {
-    connectViaBridge();
-  } else {
-    updateStatus("disconnected");
-  }
 }
-var shouldSilenceObsLogs, lastUrl, lastPassword, lastEnabled, wiredEvents, bridgeArmed, connectInFlight, connectQueued, bridgeRetryTimer, lastBridgeMissingToastAt, BRIDGE_RETRY_MS, BRIDGE_MISSING_TOAST_COOLDOWN_MS;
+var initialized, bridge, unsubscribers, revision, lastIntent, retry;
 var init_obs_connection = __esm({
   "src/obs/obs-connection.ts"() {
     "use strict";
     init_recorder_settings();
-    shouldSilenceObsLogs = (() => {
-      try {
-        const w3 = window;
-        if (w3.__TP_SILENCE_OBS_LOGS) return true;
-        const search = String(location.search || "").toLowerCase();
-        return search.includes("ci=1") || search.includes("uimock=1");
-      } catch {
-        return false;
-      }
-    })();
-    lastUrl = "";
-    lastPassword = "";
-    lastEnabled = false;
-    wiredEvents = false;
-    bridgeArmed = false;
-    connectInFlight = null;
-    connectQueued = false;
-    bridgeRetryTimer = 0;
-    lastBridgeMissingToastAt = 0;
-    BRIDGE_RETRY_MS = 1200;
-    BRIDGE_MISSING_TOAST_COOLDOWN_MS = 8e3;
-  }
-});
-
-// recorders-core.ts
-function __tpReadAutoRecordPref() {
-  try {
-    if (typeof window !== "undefined") {
-      const store3 = window.__tpStore;
-      if (store3 && typeof store3.get === "function") {
-        const v = store3.get("autoRecord");
-        if (typeof v === "boolean") return v;
-      }
-    }
-  } catch {
-  }
-  try {
-    const doc = typeof document !== "undefined" ? document : null;
-    if (doc) {
-      const el = doc.getElementById("autoRecordToggle") || doc.getElementById("autoRecord");
-      if (el) return !!el.checked;
-    }
-  } catch {
-  }
-  try {
-    return localStorage.getItem("tp_auto_record_on_start_v1") === "1";
-  } catch {
-    return false;
-  }
-}
-function persistSettings() {
-  try {
-    localStorage.setItem(LS_KEY2, JSON.stringify(settings));
-    try {
-      localStorage.setItem("tp_record_mode", String(settings.mode || "multi"));
-    } catch {
-    }
-    try {
-      localStorage.setItem("tp_adapters", JSON.stringify(Array.isArray(settings.selected) ? settings.selected : []));
-    } catch {
-    }
-  } catch {
-  }
-}
-function setSettings(next) {
-  if (!next || typeof next !== "object") return;
-  const prev2 = settings;
-  settings = {
-    ...prev2,
-    ..."mode" in next ? { mode: next.mode } : {},
-    ..."selected" in next ? { selected: Array.isArray(next.selected) ? next.selected.slice() : prev2.selected } : {},
-    ..."recordingMode" in next ? { recordingMode: next.recordingMode === "audio" ? "audio" : "av" } : {},
-    ..."preferObsHandoff" in next ? { preferObsHandoff: !!next.preferObsHandoff } : {},
-    ..."configs" in next ? { configs: { ...prev2.configs, ...next.configs || {} } } : {},
-    ..."timeouts" in next ? { timeouts: { ...prev2.timeouts, ...next.timeouts || {} } } : {},
-    ..."failPolicy" in next ? { failPolicy: next.failPolicy } : {}
-  };
-  persistSettings();
-  applyConfigs();
-}
-function getSettings() {
-  return JSON.parse(JSON.stringify(settings));
-}
-function setSelected(ids) {
-  setSettings({ selected: Array.isArray(ids) ? ids : [] });
-}
-function setMode(mode) {
-  setSettings({ mode });
-}
-function setRecordingMode(mode) {
-  setSettings({ recordingMode: mode });
-}
-function getRecordingMode2() {
-  return settings.recordingMode === "audio" ? "audio" : "av";
-}
-function setTimeouts(t) {
-  setSettings({ timeouts: t });
-}
-function setFailPolicy(p) {
-  setSettings({ failPolicy: p });
-}
-function applyConfigs() {
-  for (const [id, a] of registry2.entries()) {
-    try {
-      const cfg = settings.configs[id];
-      if (cfg && typeof a.configure === "function") a.configure(cfg);
-    } catch {
-    }
-  }
-}
-function callWithTimeout(promiseOrFn, ms = 0) {
-  const p = typeof promiseOrFn === "function" ? promiseOrFn() : promiseOrFn;
-  return Promise.race([
-    Promise.resolve().then(() => p),
-    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), Math.max(0, ms || 0)))
-  ]);
-}
-async function guarded(fn) {
-  if (_busy) return { skipped: true };
-  _busy = true;
-  try {
-    return await fn();
-  } finally {
-    _busy = false;
-  }
-}
-function describeError(err) {
-  if (err instanceof Error && typeof err.message === "string") return err.message;
-  try {
-    return String(err);
-  } catch {
-    return "error";
-  }
-}
-function setTrackedTimeout(fn, ms) {
-  const h = setTimeout(() => {
-    try {
-      __recTimers.delete(h);
-    } catch {
-    }
-    try {
-      fn();
-    } catch {
-    }
-  }, Math.max(0, ms || 0));
-  try {
-    __recTimers.add(h);
-  } catch {
-  }
-  return h;
-}
-function _emitRecState(state9, detail = null) {
-  try {
-    _recState = state9;
-    _recDetail = detail || null;
-    if (typeof window !== "undefined") {
-      try {
-        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
-      } catch {
-      }
-      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
-      try {
-        const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
-        if (key === __lastRecKey) return;
-        __lastRecKey = key;
-      } catch {
-      }
-      window.dispatchEvent(new CustomEvent("rec:state", { detail: payload }));
-      try {
-        window.__tpHud?.log?.("[rec:state]", payload);
-      } catch {
-      }
-    }
-  } catch {
-  }
-}
-function _isActiveState(s) {
-  return s === "starting" || s === "recording";
-}
-function getRecState() {
-  return { state: _recState, adapter: _recAdapter, detail: _recDetail };
-}
-function isNoRecordMode() {
-  try {
-    return !!(window.__tpNoRecord || typeof document !== "undefined" && document.body && document.body.classList && document.body.classList.contains("mode-rehearsal"));
-  } catch {
-    return false;
-  }
-}
-function selectedIds() {
-  const ids = Array.isArray(settings.selected) ? settings.selected.slice() : [];
-  if (settings.mode === "single" && ids.length > 1) ids.length = 1;
-  return ids.filter((id) => registry2.has(id));
-}
-function clearHandoffTimer() {
-  try {
-    if (__handoffTimer) {
-      clearInterval(__handoffTimer);
-      __handoffTimer = null;
-    }
-  } catch {
-  }
-}
-async function tryObsHandoffOnce(reason = "watchdog") {
-  try {
-    if (!settings?.preferObsHandoff) return false;
-    if (_recState !== "recording" || _recAdapter !== "bridge") return false;
-    const br = typeof window !== "undefined" ? window.__obsBridge || null : null;
-    if (!br || typeof br.getRecordStatus !== "function") return false;
-    let isRec = false;
-    try {
-      const s = await br.getRecordStatus();
-      isRec = !!(s && (s.outputActive === true || s.recording === true));
-    } catch {
-    }
-    if (!isRec) return false;
-    const bridgeAdapter = registry2.get("bridge");
-    _emitRecState("stopping", { reason: "obs-handoff", via: reason });
-    try {
-      await bridgeAdapter?.stop?.();
-    } catch {
-    }
-    _recAdapter = "obs";
-    _emitRecState("recording", { handoff: true });
-    clearHandoffTimer();
-    return true;
-  } catch {
-    return false;
-  }
-}
-function armObsHandoffWatchdog() {
-  clearHandoffTimer();
-  try {
-    if (!settings?.preferObsHandoff) return;
-    if (_recState === "recording" && _recAdapter === "bridge") {
-      const t = setInterval(() => {
-        tryObsHandoffOnce("watchdog");
-      }, 1e3);
-      try {
-        const maybeTimer = t;
-        if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
-      } catch {
-      }
-      __handoffTimer = t;
-    }
-  } catch {
-  }
-}
-async function teardownRecorders() {
-  try {
-    __recEpoch++;
-  } catch {
-  }
-  try {
-    __lastBridgeTap = 0;
-  } catch {
-  }
-  try {
-    for (const h of Array.from(__recTimers)) {
-      clearTimeout(h);
-      __recTimers.delete(h);
-    }
-  } catch {
-  }
-  try {
-    clearHandoffTimer();
-  } catch {
-  }
-  try {
-    if (__recStatsTimer) {
-      clearInterval(__recStatsTimer);
-      __recStatsTimer = null;
-    }
-  } catch {
-  }
-  try {
-    const br = typeof window !== "undefined" ? window.__obsBridge : null;
-    if (br) {
-      if (typeof br.off === "function") {
-        try {
-          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
-            br.off("disconnect", _onObsDisconnectCb);
-            window.__tpObsDisconnectWired = false;
-          }
-        } catch {
-        }
-        try {
-          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
-            br.off("recordingStarted", _onObsRecordingStartedCb);
-            window.__tpObsHandoffWired = false;
-          }
-        } catch {
-        }
-      } else if (typeof br.removeListener === "function") {
-        try {
-          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
-            br.removeListener("disconnect", _onObsDisconnectCb);
-            window.__tpObsDisconnectWired = false;
-          }
-        } catch {
-        }
-        try {
-          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
-            br.removeListener("recordingStarted", _onObsRecordingStartedCb);
-            window.__tpObsHandoffWired = false;
-          }
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-}
-async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}) {
-  const obs = typeof window !== "undefined" ? window.__obsBridge || null : null;
-  const bridgeAdapter = registry2.get("bridge");
-  const epoch = __recEpoch;
-  const isStale = () => epoch !== __recEpoch;
-  try {
-    window.__tpHud?.log?.("[rec] start obs");
-  } catch {
-  }
-  try {
-    _recAdapter = "obs";
-    _emitRecState("starting");
-  } catch {
-  }
-  let fallbackSent = false;
-  const maybeTapBridge = async () => {
-    const t = __now();
-    if (t - __lastBridgeTap < 1200) return false;
-    __lastBridgeTap = t;
-    try {
-      await bridgeAdapter?.start?.();
-    } catch {
-    }
-    return true;
-  };
-  const confirm = async () => {
-    try {
-      const s = await obs?.getRecordStatus?.();
-      return !!(s && s.outputActive === true);
-    } catch {
-      return false;
-    }
-  };
-  const tryStart = async () => {
-    try {
-      if (obs && typeof obs.start === "function") await obs.start();
-      else if (obs && typeof obs.startRecord === "function") await obs.startRecord();
-    } catch {
-    }
-  };
-  await tryStart();
-  let ok = false;
-  let deadline = __now() + timeoutMs;
-  while (!ok && __now() < deadline) {
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort confirm (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    ok = await confirm();
-    if (!ok) await __sleep(120);
-  }
-  if (!ok) {
-    try {
-      window.__tpHud?.log?.("[rec] retry");
-    } catch {
-    }
-    await __sleep(Math.max(0, retryDelayMs));
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort retry (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    await tryStart();
-    try {
-      recStats.retries++;
-    } catch {
-    }
-    ok = await confirm();
-  }
-  if (ok) {
-    try {
-      _recAdapter = "obs";
-      _emitRecState("recording");
-    } catch {
-    }
-    return { ok: true, adapter: "obs" };
-  }
-  const isBridgeAvailable = !!bridgeAdapter;
-  if (!fallbackSent && isBridgeAvailable) {
-    fallbackSent = true;
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort fallback (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    await maybeTapBridge();
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort fallback (stale-2)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    try {
-      window.__tpHud?.log?.("[rec] fallback bridge");
-    } catch {
-    }
-    try {
-      _recAdapter = "bridge";
-      _emitRecState("recording", { fallback: true });
-    } catch {
-    }
-    try {
-      recStats.fallbacks++;
-    } catch {
-    }
-    return { ok: true, adapter: "bridge", fallback: true };
-  }
-  try {
-    window.__tpHud?.log?.("[rec] drop (start-timeout)");
-  } catch {
-  }
-  try {
-    _recAdapter = "obs";
-    _emitRecState("error", { reason: "start-timeout" });
-  } catch {
-  }
-  return { ok: false, adapter: "obs", error: "start-timeout" };
-}
-async function startSelected() {
-  return guarded(async () => {
-    if (isNoRecordMode()) {
-      try {
-        window.HUD?.log?.("rehearsal", { skip: "startSelected (no-record)" });
-      } catch {
-      }
-      return { results: [], started: [] };
-    }
-    if (_recState === "stopping") {
-      try {
-        window.__tpHud?.log?.("[rec] busy (stopping)");
-      } catch {
-      }
-      return { results: [], started: [], reason: "idempotent-start-while-stopping" };
-    }
-    if (_isActiveState(_recState)) {
-      try {
-        window.__tpHud?.log?.("[rec] already recording");
-      } catch {
-      }
-      _emitRecState(_recState, { reason: "idempotent-start" });
-      return { results: [], started: selectedIds() };
-    }
-    applyConfigs();
-    try {
-      ensureObsDisconnectFallback();
-    } catch {
-    }
-    try {
-      ensureObsRecordingStartedHandoff();
-    } catch {
-    }
-    const ids = selectedIds();
-    _recAdapter = settings.mode === "single" ? ids[0] || null : ids[0] || null;
-    _emitRecState("starting");
-    const t0 = __now();
-    try {
-      recStats.starts++;
-    } catch {
-    }
-    const started = [];
-    const actions = ids.map((id) => ({ id, a: registry2.get(id) }));
-    const doStart = async ({ id, a }) => {
-      if (!a) return { id, ok: false, error: "missing" };
-      try {
-        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.start);
-        if (!avail) return { id, ok: false, error: "unavailable" };
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-      try {
-        if (id === "obs") {
-          const res = await startObsWithConfirm({ timeoutMs: Math.min(2e3, settings.timeouts.start || 1500), retryDelayMs: 500 });
-          if (res && res.ok === false && res.error === "stale") {
-            return { id, ok: false, error: "stale" };
-          }
-          if (res && res.ok && res.adapter === "bridge" && res.fallback) {
-          }
-          if (res.ok) {
-            started.push(id);
-            return { id, ok: true, detail: res };
-          }
-          return { id, ok: false, error: res.error || "failed" };
-        } else {
-          await callWithTimeout(() => a.start(), settings.timeouts.start);
-          started.push(id);
-          return { id, ok: true };
-        }
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-    };
-    const results = [];
-    if (settings.failPolicy === "abort-on-first-fail") {
-      for (const act of actions) {
-        const r = await doStart(act);
-        results.push(r);
-        if (!r.ok) break;
-      }
-    } else {
-      const rs = await Promise.all(actions.map(doStart));
-      results.push(...rs);
-    }
-    if (started.length) {
-      try {
-        window.__tpHud?.log?.("[rec] recording");
-      } catch {
-      }
-      const anyFallback = results.find((r) => r && r.id === "obs" && r.detail && r.detail.fallback);
-      if (anyFallback) {
-        _recAdapter = "bridge";
-        _emitRecState("recording", { fallback: true, via: "bridge" });
-      } else {
-        _emitRecState("recording");
-      }
-      try {
-        recStats.startLat.push(Math.max(0, __now() - t0));
-      } catch {
-      }
-    } else {
-      _emitRecState("error", { results });
-    }
-    return { results, started };
-  });
-}
-async function stopSelected() {
-  __recEpoch++;
-  __lastBridgeTap = 0;
-  clearHandoffTimer();
-  if (isNoRecordMode()) {
-    try {
-      window.HUD?.log?.("rehearsal", { note: "stopSelected (allowed during no-record)" });
-    } catch {
-    }
-  }
-  if (_recState === "idle" || _recState === "stopping") {
-    _emitRecState("idle", { reason: "idempotent-stop" });
-    return { results: [] };
-  }
-  try {
-    window.__tpHud?.log?.("[rec] stop");
-  } catch {
-  }
-  _emitRecState("stopping");
-  const t0 = __now();
-  const ids = selectedIds();
-  const actions = ids.map((id) => ({ id, a: registry2.get(id) })).filter((x) => !!x.a);
-  const rs = await Promise.all(
-    actions.map(async ({ id, a }) => {
-      try {
-        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.stop);
-        if (!avail) return { id, ok: false, error: "unavailable" };
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-      try {
-        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
-        return { id, ok: true, ...detail && typeof detail === "object" ? { detail } : {} };
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-    })
-  );
-  _emitRecState("idle");
-  for (const result of rs) {
-    if (result.id !== "obs" || !result.ok || !result.detail) continue;
-    try {
-      void window.__tpObsImport?.acceptStopResult?.(result.detail);
-    } catch {
-    }
-  }
-  try {
-    recStats.stopLat.push(Math.max(0, __now() - t0));
-  } catch {
-  }
-  return { results: rs };
-}
-function register(adapter) {
-  registry2.set(adapter.id, adapter);
-}
-function get2(id) {
-  return registry2.get(id);
-}
-function all() {
-  return [...registry2.values()];
-}
-async function initBuiltIns() {
-  if (_builtInsInit) return _builtInsReady;
-  _builtInsInit = true;
-  try {
-    const adapters = [];
-    const resolver = typeof window !== "undefined" && typeof window.__TP_ADDV === "function" ? window.__TP_ADDV.bind(window) : ((p) => p);
-    try {
-      const m = await import(
-        /* @vite-ignore */
-        resolver("./adapters/bridge.js")
-      );
-      const a = m?.createBridgeAdapter?.();
-      if (a) adapters.push(a);
-    } catch {
-    }
-    try {
-      const m = await import(
-        /* @vite-ignore */
-        resolver("./adapters/obs.js")
-      );
-      const a = m?.createOBSAdapter?.();
-      if (a) adapters.push(a);
-    } catch {
-    }
-    try {
-      const m = await import(
-        /* @vite-ignore */
-        resolver("./adapters/hotkey.js")
-      );
-      const aPrem = m?.createHotkeyAdapter?.("premiere", "Adobe Premiere Pro");
-      if (aPrem) adapters.push(aPrem);
-    } catch {
-    }
-    try {
-      if (typeof window !== "undefined" && window.__obsBridge) {
-        const bridge = window.__obsBridge;
-        const wrapper = {
-          id: "obs",
-          label: "OBS (WebSocket) - bridge",
-          configure(cfg) {
-            try {
-              bridge.configure(cfg);
-            } catch {
-            }
-          },
-          async isAvailable() {
-            try {
-              return bridge.isConnected ? bridge.isConnected() : bridge.isConnected && bridge.isConnected();
-            } catch {
-              return !!bridge.isConnected && bridge.isConnected();
-            }
-          },
-          async start() {
-            return bridge.start();
-          },
-          async stop() {
-            return bridge.stop();
-          },
-          async test() {
-            return bridge.getRecordStatus();
-          }
-        };
-        adapters.push(wrapper);
-      }
-    } catch {
-    }
-    for (const a of adapters) {
-      try {
-        register(a);
-      } catch {
-      }
-    }
-    applyConfigs();
-    try {
-      ensureObsDisconnectFallback();
-    } catch {
-    }
-    try {
-      ensureObsRecordingStartedHandoff();
-    } catch {
-    }
-  } catch {
-  } finally {
-    _resolveBuiltInsReady?.();
-    _resolveBuiltInsReady = null;
-  }
-}
-function ensureObsDisconnectFallback() {
-  try {
-    if (typeof window === "undefined") return;
-    const br = window.__obsBridge;
-    if (!br || typeof br.on !== "function") return;
-    if (window.__tpObsDisconnectWired) return;
-    window.__tpObsDisconnectWired = true;
-    _onObsDisconnectCb = async () => {
-      try {
-        const state9 = _recState;
-        const bridgeAdapter = registry2.get("bridge");
-        const isAuto = __tpReadAutoRecordPref();
-        try {
-          recStats.disconnects++;
-        } catch {
-        }
-        if (state9 === "starting") {
-          await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
-          return;
-        }
-        if (state9 === "recording") {
-          _emitRecState("stopping", { reason: "disconnect" });
-          if (isAuto && bridgeAdapter) {
-            try {
-              await bridgeAdapter.start?.();
-            } catch {
-            }
-            try {
-              window.dispatchEvent(new CustomEvent("rec:state", { detail: { adapter: "bridge", state: "recording", detail: { fallback: true, reason: "obs-disconnect" } } }));
-            } catch {
-            }
-          } else {
-            _emitRecState("idle", { reason: "disconnect" });
-          }
-        }
-      } catch {
-      }
-    };
-    br.on("disconnect", _onObsDisconnectCb);
-  } catch {
-  }
-}
-function ensureObsRecordingStartedHandoff() {
-  try {
-    if (typeof window === "undefined") return;
-    const br = window.__obsBridge;
-    if (!br || typeof br.on !== "function") return;
-    if (window.__tpObsHandoffWired) return;
-    window.__tpObsHandoffWired = true;
-    _onObsRecordingStartedCb = async () => {
-      try {
-        const prefer = !!(settings && settings.preferObsHandoff);
-        if (_recState === "recording" && _recAdapter === "bridge") {
-          if (!prefer) {
-            try {
-              window.__tpHud?.log?.("[rec] obs up (handoff disabled)");
-            } catch {
-            }
-            return;
-          }
-          const bridgeAdapter = registry2.get("bridge");
-          _emitRecState("stopping", { reason: "obs-handoff" });
-          try {
-            await bridgeAdapter?.stop?.();
-          } catch {
-          }
-          _recAdapter = "obs";
-          _emitRecState("recording", { handoff: true });
-        }
-      } catch {
-      }
-    };
-    br.on("recordingStarted", _onObsRecordingStartedCb);
-  } catch {
-  }
-}
-async function start() {
-  return startSelected();
-}
-async function stop2() {
-  return stopSelected();
-}
-function p95(arr) {
-  if (!arr || !arr.length) return 0;
-  const a = arr.slice().sort((x, y) => x - y);
-  const i = Math.min(a.length - 1, Math.floor(a.length * 0.95));
-  return a[i] || 0;
-}
-function emitRecStats(_final = false) {
-  try {
-    const payload = {
-      starts: recStats.starts | 0,
-      retries: recStats.retries | 0,
-      fallbacks: recStats.fallbacks | 0,
-      disconnects: recStats.disconnects | 0,
-      startP95Ms: Math.round(p95(recStats.startLat)),
-      stopP95Ms: Math.round(p95(recStats.stopLat))
-    };
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rec:stats", { detail: payload }));
-    }
-  } catch {
-  }
-}
-var registry2, LS_KEY2, defaultSettings, settings, _busy, _recState, _recDetail, _recAdapter, __recEpoch, __lastBridgeTap, __recTimers, _onObsDisconnectCb, _onObsRecordingStartedCb, __now, __sleep, __lastRecKey, __handoffTimer, _builtInsInit, _resolveBuiltInsReady, _builtInsReady, recStats, __recStatsTimer;
-var init_recorders_core = __esm({
-  "recorders-core.ts"() {
-    "use strict";
-    (function() {
-      try {
-        let getJSON2 = function(k, d) {
-          try {
-            const raw = localStorage.getItem(k);
-            return raw ? JSON.parse(raw) : d;
-          } catch {
-            return d;
-          }
-        }, getCfg2 = function() {
-          const a = getJSON2(LS.cfg, {});
-          const b = getJSON2(LS.modern, {});
-          const inner = b && b.configs || {};
-          const merged = { ...inner, ...a };
-          if (a && a.recording) merged.recording = a.recording;
-          return merged;
-        }, getSelectedAdapterId2 = function() {
-          const cfg = getCfg2();
-          try {
-            return cfg.recording && cfg.recording.adapter || localStorage.getItem(LS.recAdapter) || DEFAULT_ADAPTER;
-          } catch {
-            return DEFAULT_ADAPTER;
-          }
-        }, wantsAuto2 = function() {
-          return __tpReadAutoRecordPref();
-        }, getAdapter2 = function(id) {
-          if (typeof id === "string" && id.length > 0) {
-            try {
-              return get2(id);
-            } catch {
-              return void 0;
-            }
-          }
-          return getSelectedAdapterId2();
-        }, bridgeCfg2 = function() {
-          const cfg = getCfg2().bridge || {};
-          return {
-            mode: cfg.mode || "hotkey",
-            baseUrl: String(cfg.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, ""),
-            startHotkey: cfg.startHotkey || cfg.preset || "Ctrl+R",
-            stopHotkey: cfg.stopHotkey || "",
-            startUrl: cfg.startUrl || "",
-            stopUrl: cfg.stopUrl || ""
-          };
-        }, getRecorderSurface2 = function() {
-          try {
-            const w3 = window;
-            return w3.__tpRecorder || w3.__recorder || null;
-          } catch {
-            return null;
-          }
-        };
-        var getJSON = getJSON2, getCfg = getCfg2, getSelectedAdapterId = getSelectedAdapterId2, wantsAuto = wantsAuto2, getAdapter = getAdapter2, bridgeCfg = bridgeCfg2, getRecorderSurface = getRecorderSurface2;
-        if (typeof window === "undefined") return;
-        const DEFAULT_ADAPTER = "recorder";
-        const LS = {
-          cfg: "configs",
-          // whole app config blob (optional)
-          recAdapter: "tp_rec_adapter",
-          // 'obs' | 'bridge' | 'premiere'
-          autoStart: "tp_auto_record_on_start_v1",
-          modern: "tp_rec_settings_v1"
-          // modern settings blob from registry (has .configs)
-        };
-        async function httpSend(url, body) {
-          if (!url) throw new Error("Missing URL");
-          const res = await fetch(url, {
-            method: body ? "POST" : "GET",
-            headers: body ? { "content-type": "application/json" } : void 0,
-            body: body ? JSON.stringify(body) : void 0,
-            mode: "no-cors"
-          });
-          try {
-            return !!res.ok || true;
-          } catch {
-            return true;
-          }
-        }
-        async function recorderStart() {
-          const rec2 = getRecorderSurface2();
-          if (!rec2 || typeof rec2.start !== "function") return true;
-          try {
-            await rec2.start();
-            return true;
-          } catch (err) {
-            try {
-              console.warn("[recorder] start failed", err);
-            } catch {
-            }
-            return false;
-          }
-        }
-        async function recorderStop() {
-          const rec2 = getRecorderSurface2();
-          if (!rec2 || typeof rec2.stop !== "function") return true;
-          try {
-            await rec2.stop();
-            return true;
-          } catch (err) {
-            try {
-              console.warn("[recorder] stop failed", err);
-            } catch {
-            }
-            return false;
-          }
-        }
-        async function bridgeStart() {
-          const b = bridgeCfg2();
-          if (b.mode === "http") {
-            return httpSend(b.startUrl);
-          }
-          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.startHotkey);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(b.baseUrl + "/send", { keys: b.startHotkey });
-          }
-        }
-        async function bridgeStop() {
-          const b = bridgeCfg2();
-          if (b.mode === "http") {
-            return b.stopUrl ? httpSend(b.stopUrl) : true;
-          }
-          if (!b.stopHotkey) return true;
-          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.stopHotkey);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(b.baseUrl + "/send", { keys: b.stopHotkey });
-          }
-        }
-        async function obsStart() {
-          try {
-            if (window.__obsBridge && typeof window.__obsBridge.start === "function") {
-              await window.__obsBridge.start();
-              return true;
-            }
-          } catch {
-          }
-          try {
-            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
-              return !!await window.__tpObs.ensureRecording(true);
-            }
-          } catch {
-          }
-          return false;
-        }
-        async function obsStop() {
-          try {
-            if (window.__obsBridge && typeof window.__obsBridge.stop === "function") {
-              await window.__obsBridge.stop();
-              return true;
-            }
-          } catch {
-          }
-          try {
-            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
-              return !!await window.__tpObs.ensureRecording(false);
-            }
-          } catch {
-          }
-          return false;
-        }
-        async function premStart() {
-          const p = getCfg2().premiere || {};
-          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
-          const hk = String(p.startHotkey || "Ctrl+R");
-          const url = base + "/send?keys=" + encodeURIComponent(hk);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(base + "/send", { keys: hk });
-          }
-        }
-        async function premStop() {
-          const p = getCfg2().premiere || {};
-          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
-          const hk = String(p.stopHotkey || "");
-          if (!hk) return true;
-          const url = base + "/send?keys=" + encodeURIComponent(hk);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(base + "/send", { keys: hk });
-          }
-        }
-        async function start2() {
-          const a = getSelectedAdapterId2();
-          try {
-            window.__tpHud?.log?.("[rec]", "start", a);
-          } catch {
-          }
-          if (a === "recorder") return recorderStart();
-          if (a === "obs") return obsStart();
-          if (a === "descript") return premStart();
-          if (a === "premiere") return premStart();
-          return bridgeStart();
-        }
-        async function stop3() {
-          const a = getSelectedAdapterId2();
-          try {
-            window.__tpHud?.log?.("[rec]", "stop", a);
-          } catch {
-          }
-          if (a === "recorder") return recorderStop();
-          if (a === "obs") return obsStop();
-          if (a === "descript") return premStop();
-          if (a === "premiere") return premStop();
-          return bridgeStop();
-        }
-        window.__tpRecording = { start: start2, stop: stop3, wantsAuto: wantsAuto2, getAdapter: getAdapter2 };
-      } catch {
-      }
-    })();
-    registry2 = /* @__PURE__ */ new Map();
-    LS_KEY2 = "tp_rec_settings_v1";
-    defaultSettings = {
-      mode: "single",
-      selected: ["core"],
-      recordingMode: "av",
-      preferObsHandoff: false,
-      configs: {
-        obs: { url: "ws://127.0.0.1:4455", password: "" },
-        companion: { url: "http://127.0.0.1:8000", buttonId: "1.1" },
-        bridge: { startUrl: "http://127.0.0.1:5723/record/start", stopUrl: "" },
-        descript: { startHotkey: "Ctrl+R", via: "bridge" },
-        capcut: { startHotkey: "Ctrl+R", via: "companion" },
-        winmedia: { startHotkey: "Ctrl+R", via: "bridge" },
-        premiere: { startHotkey: "Ctrl+R", stopHotkey: "", baseUrl: "http://127.0.0.1:5723" }
-      },
-      timeouts: { start: 3e3, stop: 3e3 },
-      failPolicy: "continue"
-    };
-    settings = JSON.parse(JSON.stringify(defaultSettings));
-    try {
-      const raw = localStorage.getItem(LS_KEY2);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") settings = { ...settings, ...parsed };
-      } else {
-        try {
-          localStorage.setItem(LS_KEY2, JSON.stringify(settings));
-        } catch {
-        }
-      }
-    } catch {
-    }
-    _busy = false;
-    _recState = "idle";
-    _recDetail = null;
-    _recAdapter = null;
-    __recEpoch = 0;
-    __lastBridgeTap = 0;
-    __recTimers = /* @__PURE__ */ new Set();
-    _onObsDisconnectCb = null;
-    _onObsRecordingStartedCb = null;
-    __now = () => typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-    __sleep = (ms) => new Promise((resolve) => {
-      setTrackedTimeout(() => resolve(), Math.max(0, ms || 0));
-    });
-    __lastRecKey = "";
-    __handoffTimer = null;
-    try {
-      if (typeof window !== "undefined") {
-        window.__recorder = window.__recorder || {};
-        if (!window.__recorder.__finalizeForTests) {
-          window.__recorder.__finalizeForTests = () => {
-            try {
-              clearHandoffTimer();
-            } catch {
-            }
-            try {
-              __recEpoch++;
-            } catch {
-            }
-            try {
-              if (__recStatsTimer) {
-                clearInterval(__recStatsTimer);
-                __recStatsTimer = null;
-              }
-            } catch {
-            }
-          };
-        }
-      }
-    } catch {
-    }
-    _builtInsInit = false;
-    _resolveBuiltInsReady = null;
-    _builtInsReady = new Promise((resolve) => {
-      _resolveBuiltInsReady = resolve;
-    });
-    try {
-      initBuiltIns();
-    } catch {
-    }
-    (function wireRecStateWatchdog() {
-      try {
-        if (typeof window === "undefined") return;
-        if (window.__tpRecWatchdogWired) return;
-        window.__tpRecWatchdogWired = true;
-        window.addEventListener("rec:state", (e) => {
-          try {
-            const evt = e;
-            const d = evt && evt.detail || {};
-            if (d && d.state === "recording" && d.adapter === "bridge" && settings?.preferObsHandoff) {
-              armObsHandoffWatchdog();
-            }
-            if (d && (d.state === "idle" || d.state === "stopping")) {
-              clearHandoffTimer();
-            }
-          } catch {
-          }
-        });
-      } catch {
-      }
-    })();
-    recStats = { starts: 0, retries: 0, fallbacks: 0, disconnects: 0, startLat: [], stopLat: [] };
-    __recStatsTimer = null;
-    try {
-      if (typeof window !== "undefined") {
-        if (__recStatsTimer) clearInterval(__recStatsTimer);
-        __recStatsTimer = setInterval(() => emitRecStats(false), 5e3);
-        try {
-          const maybeTimer = __recStatsTimer;
-          if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
-        } catch {
-        }
-        window.addEventListener("beforeunload", () => emitRecStats(true));
-      }
-    } catch {
-    }
-  }
-});
-
-// recorders-bridge-compat.ts
-function initCompat() {
-  if (typeof window !== "undefined") {
-    if (!window.__recorder) {
-      window.__recorder = {
-        get(name) {
-          return name === "obs" ? recorder : null;
-        }
-      };
-    }
-    window.recorders = window.recorders || window.__recorder;
-  }
-  return typeof window !== "undefined" ? window.__recorder : { get: () => null };
-}
-function getObsBridge() {
-  try {
-    if (typeof window === "undefined") return null;
-    if (window.__obsBridge) return window.__obsBridge;
-    if (window.__tpObsBridge) return window.__tpObsBridge;
-    const legacy = window.__tpObs;
-    if (legacy && typeof legacy === "object") return legacy;
-    return null;
-  } catch {
-    return null;
-  }
-}
-function inlineConnect(testOnly) {
-  return new Promise((resolve) => {
-    try {
-      const cfgUrl = obsCfg && obsCfg.host ? `${obsCfg.secure ? "wss" : "ws"}://${obsCfg.host}:${obsCfg.port}` : null;
-      const url = _cfgBridge.getUrl?.() || cfgUrl || "ws://127.0.0.1:4455";
-      const pass = _cfgBridge.getPass?.() || "";
-      try {
-        console.log("[OBS-BRIDGE] inlineConnect", { url, hasPass: !!pass, testOnly: !!testOnly });
-      } catch {
-      }
-      if (typeof WebSocket === "undefined") {
-        try {
-          console.warn("[OBS-BRIDGE] inlineConnect: WebSocket not available");
-        } catch {
-        }
-        resolve(false);
-        return;
-      }
-      const ws = new WebSocket(url);
-      let settled = false;
-      ws.onopen = () => {
-        settled = true;
-        try {
-          ws.close(1e3, "probe");
-        } catch {
-        }
-        resolve(true);
-      };
-      ws.onerror = () => {
-        if (settled) return;
-        settled = true;
-        resolve(false);
-      };
-      ws.onclose = () => {
-        if (settled) return;
-        settled = true;
-        resolve(true);
-      };
-    } catch (err) {
-      try {
-        console.warn("[OBS-BRIDGE] inlineConnect error", err);
-      } catch {
-      }
-      resolve(false);
-    }
-  });
-}
-async function safeConnect(testOnly) {
-  try {
-    console.log("[OBS-BRIDGE] connect()", { testOnly: !!testOnly, enabled: _enabled });
-  } catch {
-  }
-  let bridge = getObsBridge();
-  if (!bridge || typeof bridge.connect !== "function") {
-    if (typeof window.__loadObsBridge === "function") {
-      try {
-        await window.__loadObsBridge();
-      } catch {
-      }
-      bridge = getObsBridge();
-    }
-  }
-  if (bridge && typeof bridge.connect === "function") {
-    try {
-      _cfgBridge.isEnabled = () => _enabled === true;
-      const res = await bridge.connect({ testOnly });
-      if (res) return true;
-    } catch (e) {
-      try {
-        console.warn("[OBS] native bridge connect failed, falling back to inline", e);
-      } catch {
-      }
-    }
-  }
-  try {
-    if (bridge && typeof bridge.maybeConnect === "function") {
-      try {
-        await bridge.maybeConnect();
-      } catch {
-      }
-      return !!(bridge.isConnected?.() || false);
-    }
-  } catch {
-  }
-  try {
-    console.info("[OBS] connect(testOnly=%o) no native bridge; using inline WebSocket", !!testOnly);
-  } catch {
-  }
-  return inlineConnect(testOnly);
-}
-async function safeSetEnabled(on3) {
-  _enabled = !!on3;
-  const bridge = getObsBridge();
-  if (!bridge) {
-    try {
-      console.info("[OBS] setEnabled(%o) no bridge; flag set inline", on3);
-    } catch {
-    }
-    return true;
-  }
-  try {
-    const ctrl = bridge.setArmed ? bridge : window.__tpObs;
-    if (ctrl && typeof ctrl.setArmed === "function") {
-      ctrl.setArmed(!!on3);
-      if (on3 && typeof ctrl.maybeConnect === "function") {
-        await ctrl.maybeConnect();
-      } else if (!on3 && typeof ctrl.disconnect === "function") {
-        await ctrl.disconnect();
-      }
-      return true;
-    }
-    if (typeof bridge.start === "function" && typeof bridge.stop === "function") {
-      if (on3) await bridge.start();
-      else await bridge.stop();
-      return true;
-    }
-    if (typeof bridge.setEnabled === "function") {
-      await bridge.setEnabled(!!on3);
-      return true;
-    }
-    try {
-      console.warn("[OBS] safeSetEnabled: bridge present but does not support known methods");
-    } catch {
-    }
-    return true;
-  } catch (e) {
-    try {
-      console.warn("[OBS] setEnabled(%o) failed", on3, e);
-    } catch {
-    }
-    return false;
-  }
-}
-function initBridge(opts = {}) {
-  _cfgBridge = { ..._cfgBridge, ...opts };
-  try {
-    if (_cfgBridge.isEnabled()) connect();
-  } catch {
-  }
-}
-function setEnabled(on3) {
-  return safeSetEnabled(on3);
-}
-async function reconfigure(cfg = {}) {
-  try {
-    obsCfg = { ...obsCfg, ...cfg };
-    if (typeof cfg?.port !== "undefined") {
-      const n = typeof cfg.port === "string" ? parseInt(cfg.port, 10) : Number(cfg.port);
-      if (!Number.isNaN(n) && n > 0) {
-        obsCfg.port = n;
-      }
-    }
-    const password = typeof cfg?.password === "string" ? cfg.password : obsCfg.password || "";
-    obsCfg.password = password;
-    const explicitUrl = cfg && typeof cfg.url === "string" && cfg.url.trim() ? cfg.url.trim() : "";
-    const host = obsCfg.host || "127.0.0.1";
-    const port = obsCfg.port || 4455;
-    const scheme = obsCfg.secure ? "wss" : "ws";
-    const url = explicitUrl || `${scheme}://${host}:${port}/`;
-    try {
-      _cfgBridge.getUrl = () => url;
-      _cfgBridge.getPass = () => password;
-    } catch {
-    }
-    try {
-      const bridge = getObsBridge();
-      if (bridge && typeof bridge.configure === "function") {
-        bridge.configure({ url, password });
-      }
-    } catch (err) {
-      try {
-        console.warn("[OBS] bridge.configure failed", err);
-      } catch {
-      }
-    }
-    try {
-      if (_ws) {
-        try {
-          _ws.close(1e3, "reconfig");
-        } catch {
-        }
-        reconnectSoon(200);
-      }
-    } catch {
-    }
-  } catch (err) {
-    try {
-      console.warn("[OBS] reconfigure failed", err);
-    } catch {
-    }
-  }
-}
-async function test() {
-  try {
-    return await connect({ testOnly: true });
-  } catch {
-    return false;
-  }
-}
-async function disconnect() {
-  try {
-    _identified = false;
-    _connecting = false;
-    try {
-      _ws && _ws.close(1e3, "manual");
-    } catch {
-    }
-    _ws = null;
-    try {
-      _cfgBridge.onStatus?.("disconnected", false);
-    } catch {
-    }
-  } catch {
-  }
-  return true;
-}
-function reconnectSoon(ms = 400) {
-  try {
-    clearTimeout(_reconnTimer);
-    _reconnTimer = setTrackedTimeout(() => {
-      try {
-        connect();
-      } catch {
-      }
-    }, ms);
-  } catch {
-  }
-}
-async function connect({ testOnly = false } = {}) {
-  return safeConnect(testOnly);
-}
-async function connect2(opts) {
-  return safeConnect(opts?.testOnly);
-}
-function isConnected() {
-  return _identified;
-}
-function setEnabled3(on3) {
-  return safeSetEnabled(on3);
-}
-function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
-  try {
-    if (typeof onStatus === "function") onStatus("recorder loaded", true);
-    if (getUrl || getPass) {
-      try {
-        setSettings({
-          configs: {
-            obs: {
-              url: getUrl ? getUrl() : void 0,
-              password: getPass ? getPass() : void 0
-            }
-          }
-        });
-      } catch {
-      }
-    }
-    try {
-      applyConfigs();
-    } catch {
-    }
-    try {
-      if (isEnabled && isEnabled()) {
-        start();
-      }
-    } catch {
-    }
-    try {
-      if (typeof initBridge === "function") {
-        initBridge({ getUrl, getPass, isEnabled, onStatus, onRecordState });
-      }
-    } catch {
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-var recorder, compatDefault, recorders_bridge_compat_default, _ws, _connecting, _identified, obsCfg, _cfgBridge, _enabled, _reconnTimer;
-var init_recorders_bridge_compat = __esm({
-  "recorders-bridge-compat.ts"() {
-    "use strict";
-    init_recorders_core();
-    recorder = {
-      state: "disabled",
-      async init() {
-        return true;
-      },
-      async connect() {
-        return true;
-      },
-      async disconnect() {
-        return true;
-      },
-      setEnabled(_on) {
-      }
-    };
-    compatDefault = {
-      init: initCompat,
-      get(name) {
-        return name === "obs" ? recorder : null;
-      },
-      // Also surface the modern API explicitly if anyone wants it
-      recorder
-    };
-    recorders_bridge_compat_default = compatDefault;
-    if (typeof window !== "undefined") {
-      window.__recorder = window.__recorder || {
-        get(name) {
-          return name === "obs" ? recorder : null;
-        }
-      };
-      window.recorders = window.recorders || window.__recorder;
-    }
-    try {
-      if (typeof window !== "undefined") {
-        initCompat();
-        const api = window.__recorder;
-        if (!api.start) api.start = () => startSelected();
-        if (!api.stop) api.stop = () => stopSelected();
-        if (!api.preflight) api.preflight = async (target = "obs") => {
-          const issues = [];
-          try {
-            if (target === "obs") {
-              const bridge = window.__obsBridge || null;
-              if (!bridge) issues.push("OBS bridge missing");
-              else {
-                try {
-                  const st = await bridge.getRecordStatus();
-                  if (!st) issues.push("OBS not responding");
-                } catch {
-                  issues.push("OBS GetRecordStatus failed");
-                }
-                try {
-                  if (typeof bridge.getRecordDirectory === "function") {
-                    const dir = await bridge.getRecordDirectory();
-                    if (!dir || !dir.recordDirectory) issues.push("Record directory unknown");
-                  }
-                } catch {
-                }
-                try {
-                  const stats = await bridge.getStats();
-                  const bytes = stats?.recording?.freeDiskSpace || stats?.free_disk_space || null;
-                  const free = typeof bytes === "number" ? bytes : typeof bytes === "string" && /^\d+$/.test(bytes) ? Number(bytes) : null;
-                  if (free != null && free < 2 * 1024 * 1024 * 1024) issues.push("Low disk space (<2 GB)");
-                } catch {
-                }
-              }
-            }
-          } catch {
-          }
-          return issues;
-        };
-        if (!api.getSettings) api.getSettings = () => getSettings();
-        if (!api.setSettings) api.setSettings = (next) => setSettings(next);
-        if (!api.setSelected) api.setSelected = (ids) => setSelected(ids);
-        if (!api.setMode) api.setMode = (mode) => setMode(mode);
-        if (!api.__finalizeForTests) api.__finalizeForTests = () => {
-          try {
-            clearHandoffTimer();
-          } catch {
-          }
-        };
-        window.recorders = window.recorders || api;
-      }
-    } catch {
-    }
-    _ws = null;
-    _connecting = false;
-    _identified = false;
-    obsCfg = { host: "127.0.0.1", port: 4455, secure: false };
-    _cfgBridge = {
-      getUrl: () => "ws://127.0.0.1:4455",
-      getPass: () => "",
-      isEnabled: () => false,
-      onStatus: (txt, ok) => console.log("[OBS]", txt, ok),
-      onRecordState: () => {
-      }
-    };
-    _enabled = false;
-    _reconnTimer = 0;
+    initialized = false;
+    bridge = null;
+    unsubscribers = [];
+    revision = 0;
+    lastIntent = "";
+    retry = null;
   }
 });
 
 // src/obs/obs-wiring.ts
-function toast(msg, type = "info") {
-  try {
-    if (typeof window._toast === "function") {
-      window._toast(msg, { type });
-      return;
-    }
-  } catch {
-  }
-  try {
-    console.log(msg);
-  } catch {
-  }
-}
-function mapObsTextToStatus(txt, ok) {
-  const t = (txt || "").toLowerCase().trim();
-  if (!t) return ok ? "connected" : "disconnected";
-  if (t.includes("connecting")) return "connecting";
-  if (t.includes("connected") || t.includes("initialized")) return "connected";
-  if (t.startsWith("closed")) {
-    if (t.includes("1000")) return "disconnected";
-    return "error";
-  }
-  if (t.includes("error") || t.includes("auth")) return "error";
-  return ok ? "connected" : "disconnected";
-}
-function readObsSettings(src) {
-  let state9 = src;
-  if (!state9) {
-    try {
-      state9 = getRecorderSettings();
-    } catch {
-      state9 = null;
-    }
-  }
-  const hasCfg = !!state9?.configs?.obs;
-  if (!hasCfg) {
-    try {
-      console.warn("[obs-wiring] No OBS settings yet; using defaults");
-    } catch {
-    }
-  }
-  const enabled2 = Boolean(state9?.enabled?.obs);
-  const url = hasCfg && state9?.configs?.obs?.url || DEFAULT_OBS_URL;
-  const pass = hasCfg && state9?.configs?.obs?.password || "";
-  return { enabled: enabled2, url, pass };
-}
-async function applyObsStateFromSettings() {
-  const { enabled: enabled2, url, pass } = readObsSettings();
-  if (!enabled2) {
-    if (lastEnabled2) {
-      try {
-        await setEnabled?.(false);
-      } catch {
-      }
-      setObsStatus("disconnected", null);
-      toast("OBS disabled in settings.", "info");
-    }
-    lastEnabled2 = false;
-    lastUrl2 = url;
-    lastPass = pass;
-    return;
-  }
-  lastEnabled2 = true;
-  const urlChanged = url !== lastUrl2 || pass !== lastPass;
-  lastUrl2 = url;
-  lastPass = pass;
-  setObsStatus("connecting", null);
-  toast(`Connecting to OBS at ${url}`, "info");
-  try {
-    try {
-      await reconfigure?.({ url, password: pass });
-    } catch {
-    }
-    try {
-      await setEnabled?.(true);
-    } catch {
-    }
-    if (typeof test === "function" && urlChanged) {
-      try {
-        await test();
-      } catch {
-      }
-    }
-    setObsStatus("connected", null);
-    toast("OBS: connected and ready.", "ok");
-  } catch (err) {
-    const msg = err?.message || String(err || "Unknown error");
-    setObsStatus("error", msg);
-    toast(`OBS connection failed: ${msg}`, "error");
-  }
-}
 function initObsWiring() {
-  try {
-    init?.({
-      getUrl: () => readObsSettings().url,
-      getPass: () => readObsSettings().pass,
-      isEnabled: () => readObsSettings().enabled,
-      onStatus: (txt, ok) => {
-        const status2 = mapObsTextToStatus(txt, ok);
-        setObsStatus(status2, status2 === "error" ? txt : null);
-        if (status2 === "connected") {
-          toast("OBS connected.", "ok");
-        } else if (status2 === "connecting") {
-          toast("Connecting to OBS", "info");
-        } else if (status2 === "error") {
-          toast(txt || "OBS connection error.", "error");
-        } else if (status2 === "disconnected") {
-          toast("OBS disconnected.", "warn");
-        }
-      },
-      onRecordState: () => {
-      }
-    });
-  } catch {
-  }
-  subscribeRecorderSettings((s) => {
-    const { enabled: enabled2, url, pass } = readObsSettings(s);
-    if (enabled2 === lastEnabled2 && url === lastUrl2 && pass === lastPass) {
-      return;
-    }
-    lastEnabled2 = enabled2;
-    lastUrl2 = url;
-    lastPass = pass;
-    void applyObsStateFromSettings();
-  });
+  initObsConnection();
 }
-var initial, lastEnabled2, lastUrl2, lastPass;
 var init_obs_wiring = __esm({
   "src/obs/obs-wiring.ts"() {
     "use strict";
-    init_recorder_settings();
-    init_recorders_bridge_compat();
-    initial = readObsSettings();
-    lastEnabled2 = initial.enabled;
-    lastUrl2 = initial.url;
-    lastPass = initial.pass;
+    init_obs_connection();
+  }
+});
+
+// src/fs/recording-dir.ts
+var recording_dir_exports = {};
+var init_recording_dir = __esm({
+  "src/fs/recording-dir.ts"() {
+    "use strict";
+    init_nursery_mounts();
+    (function() {
+      const DB_NAME2 = "tp-db";
+      const STORE2 = "fs-handles";
+      const KEY6 = "recordingDir";
+      async function openDB2() {
+        return await new Promise((resolve, reject) => {
+          try {
+            const req = indexedDB.open(DB_NAME2, 1);
+            req.onupgradeneeded = () => {
+              try {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(STORE2)) db.createObjectStore(STORE2);
+              } catch {
+              }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+      async function idbGet2(key) {
+        try {
+          const db = await openDB2();
+          return await new Promise((resolve, reject) => {
+            try {
+              const tx = db.transaction(STORE2, "readonly");
+              const st = tx.objectStore(STORE2);
+              const req = st.get(key);
+              req.onsuccess = () => resolve(req.result || null);
+              req.onerror = () => reject(req.error);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch {
+          return null;
+        }
+      }
+      async function idbSet2(key, val) {
+        try {
+          const db = await openDB2();
+          await new Promise((resolve, reject) => {
+            try {
+              const tx = db.transaction(STORE2, "readwrite");
+              const st = tx.objectStore(STORE2);
+              const req = st.put(val, key);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch {
+        }
+      }
+      async function idbDel2(key) {
+        try {
+          const db = await openDB2();
+          await new Promise((resolve, reject) => {
+            try {
+              const tx = db.transaction(STORE2, "readwrite");
+              const st = tx.objectStore(STORE2);
+              const req = st.delete(key);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch {
+        }
+      }
+      function hasFsApi() {
+        try {
+          return !!("showDirectoryPicker" in window || window.isSecureContext && "FileSystemDirectoryHandle" in window);
+        } catch {
+          return false;
+        }
+      }
+      let _dir2 = null;
+      let _managedByNursery2 = false;
+      let _localPersistenceExpected = false;
+      let _managedHint2 = null;
+      async function syncManagedRecordingDir() {
+        try {
+          const managed = await getNurseryManagedDirectory("recordings");
+          if (!managed.managed) {
+            _managedByNursery2 = false;
+            _localPersistenceExpected = false;
+            _managedHint2 = null;
+            _dir2 = null;
+            return false;
+          }
+          _managedByNursery2 = true;
+          _localPersistenceExpected = managed.localPersistenceExpected;
+          _managedHint2 = managed.hint ?? null;
+          _dir2 = managed.handle ?? null;
+          return true;
+        } catch {
+          _managedByNursery2 = true;
+          _localPersistenceExpected = true;
+          _managedHint2 = "Hearth recording folder unavailable";
+          _dir2 = null;
+          return true;
+        }
+      }
+      async function initRecordingDir() {
+        if (await syncManagedRecordingDir()) return;
+        try {
+          const h = await idbGet2(KEY6);
+          if (h) {
+            const ok = await h.queryPermission?.({ mode: "readwrite" }) || await h.requestPermission?.({ mode: "readwrite" });
+            if (ok === "granted" || ok === "prompt") _dir2 = h;
+            else _dir2 = h;
+          }
+        } catch {
+        }
+      }
+      function getRecordingDir() {
+        return _dir2 || null;
+      }
+      async function setRecordingDir(h) {
+        if (_managedByNursery2) return;
+        _dir2 = h || null;
+        if (h) await idbSet2(KEY6, h);
+        else await idbDel2(KEY6);
+        window.dispatchEvent(new CustomEvent("tp:recording-directory:changed"));
+      }
+      async function clearRecordingDir() {
+        if (_managedByNursery2) return;
+        _dir2 = null;
+        await idbDel2(KEY6);
+        window.dispatchEvent(new CustomEvent("tp:recording-directory:changed"));
+      }
+      async function pickRecordingDir() {
+        if (_managedByNursery2) return _dir2 || null;
+        if (!hasFsApi()) return null;
+        try {
+          const dir = await window.showDirectoryPicker({ mode: "readwrite", id: "tp-recordings" });
+          const ok = await dir?.requestPermission?.({ mode: "readwrite" }) || await dir?.queryPermission?.({ mode: "readwrite" });
+          if (ok === "granted" || ok === "prompt") {
+            await setRecordingDir(dir);
+            return dir;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      }
+      const api = {
+        init: initRecordingDir,
+        get: getRecordingDir,
+        set: setRecordingDir,
+        clear: clearRecordingDir,
+        pick: pickRecordingDir,
+        supported: hasFsApi,
+        isManaged: () => _managedByNursery2,
+        localPersistenceExpected: () => _localPersistenceExpected,
+        managedHint: () => _managedHint2
+      };
+      try {
+        window.__tpRecDir = api;
+      } catch {
+      }
+    })();
+  }
+});
+
+// src/recording/recording-decision-dialog.ts
+function isRecordingDecisionPending() {
+  return typeof document !== "undefined" && document.getElementById(MODAL_ID2) !== null;
+}
+function escapeHtml2(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function describeDecisionError(error) {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (message === "ready_workspace_missing") {
+    return "Anvil lost the episode workspace context before saving this decision. The recording is still saved. Reopen this episode from Hearth, then choose Keep Take again.";
+  }
+  if (message === "recording_keep_unavailable" || message === "recording_discard_unavailable") {
+    return "Anvil could not save this take decision to Tongs. The recording is still saved; check the Forge connection and try again.";
+  }
+  return message || "Could not save your take decision. Try again.";
+}
+function closeModal2() {
+  const existing = document.getElementById(MODAL_ID2);
+  if (existing?.parentElement) {
+    existing.parentElement.removeChild(existing);
+  }
+}
+function closeWorkingModal() {
+  const existing = document.getElementById(WORKING_MODAL_ID);
+  if (existing?.parentElement) {
+    existing.parentElement.removeChild(existing);
+  }
+}
+function closeAllRecordingOverlays() {
+  if (_activeDecisionCleanup) {
+    _activeDecisionCleanup();
+    _activeDecisionCleanup = null;
+  }
+  closeModal2();
+  closeWorkingModal();
+}
+function applyStyles2() {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `
+    #${MODAL_ID2} {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(8, 15, 30, 0.74);
+      z-index: 1700;
+    }
+    #${WORKING_MODAL_ID} {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(8, 15, 30, 0.74);
+      z-index: 1700;
+    }
+    #${MODAL_ID2} .tp-recording-decision-panel {
+      width: min(460px, 100%);
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
+      padding: 22px;
+      font-family: system-ui, "Segoe UI", sans-serif;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-decision-panel {
+      width: min(420px, 100%);
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
+      padding: 22px;
+      font-family: system-ui, "Segoe UI", sans-serif;
+    }
+    #${MODAL_ID2} h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+    #${WORKING_MODAL_ID} h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+    #${MODAL_ID2} .tp-recording-decision-copy {
+      margin: 0;
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-decision-copy {
+      margin: 0;
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    #${MODAL_ID2} .tp-recording-decision-file {
+      margin: 14px 0 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      color: rgba(248, 250, 252, 0.92);
+      font-size: 13px;
+      word-break: break-word;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-decision-file {
+      margin: 14px 0 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      color: rgba(248, 250, 252, 0.92);
+      font-size: 13px;
+      word-break: break-word;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-working-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 18px;
+      color: rgba(226, 232, 240, 0.92);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-working-spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(148, 163, 184, 0.28);
+      border-top-color: #22c55e;
+      animation: tp-recording-working-spin 0.8s linear infinite;
+      flex: 0 0 auto;
+    }
+    @keyframes tp-recording-working-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    #${MODAL_ID2} .tp-recording-decision-error {
+      min-height: 20px;
+      margin: 14px 0 0;
+      color: #fca5a5;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    #${MODAL_ID2} .tp-recording-decision-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn {
+      min-width: 120px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: transparent;
+      color: #e2e8f0;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 16px;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn[disabled] {
+      opacity: 0.6;
+      cursor: wait;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn--keep {
+      background: #22c55e;
+      border-color: #22c55e;
+      color: #052e16;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn--discard {
+      background: rgba(148, 163, 184, 0.12);
+    }
+  `;
+  document.head.appendChild(style);
+}
+function buildWorkingMarkup(options) {
+  const detail = String(options.detail || "").trim() || "Saving your take and preparing review options.";
+  const takeName = String(options.takeName || "").trim();
+  return `
+    <div class="tp-recording-decision-panel" role="status" aria-live="polite" aria-labelledby="${WORKING_MODAL_ID}-title">
+      <h2 id="${WORKING_MODAL_ID}-title">Finalizing recording</h2>
+      <p class="tp-recording-decision-copy">${escapeHtml2(detail)}</p>
+      ${takeName ? `<div class="tp-recording-decision-file">${escapeHtml2(takeName)}</div>` : ""}
+      <div class="tp-recording-working-status">
+        <span class="tp-recording-working-spinner" aria-hidden="true"></span>
+        <span>Working\u2026</span>
+      </div>
+    </div>
+  `;
+}
+function buildMarkup(takeName, isRecovery) {
+  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
+  const copy = isRecovery ? "This recording was saved but not reviewed. Keep or discard it?" : "Keep this take for editing?";
+  return `
+    <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID2}-title">
+      <h2 id="${MODAL_ID2}-title">${title}</h2>
+      <p class="tp-recording-decision-copy">${copy}</p>
+      <div class="tp-recording-decision-file">${escapeHtml2(takeName)}</div>
+      <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
+      <div class="tp-recording-decision-actions">
+        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--discard" data-action="discard">Discard Take</button>
+        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--keep" data-action="keep">Keep Take</button>
+      </div>
+    </div>
+  `;
+}
+function showRecordingFinalizeIndicator(options = {}) {
+  if (typeof document === "undefined") return;
+  closeAllRecordingOverlays();
+  applyStyles2();
+  const overlay = document.createElement("div");
+  overlay.id = WORKING_MODAL_ID;
+  overlay.className = "tp-recording-working-overlay";
+  overlay.innerHTML = buildWorkingMarkup(options);
+  document.body.appendChild(overlay);
+}
+function hideRecordingFinalizeIndicator() {
+  if (typeof document === "undefined") return;
+  closeWorkingModal();
+}
+async function showRecordingDecisionDialog(options) {
+  if (typeof document === "undefined") return;
+  closeAllRecordingOverlays();
+  applyStyles2();
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.id = MODAL_ID2;
+    overlay.className = "tp-recording-decision-overlay";
+    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
+    const discardButton = overlay.querySelector('[data-action="discard"]');
+    const keepButton = overlay.querySelector('[data-action="keep"]');
+    const errorNode = overlay.querySelector('[data-role="error"]');
+    let finished = false;
+    const setBusy = (busy, action) => {
+      if (discardButton) {
+        discardButton.disabled = busy;
+        discardButton.textContent = busy && action === "discard" ? "Discarding..." : "Discard Take";
+      }
+      if (keepButton) {
+        keepButton.disabled = busy;
+        keepButton.textContent = busy && action === "keep" ? "Saving..." : "Keep Take";
+      }
+    };
+    const visibilityGuard = () => {
+      try {
+        if (document.visibilityState !== "visible") return;
+        if (!finished && !document.body.contains(overlay)) {
+          document.body.appendChild(overlay);
+          keepButton?.focus();
+        }
+      } catch {
+      }
+    };
+    const beforeUnloadGuard = (event) => {
+      if (!finished) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    const cleanupGuards = () => {
+      _activeDecisionCleanup = null;
+      try {
+        document.removeEventListener("visibilitychange", visibilityGuard);
+      } catch {
+      }
+      try {
+        window.removeEventListener("beforeunload", beforeUnloadGuard);
+      } catch {
+      }
+    };
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      cleanupGuards();
+      closeModal2();
+      resolve();
+    };
+    const fail3 = (error) => {
+      if (finished) return;
+      finished = true;
+      cleanupGuards();
+      closeModal2();
+      reject(error);
+    };
+    const runAction = async (action) => {
+      setBusy(true, action);
+      if (errorNode) errorNode.textContent = "";
+      try {
+        if (action === "keep") {
+          await options.onKeep();
+        } else {
+          await options.onDiscard();
+        }
+        finish();
+      } catch (error) {
+        setBusy(false);
+        if (errorNode) {
+          errorNode.textContent = describeDecisionError(error);
+        }
+      }
+    };
+    discardButton?.addEventListener("click", () => {
+      void runAction("discard");
+    });
+    keepButton?.addEventListener("click", () => {
+      void runAction("keep");
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void runAction("keep");
+      }
+    });
+    try {
+      document.body.appendChild(overlay);
+      _activeDecisionCleanup = cleanupGuards;
+      try {
+        document.addEventListener("visibilitychange", visibilityGuard);
+      } catch {
+      }
+      try {
+        window.addEventListener("beforeunload", beforeUnloadGuard);
+      } catch {
+      }
+      keepButton?.focus();
+    } catch (error) {
+      cleanupGuards();
+      fail3(error);
+    }
+  });
+}
+var MODAL_ID2, WORKING_MODAL_ID, STYLE_ID, _activeDecisionCleanup;
+var init_recording_decision_dialog = __esm({
+  "src/recording/recording-decision-dialog.ts"() {
+    "use strict";
+    MODAL_ID2 = "tp-recording-decision-modal";
+    WORKING_MODAL_ID = "tp-recording-working-modal";
+    STYLE_ID = "tp-recording-decision-styles";
+    _activeDecisionCleanup = null;
+  }
+});
+
+// src/recording/obs-finished-import.ts
+var obs_finished_import_exports = {};
+__export(obs_finished_import_exports, {
+  importFinishedObsRecording: () => importFinishedObsRecording,
+  prepareObsRecordingImport: () => prepareObsRecordingImport,
+  relativeObsOutputPath: () => relativeObsOutputPath,
+  selectAndImportFinishedObsRecording: () => selectAndImportFinishedObsRecording
+});
+function segments(path) {
+  return path.replace(/\\/g, "/").split("/").filter(Boolean);
+}
+function relativeObsOutputPath(outputPath, directoryName) {
+  const parts = segments(outputPath);
+  if (!parts.length || parts.some((part) => part === "." || part === "..")) return null;
+  const rootAt = parts.map((part) => part.toLowerCase()).lastIndexOf(directoryName.trim().toLowerCase());
+  if (rootAt < 0 || rootAt === parts.length - 1) return null;
+  return parts.slice(rootAt + 1);
+}
+async function resolveFromLinkedDirectory(outputPath) {
+  await window.__tpRecDir?.init?.();
+  const root = window.__tpRecDir?.get?.();
+  if (!root) return null;
+  const permission = await root.queryPermission?.({ mode: "read" });
+  if (permission !== "granted") return null;
+  const relative = relativeObsOutputPath(outputPath, root.name);
+  if (!relative) return null;
+  let directory = root;
+  for (const part of relative.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+  const handle = await directory.getFileHandle(relative[relative.length - 1]);
+  return handle.getFile();
+}
+async function selectFinishedFile() {
+  const picker = window.showOpenFilePicker;
+  if (typeof picker !== "function") return null;
+  try {
+    const handles = await picker({ id: "anvil-obs-finished-recording", multiple: false });
+    return handles?.[0]?.getFile?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+function announce(name, detail) {
+  try {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  } catch {
+  }
+}
+async function prepareObsRecordingImport() {
+  const target = await ensureRecordingCaptureTarget();
+  state5.authority = target.ok ? target.captureAuthority : null;
+  return target.ok;
+}
+async function importFinishedObsRecording(result) {
+  state5.lastStop = result;
+  const report = (detail) => announce("tp:obs:recording-import", { ...detail, outputPath: result.outputPath ?? null });
+  if (!result.stopped || !result.outputPath) {
+    report({ phase: "needs-file", reason: "output_path_missing" });
+    return;
+  }
+  let captureAuthority = state5.authority;
+  if (!captureAuthority) {
+    const target = await ensureRecordingCaptureTarget();
+    if (target.ok) captureAuthority = target.captureAuthority;
+  }
+  if (!captureAuthority) {
+    report({ phase: "failed", reason: "capture_authority_missing" });
+    return;
+  }
+  let file = state5.selectedFile;
+  state5.selectedFile = null;
+  if (!file) try {
+    file = await resolveFromLinkedDirectory(result.outputPath);
+  } catch {
+  }
+  if (!file) {
+    report({ phase: "needs-file", reason: "local_file_permission_required", retryAvailable: true });
+    return;
+  }
+  report({ phase: "uploading", name: file.name, bytes: file.size });
+  const committed = await commitRecordingFileToTongs({ file, originalName: file.name, captureAuthority });
+  if (!committed.ok) {
+    report({ phase: "failed", reason: committed.reason, errorCode: committed.errorCode ?? null });
+    return;
+  }
+  const completed = await transitionRecordingCompleted({ commit: committed });
+  if (!completed.ok || !completed.completionId) {
+    report({ phase: "failed", reason: completed.reason ?? completed.outcome });
+    return;
+  }
+  report({ phase: "decision-required", completionId: completed.completionId });
+  await showRecordingDecisionDialog({
+    takeName: file.name,
+    onKeep: async () => {
+      const decision = await transitionRecordingKept({ commit: committed, completionId: completed.completionId });
+      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
+      report({ phase: "kept", completionId: completed.completionId });
+    },
+    onDiscard: async () => {
+      const decision = await transitionRecordingDiscarded({ commit: committed, completionId: completed.completionId });
+      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
+      report({ phase: "discarded", completionId: completed.completionId });
+    }
+  });
+}
+async function selectAndImportFinishedObsRecording() {
+  const file = await selectFinishedFile();
+  if (!file) return;
+  state5.selectedFile = file;
+  await importFinishedObsRecording(state5.lastStop ?? { adapter: "obs", stopped: true, outputPath: file.name });
+}
+function acceptStopResult(result) {
+  if (state5.running) return state5.running;
+  state5.running = importFinishedObsRecording(result).finally(() => {
+    state5.running = null;
+  });
+  return state5.running;
+}
+var state5;
+var init_obs_finished_import = __esm({
+  "src/recording/obs-finished-import.ts"() {
+    "use strict";
+    init_recording_dir();
+    init_workpiece_commit();
+    init_recording_decision_dialog();
+    init_workpiece_commit();
+    state5 = { authority: null, running: null, lastStop: null, selectedFile: null };
+    try {
+      window.__tpObsImport = {
+        prepare: prepareObsRecordingImport,
+        acceptStopResult,
+        retryWithFilePicker: selectAndImportFinishedObsRecording
+      };
+      window.addEventListener("rec:state", (event) => {
+        const detail = event.detail;
+        if (detail?.adapter === "obs" && detail?.state === "starting") void prepareObsRecordingImport();
+      });
+    } catch {
+    }
   }
 });
 
@@ -87513,7 +87472,7 @@ function createObsRecorder() {
     label: "OBS WebSocket",
     async isAvailable() {
       try {
-        const obs = window?.__tpObs;
+        const obs = window?.__obsBridge;
         if (!obs) return false;
         const probe = typeof obs.isConnected === "function" ? obs.isConnected() : obs.isConnected;
         return coerceBoolean(probe);
@@ -87522,10 +87481,21 @@ function createObsRecorder() {
       }
     },
     async start() {
-      await window?.__tpObs?.startRecording?.();
+      const obs = window?.__obsBridge;
+      if (!obs?.isConnected?.() || typeof obs.start !== "function") throw new Error("OBS is disconnected. Connect OBS in Recording Settings.");
+      const { prepareObsRecordingImport: prepareObsRecordingImport2 } = await Promise.resolve().then(() => (init_obs_finished_import(), obs_finished_import_exports));
+      if (!await prepareObsRecordingImport2()) throw new Error("Capture authorization unavailable. Bind the current approved script in Hearth before recording.");
+      await obs.start();
+      window.dispatchEvent(new CustomEvent("tp:recording:obs-started"));
     },
     async stop() {
-      await window?.__tpObs?.stopRecording?.();
+      const obs = window?.__obsBridge;
+      if (!obs?.isConnected?.() || typeof obs.stop !== "function") throw new Error("OBS is disconnected. Check recording status in OBS before retrying Stop.");
+      const result = await obs.stop();
+      window.dispatchEvent(new CustomEvent("tp:recording:obs-local-complete", { detail: result }));
+      void Promise.resolve().then(() => window.__tpObsImport?.acceptStopResult?.(result)).catch((error) => {
+        window.dispatchEvent(new CustomEvent("tp:obs:recording-import", { detail: { phase: "failed", reason: String(error), outputPath: result?.outputPath ?? null } }));
+      });
     }
   };
 }
@@ -87533,15 +87503,7 @@ function initRecorderBackends() {
   if (typeof window === "undefined") return;
   try {
     const core = createCoreRecorder();
-    let obs;
-    try {
-      if (window.__tpObs) {
-        obs = createObsRecorder();
-      }
-    } catch {
-      obs = void 0;
-    }
-    registerRecorders({ core, obs });
+    registerRecorders({ core, obs: createObsRecorder() });
   } catch (err) {
     console.warn("[recording] failed to initialize recorder backends", err);
   }
@@ -87572,8 +87534,8 @@ function readStoreBoolean(store3, key) {
   }
   return false;
 }
-function resolveStore(initial2) {
-  if (initial2) return initial2;
+function resolveStore(initial) {
+  if (initial) return initial;
   if (typeof window === "undefined") return null;
   try {
     return window.__tpStore || null;
@@ -87586,15 +87548,19 @@ function createStartOnPlay(store3) {
     const activeStore = resolveStore(store3);
     const autoRecord = readStoreBoolean(activeStore, "autoRecord");
     const obsEnabled = readStoreBoolean(activeStore, "obsEnabled");
-    const engine = getRecordingEngine();
     if (!autoRecord) {
       console.info("[Anvil][Recording] autoRecord=false \u2192 not starting recording");
       return;
     }
-    await startSessionRecording({ obsEnabled, engine });
+    try {
+      await startSessionRecording({ obsEnabled, engine: getRecordingEngine() });
+    } catch (error) {
+      reportRecordingError(error);
+      throw error;
+    }
   }
   async function onSessionStop() {
-    if (!isSessionRecording()) return;
+    if (!isRecordingBusy()) return;
     await stopSessionRecording();
   }
   return { onSessionStart, onSessionStop };
@@ -87737,8 +87703,8 @@ function resolveLineTargetTop(scroller, lineIndex) {
 }
 function getCurrentLineIndex() {
   if (typeof window === "undefined") return null;
-  const current2 = Number(window.currentIndex);
-  if (Number.isFinite(current2)) return Math.max(0, Math.floor(current2));
+  const current4 = Number(window.currentIndex);
+  if (Number.isFinite(current4)) return Math.max(0, Math.floor(current4));
   try {
     const driver = window.__tpAsrScrollDriver;
     const fromDriver = Number(driver?.getLastLineIndex?.());
@@ -88131,7 +88097,7 @@ function buildDrawerStructure() {
   quickControls.appendChild(asrLaneWrap);
 }
 function initDevDrawer() {
-  if (initialized) return;
+  if (initialized2) return;
   if (!isBrowser2()) return;
   if (!isDevActive()) return;
   if (!document.body) return;
@@ -88145,12 +88111,12 @@ function initDevDrawer() {
   updateZenState(zenMode);
   updateDock();
   attachListeners();
-  initialized = true;
+  initialized2 = true;
 }
 function getDevDrawerContentHost() {
   return contentHost;
 }
-var ROOT_ID, DRAWER_ID, DRAWER_PILL, initialized, drawerOpen, zenMode, rootEl, drawerEl, pillEl, zenButtonEl, contentHost, asrLaneSelectEl, currentDock, lastDockUpdate, listenersAttached;
+var ROOT_ID, DRAWER_ID, DRAWER_PILL, initialized2, drawerOpen, zenMode, rootEl, drawerEl, pillEl, zenButtonEl, contentHost, asrLaneSelectEl, currentDock, lastDockUpdate, listenersAttached;
 var init_dev_drawer = __esm({
   "src/dev/dev-drawer.ts"() {
     "use strict";
@@ -88159,7 +88125,7 @@ var init_dev_drawer = __esm({
     ROOT_ID = "tp-dev-root";
     DRAWER_ID = "tp-dev-drawer";
     DRAWER_PILL = "tp-dev-pill";
-    initialized = false;
+    initialized2 = false;
     drawerOpen = false;
     zenMode = false;
     rootEl = null;
@@ -88512,7 +88478,7 @@ var init_normalize = __esm({
 });
 
 // src/format-inline.ts
-function escapeHtml2(s) {
+function escapeHtml3(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 }
 function safeColor(c) {
@@ -88528,7 +88494,7 @@ function roleStyle(key) {
   return `color:${item.color}; font-size:inherit; line-height:inherit;`;
 }
 function formatInlineMarkup(text) {
-  let s = escapeHtml2(text);
+  let s = escapeHtml3(text);
   s = s.replace(/\[b\]([\s\S]+?)\[\/b\]/gi, "<strong>$1</strong>").replace(/\[i\]([\s\S]+?)\[\/i\]/gi, "<em>$1</em>").replace(/\[u\]([\s\S]+?)\[\/u\]/gi, '<span class="u">$1</span>').replace(/\[note\]([\s\S]+?)\[\/note\]/gi, '<div class="note">$1</div>');
   s = s.replace(/\[color=([^\]]+)\]([\s\S]+?)\[\/color\]/gi, (_m, col, inner) => {
     const c = safeColor(col);
@@ -89233,8 +89199,8 @@ async function saveProfileSettings(opts) {
   }
   return { rev: safeExpectedRev + 1 };
 }
-function applySettingsPatch(current2, patch) {
-  return deepMerge3(current2, patch);
+function applySettingsPatch(current4, patch) {
+  return deepMerge3(current4, patch);
 }
 function shouldBypassAuth() {
   try {
@@ -89363,10 +89329,10 @@ function getForgeHubOrigin2() {
   const currentOrigin = readString5(window.location.origin);
   if (!fromForgeConfig) return currentOrigin ?? "";
   try {
-    const current2 = new URL(currentOrigin ?? "http://localhost");
+    const current4 = new URL(currentOrigin ?? "http://localhost");
     const target = new URL(fromForgeConfig);
-    const isLocalCurrent = current2.hostname === "localhost" || current2.hostname === "127.0.0.1" || current2.hostname === "::1";
-    if (isLocalCurrent) return current2.origin;
+    const isLocalCurrent = current4.hostname === "localhost" || current4.hostname === "127.0.0.1" || current4.hostname === "::1";
+    if (isLocalCurrent) return current4.origin;
     return target.origin;
   } catch {
     return currentOrigin ?? fromForgeConfig;
@@ -90031,15 +89997,15 @@ function createProfileSettingsSync(options) {
         if (!Object.prototype.hasOwnProperty.call(app, k)) return;
         if (k === "scrollMode") {
           let raw = "";
-          let current2 = "";
+          let current4 = "";
           try {
             raw = normalizeUiScrollMode2(String(
               Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k) ? ephemeralAppOverrides[k] : app[k] ?? ""
             ).trim().toLowerCase());
-            current2 = normalizeUiScrollMode2(store3.get?.("scrollMode"));
+            current4 = normalizeUiScrollMode2(store3.get?.("scrollMode"));
             const engaged = isAsrOverlayActive2();
-            if (raw === "asr" && current2 !== "asr" && !engaged) {
-              log("[ASR] hydrate skipped scrollMode override to asr", { raw, current: current2, engaged });
+            if (raw === "asr" && current4 !== "asr" && !engaged) {
+              log("[ASR] hydrate skipped scrollMode override to asr", { raw, current: current4, engaged });
               return;
             }
             if (raw !== "asr" && engaged) {
@@ -90627,16 +90593,16 @@ function shouldForceBoundary(kind) {
 }
 async function buildBlocks(lines, sourceHash) {
   const groups = [];
-  let current2 = [];
+  let current4 = [];
   const close = () => {
-    if (!current2.length) return;
-    groups.push({ lines: current2, entryBreak: current2[0].entryBreak });
-    current2 = [];
+    if (!current4.length) return;
+    groups.push({ lines: current4, entryBreak: current4[0].entryBreak });
+    current4 = [];
   };
   for (const line of lines) {
-    if (current2.length && (shouldForceBoundary(line.entryBreak) || line.speakerId !== current2[0].speakerId)) close();
-    current2.push(line);
-    const words = current2.flatMap((entry) => entry.words);
+    if (current4.length && (shouldForceBoundary(line.entryBreak) || line.speakerId !== current4[0].speakerId)) close();
+    current4.push(line);
+    const words = current4.flatMap((entry) => entry.words);
     const chars = words.reduce((sum, word) => sum + word.text.length, 0) + Math.max(0, words.length - 1);
     if (words.length >= TARGET_MAX_WORDS || chars >= TARGET_MAX_CHARS || words.length >= TARGET_MIN_WORDS && line.endSentence) close();
   }
@@ -90932,14 +90898,14 @@ async function prepareRequestedPresentation(input) {
   }
 }
 function assertPreparedPresentationFresh(prepared, canonicalIdentity) {
-  const current2 = requireCanonicalIdentity(canonicalIdentity);
+  const current4 = requireCanonicalIdentity(canonicalIdentity);
   const source = prepared.source;
-  if (source.workspaceId !== current2.workspaceId || source.workpieceId !== current2.workpieceId || source.path !== current2.path || source.scriptRevision !== current2.scriptRevision || source.scriptHash !== current2.scriptHash) {
+  if (source.workspaceId !== current4.workspaceId || source.workpieceId !== current4.workpieceId || source.path !== current4.path || source.scriptRevision !== current4.scriptRevision || source.scriptHash !== current4.scriptHash) {
     throw new PresentationBoundaryError(diagnostic(
       "PREPARED_SOURCE_STALE",
       "Prepared presentation no longer matches the canonical script identity.",
       PERFORMANCE_PRESENTATION_MODE,
-      current2
+      current4
     ));
   }
 }
@@ -91069,25 +91035,25 @@ function setNetworkDisplayPairToken(token) {
   if (!relayEnabled || !isSupported) return;
   if (!relayPairToken) {
     resetSocket();
-    updateStatus2({ state: "error", connectedDisplays: 0, lastError: "Pair token unavailable" });
+    updateStatus({ state: "error", connectedDisplays: 0, lastError: "Pair token unavailable" });
     return;
   }
   resetSocket();
-  connect3();
+  connect();
 }
 function enableNetworkDisplayRelay() {
   if (!isSupported) return;
   if (isRelayDisabled()) return;
   if (relayEnabled) return;
   if (!relayPairToken) {
-    updateStatus2({ state: "error", lastError: "Pair token unavailable" });
+    updateStatus({ state: "error", lastError: "Pair token unavailable" });
     return;
   }
   relayEnabled = true;
   persistRelayEnabled(true);
-  connect3();
+  connect();
 }
-var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, relayPairToken, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, normalizePairToken, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
+var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, relayPairToken, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus, normalizePairToken, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect, loadRelayEnabled, persistRelayEnabled;
 var init_display_ws_client = __esm({
   "src/net/display-ws-client.ts"() {
     "use strict";
@@ -91166,7 +91132,7 @@ var init_display_ws_client = __esm({
         }
       });
     };
-    updateStatus2 = (patch) => {
+    updateStatus = (patch) => {
       Object.assign(status, patch);
       notifyListeners();
     };
@@ -91192,7 +91158,7 @@ var init_display_ws_client = __esm({
       if (reconnectTimer || !isSupported || !relayEnabled) return;
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
-        connect3();
+        connect();
       }, reconnectDelay);
       reconnectDelay = Math.min(15e3, reconnectDelay * 1.5);
     };
@@ -91200,12 +91166,12 @@ var init_display_ws_client = __esm({
       try {
         const data = JSON.parse(event.data);
         if (data?.type === "ready") {
-          updateStatus2({ connectedDisplays: 1 });
+          updateStatus({ connectedDisplays: 1 });
           return;
         }
         if (data?.type === "tp-display-status") {
           const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
-          updateStatus2({ connectedDisplays: connected });
+          updateStatus({ connectedDisplays: connected });
         }
       } catch {
       }
@@ -91219,13 +91185,13 @@ var init_display_ws_client = __esm({
       }
       socket = null;
     };
-    connect3 = () => {
+    connect = () => {
       if (!isSupported || !relayEnabled) return;
       if (socket && socket.readyState === WebSocket.OPEN) return;
-      updateStatus2({ state: "connecting", lastError: void 0 });
+      updateStatus({ state: "connecting", lastError: void 0 });
       const url = getWsUrl();
       if (!url) {
-        updateStatus2({ state: "error", lastError: "Pair token unavailable" });
+        updateStatus({ state: "error", lastError: "Pair token unavailable" });
         return;
       }
       resetSocket();
@@ -91233,7 +91199,7 @@ var init_display_ws_client = __esm({
       socket = ws;
       ws.addEventListener("open", () => {
         reconnectDelay = 1e3;
-        updateStatus2({ state: "connected", lastError: void 0 });
+        updateStatus({ state: "connected", lastError: void 0 });
         try {
           ws.send("ping");
         } catch {
@@ -91241,14 +91207,14 @@ var init_display_ws_client = __esm({
         flushQueue();
       });
       ws.addEventListener("message", handleMessage);
-      const cleanup = () => {
-        updateStatus2({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
+      const cleanup2 = () => {
+        updateStatus({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
         socket = null;
         scheduleReconnect();
       };
-      ws.addEventListener("close", cleanup);
+      ws.addEventListener("close", cleanup2);
       ws.addEventListener("error", (event) => {
-        updateStatus2({ state: "error", lastError: String(event?.reason || "WebSocket error") });
+        updateStatus({ state: "error", lastError: String(event?.reason || "WebSocket error") });
       });
     };
     loadRelayEnabled = () => {
@@ -91273,7 +91239,7 @@ var init_display_ws_client = __esm({
     };
     relayEnabled = loadRelayEnabled();
     if (isSupported && relayEnabled) {
-      connect3();
+      connect();
     }
     try {
       window.addEventListener("beforeunload", () => {
@@ -92436,15 +92402,15 @@ function classifyProductionScriptHttpFailure(status2, responseOk) {
 function parseProductionScriptPayload(body) {
   const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
   const text = typeof data?.script_text === "string" ? data.script_text : "";
-  const revision = Number(data?.source_file_revision);
+  const revision2 = Number(data?.source_file_revision);
   const hash = readString7(data?.script_content_hash)?.toLowerCase() ?? "";
   const readyTransitionId = normalizeUuid3(data?.ready_transition_id);
   const scriptApprovalId = normalizeUuid3(data?.script_approval_id);
   const scriptApprovalRevision = Number(data?.script_approval_revision);
-  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) {
+  if (!text || !Number.isInteger(revision2) || revision2 < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) {
     return null;
   }
-  return { text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
+  return { text, revision: revision2, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
 }
 var UUID_RE3;
 var init_workpiece_script_handoff_policy = __esm({
@@ -92818,9 +92784,9 @@ function handleToggle(on3, sourceId) {
         const doc2 = window.document;
         syncEnabledCheckboxes(doc2, false);
         try {
-          const toast6 = window.toast;
-          if (typeof toast6 === "function") {
-            toast6("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
+          const toast5 = window.toast;
+          if (typeof toast5 === "function") {
+            toast5("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
           }
         } catch {
         }
@@ -92862,112 +92828,58 @@ function buildUrl2(hostWithPort, explicitPort) {
   return `ws://${host}:${port}`;
 }
 function bindObsSettingsUI(doc = document) {
-  let syncing = false;
-  let wired3 = false;
-  const wire2 = () => {
-    const enableEl = doc.getElementById(ENABLE_ID);
-    const sidebarEnableEl = doc.getElementById(SIDEBAR_ENABLE_ID);
-    const toggleEls = Array.from(
-      new Set(
-        Array.from(doc.querySelectorAll("[data-tp-obs-toggle]")).concat(
-          enableEl ? [enableEl] : [],
-          sidebarEnableEl ? [sidebarEnableEl] : []
-        )
-      )
-    ).filter((el) => el instanceof HTMLInputElement);
-    const hostEl = doc.getElementById(HOST_ID);
-    const portEl = doc.getElementById(PORT_ID);
-    const passEl = doc.getElementById(PASS_ID);
-    if (toggleEls.length === 0 && !hostEl && !portEl && !passEl) {
-      return false;
-    }
-    if (wired3) return true;
-    wired3 = true;
+  if (boundDocuments.has(doc)) return;
+  boundDocuments.add(doc);
+  const sync = () => {
+    const state9 = getRecorderSettings();
+    syncEnabledCheckboxes(doc, state9.enabled.obs);
+    doc.querySelectorAll("[data-tp-obs-toggle]").forEach((el) => {
+      el.checked = state9.enabled.obs;
+    });
+    const host = doc.getElementById(HOST_ID);
+    const port = doc.getElementById(PORT_ID);
+    const pass = doc.getElementById(PASS_ID);
     try {
-      console.info("[OBS-UI] wiring settings/sidebar controls");
+      const url = new URL(state9.configs.obs.url);
+      if (host && host !== doc.activeElement) host.value = url.host;
+      if (port && port !== doc.activeElement) port.value = url.port || "4455";
     } catch {
     }
-    subscribeRecorderSettings((state9) => {
-      syncing = true;
-      try {
-        syncEnabledCheckboxes(doc, !!state9.enabled.obs);
-        const url = state9.configs.obs.url || "";
-        try {
-          const parsed = new URL(url);
-          if (hostEl && hostEl !== doc.activeElement) {
-            const hostPort = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname || "";
-            hostEl.value = hostPort;
-          }
-          if (portEl && portEl !== doc.activeElement) portEl.value = parsed.port || "4455";
-        } catch {
-          if (hostEl && hostEl !== doc.activeElement) hostEl.value = "";
-          if (portEl && portEl !== doc.activeElement) portEl.value = "4455";
-        }
-        if (passEl && passEl !== doc.activeElement) {
-          passEl.value = state9.configs.obs.password || "";
-        }
-      } finally {
-        syncing = false;
-      }
-    });
-    const writeEnabled = (on3, src) => {
-      if (syncing) return;
-      handleToggle(on3, src?.id);
-    };
-    toggleEls.forEach((el) => {
-      el.addEventListener("change", () => writeEnabled(!!el.checked, el));
-    });
-    const pushUrl = () => {
-      if (syncing) return;
-      const next = buildUrl2(hostEl?.value ?? "", portEl?.value ?? "");
-      const cur = getRecorderSettings().configs.obs.url;
-      if (next === cur) return;
-      try {
-        console.info("[OBS-UI] setObsConfig url", next);
-      } catch {
-      }
-      setObsConfig({ url: next });
-    };
-    hostEl?.addEventListener("blur", pushUrl);
-    hostEl?.addEventListener("change", pushUrl);
-    portEl?.addEventListener("blur", pushUrl);
-    portEl?.addEventListener("change", pushUrl);
-    passEl?.addEventListener("change", () => {
-      if (syncing) return;
-      try {
-        console.info("[OBS-UI] setObsConfig password");
-      } catch {
-      }
-      setObsConfig({ password: passEl.value });
-    });
-    return true;
+    if (pass && pass !== doc.activeElement) pass.value = state9.configs.obs.password || "";
   };
-  if (!wire2()) {
-    try {
-      const mo = new MutationObserver(() => {
-        if (wire2()) {
-          mo.disconnect();
-        }
-      });
-      mo.observe(doc.documentElement, { childList: true, subtree: true });
-    } catch {
+  const unsubscribe = subscribeRecorderSettings(sync);
+  const observer = new MutationObserver((changes) => {
+    if (changes.some((change) => change.addedNodes.length)) sync();
+  });
+  observer.observe(doc.documentElement, { childList: true, subtree: true });
+  const pushConfig = (ev) => {
+    const input = ev.target;
+    if (!input) return;
+    if (input.id === PASS_ID) {
+      if (input.value !== getRecorderSettings().configs.obs.password) setObsConfig({ password: input.value });
+    } else if (input.id === HOST_ID || input.id === PORT_ID) {
+      const host = doc.getElementById(HOST_ID);
+      const port = doc.getElementById(PORT_ID);
+      const url = buildUrl2(host?.value || "", port?.value);
+      if (url !== getRecorderSettings().configs.obs.url) setObsConfig({ url });
     }
-  }
-  try {
-    doc.addEventListener(
-      "change",
-      (ev) => {
-        const t = ev.target;
-        const input = t && t.closest("[data-tp-obs-toggle]");
-        if (!input) return;
-        handleToggle(!!input.checked, input.id);
-      },
-      { capture: true }
-    );
-  } catch {
-  }
+  };
+  const onChange = (ev) => {
+    const input = ev.target;
+    if (input?.matches(`[data-tp-obs-toggle], #${ENABLE_ID}, #${SIDEBAR_ENABLE_ID}`)) handleToggle(input.checked, input.id);
+    else pushConfig(ev);
+  };
+  doc.addEventListener("change", onChange);
+  doc.addEventListener("blur", pushConfig, true);
+  return () => {
+    observer.disconnect();
+    unsubscribe();
+    doc.removeEventListener("change", onChange);
+    doc.removeEventListener("blur", pushConfig, true);
+    boundDocuments.delete(doc);
+  };
 }
-var ENABLE_ID, SIDEBAR_ENABLE_ID, HOST_ID, PASS_ID, PORT_ID;
+var ENABLE_ID, SIDEBAR_ENABLE_ID, HOST_ID, PASS_ID, PORT_ID, boundDocuments;
 var init_obs_settings_bind = __esm({
   "src/ui/obs-settings-bind.ts"() {
     "use strict";
@@ -92977,6 +92889,7 @@ var init_obs_settings_bind = __esm({
     HOST_ID = "settingsObsHost";
     PASS_ID = "settingsObsPassword";
     PORT_ID = "settingsObsPort";
+    boundDocuments = /* @__PURE__ */ new WeakSet();
   }
 });
 
@@ -92988,50 +92901,45 @@ function computeLabel(enabled2, status2) {
   if (status2 === "connecting") return { text: "Connecting\u2026", css: "obs-pill--pending" };
   if (status2 === "connected") return { text: "Connected", css: "obs-pill--on" };
   if (status2 === "error") return { text: "Error", css: "obs-pill--error" };
-  return { text: "Enabled", css: "obs-pill--pending" };
+  return { text: "Disconnected", css: "obs-pill--pending" };
 }
 function bindObsStatusPills() {
-  const roots = [];
-  const add = (el) => {
-    if (el && !roots.includes(el)) roots.push(el);
-  };
-  const scan = () => {
-    add(document.getElementById("obsStatus"));
-    add(document.getElementById("obsStatusText"));
-    add(document.getElementById("obsConnStatus"));
-    document.querySelectorAll(".obs-status").forEach(add);
-    document.querySelectorAll("[data-obs-status]").forEach(add);
-    document.querySelectorAll(".obs-chip-label").forEach(add);
-  };
-  scan();
-  if (roots.length === 0) {
-    try {
-      console.info("[OBS-STATUS] no status elements found; skipping bind");
-    } catch {
-    }
-    return;
-  }
-  try {
-    const mo = new MutationObserver(() => scan());
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-  } catch {
-  }
-  subscribeRecorderSettings((s) => {
+  if (bound) return;
+  bound = true;
+  const render = () => {
+    const s = getRecorderSettings();
     const { text, css } = computeLabel(s.enabled.obs, s.obsStatus);
-    roots.forEach((el) => {
-      const wantsPrefix = el.id === "obsStatus" || el.classList.contains("chip");
-      el.textContent = wantsPrefix ? `OBS: ${text}` : text;
-      const base = ["obs-pill"];
-      const existing = (el.className || "").split(" ").map((c) => c.trim()).filter(Boolean).filter((c) => !c.startsWith("obs-status-") && !c.startsWith("obs-pill--"));
-      base.push(...existing, css);
-      el.className = base.join(" ");
+    document.querySelectorAll("#obsStatus, #obsStatusText, #obsConnStatus, .obs-status, [data-obs-status], .obs-chip-label").forEach((el) => {
+      const label = el.id === "obsStatus" || el.id === "obsConnStatus" || el.classList.contains("chip") ? `OBS: ${text}` : text;
+      if (el.textContent !== label) el.textContent = label;
+      el.classList.add("obs-pill");
+      ["obs-pill--off", "obs-pill--pending", "obs-pill--on", "obs-pill--error"].forEach((name) => el.classList.toggle(name, name === css));
+      if (el.classList.contains("obs-chip-label")) {
+        const chip = el.closest("#obsChip");
+        if (chip) {
+          chip.title = `OBS: ${text}`;
+          chip.setAttribute("aria-label", chip.title);
+          chip.classList.toggle("obs-connected", s.enabled.obs && s.obsStatus === "connected");
+          chip.classList.toggle("obs-error", s.enabled.obs && s.obsStatus === "error");
+        }
+      }
     });
-  });
+  };
+  const unsubscribe = subscribeRecorderSettings(render);
+  const observer = new MutationObserver(render);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    unsubscribe();
+    bound = false;
+  };
 }
+var bound;
 var init_obs_status_bind = __esm({
   "src/ui/obs-status-bind.ts"() {
     "use strict";
     init_recorder_settings();
+    bound = false;
   }
 });
 
@@ -93114,7 +93022,7 @@ function normalizeState(raw, previous) {
   return out;
 }
 function getTypography(d) {
-  return state5[d];
+  return state6[d];
 }
 function isMaxChManual(d) {
   return !!meta?.[d]?.maxChManual;
@@ -93128,19 +93036,19 @@ function setTypography(d, t) {
     } catch {
     }
   }
-  state5 = { ...state5, [d]: normalizeTypography({ ...state5[d], ...t }, state5[d] || DEFAULTS3[d]) };
+  state6 = { ...state6, [d]: normalizeTypography({ ...state6[d], ...t }, state6[d] || DEFAULTS3[d]) };
   try {
-    localStorage.setItem(KEY4, JSON.stringify(state5));
+    localStorage.setItem(KEY4, JSON.stringify(state6));
   } catch {
   }
   subs5.forEach((fn) => {
     try {
-      fn(d, state5[d]);
+      fn(d, state6[d]);
     } catch {
     }
   });
   try {
-    window.dispatchEvent(new CustomEvent("tp:typographyChanged", { detail: { display: d, settings: state5[d] } }));
+    window.dispatchEvent(new CustomEvent("tp:typographyChanged", { detail: { display: d, settings: state6[d] } }));
   } catch {
   }
 }
@@ -93161,7 +93069,7 @@ function clampTypography(t) {
     dimOthers: clamp12(t.dimOthers, 0, 0.7)
   };
 }
-var KEY4, META_KEY, DISPLAYS, state5, meta, subs5;
+var KEY4, META_KEY, DISPLAYS, state6, meta, subs5;
 var init_typographyStore = __esm({
   "src/settings/typographyStore.ts"() {
     "use strict";
@@ -93169,7 +93077,7 @@ var init_typographyStore = __esm({
     KEY4 = "tp_typography_v1";
     META_KEY = "tp_typography_meta_v1";
     DISPLAYS = ["main", "display"];
-    state5 = (() => {
+    state6 = (() => {
       try {
         const parsed = JSON.parse(localStorage.getItem(KEY4) || "{}");
         const normalized = normalizeState(parsed);
@@ -93196,11 +93104,11 @@ var init_typographyStore = __esm({
         if (e.key === KEY4) {
           try {
             const next = JSON.parse(e.newValue || "{}");
-            state5 = normalizeState(next, state5);
+            state6 = normalizeState(next, state6);
             DISPLAYS.forEach((d) => {
               subs5.forEach((fn) => {
                 try {
-                  fn(d, state5[d]);
+                  fn(d, state6[d]);
                 } catch {
                 }
               });
@@ -93336,9 +93244,9 @@ function wireUiScaleControls(root) {
     const next = persist2 ? persistUiScale(value) : applyUiScale(value);
     syncFields(next);
   };
-  const initial2 = readUiScale();
-  syncFields(initial2);
-  applyUiScale(initial2);
+  const initial = readUiScale();
+  syncFields(initial);
+  applyUiScale(initial);
   const handleInput = (ev) => {
     const target = ev.target;
     if (!target) return;
@@ -93417,12 +93325,15 @@ function wireRecordButtons(store3, opts = {}) {
     startBtn.addEventListener("click", async () => {
       if (startBtn.disabled) return;
       startBtn.disabled = true;
+      startBtn.dataset.recStarting = "true";
       try {
         await startSessionRecording({ obsEnabled: getObsEnabled(), engine: getRecordingEngine() });
       } catch (err) {
+        reportRecordingError(err);
         console.warn("[recording] manual start failed", err);
       } finally {
-        startBtn.disabled = false;
+        delete startBtn.dataset.recStarting;
+        startBtn.disabled = startBtn.dataset.destinationBlocked === "true" || isRecordingBusy();
       }
     });
   });
@@ -93433,7 +93344,7 @@ function wireRecordButtons(store3, opts = {}) {
       if (stopBtn.disabled) return;
       stopBtn.disabled = true;
       try {
-        if (isSessionRecording()) {
+        if (isRecordingBusy()) {
           await stopSessionRecording();
         }
       } catch (err) {
@@ -93458,7 +93369,7 @@ var init_recordButtons = __esm({
 // src/ui/recording-mode-ui.ts
 function applyRecordingModeUi(mode) {
   try {
-    const resolved = mode || getRecordingMode();
+    const resolved = mode || getRecordingMode2();
     const root = document.documentElement;
     root.classList.toggle("tp-audio-only", resolved === "audio");
     root.dataset.recordingMode = resolved;
@@ -93472,6 +93383,305 @@ var init_recording_mode_ui = __esm({
   "src/ui/recording-mode-ui.ts"() {
     "use strict";
     init_recording_settings();
+  }
+});
+
+// src/ui/recording-readiness.ts
+function initRecordingReadiness() {
+  if (disposeCurrent) return disposeCurrent;
+  let error = "";
+  const render = () => {
+    let engine = "Recording engine not selected";
+    try {
+      engine = getRecordingEngine() === "obs" ? "OBS" : "Core Recorder";
+    } catch {
+    }
+    const arm = window.__tpRecordingArm?.getSnapshot?.();
+    const active = isSessionRecording();
+    const connection = engine === "OBS" ? `OBS connection: ${getRecorderSettings().obsStatus}. ` : "";
+    const armLabel = arm?.state === "armed" ? "armed (capture has not started)" : arm?.state === "arming" ? "arming" : arm?.state === "error" ? `arming failed (${String(arm.failure || "unavailable").replace(/_/g, " ")}); check Recording Settings` : "disarmed";
+    const policy = appStoreSingleton.get("autoRecord") ? "Auto-record is on: starting a script session requests recording when ready." : "Auto-record is off: starting script scrolling will not start recording. Use Start recording for a manual take.";
+    const reason = appStoreSingleton.get("session.recordReason");
+    const skipped = {
+      "no-camera": "Camera is not ready. Arm Core Recorder or check camera settings.",
+      "no-mic": "Microphone is not ready. Arm Core Recorder or check microphone settings.",
+      "recorder-not-ready": "The recorder is unavailable. Check Recording Settings.",
+      "rehearsal-mode": "Rehearsal does not automatically record. Use manual Start recording for a take.",
+      error: "Recording readiness could not be established. Check the selected engine in Recording Settings."
+    };
+    const sessionBlocked = !active && ["preroll", "live"].includes(String(appStoreSingleton.get("session.phase"))) && !appStoreSingleton.get("session.recordOnLive") ? skipped[String(reason)] || "" : "";
+    const message = active ? `${engine}: recording active (confirmed).` : `${connection}${engine}: ${armLabel}. ${policy}${isRecordingBusy() ? " Capture status is pending or unconfirmed; check the recorder and use Stop before another take." : ""}`;
+    const text = [message, error ? `Recording could not proceed: ${error}` : sessionBlocked].filter(Boolean).join("\n");
+    document.querySelectorAll("[data-recording-readiness]").forEach((element) => {
+      if (element.textContent !== text) element.textContent = text;
+      element.dataset.state = error || sessionBlocked ? "error" : active ? "recording" : "ready";
+    });
+  };
+  const onError = (event) => {
+    error = String(event.detail?.message || "Check Recording Settings.");
+    render();
+  };
+  const onState = () => {
+    if (isSessionRecording()) error = "";
+    render();
+  };
+  const events = [
+    ["tp:recording:error", onError],
+    ["tp:recording:state", onState],
+    ["tp:recording:arm-state", render],
+    ["tp:recording-settings:changed", render]
+  ];
+  events.forEach(([name, listener]) => window.addEventListener(name, listener));
+  const off2 = [subscribeRecorderSettings(render), ...["autoRecord", "session.phase", "session.recordReason", "session.recordOnLive"].map((key) => appStoreSingleton.subscribe(key, render))];
+  const observer = new MutationObserver(render);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  render();
+  disposeCurrent = () => {
+    observer.disconnect();
+    off2.forEach((fn) => fn());
+    events.forEach(([name, listener]) => window.removeEventListener(name, listener));
+    disposeCurrent = null;
+  };
+  return disposeCurrent;
+}
+var disposeCurrent;
+var init_recording_readiness = __esm({
+  "src/ui/recording-readiness.ts"() {
+    "use strict";
+    init_app_store();
+    init_recorder_settings();
+    init_recording_settings();
+    init_recorderRegistry();
+    disposeCurrent = null;
+  }
+});
+
+// src/recording/local-destination.ts
+async function resolveLocalRecordingDestination() {
+  const api = window.__tpRecDir;
+  if (!api) throw new Error("Recording destination unavailable. Link the recording folder through Hearth and reopen Anvil.");
+  await api.init?.();
+  const handle = api.get?.() ?? null;
+  const managed = !!api.isManaged?.();
+  const expected = managed ? api.localPersistenceExpected?.() ?? true : !!handle;
+  const hint = api.managedHint?.() || handle?.name || null;
+  return { handle, expected, hint };
+}
+async function readLocalDestinationReadiness() {
+  try {
+    const destination = await resolveLocalRecordingDestination();
+    if (!destination.expected) return { ready: true, message: "" };
+    if (!destination.handle) return { ready: false, message: "Core recording is blocked: no recording folder is mapped for this browser. Map the recording destination in Hearth / The Forge Settings > Storage, grant folder access, then return here." };
+    const handle = destination.handle;
+    if (handle.queryPermission && await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
+      return { ready: false, message: "Core recording is blocked: the mapped recording folder needs write permission. Grant folder access in Hearth / The Forge Settings > Storage, then return here." };
+    }
+    return { ready: true, message: "" };
+  } catch {
+    return { ready: false, message: "Core recording is blocked: the recording destination could not be checked. Relink the recording folder in Hearth / The Forge Settings > Storage, then return here." };
+  }
+}
+async function requireLocalRecordingDestination() {
+  const destination = await resolveLocalRecordingDestination();
+  if (!destination.expected) return destination;
+  if (!destination.handle) throw new Error("The Hearth recording folder is unavailable. Relink it in Hearth before recording.");
+  const handle = destination.handle;
+  if (handle.queryPermission && await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
+    if (!handle.requestPermission || await handle.requestPermission({ mode: "readwrite" }) !== "granted") {
+      throw new Error("Recording folder permission denied. Grant access through Hearth before recording.");
+    }
+  }
+  return destination;
+}
+async function writeLocalRecording(bytes, name, capturedDestination) {
+  let destination = { handle: null, expected: true, hint: null };
+  let stage = "directory_resolution_failed";
+  let writable = null;
+  try {
+    destination = capturedDestination ?? await resolveLocalRecordingDestination();
+    if (!destination.handle) return { ...destination, success: false, errorCode: destination.expected ? "missing_directory_handle" : null, errorMessage: destination.expected ? "The Hearth recording folder is unavailable. Relink it in Hearth and retry local save." : null };
+    stage = "directory_permission_not_granted";
+    const handle = destination.handle;
+    if (handle.queryPermission && await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
+      throw new Error("Recording folder permission is not granted. Relink it in Hearth and retry local save.");
+    }
+    stage = "directory_file_creation_failed";
+    const file = await handle.getFileHandle(name, { create: true });
+    stage = "directory_writable_open_failed";
+    writable = await file.createWritable();
+    stage = "directory_write_failed";
+    await writable.write(bytes);
+    stage = "directory_close_failed";
+    await writable.close();
+    return { ...destination, success: true, errorCode: null, errorMessage: null };
+  } catch (error) {
+    try {
+      await writable?.abort();
+    } catch {
+    }
+    return { ...destination, success: false, errorCode: stage, errorMessage: error.message };
+  }
+}
+var init_local_destination = __esm({
+  "src/recording/local-destination.ts"() {
+    "use strict";
+  }
+});
+
+// src/ui/recording-destination-warning.ts
+function initRecordingDestinationWarning() {
+  if (current) return current;
+  let revision2 = 0;
+  let disposed = false;
+  let state9 = { ready: false, message: "Checking the Core recording destination\u2026" };
+  const render = () => {
+    document.querySelectorAll("[data-recording-destination-warning]").forEach((warning) => {
+      warning.hidden = state9.ready;
+      if (warning.dataset.message !== state9.message) {
+        warning.dataset.message = state9.message;
+        warning.replaceChildren(document.createTextNode(state9.message + " "));
+        if (!state9.ready) {
+          const link = document.createElement("a");
+          link.href = getNurseryStorageSettingsUrl();
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = "Open recording storage settings";
+          warning.appendChild(link);
+        }
+      }
+    });
+    document.querySelectorAll('#startRecBtn, [data-action="record-start"]').forEach((button) => {
+      if (!state9.ready) {
+        button.dataset.destinationBlocked = "true";
+        button.setAttribute("aria-describedby", "recordingDestinationWarning");
+      } else if (button.dataset.destinationBlocked === "true") {
+        delete button.dataset.destinationBlocked;
+        button.removeAttribute("aria-describedby");
+      }
+      button.disabled = !state9.ready || isRecordingBusy() || button.dataset.recStarting === "true";
+    });
+  };
+  const refresh = async () => {
+    const ticket = ++revision2;
+    let next;
+    try {
+      next = getRecordingEngine() === "obs" ? { ready: true, message: "" } : await readLocalDestinationReadiness();
+    } catch {
+      next = { ready: false, message: "Choose a recording engine in Recording Settings before recording." };
+    }
+    if (!disposed && ticket === revision2) {
+      state9 = next;
+      render();
+    }
+  };
+  const onRefresh = () => {
+    void refresh();
+  };
+  const onStorage = (event) => {
+    if (!event.key || ["forge_mount_registry_v2", "forge_workspace_id_v1", "barstock_workspace_id"].includes(event.key)) onRefresh();
+  };
+  const events = ["focus", "pageshow", "tp:recording-directory:changed", "tp:recording-settings:changed", "tp:settings:rendered"];
+  events.forEach((name) => window.addEventListener(name, onRefresh));
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("tp:recording:state", render);
+  document.addEventListener("tp:settings:rendered", onRefresh);
+  const visibility = () => {
+    if (!document.hidden) onRefresh();
+  };
+  document.addEventListener("visibilitychange", visibility);
+  const observer = new MutationObserver(render);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  current = { refresh, dispose: () => {
+    disposed = true;
+    revision2++;
+    observer.disconnect();
+    events.forEach((name) => window.removeEventListener(name, onRefresh));
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("tp:recording:state", render);
+    document.removeEventListener("tp:settings:rendered", onRefresh);
+    document.removeEventListener("visibilitychange", visibility);
+    current = null;
+  } };
+  render();
+  void refresh();
+  return current;
+}
+var current;
+var init_recording_destination_warning = __esm({
+  "src/ui/recording-destination-warning.ts"() {
+    "use strict";
+    init_recording_settings();
+    init_local_destination();
+    init_nursery_mounts();
+    init_recorderRegistry();
+    current = null;
+  }
+});
+
+// src/ui/obs-recording-feedback.ts
+function initObsRecordingFeedback() {
+  if (current2) return current2;
+  let local = "";
+  let cloud = "";
+  let path = null;
+  const render = () => {
+    const text = [local, cloud].filter(Boolean).join("\n");
+    document.querySelectorAll("[data-obs-recording-feedback]").forEach((element) => {
+      element.hidden = !text;
+      if (element.textContent !== text) element.textContent = text;
+    });
+  };
+  const started = () => {
+    path = null;
+    local = "OBS recording active (confirmed by OBS).";
+    cloud = "";
+    render();
+  };
+  const uncertain = (event) => {
+    if (event.detail?.engine !== "obs") return;
+    local = "OBS recording status is unconfirmed. Check OBS and use Stop before starting another take.";
+    cloud = "";
+    render();
+  };
+  const completed = (event) => {
+    const result = event.detail;
+    if (!result?.stopped || !result.outputPath) return;
+    path = result.outputPath;
+    local = `OBS recording saved locally: ${path}`;
+    cloud = "Cloud persistence is a separate step.";
+    render();
+  };
+  const imported = (event) => {
+    const detail = event.detail || {};
+    if (detail.outputPath && detail.outputPath !== path) return;
+    if (detail.phase === "uploading") cloud = "Cloud save in progress. The local OBS file is already saved.";
+    else if (detail.phase === "failed") cloud = `Cloud persistence failed${detail.reason ? ` (${detail.reason})` : ""}. ${path ? "The local OBS recording remains saved." : "Check the local file separately."}`;
+    else if (detail.phase === "needs-file") cloud = "Cloud persistence deferred: access to the OBS file is required. The local recording is unchanged.";
+    else if (["decision-required", "kept"].includes(detail.phase)) cloud = "Cloud recording completion confirmed.";
+    else return;
+    render();
+  };
+  const events = [
+    ["tp:recording:obs-started", started],
+    ["tp:recording:uncertain", uncertain],
+    ["tp:recording:obs-local-complete", completed],
+    ["tp:obs:recording-import", imported]
+  ];
+  events.forEach(([name, listener]) => window.addEventListener(name, listener));
+  const observer = new MutationObserver(render);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  current2 = { dispose: () => {
+    observer.disconnect();
+    events.forEach(([name, listener]) => window.removeEventListener(name, listener));
+    current2 = null;
+  } };
+  return current2;
+}
+var current2;
+var init_obs_recording_feedback = __esm({
+  "src/ui/obs-recording-feedback.ts"() {
+    "use strict";
+    current2 = null;
   }
 });
 
@@ -94261,7 +94471,7 @@ function maybeStartOnLive2(phase) {
   if (phase !== "live") return;
   const shouldRecord = !!appStoreSingleton.get("session.recordOnLive");
   const reason = appStoreSingleton.get("session.recordReason");
-  if (!shouldRecord) {
+  if (!shouldRecord || !appStoreSingleton.get("autoRecord")) {
     try {
       console.log("[session] recording not armed; reason=", reason);
     } catch {
@@ -94293,6 +94503,7 @@ function maybeStartOnLive2(phase) {
       console.warn("[session] startSessionRecording failed", err);
     });
   } catch (err) {
+    reportRecordingError(err);
     try {
       console.warn("[session] recorder start failed", err);
     } catch {
@@ -94301,7 +94512,7 @@ function maybeStartOnLive2(phase) {
 }
 function maybeStopOnEnd(phase) {
   if (phase !== "wrap" && phase !== "idle") return;
-  if (!isSessionRecording()) return;
+  if (!isRecordingBusy()) return;
   try {
     console.debug("[recording-session] stopping recorders; phase=", phase);
   } catch {
@@ -94486,7 +94697,7 @@ function renderPill(pill, next, prev2, variant) {
     return;
   }
   if (isRecording) {
-    pill.textContent = getRecordingMode() === "audio" ? "REC \u2022 AUDIO" : "REC";
+    pill.textContent = getRecordingMode2() === "audio" ? "REC \u2022 AUDIO" : "REC";
   } else {
     pill.textContent = "REC ARMED";
   }
@@ -94723,6 +94934,14 @@ function initRecPillsMain(store3) {
   } catch {
   }
   try {
+    window.addEventListener("tp:recording:arm-state", (ev) => {
+      const state9 = String(ev?.detail?.state || "").toLowerCase();
+      recordingEnabled = state9 === "armed" || state9 === "recording";
+      recompute();
+    });
+  } catch {
+  }
+  try {
     window.addEventListener("tp:recording:transcript-state", (ev) => {
       const detail = ev?.detail || {};
       const status2 = String(detail.status || "idle");
@@ -94775,6 +94994,384 @@ var init_rec_pills = __esm({
 .rec-pill-live{min-width:1px;min-height:1px}
 @keyframes recPulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.03);opacity:.95}100%{transform:scale(1);opacity:1}}
 `;
+  }
+});
+
+// src/recording/recording-arm.ts
+function permissionDenied(error) {
+  const name = String(error?.name || "");
+  return name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError";
+}
+function defaultDependencies() {
+  const readStored = (key) => {
+    try {
+      const value = String(window.localStorage.getItem(key) || "").trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  };
+  return {
+    readConfiguration: readSavedRecordingConfiguration,
+    enumerateDevices: async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) throw new Error("media_unsupported");
+      return Array.from(await navigator.mediaDevices.enumerateDevices());
+    },
+    getMicApi: () => window.__tpMic || null,
+    getCameraApi: () => window.__tpCamera || null,
+    getObsApi: () => {
+      const controller = window.__tpObs;
+      if (!controller) return null;
+      const events = window.__obsBridge;
+      return {
+        armed: typeof controller.armed === "function" ? () => controller.armed() : void 0,
+        isConnected: typeof events?.isConnected === "function" ? () => events.isConnected() : void 0,
+        setArmed: typeof controller.setArmed === "function" ? (on3) => controller.setArmed(on3) : void 0,
+        maybeConnect: typeof controller.maybeConnect === "function" ? () => controller.maybeConnect() : void 0,
+        disconnect: typeof controller.disconnect === "function" ? () => controller.disconnect() : typeof events?.disconnect === "function" ? () => events.disconnect() : void 0,
+        on: typeof events?.on === "function" ? (event, callback) => events.on(event, callback) : void 0
+      };
+    },
+    setObsEnabled: (enabled2) => setRecorderEnabled("obs", enabled2),
+    readSavedMicDeviceId: () => readStored("tp_mic_device_v1"),
+    readSavedCameraDeviceId: () => readStored("tp_camera_device_v1"),
+    isRecording: isRecordingBusy,
+    dispatch: (snapshot) => {
+      window.dispatchEvent(new CustomEvent("tp:recording:arm-state", { detail: snapshot }));
+    }
+  };
+}
+function createRecordingArmController(overrides = {}) {
+  const deps = { ...defaultDependencies(), ...overrides };
+  let snapshot = { state: "idle", configuration: null, failure: null };
+  let ownedMic = null;
+  let ownedCamera = null;
+  let ownsObsArm = false;
+  let removeObsDisconnectListener = null;
+  const listeners3 = /* @__PURE__ */ new Set();
+  const publish = (next) => {
+    snapshot = next;
+    deps.dispatch({ ...next });
+    listeners3.forEach((listener) => listener({ ...next }));
+  };
+  const cleanupOwnedMedia = async () => {
+    removeObsDisconnectListener?.();
+    removeObsDisconnectListener = null;
+    if (ownsObsArm) {
+      const obs = deps.getObsApi();
+      try {
+        await obs?.setArmed?.(false);
+      } catch {
+      }
+      try {
+        await obs?.disconnect?.();
+      } catch {
+      }
+      try {
+        deps.setObsEnabled(false);
+      } catch {
+      }
+      ownsObsArm = false;
+    }
+    if (ownedCamera) {
+      const owned = ownedCamera;
+      ownedCamera = null;
+      try {
+        if (owned.stream && deps.getCameraApi() === owned.api && owned.api.getStream?.() === owned.stream) owned.api.stop?.();
+        else owned.stream?.getTracks().forEach((track) => track.stop());
+      } catch {
+      }
+    }
+    if (ownedMic) {
+      const owned = ownedMic;
+      ownedMic = null;
+      try {
+        if (owned.stream && deps.getMicApi() === owned.api && owned.api.__lastStream === owned.stream) await owned.api.releaseMic?.();
+        else owned.stream?.getTracks().forEach((track) => track.stop());
+      } catch {
+      }
+    }
+  };
+  const fail3 = async (failure, configuration) => {
+    await cleanupOwnedMedia();
+    publish({ state: "error", configuration, failure });
+    return { ok: false, failure };
+  };
+  return {
+    getSnapshot: () => ({ ...snapshot }),
+    subscribe(listener) {
+      listeners3.add(listener);
+      listener({ ...snapshot });
+      return () => listeners3.delete(listener);
+    },
+    async arm() {
+      if (snapshot.state === "armed" || snapshot.state === "recording") return { ok: true };
+      if (snapshot.state === "error") await cleanupOwnedMedia();
+      const saved = deps.readConfiguration();
+      if (!saved.ok) {
+        return fail3(saved.reason === "missing" ? "configuration_missing" : "configuration_invalid", null);
+      }
+      const configuration = saved.configuration;
+      publish({ state: "arming", configuration, failure: null });
+      if (configuration.engine === "obs") {
+        const obs = deps.getObsApi();
+        if (!obs?.setArmed || !obs.armed || !obs.isConnected) return fail3("obs_unavailable", configuration);
+        try {
+          if (!obs.armed()) {
+            ownsObsArm = true;
+            deps.setObsEnabled(true);
+            const armResult = await obs.setArmed(true);
+            if (armResult === false) return fail3("obs_failed", configuration);
+          }
+          const connectResult = await obs.maybeConnect?.();
+          if (connectResult === false || !obs.armed() || !obs.isConnected()) return fail3("obs_failed", configuration);
+          if (obs.on) {
+            const cleanup2 = obs.on("disconnect", () => {
+              if (snapshot.configuration?.engine !== "obs") return;
+              publish({ state: "error", configuration, failure: "obs_disconnected" });
+            });
+            if (typeof cleanup2 === "function") removeObsDisconnectListener = cleanup2;
+          }
+          publish({ state: "armed", configuration, failure: null });
+          return { ok: true };
+        } catch {
+          return fail3("obs_failed", configuration);
+        }
+      }
+      if (!navigator.mediaDevices?.getUserMedia) return fail3("media_unsupported", configuration);
+      let devices;
+      try {
+        devices = await deps.enumerateDevices();
+      } catch {
+        return fail3("media_unsupported", configuration);
+      }
+      const micId = deps.readSavedMicDeviceId();
+      const cameraId = deps.readSavedCameraDeviceId();
+      if (micId && !devices.some((device) => device.kind === "audioinput" && device.deviceId === micId)) {
+        return fail3("microphone_missing", configuration);
+      }
+      if (configuration.mode === "av" && cameraId && !devices.some((device) => device.kind === "videoinput" && device.deviceId === cameraId)) {
+        return fail3("camera_missing", configuration);
+      }
+      const mic2 = deps.getMicApi();
+      if (!mic2?.requestMic) return fail3("microphone_failed", configuration);
+      if (!mic2.isOpen?.()) {
+        try {
+          const stream = await mic2.requestMic(micId || void 0);
+          ownedMic = { api: mic2, stream: stream || mic2.__lastStream || null };
+        } catch (error) {
+          return fail3(permissionDenied(error) ? "microphone_denied" : "microphone_failed", configuration);
+        }
+      }
+      if (!mic2.isOpen?.()) return fail3("microphone_failed", configuration);
+      if (configuration.mode === "av") {
+        const camera = deps.getCameraApi();
+        if (!camera?.start) return fail3("camera_failed", configuration);
+        if (!camera.isActive?.()) {
+          try {
+            if (cameraId && camera.setDevice) {
+              const selected = await camera.setDevice(cameraId);
+              if (selected === false) return fail3("camera_failed", configuration);
+            }
+            const started = await camera.start();
+            if (started === false) {
+              const failure = camera.getLastStartFailure?.() === "permission_denied" ? "camera_denied" : "camera_failed";
+              return fail3(failure, configuration);
+            }
+            ownedCamera = { api: camera, stream: camera.getStream?.() ?? null };
+          } catch (error) {
+            return fail3(permissionDenied(error) ? "camera_denied" : "camera_failed", configuration);
+          }
+        }
+      }
+      if (configuration.mode === "av" && !deps.getCameraApi()?.isActive?.()) return fail3("camera_failed", configuration);
+      publish({ state: "armed", configuration, failure: null });
+      return { ok: true };
+    },
+    async disarm() {
+      if (deps.isRecording() || snapshot.state === "recording") return false;
+      await cleanupOwnedMedia();
+      publish({ state: "idle", configuration: null, failure: null });
+      return true;
+    },
+    async refreshConfiguration() {
+      if (snapshot.state === "arming" || deps.isRecording()) return;
+      const saved = deps.readConfiguration();
+      if (snapshot.configuration && (!saved.ok || saved.configuration.engine !== snapshot.configuration.engine || saved.configuration.mode !== snapshot.configuration.mode)) {
+        await cleanupOwnedMedia();
+        publish({ state: "idle", configuration: null, failure: null });
+        return;
+      }
+      if (snapshot.state === "armed" && snapshot.configuration?.engine === "obs") {
+        const obs = deps.getObsApi();
+        if (!obs?.armed?.() || !obs.isConnected?.()) publish({ state: "error", configuration: snapshot.configuration, failure: "obs_disconnected" });
+      }
+      if (snapshot.state === "armed" && snapshot.configuration?.engine === "core") {
+        const failure = !deps.getMicApi()?.isOpen?.() ? "microphone_missing" : snapshot.configuration.mode === "av" && !deps.getCameraApi()?.isActive?.() ? "camera_missing" : null;
+        if (failure) publish({ state: "error", configuration: snapshot.configuration, failure });
+      }
+    },
+    setRecordingActive(active) {
+      if (active) {
+        const saved = deps.readConfiguration();
+        publish({ state: "recording", configuration: snapshot.configuration || (saved.ok ? saved.configuration : null), failure: null });
+      } else if (snapshot.state === "recording") {
+        const configuration = snapshot.configuration;
+        const browserReady = configuration?.engine === "core" && !!deps.getMicApi()?.isOpen?.() && (configuration.mode === "audio" || !!deps.getCameraApi()?.isActive?.());
+        const obs = configuration?.engine === "obs" ? deps.getObsApi() : null;
+        const obsReady = !!obs?.armed?.() && !!obs?.isConnected?.();
+        publish({
+          state: browserReady || obsReady ? "armed" : "idle",
+          configuration: snapshot.configuration,
+          failure: null
+        });
+      }
+    }
+  };
+}
+var init_recording_arm = __esm({
+  "src/recording/recording-arm.ts"() {
+    "use strict";
+    init_recorderRegistry();
+    init_recording_settings();
+    init_recorder_settings();
+  }
+});
+
+// src/features/recording-arm-control.ts
+function openRecordingSettings() {
+  try {
+    document.getElementById("settingsBtn")?.click();
+  } catch {
+  }
+  const activate = () => {
+    try {
+      document.querySelector('[data-settings-tab="recording"]')?.click();
+    } catch {
+    }
+  };
+  activate();
+  setTimeout(activate, 0);
+}
+function failureMessage(failure) {
+  switch (failure) {
+    case "configuration_missing":
+      return "Choose recording settings before arming.";
+    case "configuration_invalid":
+      return "Your saved recording settings need attention before arming.";
+    case "microphone_missing":
+      return "The saved microphone is unavailable. Choose a microphone in Recording Settings.";
+    case "camera_missing":
+      return "The saved camera is unavailable. Choose a camera in Recording Settings.";
+    case "microphone_denied":
+      return "Microphone permission was denied. Allow access, then arm again.";
+    case "camera_denied":
+      return "Camera permission was denied. Allow access, then arm again.";
+    case "media_unsupported":
+      return "This browser cannot initialize recording devices.";
+    case "camera_failed":
+      return "The camera could not be initialized. Check Recording Settings and device access.";
+    case "obs_unavailable":
+      return "OBS control is unavailable. Check OBS in Recording Settings.";
+    case "obs_disconnected":
+      return "OBS disconnected. Check OBS, then arm again.";
+    case "obs_failed":
+      return "OBS could not be armed. Check its connection in Recording Settings.";
+    default:
+      return "The microphone could not be initialized. Check Recording Settings and device access.";
+  }
+}
+function buttonLabel(state9) {
+  if (state9 === "arming") return "Arming\u2026";
+  if (state9 === "armed") return "Disarm Recording";
+  if (state9 === "recording") return "Recording Active";
+  return "Arm Recording";
+}
+function initRecordingArmControl() {
+  if (initialized3 || typeof document === "undefined") return;
+  initialized3 = true;
+  const controller = createRecordingArmController();
+  const render = (state9, failure) => {
+    const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
+    buttons.forEach((button) => {
+      button.textContent = buttonLabel(state9);
+      button.disabled = state9 === "arming" || isRecordingBusy();
+      button.setAttribute("aria-pressed", state9 === "armed" || state9 === "recording" ? "true" : "false");
+      button.dataset.state = state9;
+    });
+    const status2 = document.getElementById("recordingArmStatus");
+    if (status2) {
+      status2.textContent = failure ? failureMessage(failure) : `Recording devices: ${state9}`;
+      status2.dataset.state = state9;
+    }
+  };
+  const offController = controller.subscribe((next) => render(next.state, next.failure));
+  const wireButtons2 = () => {
+    const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
+    buttons.forEach((button) => {
+      if (button.dataset.recordingArmWired) return;
+      button.dataset.recordingArmWired = "1";
+      button.addEventListener("click", async () => {
+        if (button.disabled) return;
+        const current4 = controller.getSnapshot();
+        if (current4.state === "armed") {
+          await controller.disarm();
+          return;
+        }
+        const result = await controller.arm();
+        if (!result.ok) {
+          const message = failureMessage(result.failure);
+          try {
+            window.toast?.(message, { type: "warn" });
+          } catch {
+          }
+          openRecordingSettings();
+        }
+      });
+    });
+  };
+  wireButtons2();
+  const onSettings = () => {
+    wireButtons2();
+    const next = controller.getSnapshot();
+    render(next.state, next.failure);
+  };
+  document.addEventListener("tp:settings:rendered", onSettings);
+  const onRecording = (event) => {
+    const recording = event?.detail?.recording;
+    if (typeof recording === "boolean") controller.setRecordingActive(recording);
+    const next = controller.getSnapshot();
+    render(next.state, next.failure);
+  };
+  window.addEventListener("tp:recording:state", onRecording);
+  const refresh = () => {
+    void controller.refreshConfiguration();
+  };
+  window.addEventListener("tp:recording-settings:changed", refresh);
+  window.addEventListener("tp:mic:state", refresh);
+  const offSettings = subscribeRecorderSettings(refresh);
+  const offCamera = [appStoreSingleton.subscribe("cameraEnabled", refresh), appStoreSingleton.subscribe("cameraAvailable", refresh)];
+  cleanup = () => {
+    offController();
+    offSettings();
+    offCamera.forEach((off2) => off2());
+    document.removeEventListener("tp:settings:rendered", onSettings);
+    window.removeEventListener("tp:recording:state", onRecording);
+    window.removeEventListener("tp:recording-settings:changed", refresh);
+    window.removeEventListener("tp:mic:state", refresh);
+  };
+  window.__tpRecordingArm = controller;
+}
+var initialized3, cleanup;
+var init_recording_arm_control = __esm({
+  "src/features/recording-arm-control.ts"() {
+    "use strict";
+    init_recording_arm();
+    init_recorderRegistry();
+    init_recorder_settings();
+    init_app_store();
+    initialized3 = false;
+    cleanup = null;
   }
 });
 
@@ -95515,358 +96112,6 @@ var init_scripts_store = __esm({
   }
 });
 
-// src/recording/recording-decision-dialog.ts
-function isRecordingDecisionPending() {
-  return typeof document !== "undefined" && document.getElementById(MODAL_ID2) !== null;
-}
-function escapeHtml3(value) {
-  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function describeDecisionError(error) {
-  const message = error instanceof Error ? error.message.trim() : "";
-  if (message === "ready_workspace_missing") {
-    return "Anvil lost the episode workspace context before saving this decision. The recording is still saved. Reopen this episode from Hearth, then choose Keep Take again.";
-  }
-  if (message === "recording_keep_unavailable" || message === "recording_discard_unavailable") {
-    return "Anvil could not save this take decision to Tongs. The recording is still saved; check the Forge connection and try again.";
-  }
-  return message || "Could not save your take decision. Try again.";
-}
-function closeModal2() {
-  const existing = document.getElementById(MODAL_ID2);
-  if (existing?.parentElement) {
-    existing.parentElement.removeChild(existing);
-  }
-}
-function closeWorkingModal() {
-  const existing = document.getElementById(WORKING_MODAL_ID);
-  if (existing?.parentElement) {
-    existing.parentElement.removeChild(existing);
-  }
-}
-function closeAllRecordingOverlays() {
-  if (_activeDecisionCleanup) {
-    _activeDecisionCleanup();
-    _activeDecisionCleanup = null;
-  }
-  closeModal2();
-  closeWorkingModal();
-}
-function applyStyles2() {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    #${MODAL_ID2} {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      background: rgba(8, 15, 30, 0.74);
-      z-index: 1700;
-    }
-    #${WORKING_MODAL_ID} {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      background: rgba(8, 15, 30, 0.74);
-      z-index: 1700;
-    }
-    #${MODAL_ID2} .tp-recording-decision-panel {
-      width: min(460px, 100%);
-      background: #0f172a;
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
-      padding: 22px;
-      font-family: system-ui, "Segoe UI", sans-serif;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-decision-panel {
-      width: min(420px, 100%);
-      background: #0f172a;
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
-      padding: 22px;
-      font-family: system-ui, "Segoe UI", sans-serif;
-    }
-    #${MODAL_ID2} h2 {
-      margin: 0 0 10px;
-      font-size: 22px;
-      line-height: 1.15;
-    }
-    #${WORKING_MODAL_ID} h2 {
-      margin: 0 0 10px;
-      font-size: 22px;
-      line-height: 1.15;
-    }
-    #${MODAL_ID2} .tp-recording-decision-copy {
-      margin: 0;
-      color: rgba(226, 232, 240, 0.82);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-decision-copy {
-      margin: 0;
-      color: rgba(226, 232, 240, 0.82);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    #${MODAL_ID2} .tp-recording-decision-file {
-      margin: 14px 0 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      color: rgba(248, 250, 252, 0.92);
-      font-size: 13px;
-      word-break: break-word;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-decision-file {
-      margin: 14px 0 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      color: rgba(248, 250, 252, 0.92);
-      font-size: 13px;
-      word-break: break-word;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-working-status {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 18px;
-      color: rgba(226, 232, 240, 0.92);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-working-spinner {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 2px solid rgba(148, 163, 184, 0.28);
-      border-top-color: #22c55e;
-      animation: tp-recording-working-spin 0.8s linear infinite;
-      flex: 0 0 auto;
-    }
-    @keyframes tp-recording-working-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    #${MODAL_ID2} .tp-recording-decision-error {
-      min-height: 20px;
-      margin: 14px 0 0;
-      color: #fca5a5;
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    #${MODAL_ID2} .tp-recording-decision-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 18px;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn {
-      min-width: 120px;
-      border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: transparent;
-      color: #e2e8f0;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      padding: 10px 16px;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn[disabled] {
-      opacity: 0.6;
-      cursor: wait;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn--keep {
-      background: #22c55e;
-      border-color: #22c55e;
-      color: #052e16;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn--discard {
-      background: rgba(148, 163, 184, 0.12);
-    }
-  `;
-  document.head.appendChild(style);
-}
-function buildWorkingMarkup(options) {
-  const detail = String(options.detail || "").trim() || "Saving your take and preparing review options.";
-  const takeName = String(options.takeName || "").trim();
-  return `
-    <div class="tp-recording-decision-panel" role="status" aria-live="polite" aria-labelledby="${WORKING_MODAL_ID}-title">
-      <h2 id="${WORKING_MODAL_ID}-title">Finalizing recording</h2>
-      <p class="tp-recording-decision-copy">${escapeHtml3(detail)}</p>
-      ${takeName ? `<div class="tp-recording-decision-file">${escapeHtml3(takeName)}</div>` : ""}
-      <div class="tp-recording-working-status">
-        <span class="tp-recording-working-spinner" aria-hidden="true"></span>
-        <span>Working\u2026</span>
-      </div>
-    </div>
-  `;
-}
-function buildMarkup(takeName, isRecovery) {
-  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
-  const copy = isRecovery ? "This recording was saved but not reviewed. Keep or discard it?" : "Keep this take for editing?";
-  return `
-    <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID2}-title">
-      <h2 id="${MODAL_ID2}-title">${title}</h2>
-      <p class="tp-recording-decision-copy">${copy}</p>
-      <div class="tp-recording-decision-file">${escapeHtml3(takeName)}</div>
-      <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
-      <div class="tp-recording-decision-actions">
-        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--discard" data-action="discard">Discard Take</button>
-        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--keep" data-action="keep">Keep Take</button>
-      </div>
-    </div>
-  `;
-}
-function showRecordingFinalizeIndicator(options = {}) {
-  if (typeof document === "undefined") return;
-  closeAllRecordingOverlays();
-  applyStyles2();
-  const overlay = document.createElement("div");
-  overlay.id = WORKING_MODAL_ID;
-  overlay.className = "tp-recording-working-overlay";
-  overlay.innerHTML = buildWorkingMarkup(options);
-  document.body.appendChild(overlay);
-}
-function hideRecordingFinalizeIndicator() {
-  if (typeof document === "undefined") return;
-  closeWorkingModal();
-}
-async function showRecordingDecisionDialog(options) {
-  if (typeof document === "undefined") return;
-  closeAllRecordingOverlays();
-  applyStyles2();
-  return new Promise((resolve, reject) => {
-    const overlay = document.createElement("div");
-    overlay.id = MODAL_ID2;
-    overlay.className = "tp-recording-decision-overlay";
-    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
-    const discardButton = overlay.querySelector('[data-action="discard"]');
-    const keepButton = overlay.querySelector('[data-action="keep"]');
-    const errorNode = overlay.querySelector('[data-role="error"]');
-    let finished = false;
-    const setBusy = (busy, action) => {
-      if (discardButton) {
-        discardButton.disabled = busy;
-        discardButton.textContent = busy && action === "discard" ? "Discarding..." : "Discard Take";
-      }
-      if (keepButton) {
-        keepButton.disabled = busy;
-        keepButton.textContent = busy && action === "keep" ? "Saving..." : "Keep Take";
-      }
-    };
-    const visibilityGuard = () => {
-      try {
-        if (document.visibilityState !== "visible") return;
-        if (!finished && !document.body.contains(overlay)) {
-          document.body.appendChild(overlay);
-          keepButton?.focus();
-        }
-      } catch {
-      }
-    };
-    const beforeUnloadGuard = (event) => {
-      if (!finished) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    const cleanupGuards = () => {
-      _activeDecisionCleanup = null;
-      try {
-        document.removeEventListener("visibilitychange", visibilityGuard);
-      } catch {
-      }
-      try {
-        window.removeEventListener("beforeunload", beforeUnloadGuard);
-      } catch {
-      }
-    };
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      cleanupGuards();
-      closeModal2();
-      resolve();
-    };
-    const fail3 = (error) => {
-      if (finished) return;
-      finished = true;
-      cleanupGuards();
-      closeModal2();
-      reject(error);
-    };
-    const runAction = async (action) => {
-      setBusy(true, action);
-      if (errorNode) errorNode.textContent = "";
-      try {
-        if (action === "keep") {
-          await options.onKeep();
-        } else {
-          await options.onDiscard();
-        }
-        finish();
-      } catch (error) {
-        setBusy(false);
-        if (errorNode) {
-          errorNode.textContent = describeDecisionError(error);
-        }
-      }
-    };
-    discardButton?.addEventListener("click", () => {
-      void runAction("discard");
-    });
-    keepButton?.addEventListener("click", () => {
-      void runAction("keep");
-    });
-    overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void runAction("keep");
-      }
-    });
-    try {
-      document.body.appendChild(overlay);
-      _activeDecisionCleanup = cleanupGuards;
-      try {
-        document.addEventListener("visibilitychange", visibilityGuard);
-      } catch {
-      }
-      try {
-        window.addEventListener("beforeunload", beforeUnloadGuard);
-      } catch {
-      }
-      keepButton?.focus();
-    } catch (error) {
-      cleanupGuards();
-      fail3(error);
-    }
-  });
-}
-var MODAL_ID2, WORKING_MODAL_ID, STYLE_ID, _activeDecisionCleanup;
-var init_recording_decision_dialog = __esm({
-  "src/recording/recording-decision-dialog.ts"() {
-    "use strict";
-    MODAL_ID2 = "tp-recording-decision-modal";
-    WORKING_MODAL_ID = "tp-recording-working-modal";
-    STYLE_ID = "tp-recording-decision-styles";
-    _activeDecisionCleanup = null;
-  }
-});
-
 // src/recording/recording-name.ts
 function readString11(value) {
   if (typeof value !== "string") return null;
@@ -96596,180 +96841,11 @@ var init_selectBestRecordingStrategy = __esm({
   }
 });
 
-// src/fs/recording-dir.ts
-var recording_dir_exports = {};
-var init_recording_dir = __esm({
-  "src/fs/recording-dir.ts"() {
-    "use strict";
-    init_nursery_mounts();
-    (function() {
-      const DB_NAME2 = "tp-db";
-      const STORE2 = "fs-handles";
-      const KEY6 = "recordingDir";
-      async function openDB2() {
-        return await new Promise((resolve, reject) => {
-          try {
-            const req = indexedDB.open(DB_NAME2, 1);
-            req.onupgradeneeded = () => {
-              try {
-                const db = req.result;
-                if (!db.objectStoreNames.contains(STORE2)) db.createObjectStore(STORE2);
-              } catch {
-              }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-          } catch (e) {
-            reject(e);
-          }
-        });
-      }
-      async function idbGet2(key) {
-        try {
-          const db = await openDB2();
-          return await new Promise((resolve, reject) => {
-            try {
-              const tx = db.transaction(STORE2, "readonly");
-              const st = tx.objectStore(STORE2);
-              const req = st.get(key);
-              req.onsuccess = () => resolve(req.result || null);
-              req.onerror = () => reject(req.error);
-            } catch (e) {
-              reject(e);
-            }
-          });
-        } catch {
-          return null;
-        }
-      }
-      async function idbSet2(key, val) {
-        try {
-          const db = await openDB2();
-          await new Promise((resolve, reject) => {
-            try {
-              const tx = db.transaction(STORE2, "readwrite");
-              const st = tx.objectStore(STORE2);
-              const req = st.put(val, key);
-              req.onsuccess = () => resolve();
-              req.onerror = () => reject(req.error);
-            } catch (e) {
-              reject(e);
-            }
-          });
-        } catch {
-        }
-      }
-      async function idbDel2(key) {
-        try {
-          const db = await openDB2();
-          await new Promise((resolve, reject) => {
-            try {
-              const tx = db.transaction(STORE2, "readwrite");
-              const st = tx.objectStore(STORE2);
-              const req = st.delete(key);
-              req.onsuccess = () => resolve();
-              req.onerror = () => reject(req.error);
-            } catch (e) {
-              reject(e);
-            }
-          });
-        } catch {
-        }
-      }
-      function hasFsApi() {
-        try {
-          return !!("showDirectoryPicker" in window || window.isSecureContext && "FileSystemDirectoryHandle" in window);
-        } catch {
-          return false;
-        }
-      }
-      let _dir2 = null;
-      let _managedByNursery2 = false;
-      let _localPersistenceExpected = false;
-      let _managedHint2 = null;
-      async function syncManagedRecordingDir() {
-        try {
-          const managed = await getNurseryManagedDirectory("recordings");
-          if (!managed.managed) {
-            _managedByNursery2 = false;
-            _localPersistenceExpected = false;
-            _managedHint2 = null;
-            _dir2 = null;
-            return false;
-          }
-          _managedByNursery2 = true;
-          _localPersistenceExpected = managed.localPersistenceExpected;
-          _managedHint2 = managed.hint ?? null;
-          _dir2 = managed.handle ?? null;
-          return true;
-        } catch {
-          return false;
-        }
-      }
-      async function initRecordingDir() {
-        if (await syncManagedRecordingDir()) return;
-        try {
-          const h = await idbGet2(KEY6);
-          if (h) {
-            const ok = await h.queryPermission?.({ mode: "readwrite" }) || await h.requestPermission?.({ mode: "readwrite" });
-            if (ok === "granted" || ok === "prompt") _dir2 = h;
-            else _dir2 = h;
-          }
-        } catch {
-        }
-      }
-      function getRecordingDir() {
-        return _dir2 || null;
-      }
-      async function setRecordingDir(h) {
-        if (_managedByNursery2) return;
-        _dir2 = h || null;
-        if (h) await idbSet2(KEY6, h);
-        else await idbDel2(KEY6);
-      }
-      async function clearRecordingDir() {
-        if (_managedByNursery2) return;
-        _dir2 = null;
-        await idbDel2(KEY6);
-      }
-      async function pickRecordingDir() {
-        if (_managedByNursery2) return _dir2 || null;
-        if (!hasFsApi()) return null;
-        try {
-          const dir = await window.showDirectoryPicker({ mode: "readwrite", id: "tp-recordings" });
-          const ok = await dir?.requestPermission?.({ mode: "readwrite" }) || await dir?.queryPermission?.({ mode: "readwrite" });
-          if (ok === "granted" || ok === "prompt") {
-            await setRecordingDir(dir);
-            return dir;
-          }
-          return null;
-        } catch {
-          return null;
-        }
-      }
-      const api = {
-        init: initRecordingDir,
-        get: getRecordingDir,
-        set: setRecordingDir,
-        clear: clearRecordingDir,
-        pick: pickRecordingDir,
-        supported: hasFsApi,
-        isManaged: () => _managedByNursery2,
-        localPersistenceExpected: () => _localPersistenceExpected,
-        managedHint: () => _managedHint2
-      };
-      try {
-        window.__tpRecDir = api;
-      } catch {
-      }
-    })();
-  }
-});
-
 // src/recording/local-auto.ts
 var init_local_auto = __esm({
   "src/recording/local-auto.ts"() {
     "use strict";
+    init_local_destination();
     init_recording_settings();
     init_workpiece_commit();
     init_speech_loader();
@@ -96784,6 +96860,8 @@ var init_local_auto = __esm({
       let mediaRecorder = null;
       let chunks = [];
       let active = false;
+      let activeDestination = null;
+      let stopping = null;
       let activeMode = null;
       let currentStream = null;
       let audioCtx2 = null;
@@ -96877,14 +96955,15 @@ var init_local_auto = __esm({
       }
       function showRecorderToast(message, type = "warning") {
         try {
-          const toast6 = window.toast;
-          if (typeof toast6 === "function") {
-            toast6(message, { type });
+          const toast5 = window.toast;
+          if (typeof toast5 === "function") {
+            toast5(message, { type });
           }
         } catch {
         }
       }
       let lastRecorderTrackSnapshot = null;
+      let captureGeneration = 0;
       function readSelectedMicDeviceId() {
         try {
           const raw = localStorage.getItem("tp_mic_device_v1");
@@ -96939,9 +97018,9 @@ var init_local_auto = __esm({
         } catch {
         }
       }
-      function buildProbeFromSnapshot(contentType) {
-        const audioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
-        const videoTrackCount = Number(lastRecorderTrackSnapshot?.videoTrackCount || 0);
+      function buildProbeFromSnapshot(contentType, snapshot = lastRecorderTrackSnapshot) {
+        const audioTrackCount = Number(snapshot?.audioTrackCount || 0);
+        const videoTrackCount = Number(snapshot?.videoTrackCount || 0);
         return {
           hasAudioStream: audioTrackCount > 0,
           audioDurationSec: null,
@@ -96953,22 +97032,22 @@ var init_local_auto = __esm({
           contentType
         };
       }
-      async function verifyFinalizedRecordingArtifact(blob, strategy) {
+      async function verifyFinalizedRecordingArtifact(blob, strategy, snapshot = lastRecorderTrackSnapshot, audioFailure = recorderAudioTrackFailure) {
         const contentType = String(blob.type || "application/octet-stream").trim().toLowerCase();
-        const snapshotProbe = buildProbeFromSnapshot(contentType);
+        const snapshotProbe = buildProbeFromSnapshot(contentType, snapshot);
         if (blob.size <= 0) return { ok: false, reason: "empty_artifact", probe: snapshotProbe };
         if (strategy?.mode === "audio" && !contentType.startsWith("audio/") || strategy?.mode === "av" && !contentType.startsWith("video/")) {
           return { ok: false, reason: "content_type_mismatch", probe: snapshotProbe };
         }
-        if (recorderAudioTrackFailure) {
+        if (audioFailure) {
           return { ok: false, reason: "audio_track_ended", probe: snapshotProbe };
         }
         try {
           const customVerifier = window.__tpVerifyRecordedArtifact;
           if (typeof customVerifier === "function") {
             const result = await customVerifier(blob, {
-              lastRecorderTrackSnapshot,
-              recordingEngine: getRecordingEngine()
+              lastRecorderTrackSnapshot: snapshot,
+              recordingEngine: snapshot?.recorderEngine ?? getRecordingEngine()
             });
             if (result && typeof result === "object") {
               const probe = {
@@ -97366,6 +97445,7 @@ var init_local_auto = __esm({
       };
       const startMediaRecorderWithStrategy = async (strategy) => {
         const mix = new MediaStream();
+        currentStream = mix;
         if (strategy.mode === "audio") {
           const audioStream2 = await getAudioStream();
           try {
@@ -97374,13 +97454,10 @@ var init_local_auto = __esm({
           }
         } else {
           const videoStream = await getVideoStream();
+          videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
           const audioStream2 = await getAudioStream();
           try {
             audioStream2.getAudioTracks().forEach((track) => mix.addTrack(track));
-          } catch {
-          }
-          try {
-            videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
           } catch {
           }
         }
@@ -97442,16 +97519,20 @@ var init_local_auto = __esm({
         mediaRecorder.start(1e3);
       };
       async function start2() {
+        if (stopping) await stopping;
+        if (document.getElementById("retryLocalRecordingSave")) throw new Error("Retry the pending local recording save before starting another take.");
         if (active) return;
+        captureGeneration++;
+        if (getRecordingEngine() !== "core") throw new Error("Core Recorder cannot start while OBS is selected.");
         try {
           if (mustSkipForMode()) {
-            try {
-              console.log("[core-recorder] start skipped: rehearsal mode");
-            } catch {
-            }
-            return;
+            throw new Error("Recording is disabled in Rehearsal mode. Select a recording session mode first.");
           }
-          const recordingMode = getRecordingMode();
+          void recoverPendingTakeDecision().catch((error) => {
+            console.warn("[recording] pending decision recovery failed", error);
+          });
+          activeDestination = await requireLocalRecordingDestination();
+          const recordingMode = getRecordingMode2();
           try {
             console.log("[core-recorder] start", {
               mode: window.__tpStore?.get?.("scrollMode") || null,
@@ -97517,9 +97598,24 @@ var init_local_auto = __esm({
           }
           activeSaveIdentity = null;
           activeStrategy = null;
+          try {
+            currentStream?.getTracks().forEach((track) => track.stop());
+          } catch {
+          }
+          currentStream = null;
+          throw e;
         }
       }
       async function stop3() {
+        if (stopping) return stopping;
+        stopping = stopCapture();
+        try {
+          await stopping;
+        } finally {
+          stopping = null;
+        }
+      }
+      async function stopCapture() {
         try {
           console.log("[core-recorder] stop called");
         } catch {
@@ -97538,6 +97634,7 @@ var init_local_auto = __esm({
           return null;
         });
         let cleanupStreamAfterRecorderStop = false;
+        let stopError = null;
         try {
           if (activeMode === "audio" && strategyAtStop?.mechanism === "pcm-wav-fallback") {
             await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
@@ -97545,6 +97642,12 @@ var init_local_auto = __esm({
             const recorder2 = mediaRecorder;
             cleanupStreamAfterRecorderStop = true;
             const stopName = nowName(strategyAtStop?.mode ?? "av", strategyAtStop?.fileExtension, saveIdentityAtStop);
+            let finish;
+            let fail3;
+            const finalized = new Promise((resolve, reject) => {
+              finish = resolve;
+              fail3 = reject;
+            });
             recorder2.onstop = async () => {
               try {
                 console.log("[core-recorder] mediaRecorder.onstop fired", { chunks: chunks.length });
@@ -97566,13 +97669,16 @@ var init_local_auto = __esm({
                   console.warn("[auto-rec] save failed", e);
                 } catch {
                 }
+                fail3(e);
               } finally {
+                active = false;
                 recordingStartedAtMs = null;
                 try {
                   currentStream?.getTracks().forEach((track) => track.stop());
                 } catch {
                 }
                 currentStream = null;
+                finish();
               }
             };
             try {
@@ -97580,12 +97686,15 @@ var init_local_auto = __esm({
             } catch {
             }
             recorder2.stop();
+            await finalized;
           } else {
             recordingStartedAtMs = null;
           }
-        } catch {
+        } catch (error) {
+          stopError = error;
         }
         if (!cleanupStreamAfterRecorderStop) {
+          active = false;
           try {
             currentStream?.getTracks().forEach((track) => track.stop());
           } catch {
@@ -97595,17 +97704,27 @@ var init_local_auto = __esm({
         mediaRecorder = null;
         active = false;
         activeMode = null;
+        activeDestination = null;
         activeStrategy = null;
         activeSaveIdentity = null;
         try {
-          window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "idle", adapter: "local-auto" } }));
+          window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: stopError ? "error" : "idle", adapter: "local-auto" } }));
         } catch {
         }
+        if (stopError) throw stopError;
       }
       async function saveBlob(blob, name, opts = {}) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const contentType = blob.type || "application/octet-stream";
-        const localWritePayload = bytes;
+        const generation = captureGeneration;
+        const snapshotAtSave = lastRecorderTrackSnapshot;
+        const audioFailureAtSave = recorderAudioTrackFailure;
+        const isCurrentTake = () => generation === captureGeneration;
+        const notify4 = (...args) => {
+          if (isCurrentTake()) showRecorderToast(...args);
+        };
+        let cloudSettled = false;
+        const localWrite = writeLocalRecording(bytes, name, activeDestination ?? void 0);
         showRecordingFinalizeIndicator({ takeName: name });
         let committed = false;
         let commitResultOk = null;
@@ -97625,18 +97744,18 @@ var init_local_auto = __esm({
         let downloadFallbackAttempted = false;
         let downloadFallbackSucceeded = false;
         let downloadFallbackSkippedReason = null;
-        let downloadFallbackErrorMessage = null;
         const emitDestinationStatus = () => {
+          if (!isCurrentTake()) return;
           emitRecordingDestinationStatus({
             fileName: name,
             cloudUpload: {
-              state: canonicalUploadSucceeded ? "succeeded" : canonicalAttempted ? "failed" : "not_attempted",
+              state: canonicalUploadSucceeded ? "succeeded" : canonicalAttempted ? cloudSettled ? "failed" : "pending" : "not_attempted",
               path: commitResultOk?.path ?? null,
               errorCode: canonicalUploadSucceeded ? null : canonicalErrorCode,
               errorMessage: canonicalUploadSucceeded ? null : canonicalErrorMessage
             },
             canonicalCompletion: {
-              state: committed ? "succeeded" : canonicalCompletionAttempted ? "failed" : "not_attempted",
+              state: committed ? "succeeded" : canonicalCompletionAttempted ? cloudSettled ? "failed" : "pending" : "not_attempted",
               completionId: acceptedCompletionId,
               errorCode: committed ? null : canonicalErrorCode,
               errorMessage: committed ? null : canonicalErrorMessage
@@ -97652,12 +97771,12 @@ var init_local_auto = __esm({
               state: downloadFallbackSucceeded ? "succeeded" : downloadFallbackAttempted ? "failed" : downloadFallbackSkippedReason ? "skipped" : "not_attempted",
               fileName: downloadFallbackAttempted ? name : null,
               errorCode: downloadFallbackAttempted && !downloadFallbackSucceeded ? "browser_download_failed" : downloadFallbackSkippedReason,
-              errorMessage: downloadFallbackErrorMessage
+              errorMessage: null
             }
           });
         };
         const presentCanonicalTakeDecision = async () => {
-          if (!commitResultOk || !acceptedCompletionId) return;
+          if (!commitResultOk || !acceptedCompletionId || !isCurrentTake()) return;
           hideRecordingFinalizeIndicator();
           showRecorderToast("Recording saved \xB7 Keep or discard this take.", "info");
           await showRecordingDecisionDialog({
@@ -97674,501 +97793,294 @@ var init_local_auto = __esm({
             }
           });
         };
-        try {
-          const recordingValidity = await verifyFinalizedRecordingArtifact(blob, opts.strategy ?? null);
+        const local = await localWrite;
+        localMirrorExpected = local.expected;
+        localMirrorAttempted = !!local.handle || local.expected;
+        localMirrorSucceeded = local.success;
+        localMirrorHandleAvailable = !!local.handle;
+        localMirrorConfiguredPath = local.hint;
+        localMirrorErrorCode = local.errorCode;
+        localMirrorErrorMessage = local.errorMessage;
+        downloadFallbackSkippedReason = "automatic_download_disabled";
+        const emitLocalResult = () => {
+          if (!isCurrentTake()) return;
+          emitLocalSafetyCopyStatus({
+            enabled: localMirrorExpected,
+            configuredPath: localMirrorConfiguredPath,
+            attempted: localMirrorAttempted,
+            success: localMirrorSucceeded,
+            bytesWritten: localMirrorSucceeded ? bytes.length : 0,
+            finalPath: localMirrorSucceeded ? `local:directory:${name}` : null,
+            errorCode: localMirrorErrorCode,
+            errorMessage: localMirrorErrorMessage,
+            safeToLeave: localMirrorSucceeded,
+            localCopySecured: localMirrorSucceeded,
+            localMirrorExpected,
+            localMirrorAttempted,
+            localMirrorSucceeded,
+            canonicalCommitAttempted: canonicalAttempted,
+            canonicalCommitSucceeded: committed,
+            overallSafeToLeave: localMirrorSucceeded || committed,
+            downloadFallbackAttempted: false,
+            downloadFallbackSucceeded: false,
+            downloadFallbackSkippedReason
+          });
+        };
+        emitLocalResult();
+        const offerLocalRetry = () => {
+          showRecorderToast("The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.", "error");
+          const old = document.getElementById("retryLocalRecordingSave");
+          old?.remove();
+          const retry2 = document.createElement("button");
+          retry2.id = "retryLocalRecordingSave";
+          retry2.textContent = "Retry local recording save";
+          retry2.addEventListener("click", async () => {
+            retry2.disabled = true;
+            const result = await writeLocalRecording(bytes, name);
+            retry2.disabled = false;
+            if (result.success) {
+              localMirrorSucceeded = true;
+              localMirrorErrorCode = null;
+              localMirrorErrorMessage = null;
+              localMirrorConfiguredPath = result.hint;
+              localMirrorHandleAvailable = result.handle != null;
+              emitLocalResult();
+              emitDestinationStatus();
+              showRecorderToast("Recording saved to the Hearth recording folder.", "info");
+              retry2.remove();
+            } else showRecorderToast(result.errorMessage || "Recording folder unavailable. Relink it in Hearth.", "error");
+          });
+          document.body.appendChild(retry2);
+        };
+        if (!local.success && local.expected) offerLocalRetry();
+        emitDestinationStatus();
+        hideRecordingFinalizeIndicator();
+        if (local.success) showRecorderToast("Recording saved to the Hearth folder. Cloud persistence is a separate pending step.", "info");
+        const completeCloud = async () => {
           try {
-            console.info("[core-recorder] finalized artifact validity", recordingValidity);
-            window.dispatchEvent(new CustomEvent("tp:recording:artifact-audio-verification", {
-              detail: {
-                ok: recordingValidity.ok,
-                reason: recordingValidity.ok ? null : recordingValidity.reason,
-                probe: recordingValidity.probe
-              }
-            }));
-          } catch {
-          }
-          if (!recordingValidity.ok) {
-            if (recordingValidity.reason === "no_audio_stream") {
-              showRecorderToast("The finalized recording has no audio track. This cannot be saved as a podcast take.", "error");
-              canonicalErrorCode = "podcast_take_no_audio_stream";
-              canonicalErrorMessage = "The finalized recording has no audio track. This cannot be saved as a podcast take.";
-            } else if (recordingValidity.reason === "audio_track_ended") {
-              showRecorderToast("Microphone capture stopped before this recording ended. This take cannot be kept.", "error");
-              canonicalErrorCode = "podcast_take_audio_track_ended";
-              canonicalErrorMessage = "Microphone capture stopped before this recording ended. This take cannot be kept.";
-            } else if (recordingValidity.reason === "near_silent_audio") {
-              showRecorderToast("The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.", "error");
-              canonicalErrorCode = "podcast_take_near_silent_audio";
-              canonicalErrorMessage = "The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.";
-            } else {
-              showRecorderToast("The finalized recording failed browser media sanity checks and cannot be uploaded as a take.", "error");
-              canonicalErrorCode = `podcast_take_${recordingValidity.reason}`;
-              canonicalErrorMessage = `The finalized recording failed browser media sanity checks (${recordingValidity.reason}).`;
-            }
+            const recordingValidity = await verifyFinalizedRecordingArtifact(blob, opts.strategy ?? null, snapshotAtSave, audioFailureAtSave);
             try {
-              window.dispatchEvent(new CustomEvent("tp:recording:podcast-audio-invalid", {
+              console.info("[core-recorder] finalized artifact validity", recordingValidity);
+              if (isCurrentTake()) window.dispatchEvent(new CustomEvent("tp:recording:artifact-audio-verification", {
                 detail: {
-                  reason: recordingValidity.reason,
-                  probe: recordingValidity.probe,
-                  safeToLeave: false
+                  ok: recordingValidity.ok,
+                  reason: recordingValidity.ok ? null : recordingValidity.reason,
+                  probe: recordingValidity.probe
                 }
               }));
             } catch {
             }
-          }
-          const recorderAudioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
-          const recorderVideoTrackCount = Number(lastRecorderTrackSnapshot?.videoTrackCount || 0);
-          const expectedContainerHasAudio = recorderAudioTrackCount > 0;
-          try {
-            console.info("[core-recorder] finalize blob diagnostics", {
-              mimeType: contentType,
-              bytes: bytes.length,
-              durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null,
-              recorderAudioTrackCount,
-              recorderVideoTrackCount,
-              expectedContainerHasAudio,
-              recorderEngine: lastRecorderTrackSnapshot?.recorderEngine || getRecordingEngine()
-            });
-          } catch {
-          }
-          const storageLimitHintBytes = readStorageLimitHintBytes();
-          const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
-          if (!recordingValidity.ok) {
-            canonicalAttempted = false;
-          } else if (skipCanonicalCommit) {
+            if (!recordingValidity.ok) {
+              if (recordingValidity.reason === "no_audio_stream") {
+                notify4("The finalized recording has no audio track. This cannot be saved as a podcast take.", "error");
+                canonicalErrorCode = "podcast_take_no_audio_stream";
+                canonicalErrorMessage = "The finalized recording has no audio track. This cannot be saved as a podcast take.";
+              } else if (recordingValidity.reason === "audio_track_ended") {
+                notify4("Microphone capture stopped before this recording ended. This take cannot be kept.", "error");
+                canonicalErrorCode = "podcast_take_audio_track_ended";
+                canonicalErrorMessage = "Microphone capture stopped before this recording ended. This take cannot be kept.";
+              } else if (recordingValidity.reason === "near_silent_audio") {
+                notify4("The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.", "error");
+                canonicalErrorCode = "podcast_take_near_silent_audio";
+                canonicalErrorMessage = "The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.";
+              } else {
+                notify4("The finalized recording failed browser media sanity checks and cannot be uploaded as a take.", "error");
+                canonicalErrorCode = `podcast_take_${recordingValidity.reason}`;
+                canonicalErrorMessage = `The finalized recording failed browser media sanity checks (${recordingValidity.reason}).`;
+              }
+              try {
+                if (isCurrentTake()) window.dispatchEvent(new CustomEvent("tp:recording:podcast-audio-invalid", {
+                  detail: {
+                    reason: recordingValidity.reason,
+                    probe: recordingValidity.probe,
+                    safeToLeave: false
+                  }
+                }));
+              } catch {
+              }
+            }
+            const recorderAudioTrackCount = Number(snapshotAtSave?.audioTrackCount || 0);
+            const recorderVideoTrackCount = Number(snapshotAtSave?.videoTrackCount || 0);
+            const expectedContainerHasAudio = recorderAudioTrackCount > 0;
             try {
-              console.warn("[core-recorder] skipping canonical commit after prior storage size-limit failure", {
-                size: bytes.length,
-                hintBytes: storageLimitHintBytes,
-                name
+              console.info("[core-recorder] finalize blob diagnostics", {
+                mimeType: contentType,
+                bytes: bytes.length,
+                durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null,
+                recorderAudioTrackCount,
+                recorderVideoTrackCount,
+                expectedContainerHasAudio,
+                recorderEngine: snapshotAtSave?.recorderEngine || getRecordingEngine()
               });
             } catch {
             }
-            showRecorderToast(
-              "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
-              "warning"
-            );
-            canonicalAttempted = false;
-            canonicalErrorCode = "canonical_commit_skipped_size_hint";
-            canonicalErrorMessage = "Canonical upload skipped after prior storage size-limit failure";
-          } else {
-            canonicalAttempted = true;
-            try {
-              const commitResult = await commitRecordingBytesToTongs({
-                captureAuthority: opts.saveIdentity?.captureAuthority ?? (() => {
-                  throw new Error("capture_authority_unavailable");
-                })(),
-                bytes,
-                originalName: name,
-                contentType,
-                transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
-                transcriptStatus: opts.transcriptFinalize?.status ?? null,
-                recordingMedium: opts.strategy?.recordingMedium ?? null,
-                requiresPostNormalization: opts.strategy?.requiresPostNormalization === true
-              });
-              const commitResultSuccess = readCommitResultSuccess(commitResult);
-              if (commitResultSuccess) {
-                commitResultOk = commitResultSuccess;
-                canonicalUploadSucceeded = true;
-                canonicalCompletionAttempted = true;
-                const completion = await transitionRecordingCompleted({
-                  commit: commitResultSuccess,
-                  durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null
+            const storageLimitHintBytes = readStorageLimitHintBytes();
+            const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
+            if (!recordingValidity.ok) {
+              canonicalAttempted = false;
+            } else if (skipCanonicalCommit) {
+              try {
+                console.warn("[core-recorder] skipping canonical commit after prior storage size-limit failure", {
+                  size: bytes.length,
+                  hintBytes: storageLimitHintBytes,
+                  name
                 });
-                if (completion.ok && completion.completionId) {
-                  committed = true;
-                  acceptedCompletionId = completion.completionId;
-                } else {
-                  canonicalErrorCode = completion.reason ?? `recording_completion_${completion.outcome}`;
-                  canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
-                  showRecorderToast(canonicalErrorMessage, "warning");
-                }
-                try {
-                  console.log("[core-recorder] canonical commit ok", {
-                    workpieceId: commitResultSuccess.workpieceId,
-                    path: commitResultSuccess.path,
-                    createdCradle: commitResultSuccess.createdCradle
+              } catch {
+              }
+              notify4(
+                "Cloud save skipped for this take after a prior Storage size-limit failure. Recording will be mirrored locally.",
+                "warning"
+              );
+              canonicalAttempted = false;
+              canonicalErrorCode = "canonical_commit_skipped_size_hint";
+              canonicalErrorMessage = "Canonical upload skipped after prior storage size-limit failure";
+            } else {
+              canonicalAttempted = true;
+              emitDestinationStatus();
+              try {
+                const commitResult = await commitRecordingBytesToTongs({
+                  captureAuthority: opts.saveIdentity?.captureAuthority ?? (() => {
+                    throw new Error("capture_authority_unavailable");
+                  })(),
+                  bytes,
+                  originalName: name,
+                  contentType,
+                  transcriptPath: opts.transcriptFinalize?.finalPath ?? null,
+                  transcriptStatus: opts.transcriptFinalize?.status ?? null,
+                  recordingMedium: opts.strategy?.recordingMedium ?? null,
+                  requiresPostNormalization: opts.strategy?.requiresPostNormalization === true
+                });
+                const commitResultSuccess = readCommitResultSuccess(commitResult);
+                if (commitResultSuccess) {
+                  commitResultOk = commitResultSuccess;
+                  canonicalUploadSucceeded = true;
+                  canonicalCompletionAttempted = true;
+                  emitDestinationStatus();
+                  const completion = await transitionRecordingCompleted({
+                    commit: commitResultSuccess,
+                    durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null
                   });
-                } catch {
-                }
-              } else {
-                const commitError = extractCommitErrorSummary(commitResult);
-                canonicalErrorCode = commitError.code;
-                canonicalErrorMessage = commitError.message;
-                if (isStorageTooLargeCommitResult(commitResult)) {
-                  writeStorageLimitHintBytes(bytes.length);
-                  showRecorderToast(
-                    "Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.",
-                    "warning"
-                  );
-                }
-                try {
-                  console.warn("[core-recorder] canonical commit unavailable; using local fallback", commitResult);
-                } catch {
-                }
-              }
-            } catch (commitErr) {
-              canonicalErrorCode = "canonical_commit_exception";
-              canonicalErrorMessage = String(commitErr?.message || commitErr || "Canonical commit failed");
-              try {
-                console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
-              } catch {
-              }
-            }
-          }
-          try {
-            try {
-              console.log("[recording-dir] saveRecordingBlob start", { size: blob.size, name, committed });
-              await Promise.resolve().then(() => (init_recording_dir(), recording_dir_exports));
-              try {
-                await window.__tpRecDir?.init?.();
-              } catch {
-              }
-              const dir = window.__tpRecDir?.get?.() || null;
-              const managed = !!window.__tpRecDir?.isManaged?.();
-              const managedLocalPersistenceExpected = managed ? typeof window.__tpRecDir?.localPersistenceExpected === "function" ? !!window.__tpRecDir.localPersistenceExpected() : true : false;
-              const hint = window.__tpRecDir?.managedHint?.();
-              const configuredPath = managed && managedLocalPersistenceExpected ? typeof hint === "string" && hint.trim() ? hint.trim() : "managed:recordings" : dir && typeof dir.name === "string" ? String(dir.name).trim() : null;
-              localMirrorConfiguredPath = configuredPath || null;
-              localMirrorExpected = managedLocalPersistenceExpected || !!configuredPath || !!dir;
-              localMirrorHandleAvailable = !!dir && typeof dir.getFileHandle === "function";
-              const safetyEnabled = !!dir;
-              emitLocalSafetyCopyStatus({
-                enabled: safetyEnabled,
-                configuredPath: configuredPath || null,
-                attempted: false,
-                success: false,
-                bytesWritten: 0,
-                finalPath: null,
-                errorCode: null,
-                errorMessage: null,
-                safeToLeave: false,
-                localCopySecured: false,
-                localMirrorExpected,
-                localMirrorAttempted: false,
-                localMirrorSucceeded: false,
-                canonicalCommitAttempted: canonicalAttempted,
-                canonicalCommitSucceeded: committed,
-                overallSafeToLeave: committed,
-                downloadFallbackAttempted,
-                downloadFallbackSucceeded,
-                downloadFallbackSkippedReason
-              });
-              if (dir && typeof dir.getFileHandle === "function") {
-                let folderWriteStage = "permission";
-                try {
-                  localMirrorAttempted = true;
+                  if (completion.ok && completion.completionId) {
+                    committed = true;
+                    acceptedCompletionId = completion.completionId;
+                  } else {
+                    canonicalErrorCode = completion.reason ?? `recording_completion_${completion.outcome}`;
+                    canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
+                    notify4(canonicalErrorMessage, "warning");
+                  }
                   try {
-                    console.log("[core-recorder] writing to directory", { name: dir.name || "(handle)" });
+                    console.log("[core-recorder] canonical commit ok", {
+                      workpieceId: commitResultSuccess.workpieceId,
+                      path: commitResultSuccess.path,
+                      createdCradle: commitResultSuccess.createdCradle
+                    });
                   } catch {
                   }
-                  try {
-                    const q3 = await dir.queryPermission?.({ mode: "readwrite" });
-                    if (q3 !== "granted") {
-                      const r = await dir.requestPermission?.({ mode: "readwrite" });
-                      if (r !== "granted") {
-                        throw new Error("recording-dir-permission-not-granted");
-                      }
-                    }
-                  } catch (permErr) {
-                    try {
-                      console.warn("[core-recorder] directory permission not granted; using download fallback", permErr);
-                    } catch {
-                    }
-                    throw permErr;
+                } else {
+                  const commitError = extractCommitErrorSummary(commitResult);
+                  canonicalErrorCode = commitError.code;
+                  canonicalErrorMessage = commitError.message;
+                  if (isStorageTooLargeCommitResult(commitResult)) {
+                    writeStorageLimitHintBytes(bytes.length);
+                    notify4(
+                      "Cloud save hit the current Supabase Storage object-size limit. Recording will be mirrored locally for this session.",
+                      "warning"
+                    );
                   }
-                  folderWriteStage = "file";
-                  const fh = await dir.getFileHandle(name, { create: true });
-                  folderWriteStage = "writable";
-                  const w3 = await fh.createWritable();
-                  folderWriteStage = "write";
-                  await w3.write(localWritePayload);
-                  folderWriteStage = "close";
-                  await w3.close();
-                  localMirrorSucceeded = true;
-                  localMirrorErrorCode = null;
-                  localMirrorErrorMessage = null;
-                  emitLocalSafetyCopyStatus({
-                    enabled: true,
-                    configuredPath: configuredPath || null,
-                    attempted: true,
-                    success: true,
-                    bytesWritten: bytes.length,
-                    finalPath: `local:directory:${name}`,
-                    errorCode: null,
-                    errorMessage: null,
+                  try {
+                    console.warn("[core-recorder] canonical commit unavailable; using local fallback", commitResult);
+                  } catch {
+                  }
+                }
+              } catch (commitErr) {
+                canonicalErrorCode = "canonical_commit_exception";
+                canonicalErrorMessage = String(commitErr?.message || commitErr || "Canonical commit failed");
+                try {
+                  console.warn("[core-recorder] canonical commit failed; using local fallback", commitErr);
+                } catch {
+                }
+              }
+            }
+            try {
+              if (committed) {
+                downloadFallbackSkippedReason = "canonical_commit_succeeded";
+                try {
+                  console.log("[core-recorder] canonical commit succeeded; skipping download fallback", { name });
+                } catch {
+                }
+                if (localMirrorExpected && !localMirrorSucceeded) {
+                  emitUploadFallbackAudit({
+                    saveIdentity: opts.saveIdentity ?? null,
+                    originalName: name,
+                    bytes: bytes.length,
+                    canonicalAttempted,
+                    canonicalSucceeded: true,
+                    fallbackUsed: false,
                     safeToLeave: true,
-                    localCopySecured: true,
+                    errorCode: canonicalErrorCode,
+                    errorMessage: canonicalErrorMessage,
+                    finalStorageKey: commitResultOk?.path || null,
                     localMirrorExpected,
                     localMirrorAttempted,
                     localMirrorSucceeded,
-                    canonicalCommitAttempted: canonicalAttempted,
-                    canonicalCommitSucceeded: committed,
-                    overallSafeToLeave: true,
-                    downloadFallbackAttempted,
-                    downloadFallbackSucceeded,
-                    downloadFallbackSkippedReason
-                  });
-                  try {
-                    console.log("[core-recorder] saved file mirror", name);
-                  } catch {
-                  }
-                  emitDestinationStatus();
-                  if (commitResultOk && acceptedCompletionId) {
-                    await presentCanonicalTakeDecision();
-                  }
-                  if (!committed) {
-                    emitUploadFallbackAudit({
-                      saveIdentity: opts.saveIdentity ?? null,
-                      originalName: name,
-                      bytes: bytes.length,
-                      canonicalAttempted,
-                      canonicalSucceeded: false,
-                      fallbackUsed: true,
-                      safeToLeave: canonicalErrorCode == null,
-                      errorCode: canonicalErrorCode,
-                      errorMessage: canonicalErrorMessage,
-                      finalStorageKey: `local:directory:${name}`,
-                      localMirrorExpected,
-                      localMirrorAttempted,
-                      localMirrorSucceeded,
-                      localCopySecured: true,
-                      downloadFallbackAttempted,
-                      downloadFallbackSucceeded,
-                      downloadFallbackSkippedReason
-                    });
-                  }
-                  return true;
-                } catch (err) {
-                  const folderErrorCodes = {
-                    permission: "directory_permission_not_granted",
-                    file: "directory_file_creation_failed",
-                    writable: "directory_writable_open_failed",
-                    write: "directory_write_failed",
-                    close: "directory_close_failed"
-                  };
-                  localMirrorErrorCode = folderErrorCodes[folderWriteStage];
-                  localMirrorErrorMessage = String(err?.message || err || "configured_folder_write_failed");
-                  emitLocalSafetyCopyStatus({
-                    enabled: true,
-                    configuredPath: configuredPath || null,
-                    attempted: true,
-                    success: false,
-                    bytesWritten: 0,
-                    finalPath: null,
-                    errorCode: localMirrorErrorCode,
-                    errorMessage: localMirrorErrorMessage,
-                    safeToLeave: false,
                     localCopySecured: false,
-                    localMirrorExpected,
-                    localMirrorAttempted: true,
-                    localMirrorSucceeded: false,
-                    canonicalCommitAttempted: canonicalAttempted,
-                    canonicalCommitSucceeded: committed,
-                    overallSafeToLeave: committed,
                     downloadFallbackAttempted,
                     downloadFallbackSucceeded,
                     downloadFallbackSkippedReason
                   });
-                  if (committed) {
-                    showRecorderToast(
-                      `Recording was saved to Forge, but the configured folder copy failed (${localMirrorErrorCode}).`,
-                      "warning"
-                    );
-                  } else {
-                    showRecorderToast(
-                      `Configured folder copy failed (${localMirrorErrorCode}). Keep this screen open until the browser download finishes.`,
-                      "error"
-                    );
-                  }
-                  try {
-                    console.warn("[core-recorder] failed to write via FileSystemAccess", err);
-                  } catch {
-                  }
                 }
-              } else {
-                localMirrorAttempted = localMirrorExpected;
-                localMirrorErrorCode = localMirrorExpected ? "missing_directory_handle" : null;
-                localMirrorErrorMessage = localMirrorExpected ? `The configured recording folder is not linked for ${window.location.origin}.` : null;
-                try {
-                  const managed2 = !!window.__tpRecDir?.isManaged?.();
-                  const hint2 = window.__tpRecDir?.managedHint?.();
-                  console.warn(
-                    "[core-recorder] no recording directory handle available; falling back to download",
-                    { managed: managed2, hint: hint2 || null }
-                  );
-                } catch {
+                emitDestinationStatus();
+                if (commitResultOk && acceptedCompletionId) {
+                  await presentCanonicalTakeDecision();
                 }
-                emitLocalSafetyCopyStatus({
-                  enabled: localMirrorExpected,
-                  configuredPath: configuredPath || null,
-                  attempted: localMirrorAttempted,
-                  success: false,
-                  bytesWritten: 0,
-                  finalPath: null,
-                  errorCode: localMirrorErrorCode,
-                  errorMessage: localMirrorErrorMessage,
-                  safeToLeave: false,
-                  localCopySecured: false,
-                  localMirrorExpected,
-                  localMirrorAttempted,
-                  localMirrorSucceeded: false,
-                  canonicalCommitAttempted: canonicalAttempted,
-                  canonicalCommitSucceeded: committed,
-                  overallSafeToLeave: committed,
-                  downloadFallbackAttempted,
-                  downloadFallbackSucceeded,
-                  downloadFallbackSkippedReason
-                });
-                if (localMirrorExpected) {
-                  if (committed) {
-                    showRecorderToast(
-                      `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
-                      "warning"
-                    );
-                  } else {
-                    showRecorderToast(
-                      `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
-                      "error"
-                    );
-                  }
-                }
+                return !localMirrorExpected || localMirrorSucceeded;
               }
-            } catch {
-            }
-            if (committed) {
-              downloadFallbackSkippedReason = "canonical_commit_succeeded";
-              try {
-                console.log("[core-recorder] canonical commit succeeded; skipping download fallback", { name });
-              } catch {
-              }
-              if (localMirrorExpected && !localMirrorSucceeded) {
-                emitUploadFallbackAudit({
-                  saveIdentity: opts.saveIdentity ?? null,
-                  originalName: name,
-                  bytes: bytes.length,
-                  canonicalAttempted,
-                  canonicalSucceeded: true,
-                  fallbackUsed: false,
-                  safeToLeave: true,
-                  errorCode: canonicalErrorCode,
-                  errorMessage: canonicalErrorMessage,
-                  finalStorageKey: commitResultOk?.path || null,
-                  localMirrorExpected,
-                  localMirrorAttempted,
-                  localMirrorSucceeded,
-                  localCopySecured: false,
-                  downloadFallbackAttempted,
-                  downloadFallbackSucceeded,
-                  downloadFallbackSkippedReason
-                });
-              }
+              if (!local.success && !local.expected) offerLocalRetry();
+              emitUploadFallbackAudit({
+                saveIdentity: opts.saveIdentity ?? null,
+                originalName: name,
+                bytes: bytes.length,
+                canonicalAttempted,
+                canonicalSucceeded: false,
+                fallbackUsed: localMirrorSucceeded,
+                safeToLeave: false,
+                errorCode: canonicalErrorCode,
+                errorMessage: canonicalErrorMessage,
+                finalStorageKey: localMirrorSucceeded ? `local:directory:${name}` : null,
+                localMirrorExpected,
+                localMirrorAttempted,
+                localMirrorSucceeded,
+                localCopySecured: localMirrorSucceeded,
+                downloadFallbackAttempted: false,
+                downloadFallbackSucceeded: false,
+                downloadFallbackSkippedReason
+              });
+              notify4(localMirrorSucceeded ? "Recording saved to the Hearth folder. Canonical cloud completion is still incomplete." : "Recording has no confirmed local copy or canonical completion. Keep Anvil open and retry the local save.", "warning");
               emitDestinationStatus();
-              if (commitResultOk && acceptedCompletionId) {
-                await presentCanonicalTakeDecision();
-              }
-              return true;
+              return localMirrorSucceeded;
+            } finally {
+              cloudSettled = true;
+              emitDestinationStatus();
+              emitLocalResult();
             }
-            showRecorderToast(
-              "Recording saved locally only. Forge could not complete the canonical cloud save.",
-              "warning"
-            );
-            try {
-              downloadFallbackAttempted = true;
-              const downloadBlob = new Blob([bytes], { type: contentType });
-              const url = URL.createObjectURL(downloadBlob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = name || "Recording.webm";
-              a.rel = "noopener noreferrer";
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-              setTimeout(() => {
-                try {
-                  URL.revokeObjectURL(url);
-                } catch {
-                }
-              }, 2e3);
-              downloadFallbackSucceeded = true;
-            } catch (error) {
-              downloadFallbackErrorMessage = String(error?.message || error || "browser_download_failed");
-            }
-            emitUploadFallbackAudit({
-              saveIdentity: opts.saveIdentity ?? null,
-              originalName: name,
-              bytes: bytes.length,
-              canonicalAttempted,
-              canonicalSucceeded: false,
-              fallbackUsed: true,
-              safeToLeave: false,
-              errorCode: canonicalErrorCode,
-              errorMessage: canonicalErrorMessage,
-              finalStorageKey: `local:download:${name}`,
-              localMirrorExpected,
-              localMirrorAttempted,
-              localMirrorSucceeded,
-              localCopySecured: downloadFallbackSucceeded,
-              downloadFallbackAttempted,
-              downloadFallbackSucceeded,
-              downloadFallbackSkippedReason
-            });
-            if (downloadFallbackSucceeded) {
-              showRecorderToast(
-                `Browser download succeeded for "${name}". Canonical completion${localMirrorExpected ? " and the configured folder copy" : ""} did not succeed.`,
-                "warning"
-              );
-            } else {
-              showRecorderToast(
-                "Canonical completion and browser download both failed. Do not leave this screen.",
-                "error"
-              );
-            }
+          } catch (error) {
+            cloudSettled = true;
             emitDestinationStatus();
-            return false;
-          } finally {
-            hideRecordingFinalizeIndicator();
+            emitLocalResult();
+            throw error;
           }
-        } catch (error) {
-          hideRecordingFinalizeIndicator();
-          throw error;
-        }
-      }
-      try {
-        document.addEventListener(
-          "tp:session:start",
-          () => {
-            void recoverPendingTakeDecision();
-            try {
-              start2();
-            } catch {
-            }
-          },
-          { capture: true }
-        );
-        document.addEventListener(
-          "tp:session:stop",
-          () => {
-            try {
-              stop3();
-            } catch {
-            }
-          },
-          { capture: true }
-        );
-        document.addEventListener(
-          "tp:speech-state",
-          (e) => {
-            try {
-              const detail = e?.detail;
-              if (detail && detail.running === false) stop3();
-              if (detail && detail.running === true) start2();
-            } catch {
-            }
-          },
-          { capture: true }
-        );
-      } catch {
+        };
+        if (!local.expected) return completeCloud();
+        setTimeout(() => {
+          void completeCloud().catch((error) => {
+            cloudSettled = true;
+            canonicalErrorCode = "cloud_finalization_exception";
+            canonicalErrorMessage = String(error);
+            emitDestinationStatus();
+            notify4("Cloud persistence failed. The local recording is unchanged.", "warning");
+          });
+        }, 0);
+        return local.success;
       }
       try {
         const auto2 = window.__tpAutoRecord = window.__tpAutoRecord || {};
@@ -98206,139 +98118,6 @@ var init_local_auto = __esm({
       } catch {
       }
     })();
-  }
-});
-
-// src/recording/obs-finished-import.ts
-function segments(path) {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean);
-}
-function relativeObsOutputPath(outputPath, directoryName) {
-  const parts = segments(outputPath);
-  if (!parts.length || parts.some((part) => part === "." || part === "..")) return null;
-  const rootAt = parts.map((part) => part.toLowerCase()).lastIndexOf(directoryName.trim().toLowerCase());
-  if (rootAt < 0 || rootAt === parts.length - 1) return null;
-  return parts.slice(rootAt + 1);
-}
-async function resolveFromLinkedDirectory(outputPath) {
-  await window.__tpRecDir?.init?.();
-  const root = window.__tpRecDir?.get?.();
-  if (!root) return null;
-  const permission = await root.queryPermission?.({ mode: "read" });
-  if (permission !== "granted") return null;
-  const relative = relativeObsOutputPath(outputPath, root.name);
-  if (!relative) return null;
-  let directory = root;
-  for (const part of relative.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
-  const handle = await directory.getFileHandle(relative[relative.length - 1]);
-  return handle.getFile();
-}
-async function selectFinishedFile() {
-  const picker = window.showOpenFilePicker;
-  if (typeof picker !== "function") return null;
-  try {
-    const handles = await picker({ id: "anvil-obs-finished-recording", multiple: false });
-    return handles?.[0]?.getFile?.() ?? null;
-  } catch {
-    return null;
-  }
-}
-function announce(name, detail) {
-  try {
-    window.dispatchEvent(new CustomEvent(name, { detail }));
-  } catch {
-  }
-}
-async function prepareObsRecordingImport() {
-  const target = await ensureRecordingCaptureTarget();
-  state6.authority = target.ok ? target.captureAuthority : null;
-  return target.ok;
-}
-async function importFinishedObsRecording(result) {
-  state6.lastStop = result;
-  if (!result.stopped || !result.outputPath) {
-    announce("tp:obs:recording-import", { phase: "needs-file", reason: "output_path_missing" });
-    return;
-  }
-  let captureAuthority = state6.authority;
-  if (!captureAuthority) {
-    const target = await ensureRecordingCaptureTarget();
-    if (target.ok) captureAuthority = target.captureAuthority;
-  }
-  if (!captureAuthority) {
-    announce("tp:obs:recording-import", { phase: "failed", reason: "capture_authority_missing" });
-    return;
-  }
-  let file = state6.selectedFile;
-  state6.selectedFile = null;
-  if (!file) try {
-    file = await resolveFromLinkedDirectory(result.outputPath);
-  } catch {
-  }
-  if (!file) {
-    announce("tp:obs:recording-import", { phase: "needs-file", reason: "local_file_permission_required", retryAvailable: true });
-    return;
-  }
-  announce("tp:obs:recording-import", { phase: "uploading", name: file.name, bytes: file.size });
-  const committed = await commitRecordingFileToTongs({ file, originalName: file.name, captureAuthority });
-  if (!committed.ok) {
-    announce("tp:obs:recording-import", { phase: "failed", reason: committed.reason, errorCode: committed.errorCode ?? null });
-    return;
-  }
-  const completed = await transitionRecordingCompleted({ commit: committed });
-  if (!completed.ok || !completed.completionId) {
-    announce("tp:obs:recording-import", { phase: "failed", reason: completed.reason ?? completed.outcome });
-    return;
-  }
-  announce("tp:obs:recording-import", { phase: "decision-required", completionId: completed.completionId });
-  await showRecordingDecisionDialog({
-    takeName: file.name,
-    onKeep: async () => {
-      const decision = await transitionRecordingKept({ commit: committed, completionId: completed.completionId });
-      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
-      announce("tp:obs:recording-import", { phase: "kept", completionId: completed.completionId });
-    },
-    onDiscard: async () => {
-      const decision = await transitionRecordingDiscarded({ commit: committed, completionId: completed.completionId });
-      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
-      announce("tp:obs:recording-import", { phase: "discarded", completionId: completed.completionId });
-    }
-  });
-}
-async function selectAndImportFinishedObsRecording() {
-  const file = await selectFinishedFile();
-  if (!file) return;
-  state6.selectedFile = file;
-  await importFinishedObsRecording(state6.lastStop ?? { adapter: "obs", stopped: true, outputPath: file.name });
-}
-function acceptStopResult(result) {
-  if (state6.running) return state6.running;
-  state6.running = importFinishedObsRecording(result).finally(() => {
-    state6.running = null;
-  });
-  return state6.running;
-}
-var state6;
-var init_obs_finished_import = __esm({
-  "src/recording/obs-finished-import.ts"() {
-    "use strict";
-    init_recording_dir();
-    init_workpiece_commit();
-    init_recording_decision_dialog();
-    init_workpiece_commit();
-    state6 = { authority: null, running: null, lastStop: null, selectedFile: null };
-    try {
-      window.__tpObsImport = {
-        prepare: prepareObsRecordingImport,
-        acceptStopResult,
-        retryWithFilePicker: selectAndImportFinishedObsRecording
-      };
-      window.addEventListener("rec:state", (event) => {
-        const detail = event.detail;
-        if (detail?.adapter === "obs" && detail?.state === "starting") void prepareObsRecordingImport();
-      });
-    } catch {
-    }
   }
 });
 
@@ -99362,7 +99141,7 @@ function initSpeechNotesHud(options = {}) {
     if (m !== "asr" && m !== "hybrid") return `mode-${m || "unknown"}`;
     return "ok";
   };
-  const updateStatus3 = () => {
+  const updateStatus2 = () => {
     if (!statusEl) return;
     const m = currentMode(store3);
     const on3 = canCapture();
@@ -99391,7 +99170,7 @@ function initSpeechNotesHud(options = {}) {
   const onSpeechState = (e) => {
     const detail = e?.detail || {};
     captureOn = !!detail.running;
-    updateStatus3();
+    updateStatus2();
   };
   const onTranscript = (e) => {
     const detail = e?.detail || {};
@@ -99416,7 +99195,7 @@ function initSpeechNotesHud(options = {}) {
   const onRuntimeStatus = (e) => {
     const detail = e?.detail || {};
     activeAsrLane2 = String(detail.activeAsrLane || activeAsrLane2 || "ASR1_CURRENT");
-    updateStatus3();
+    updateStatus2();
   };
   const onPartial = (p) => {
     if (canCapture()) addNote(p);
@@ -99425,12 +99204,12 @@ function initSpeechNotesHud(options = {}) {
     if (canCapture()) addNote(p);
   };
   window.addEventListener("tp:speech-state", onSpeechState, true);
-  window.addEventListener("tp:scroll:mode", updateStatus3, true);
+  window.addEventListener("tp:scroll:mode", updateStatus2, true);
   window.addEventListener("tp:speech:transcript", onTranscript, true);
   window.addEventListener("tp:asr:runtime-status", onRuntimeStatus, true);
   const onSpeechToggle = (on3) => {
     captureOn = !!on3;
-    updateStatus3();
+    updateStatus2();
   };
   try {
     bus?.on("speech:toggle", onSpeechToggle);
@@ -99439,7 +99218,7 @@ function initSpeechNotesHud(options = {}) {
   } catch {
   }
   render();
-  updateStatus3();
+  updateStatus2();
   const show2 = () => {
     panel.style.display = "";
   };
@@ -99458,7 +99237,7 @@ function initSpeechNotesHud(options = {}) {
       }
     }
     window.removeEventListener("tp:speech-state", onSpeechState, true);
-    window.removeEventListener("tp:scroll:mode", updateStatus3, true);
+    window.removeEventListener("tp:scroll:mode", updateStatus2, true);
     window.removeEventListener("tp:speech:transcript", onTranscript, true);
     window.removeEventListener("tp:asr:runtime-status", onRuntimeStatus, true);
     try {
@@ -100610,9 +100389,9 @@ function initHudPopup(opts = {}) {
   const getStore5 = opts.getStore;
   const maxLines = opts.maxLines ?? 600;
   const isPopout = opts.popout ?? !!window.__TP_HUD_POPOUT__;
-  const bridge = createHudBridge();
+  const bridge2 = createHudBridge();
   try {
-    window.__tpHudBridge = bridge;
+    window.__tpHudBridge = bridge2;
   } catch {
   }
   const storeLines = [];
@@ -100761,7 +100540,7 @@ function initHudPopup(opts = {}) {
     ta.value = "";
     storeLines.length = 0;
     snapshotText = "";
-    if (!isPopout) bridge.send({ type: "hud:clear" });
+    if (!isPopout) bridge2.send({ type: "hud:clear" });
   };
   const copyText = async (text) => {
     const content = String(text ?? ta.value);
@@ -100825,7 +100604,7 @@ function initHudPopup(opts = {}) {
     }
     window.__tpHudPopoutWin = win;
     setPopout(true);
-    bridge.send({ type: "hud:state", state: state9 });
+    bridge2.send({ type: "hud:state", state: state9 });
   };
   const closePopout = () => {
     setPopout(false);
@@ -100839,16 +100618,16 @@ function initHudPopup(opts = {}) {
     }
   };
   const broadcastState2 = () => {
-    bridge.send({ type: "hud:state", state: state9 });
+    bridge2.send({ type: "hud:state", state: state9 });
   };
   const broadcastAppend = (lines) => {
     if (!lines.length) return;
-    bridge.send({ type: "hud:append", lines });
+    bridge2.send({ type: "hud:append", lines });
   };
   const broadcastSnapshot = (text) => {
-    bridge.send({ type: "hud:snapshot", text });
+    bridge2.send({ type: "hud:snapshot", text });
   };
-  bridge.on((msg) => {
+  bridge2.on((msg) => {
     if (isPopout) {
       switch (msg.type) {
         case "hud:state":
@@ -100878,8 +100657,8 @@ function initHudPopup(opts = {}) {
     switch (msg.type) {
       case "hud:requestSync":
         broadcastState2();
-        if (storeLines.length) bridge.send({ type: "hud:append", lines: [...storeLines] });
-        if (snapshotText) bridge.send({ type: "hud:snapshot", text: snapshotText });
+        if (storeLines.length) bridge2.send({ type: "hud:append", lines: [...storeLines] });
+        if (snapshotText) bridge2.send({ type: "hud:snapshot", text: snapshotText });
         break;
       case "hud:clear":
         clear();
@@ -100921,7 +100700,7 @@ function initHudPopup(opts = {}) {
     broadcastState2();
   }
   window.addEventListener("beforeunload", () => {
-    bridge.close();
+    bridge2.close();
   });
   return {
     isOpen: () => state9.open,
@@ -101147,9 +100926,9 @@ function initHud(opts = { store: window.__tpStore ?? null }) {
   };
   const subscribePopoutBridge = () => {
     popoutBridgeUnsub?.();
-    const bridge = window.__tpHudBridge;
-    if (!bridge?.on) return;
-    popoutBridgeUnsub = bridge.on((msg) => {
+    const bridge2 = window.__tpHudBridge;
+    if (!bridge2?.on) return;
+    popoutBridgeUnsub = bridge2.on((msg) => {
       if (msg.type === "hud:state") {
         if (msg.state?.popout) {
           startPopoutClosedPoll();
@@ -101799,8 +101578,8 @@ async function loadInitialAuthState() {
   }
 }
 function initAuthUnlock() {
-  if (initialized2) return;
-  initialized2 = true;
+  if (initialized4) return;
+  initialized4 = true;
   wireTrialGuards();
   try {
     appStoreSingleton.subscribe("session.phase", (phase) => {
@@ -101817,7 +101596,7 @@ function initAuthUnlock() {
   }
   void loadInitialAuthState();
 }
-var TRIAL_LIMIT_MS, LOGIN_PATH, SESSION_CACHE_KEYS, initialized2, currentSession, trialLocked, liveStartedAt, trialTimerId, trialChannel;
+var TRIAL_LIMIT_MS, LOGIN_PATH, SESSION_CACHE_KEYS, initialized4, currentSession, trialLocked, liveStartedAt, trialTimerId, trialChannel;
 var init_auth_unlock = __esm({
   "src/features/auth-unlock.ts"() {
     "use strict";
@@ -101829,7 +101608,7 @@ var init_auth_unlock = __esm({
     TRIAL_LIMIT_MS = 5 * 60 * 1e3;
     LOGIN_PATH = "/login";
     SESSION_CACHE_KEYS = ["forge_profile_cache", "forge_user_cache"];
-    initialized2 = false;
+    initialized4 = false;
     currentSession = null;
     trialLocked = false;
     liveStartedAt = 0;
@@ -102699,7 +102478,7 @@ var init_calibration = __esm({
 function $(id) {
   return document.getElementById(id);
 }
-function toast2(msg, opts) {
+function toast(msg, opts) {
   try {
     showToast(msg, opts);
   } catch {
@@ -102755,13 +102534,13 @@ function syncAsrDeviceFromSettingsMic() {
 async function grantMicLabels() {
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
-      toast2("This browser does not support direct microphone access.");
+      toast("This browser does not support direct microphone access.");
       return;
     }
     await navigator.mediaDevices.getUserMedia({ audio: true });
-    toast2("Mic access granted \u2014 device names unlocked.");
+    toast("Mic access granted \u2014 device names unlocked.");
   } catch {
-    toast2("Mic access denied. You can still calibrate with generic names.");
+    toast("Mic access denied. You can still calibrate with generic names.");
   }
   await populateMicSelect();
   syncAsrDeviceFromSettingsMic();
@@ -102790,7 +102569,7 @@ function updateMeter(rmsDbfs, ton, toff, gate) {
   const snrEl = $("asrSnr");
   try {
     if (snrEl && typeof snrEl.textContent === "string" && typeof ton === "number" && typeof toff === "number") {
-      const p = current?.profile;
+      const p = current3?.profile;
       if (p) {
         if (noiseEl)
           noiseEl.textContent = `${p.cal.noiseRmsDbfs.toFixed(1)} dBFS`;
@@ -102813,7 +102592,7 @@ function renderDerived(profile) {
       speechEl.textContent = `${profile.cal.speechRmsDbfs.toFixed(1)} dBFS`;
     if (snrEl) snrEl.textContent = `${profile.cal.snrDb.toFixed(1)} dB`;
     if (profile.cal.snrDb < 15) {
-      toast2("Increase mic gain or move closer. (SNR < 15 dB)");
+      toast("Increase mic gain or move closer. (SNR < 15 dB)");
     }
   } catch {
   }
@@ -102854,7 +102633,7 @@ function wireProfileSelector() {
       if (!id) return;
       try {
         setActiveProfile(id);
-        toast2("ASR profile selected", { type: "info" });
+        toast("ASR profile selected", { type: "info" });
       } catch {
       }
       renderProfileOptions();
@@ -102878,12 +102657,12 @@ function wireProfileLoadButton() {
       if (!select) return;
       const id = select.value;
       if (!id) {
-        toast2("Select a profile first", { type: "warning" });
+        toast("Select a profile first", { type: "warning" });
         return;
       }
       try {
         setActiveProfile(id);
-        toast2("ASR profile applied", { type: "info" });
+        toast("ASR profile applied", { type: "info" });
       } catch {
       }
       renderProfileOptions();
@@ -102949,8 +102728,8 @@ async function startAsrWizard() {
       noiseSuppression: !!$("asrNS")?.checked,
       autoGainControl: !!$("asrAGC")?.checked
     };
-    current = await runCalibration({ deviceId, label, flags });
-    renderDerived(current.profile);
+    current3 = await runCalibration({ deviceId, label, flags });
+    renderDerived(current3.profile);
   } catch (e) {
     console.warn("[ASR] startAsrWizard failed", e);
     let reason = "Check mic and try again.";
@@ -102961,8 +102740,8 @@ async function startAsrWizard() {
     }
     setCalStatus(`Calibration failed. ${reason}`);
   } finally {
-    if (current) {
-      const summary = "Calibration done. Noise " + current.profile.cal.noiseRmsDbfs.toFixed(1) + " dBFS, speech " + current.profile.cal.speechRmsDbfs.toFixed(1) + " dBFS, SNR " + current.profile.cal.snrDb.toFixed(1) + " dB.";
+    if (current3) {
+      const summary = "Calibration done. Noise " + current3.profile.cal.noiseRmsDbfs.toFixed(1) + " dBFS, speech " + current3.profile.cal.speechRmsDbfs.toFixed(1) + " dBFS, SNR " + current3.profile.cal.snrDb.toFixed(1) + " dB.";
       setTimeout(() => {
         try {
           setCalStatus(summary);
@@ -102988,21 +102767,21 @@ function wire() {
     };
     attachStart("asrStartBtn");
     attachStart("asrCalibBtn");
-    $("asrPreviewBtn")?.addEventListener("click", () => current?.preview());
-    $("asrPreviewStop")?.addEventListener("click", () => current?.preview(true));
+    $("asrPreviewBtn")?.addEventListener("click", () => current3?.preview());
+    $("asrPreviewStop")?.addEventListener("click", () => current3?.preview(true));
     $("asrSaveBtn")?.addEventListener("click", () => {
       try {
-        if (!current) return;
+        if (!current3) return;
         const label = getDesiredProfileLabel();
-        current.profile.label = label;
+        current3.profile.label = label;
         try {
-          const deviceId = current.profile.capture?.deviceId || "";
-          current.profile.id = `${deviceId}::${label}`;
+          const deviceId = current3.profile.capture?.deviceId || "";
+          current3.profile.id = `${deviceId}::${label}`;
         } catch {
         }
-        upsertProfile(current.profile);
-        setActiveProfile(current.profile.id);
-        toast2("ASR profile saved and activated.");
+        upsertProfile(current3.profile);
+        setActiveProfile(current3.profile.id);
+        toast("ASR profile saved and activated.");
         renderProfileOptions();
       } catch {
       }
@@ -103068,14 +102847,14 @@ async function initAsrSettingsUI() {
   } catch {
   }
 }
-var current, previewListenerWired, calibrating, profileSelectorSubbed, DEFAULT_PROFILE_LABEL;
+var current3, previewListenerWired, calibrating, profileSelectorSubbed, DEFAULT_PROFILE_LABEL;
 var init_asr_wizard = __esm({
   "src/ui/settings/asr-wizard.ts"() {
     "use strict";
     init_calibration();
     init_store();
     init_toasts();
-    current = null;
+    current3 = null;
     previewListenerWired = false;
     calibrating = false;
     profileSelectorSubbed = false;
@@ -103310,11 +103089,18 @@ function buildSettingsContent(rootEl2) {
 
       <div class="settings-card anim-in">
         <h4>Manual session control</h4>
+        <div class="recording-destination-warning" data-recording-destination-warning role="alert" aria-live="polite" hidden></div>
+        <div class="obs-recording-feedback" data-obs-recording-feedback role="status" aria-live="polite" hidden></div>
+        <div class="row gap" style="margin-bottom:8px">
+          <button id="settingsArmRecordingBtn" class="btn" type="button" data-action="recording-arm-toggle" aria-pressed="false">Arm Recording</button>
+          <span id="recordingArmStatus" data-recording-arm-status class="settings-small muted" role="status" aria-live="polite">Recording disarmed</span>
+        </div>
         <div class="row gap">
           <button id="startRecBtn" class="btn primary" type="button">Start recording</button>
           <button id="stopRecBtn" class="btn" type="button">Stop recording</button>
         </div>
-        <small class="muted">These buttons call the recorder registry so Bridge + OBS stay in sync.</small>
+        <div class="recording-readiness" data-recording-readiness role="status" aria-live="polite"></div>
+        <small class="muted">Manual Start/Stop works independently of Auto-record. Arming prepares the selected engine; it does not start recording.</small>
       </div>
 
       <div class="settings-card anim-in" id="recordingUploadAuditCard">
@@ -103679,19 +103465,347 @@ var init_typographyPanel = __esm({
   }
 });
 
+// recorders-bridge-compat.ts
+function initCompat() {
+  if (typeof window !== "undefined") {
+    if (!window.__recorder) {
+      window.__recorder = {
+        get(name) {
+          return name === "obs" ? recorder : null;
+        }
+      };
+    }
+    window.recorders = window.recorders || window.__recorder;
+  }
+  return typeof window !== "undefined" ? window.__recorder : { get: () => null };
+}
+function getObsBridge() {
+  try {
+    if (typeof window === "undefined") return null;
+    if (window.__obsBridge) return window.__obsBridge;
+    if (window.__tpObsBridge) return window.__tpObsBridge;
+    const legacy = window.__tpObs;
+    if (legacy && typeof legacy === "object") return legacy;
+    return null;
+  } catch {
+    return null;
+  }
+}
+async function safeConnect(_testOnly) {
+  let bridge2 = getObsBridge();
+  if (!bridge2 && typeof window.__loadObsBridge === "function") {
+    await window.__loadObsBridge();
+    bridge2 = getObsBridge();
+  }
+  if (!bridge2 || typeof bridge2.connect !== "function" || typeof bridge2.isConnected !== "function") return false;
+  const ok = await bridge2.connect();
+  return ok === true && bridge2.isConnected() === true;
+}
+async function safeSetEnabled(on3) {
+  _enabled = !!on3;
+  const bridge2 = getObsBridge();
+  if (!bridge2) {
+    try {
+      console.info("[OBS] setEnabled(%o) no bridge; flag set inline", on3);
+    } catch {
+    }
+    return true;
+  }
+  try {
+    const ctrl = bridge2.setArmed ? bridge2 : window.__tpObs;
+    if (ctrl && typeof ctrl.setArmed === "function") {
+      ctrl.setArmed(!!on3);
+      if (on3 && typeof ctrl.maybeConnect === "function") {
+        await ctrl.maybeConnect();
+      } else if (!on3 && typeof ctrl.disconnect === "function") {
+        await ctrl.disconnect();
+      }
+      return true;
+    }
+    if (typeof bridge2.setEnabled === "function") {
+      await bridge2.setEnabled(!!on3);
+      return true;
+    }
+    try {
+      console.warn("[OBS] safeSetEnabled: bridge present but does not support known methods");
+    } catch {
+    }
+    return true;
+  } catch (e) {
+    try {
+      console.warn("[OBS] setEnabled(%o) failed", on3, e);
+    } catch {
+    }
+    return false;
+  }
+}
+function initBridge(opts = {}) {
+  _cfgBridge = { ..._cfgBridge, ...opts };
+  try {
+    if (_cfgBridge.isEnabled()) connect2();
+  } catch {
+  }
+}
+function setEnabled(on3) {
+  return safeSetEnabled(on3);
+}
+async function reconfigure(cfg = {}) {
+  try {
+    obsCfg = { ...obsCfg, ...cfg };
+    if (typeof cfg?.port !== "undefined") {
+      const n = typeof cfg.port === "string" ? parseInt(cfg.port, 10) : Number(cfg.port);
+      if (!Number.isNaN(n) && n > 0) {
+        obsCfg.port = n;
+      }
+    }
+    const password = typeof cfg?.password === "string" ? cfg.password : obsCfg.password || "";
+    obsCfg.password = password;
+    const explicitUrl = cfg && typeof cfg.url === "string" && cfg.url.trim() ? cfg.url.trim() : "";
+    const host = obsCfg.host || "127.0.0.1";
+    const port = obsCfg.port || 4455;
+    const scheme = obsCfg.secure ? "wss" : "ws";
+    const url = explicitUrl || `${scheme}://${host}:${port}/`;
+    try {
+      _cfgBridge.getUrl = () => url;
+      _cfgBridge.getPass = () => password;
+    } catch {
+    }
+    try {
+      const bridge2 = getObsBridge();
+      if (bridge2 && typeof bridge2.configure === "function") {
+        bridge2.configure({ url, password });
+      }
+    } catch (err) {
+      try {
+        console.warn("[OBS] bridge.configure failed", err);
+      } catch {
+      }
+    }
+    try {
+      if (_ws) {
+        try {
+          _ws.close(1e3, "reconfig");
+        } catch {
+        }
+        reconnectSoon(200);
+      }
+    } catch {
+    }
+  } catch (err) {
+    try {
+      console.warn("[OBS] reconfigure failed", err);
+    } catch {
+    }
+  }
+}
+async function test() {
+  try {
+    return await connect2({ testOnly: true });
+  } catch {
+    return false;
+  }
+}
+async function disconnect() {
+  try {
+    await getObsBridge()?.disconnect?.();
+    _identified = false;
+    _connecting = false;
+    try {
+      _ws && _ws.close(1e3, "manual");
+    } catch {
+    }
+    _ws = null;
+    try {
+      _cfgBridge.onStatus?.("disconnected", false);
+    } catch {
+    }
+  } catch {
+  }
+  return true;
+}
+function reconnectSoon(ms = 400) {
+  try {
+    clearTimeout(_reconnTimer);
+    _reconnTimer = setTrackedTimeout(() => {
+      try {
+        connect2();
+      } catch {
+      }
+    }, ms);
+  } catch {
+  }
+}
+async function connect2({ testOnly = false } = {}) {
+  return safeConnect(testOnly);
+}
+async function connect22(opts) {
+  return safeConnect(opts?.testOnly);
+}
+function isConnected() {
+  return getObsBridge()?.isConnected?.() === true;
+}
+function setEnabled3(on3) {
+  return safeSetEnabled(on3);
+}
+function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
+  try {
+    if (typeof onStatus === "function") onStatus(isConnected() ? "connected" : "disconnected", isConnected());
+    if (getUrl || getPass) {
+      try {
+        setSettings({
+          configs: {
+            obs: {
+              url: getUrl ? getUrl() : void 0,
+              password: getPass ? getPass() : void 0
+            }
+          }
+        });
+      } catch {
+      }
+    }
+    try {
+      applyConfigs();
+    } catch {
+    }
+    try {
+      if (isEnabled && isEnabled()) {
+        void safeSetEnabled(true);
+      }
+    } catch {
+    }
+    try {
+      if (typeof initBridge === "function") {
+        initBridge({ getUrl, getPass, isEnabled, onStatus, onRecordState });
+      }
+    } catch {
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+var recorder, compatDefault, recorders_bridge_compat_default, _ws, _connecting, _identified, obsCfg, _cfgBridge, _enabled, _reconnTimer;
+var init_recorders_bridge_compat = __esm({
+  "recorders-bridge-compat.ts"() {
+    "use strict";
+    init_recorders_core();
+    recorder = {
+      get state() {
+        return isConnected() ? "connected" : "disabled";
+      },
+      async init() {
+        return true;
+      },
+      async connect() {
+        return safeConnect();
+      },
+      async disconnect() {
+        return disconnect();
+      },
+      setEnabled(on3) {
+        return safeSetEnabled(on3);
+      }
+    };
+    compatDefault = {
+      init: initCompat,
+      get(name) {
+        return name === "obs" ? recorder : null;
+      },
+      // Also surface the modern API explicitly if anyone wants it
+      recorder
+    };
+    recorders_bridge_compat_default = compatDefault;
+    if (typeof window !== "undefined") {
+      window.__recorder = window.__recorder || {
+        get(name) {
+          return name === "obs" ? recorder : null;
+        }
+      };
+      window.recorders = window.recorders || window.__recorder;
+    }
+    try {
+      if (typeof window !== "undefined") {
+        initCompat();
+        const api = window.__recorder;
+        if (!api.start) api.start = () => startSelected();
+        if (!api.stop) api.stop = () => stopSelected();
+        if (!api.preflight) api.preflight = async (target = "obs") => {
+          const issues = [];
+          try {
+            if (target === "obs") {
+              const bridge2 = window.__obsBridge || null;
+              if (!bridge2) issues.push("OBS bridge missing");
+              else {
+                try {
+                  const st = await bridge2.getRecordStatus();
+                  if (!st) issues.push("OBS not responding");
+                } catch {
+                  issues.push("OBS GetRecordStatus failed");
+                }
+                try {
+                  if (typeof bridge2.getRecordDirectory === "function") {
+                    const dir = await bridge2.getRecordDirectory();
+                    if (!dir || !dir.recordDirectory) issues.push("Record directory unknown");
+                  }
+                } catch {
+                }
+                try {
+                  const stats = await bridge2.getStats();
+                  const bytes = stats?.recording?.freeDiskSpace || stats?.free_disk_space || null;
+                  const free = typeof bytes === "number" ? bytes : typeof bytes === "string" && /^\d+$/.test(bytes) ? Number(bytes) : null;
+                  if (free != null && free < 2 * 1024 * 1024 * 1024) issues.push("Low disk space (<2 GB)");
+                } catch {
+                }
+              }
+            }
+          } catch {
+          }
+          return issues;
+        };
+        if (!api.getSettings) api.getSettings = () => getSettings();
+        if (!api.setSettings) api.setSettings = (next) => setSettings(next);
+        if (!api.setSelected) api.setSelected = (ids) => setSelected(ids);
+        if (!api.setMode) api.setMode = (mode) => setMode(mode);
+        if (!api.__finalizeForTests) api.__finalizeForTests = () => {
+          try {
+            clearHandoffTimer();
+          } catch {
+          }
+        };
+        window.recorders = window.recorders || api;
+      }
+    } catch {
+    }
+    _ws = null;
+    _connecting = false;
+    _identified = false;
+    obsCfg = { host: "127.0.0.1", port: 4455, secure: false };
+    _cfgBridge = {
+      getUrl: () => "ws://127.0.0.1:4455",
+      getPass: () => "",
+      isEnabled: () => false,
+      onStatus: (txt, ok) => console.log("[OBS]", txt, ok),
+      onRecordState: () => {
+      }
+    };
+    _enabled = false;
+    _reconnTimer = 0;
+  }
+});
+
 // recorders.ts
 var recorders_exports = {};
 __export(recorders_exports, {
   all: () => all,
   applyConfigs: () => applyConfigs,
   clearHandoffTimer: () => clearHandoffTimer,
-  connect: () => connect,
-  connect2: () => connect2,
+  connect: () => connect2,
+  connect2: () => connect22,
   default: () => recorders_bridge_compat_default,
   disconnect: () => disconnect,
   get: () => get2,
   getRecState: () => getRecState,
-  getRecordingMode: () => getRecordingMode2,
+  getRecordingMode: () => getRecordingMode,
   getSettings: () => getSettings,
   init: () => init,
   initBridge: () => initBridge,
@@ -103792,8 +103906,8 @@ function wireSettingsTabs(root, store3) {
         return null;
       }
     })();
-    const initial2 = fromStore ?? tabButtons[0]?.dataset.settingsTab ?? "general";
-    setActive(initial2);
+    const initial = fromStore ?? tabButtons[0]?.dataset.settingsTab ?? "general";
+    setActive(initial);
   } catch {
   }
 }
@@ -103878,7 +103992,7 @@ async function wireAutoRecord(rootEl2, store3) {
             const r = await existing2.requestPermission?.({ mode: "readwrite" });
             if (r !== "granted") {
               window.toast?.(
-                "Recordings folder is mapped but write permission is not granted yet. Recording will continue and download fallback will be used until access is granted.",
+                "Recordings folder is mapped but write permission is not granted yet. Core recording is blocked until folder access is granted.",
                 { type: "warn" }
               );
             }
@@ -103889,7 +104003,7 @@ async function wireAutoRecord(rootEl2, store3) {
       }
       const settingsUrl = getNurseryStorageSettingsUrl();
       window.toast?.(
-        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Auto-record will continue and recordings will download until Storage is linked (${settingsUrl}).`,
+        `Recordings folder is managed by The Forge but not linked in this origin (${window.location.origin}). Core recording is blocked until the recording folder is linked (${settingsUrl}).`,
         { type: "warn" }
       );
       return true;
@@ -104054,7 +104168,7 @@ function wireRecordingModeControls(rootEl2) {
     return "core";
   };
   const guardRecordingChange = (message) => {
-    if (!isSessionRecording()) return true;
+    if (!isRecordingBusy()) return true;
     try {
       window.toast?.(message || "Stop recording to change recording mode.", { type: "warn" });
     } catch {
@@ -104090,8 +104204,16 @@ function wireRecordingModeControls(rootEl2) {
     }
     applyRecordingModeUi(recordingMode);
   };
-  const setEngine = (engine) => {
+  const setEngine = async (engine) => {
     if (!guardRecordingChange("Stop recording to change recording engine.")) return;
+    const arm = window.__tpRecordingArm;
+    if (arm?.getSnapshot?.().state === "arming") return;
+    try {
+      if (await arm?.disarm?.() === false) return;
+    } catch (error) {
+      reportRecordingError(error);
+      return;
+    }
     try {
       setMode("single");
     } catch {
@@ -104162,6 +104284,10 @@ function wireSettingsDynamic(rootEl2, store3) {
   }
   try {
     wireSettingsTabs(rootEl2, store3);
+  } catch {
+  }
+  try {
+    wireRecordButtons(store3, { startSelector: "#startRecBtn", stopSelector: "#stopRecBtn" });
   } catch {
   }
   try {
@@ -104372,6 +104498,7 @@ var init_wire = __esm({
     "use strict";
     init_auto_record_ssot();
     init_recorders();
+    init_recordButtons();
     init_recorder_settings();
     init_recorderRegistry();
     init_recording_mode_ui();
@@ -105208,21 +105335,21 @@ function onKeydown(event) {
   }
 }
 function initHotkeys() {
-  if (initialized3) return;
+  if (initialized5) return;
   if (typeof window === "undefined") return;
   window.addEventListener("keydown", onKeydown, { capture: true });
-  initialized3 = true;
+  initialized5 = true;
   try {
     console.log("[src/features/hotkeys] initHotkeys");
   } catch {
   }
 }
-var initialized3;
+var initialized5;
 var init_hotkeys = __esm({
   "src/features/hotkeys.ts"() {
     "use strict";
     init_kick();
-    initialized3 = false;
+    initialized5 = false;
   }
 });
 
@@ -105263,7 +105390,7 @@ function isDevMode10() {
     return false;
   }
 }
-function toast3(message, type = "info", timeoutMs) {
+function toast2(message, type = "info", timeoutMs) {
   try {
     showToast(message, { type, ...timeoutMs == null ? {} : { timeoutMs } });
   } catch {
@@ -105284,7 +105411,7 @@ function onUploadWarning(ev) {
   const detail = ev.detail ?? {};
   const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "unknown";
   const threshold = Number.isFinite(Number(detail.thresholdMb)) ? Number(detail.thresholdMb).toFixed(0) : "unknown";
-  toast3(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning");
+  toast2(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning");
 }
 function onUploadStatus(ev) {
   const detail = ev.detail ?? {};
@@ -105303,23 +105430,23 @@ function onUploadStatus(ev) {
   if (phase === "uploading" && strategy === "chunked" && isDevMode10() && !chunkedNoticeShown) {
     const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "?";
     const chunkLabel = Number.isFinite(totalChunks) && totalChunks > 0 ? ` in ${totalChunks} chunks` : "";
-    toast3(`Chunked upload active (${mb} MB${chunkLabel})`, "info");
+    toast2(`Chunked upload active (${mb} MB${chunkLabel})`, "info");
     chunkedNoticeShown = true;
     return;
   }
   if (phase === "uploading" && strategy === "chunked" && isDevMode10() && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 1 && shouldEmitProgressToast(Date.now())) {
     const progressText = pct == null ? "" : ` (${pct}%)`;
-    toast3(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 4e3);
+    toast2(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 4e3);
     return;
   }
   if (phase === "done" && detail.safeToLeave && !safeToLeaveShown) {
-    toast3("Recording upload complete. Safe to leave.", "success");
+    toast2("Recording upload complete. Safe to leave.", "success");
     safeToLeaveShown = true;
     return;
   }
   if (phase === "failed" && !failedShown) {
     const msg = detail.errorMessage ? ` (${detail.errorMessage})` : "";
-    toast3(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 2e4);
+    toast2(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 2e4);
     failedShown = true;
   }
 }
@@ -106711,7 +106838,7 @@ function writeAutoRecordPref(next) {
   } catch {
   }
 }
-function toast4(msg) {
+function toast3(msg) {
   try {
     window.toasts?.show?.(msg);
   } catch {
@@ -106793,11 +106920,11 @@ function keyGuard(e) {
     e.stopImmediatePropagation();
     e.stopPropagation();
     if (k === " ") {
-      toast4("Auto-scroll disabled in Rehearsal Mode");
+      toast3("Auto-scroll disabled in Rehearsal Mode");
     } else if (nav.includes(k)) {
-      toast4("Keyboard scroll is disabled in Rehearsal Mode");
+      toast3("Keyboard scroll is disabled in Rehearsal Mode");
     } else {
-      toast4("Recording/automation is disabled in Rehearsal Mode");
+      toast3("Recording/automation is disabled in Rehearsal Mode");
     }
   }
 }
@@ -106926,7 +107053,7 @@ function enable() {
     keyListenerInstalled = true;
   }
   wireSelectObserversOnce();
-  toast4("Rehearsal Mode enabled");
+  toast3("Rehearsal Mode enabled");
   try {
     broadcastRehearsal(true);
   } catch {
@@ -106938,7 +107065,7 @@ function disable() {
   setState(false);
   markUiDisabled(false);
   restorePrev();
-  toast4("Exited Rehearsal Mode");
+  toast3("Exited Rehearsal Mode");
   try {
     broadcastRehearsal(false);
   } catch {
@@ -107639,8 +107766,8 @@ function installStepScroll(cfg = {}) {
   try {
     const s = window.__tpStore;
     if (s && typeof s.subscribe === "function") {
-      const initial2 = s.get?.("scrollMode");
-      if (uiWrap) uiWrap.style.display = shouldShowStepUi(initial2) ? "" : "none";
+      const initial = s.get?.("scrollMode");
+      if (uiWrap) uiWrap.style.display = shouldShowStepUi(initial) ? "" : "none";
       s.subscribe("scrollMode", (next) => {
         if (!uiWrap) return;
         uiWrap.style.display = shouldShowStepUi(next) ? "" : "none";
@@ -108116,8 +108243,8 @@ function q(id) {
   return document.getElementById(id);
 }
 function bindCameraUI() {
-  if (bound) return;
-  bound = true;
+  if (bound2) return;
+  bound2 = true;
   const startBtn = q("startCam");
   const stopBtn = q("stopCam");
   const camWrap = q("camWrap");
@@ -108147,6 +108274,7 @@ function bindCameraUI() {
   let currentDeviceId = null;
   let isStarting = false;
   let applyingFromStore = false;
+  let lastStartFailure = null;
   function updateChip(text) {
     if (camRtcChip) camRtcChip.textContent = text;
   }
@@ -108225,7 +108353,8 @@ function bindCameraUI() {
   }
   async function doStart(attemptedFallback = false) {
     if (isStarting) return false;
-    if (currentStream) return true;
+    if (currentStream && isActive()) return true;
+    if (currentStream) doStop();
     if (!navigator.mediaDevices?.getUserMedia) {
       try {
         console.warn("[CAM] getUserMedia not supported");
@@ -108235,6 +108364,7 @@ function bindCameraUI() {
       return false;
     }
     isStarting = true;
+    lastStartFailure = null;
     setButtons(false, true);
     try {
       const id = currentDeviceId || deviceSelects[0] && deviceSelects[0].value || void 0;
@@ -108276,6 +108406,7 @@ function bindCameraUI() {
       } catch {
       }
       const name = err?.name || "";
+      lastStartFailure = name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError" ? "permission_denied" : "failed";
       const busy = name === "NotReadableError" || name === "TrackStartError";
       if (!attemptedFallback && currentDeviceId && busy) {
         try {
@@ -108292,10 +108423,10 @@ function bindCameraUI() {
       setButtons(false, false);
       updateChip("CamRTC: error");
       try {
-        const toast6 = window.toast;
-        if (typeof toast6 === "function") {
+        const toast5 = window.toast;
+        if (typeof toast5 === "function") {
           const msg = busy ? 'Camera is in use by another app. Close it or pick "OBS Virtual Camera" in Settings \u2192 Recording.' : "Camera failed to start. Check permissions or pick another device.";
-          toast6(msg, { type: "warn" });
+          toast5(msg, { type: "warn" });
         }
       } catch {
       }
@@ -108333,7 +108464,7 @@ function bindCameraUI() {
     return true;
   }
   function isActive() {
-    return !!currentStream;
+    return !!currentStream?.getVideoTracks().some((track) => track.readyState === "live");
   }
   try {
     appStoreSingleton.subscribe("cameraEnabled", async (on3) => {
@@ -108392,6 +108523,7 @@ function bindCameraUI() {
   setButtons(false, false);
   void refreshDevices();
   const api = window.__tpCamera || {};
+  api.getStream = () => currentStream;
   api.start = doStart;
   api.stop = doStop;
   api.setDevice = (id) => setDevice(id);
@@ -108415,6 +108547,7 @@ function bindCameraUI() {
   };
   api.isActive = isActive;
   api.currentDeviceId = currentDeviceId;
+  api.getLastStartFailure = () => lastStartFailure;
   api.startCamera = doStart;
   api.stopCamera = doStop;
   api.switchCamera = (id) => setDevice(id);
@@ -108479,12 +108612,12 @@ function bindCameraUI() {
   window.__tpCamera = api;
   if (!window.__camApi) window.__camApi = api;
 }
-var bound;
+var bound2;
 var init_camera_bridge = __esm({
   "src/media/camera-bridge.ts"() {
     "use strict";
     init_app_store();
-    bound = false;
+    bound2 = false;
   }
 });
 
@@ -110094,9 +110227,9 @@ function initSpeakersPanel() {
     ];
     profileInputs.forEach(({ slot, el }) => {
       if (!el) return;
-      const current2 = bindings[slot] || "";
+      const current4 = bindings[slot] || "";
       el.innerHTML = options.map((opt) => `<option value="${opt.value}">${opt.label}</option>`).join("");
-      el.value = current2;
+      el.value = current4;
     });
   };
   const highlightActiveSlot = (slot) => {
@@ -110229,8 +110362,8 @@ function bindStepControlsVisibility() {
     });
   };
   try {
-    const initial2 = appStoreSingleton.get?.("scrollMode");
-    apply(initial2);
+    const initial = appStoreSingleton.get?.("scrollMode");
+    apply(initial);
   } catch {
   }
   try {
@@ -110662,8 +110795,8 @@ function initSingleMonitorRead(store3) {
   if (!Number.isFinite(baseMarkerPct) || baseMarkerPct <= 0) {
     baseMarkerPct = DEFAULT_MARKER_PCT;
   }
-  const initial2 = !!resolved?.get?.("singleMonitorReadEnabled");
-  applySingleMonitor(initial2);
+  const initial = !!resolved?.get?.("singleMonitorReadEnabled");
+  applySingleMonitor(initial);
   wireControls(resolved);
   try {
     resolved?.subscribe?.("singleMonitorReadEnabled", (value) => {
@@ -110703,8 +110836,8 @@ var init_single_monitor = __esm({
 
 // src/media/recorders-bridge-compat.ts
 function ensureBridgeInit() {
-  if (initialized4) return;
-  initialized4 = true;
+  if (initialized6) return;
+  initialized6 = true;
   try {
     initCompat();
   } catch {
@@ -110736,12 +110869,12 @@ function unregisterObsAdapter() {
   } catch {
   }
 }
-var initialized4;
+var initialized6;
 var init_recorders_bridge_compat2 = __esm({
   "src/media/recorders-bridge-compat.ts"() {
     "use strict";
     init_recorders_bridge_compat();
-    initialized4 = false;
+    initialized6 = false;
   }
 });
 
@@ -112242,9 +112375,9 @@ function wireDisplayMirror() {
       let lastHeartbeatTop = viewer2.scrollTop || 0;
       const pollScrollHeartbeat = () => {
         try {
-          const current2 = viewer2.scrollTop || 0;
-          if (Math.abs(current2 - lastHeartbeatTop) >= 0.25) {
-            lastHeartbeatTop = current2;
+          const current4 = viewer2.scrollTop || 0;
+          if (Math.abs(current4 - lastHeartbeatTop) >= 0.25) {
+            lastHeartbeatTop = current4;
             requestSendScroll();
           }
         } catch {
@@ -112740,7 +112873,7 @@ function installDbMeter() {
 function installObsChip() {
   once("obs-chip", () => {
     try {
-      const topbar = document.querySelector(".topbar") || document.body;
+      const topbar = document.getElementById("topbarRight") || document.querySelector(".topbar") || document.body;
       let chip = document.getElementById("obsChip");
       if (!chip) {
         chip = document.createElement("span");
@@ -112756,31 +112889,8 @@ function installObsChip() {
         chip.appendChild(icon);
         topbar && topbar.appendChild(chip);
       }
-      const labelEl = chip.querySelector(".obs-chip-label") || chip;
       const iconEl = chip.querySelector(".obs-test-icon");
       let hideTimer = null;
-      const render = ({ status: status2 = "disconnected", recording = false, scene } = {}) => {
-        try {
-          const s = String(status2 || "disconnected");
-          const detail = `OBS: ${s}${recording ? " | REC" : ""}${scene ? ` | ${scene}` : ""}`;
-          labelEl.textContent = "OBS";
-          chip.dataset.sessionText = detail;
-          chip.title = detail;
-          chip.setAttribute("aria-label", detail);
-          const base = ["chip", "obs-pill-compact"];
-          if (s === "identified" || s === "open") base.push("obs-connected");
-          else base.push("obs-error");
-          chip.className = base.join(" ");
-        } catch {
-        }
-      };
-      render();
-      window.addEventListener("tp:obs", (e) => {
-        try {
-          render(e && e.detail || {});
-        } catch {
-        }
-      });
       window.addEventListener("tp:obs-test", (e) => {
         try {
           const d = e && e.detail || {};
@@ -113181,8 +113291,8 @@ function wireOverlays() {
           const selector = '#settingsBtn, [data-action="settings-open"]';
           const buttons = document.querySelectorAll(selector);
           buttons.forEach((btn) => {
-            const bound2 = btn.__tpSettingsBound;
-            if (bound2) return;
+            const bound3 = btn.__tpSettingsBound;
+            if (bound3) return;
             try {
               btn.addEventListener("click", (e) => {
                 try {
@@ -114389,13 +114499,13 @@ async function ensurePairingToken() {
   }
 }
 function refreshStatus() {
-  const current2 = getNetworkDisplayStatus();
+  const current4 = getNetworkDisplayStatus();
   if (!modalElements?.status) return;
-  if (current2.state === "error" && current2.lastError) {
-    modalElements.status.textContent = `Connected: ${current2.connectedDisplays} (${current2.lastError})`;
+  if (current4.state === "error" && current4.lastError) {
+    modalElements.status.textContent = `Connected: ${current4.connectedDisplays} (${current4.lastError})`;
     return;
   }
-  modalElements.status.textContent = `Connected: ${current2.connectedDisplays}`;
+  modalElements.status.textContent = `Connected: ${current4.connectedDisplays}`;
 }
 function bindModalEvents() {
   if (!modalElements) return;
@@ -117659,7 +117769,7 @@ async function bindMappedFolderUI(opts) {
           hudLog("folder:permission:denied", { id: sel.id });
         } catch {
         }
-        toast5(
+        toast4(
           isMappedFolderManagedByNursery() ? `Allow folder access, then re-link scripts mount in The Forge Storage (${getNurseryStorageSettingsUrl()}).` : "Allow folder access to load scripts, or re-pick the folder in Settings."
         );
         return;
@@ -117738,7 +117848,7 @@ async function bindMappedFolderUI(opts) {
       } catch {
       }
       try {
-        toast5(
+        toast4(
           isMappedFolderManagedByNursery() ? `Could not load script from The Forge-managed folder. Recheck The Forge Storage link (${getNurseryStorageSettingsUrl()}).` : "Could not load script from the mapped folder. Recheck permissions or pick the folder again."
         );
       } catch {
@@ -118229,18 +118339,18 @@ async function docxToTextViaMammoth(file) {
 async function recheckMappedFolderPermissions() {
   try {
     if (isMappedFolderManagedByNursery()) {
-      toast5(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      toast4(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
       return false;
     }
     const dir = window.__tpFolder?.get?.();
     if (!dir) {
-      toast5("No folder mapped");
+      toast4("No folder mapped");
       return false;
     }
     const res = await dir.requestPermission?.({ mode: "read" });
     const granted = res === "granted";
     hudLog("folder:permission", { granted });
-    toast5(granted ? "Folder access granted" : "Folder access denied");
+    toast4(granted ? "Folder access granted" : "Folder access denied");
     if (!granted) {
       try {
         await window.__tpFolder?.clear?.();
@@ -118252,7 +118362,7 @@ async function recheckMappedFolderPermissions() {
     return false;
   }
 }
-function toast5(msg) {
+function toast4(msg) {
   hudLog("toast", { msg });
   try {
     window.dispatchEvent(new CustomEvent("tp:toast", { detail: { msg, ts: Date.now() } }));
@@ -118442,13 +118552,13 @@ function triggerSettingsImport() {
   input.accept = "application/json";
   input.style.position = "fixed";
   input.style.left = "-9999px";
-  const cleanup = () => {
+  const cleanup2 = () => {
     input.remove();
   };
   input.addEventListener("change", () => {
     const file = input.files && input.files[0];
     if (!file) {
-      cleanup();
+      cleanup2();
       return;
     }
     const reader = new FileReader();
@@ -118470,7 +118580,7 @@ function triggerSettingsImport() {
         }
         showToast("Failed to import settings. Is this an Anvil settings file?", { type: "error" });
       } finally {
-        cleanup();
+        cleanup2();
       }
     };
     reader.onerror = () => {
@@ -118479,7 +118589,7 @@ function triggerSettingsImport() {
       } catch {
       }
       showToast("Could not read settings file.", { type: "error" });
-      cleanup();
+      cleanup2();
     };
     reader.readAsText(file);
   });
@@ -118782,7 +118892,7 @@ var init_io_anchor = __esm({
 var obs_exports = {};
 __export(obs_exports, {
   configure: () => configure,
-  connect: () => connect4,
+  connect: () => connect3,
   createOBSAdapter: () => createOBSAdapter,
   init: () => init2
 });
@@ -118908,9 +119018,9 @@ async function computeAuth(pass, salt, challenge) {
 }
 function notifyObsConnectionError(reason) {
   try {
-    const toast6 = window.toast;
-    if (typeof toast6 === "function") {
-      toast6("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
+    const toast5 = window.toast;
+    if (typeof toast5 === "function") {
+      toast5("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
     }
   } catch {
   }
@@ -118919,7 +119029,7 @@ function notifyObsConnectionError(reason) {
   } catch {
   }
 }
-function connect4(urlOrOpts, pass) {
+function connect3(urlOrOpts, pass) {
   const emitter = createEmitter();
   const isStringUrl = typeof urlOrOpts === "string";
   const options = isStringUrl ? { url: urlOrOpts, password: pass } : urlOrOpts || {};
@@ -118951,7 +119061,7 @@ function connect4(urlOrOpts, pass) {
   let hello = null;
   const pending = /* @__PURE__ */ new Map();
   let rid = 1;
-  let retry = 0;
+  let retry2 = 0;
   const mkUrl = () => {
     if (url) return url;
     const proto = secure ? "wss" : "ws";
@@ -119105,7 +119215,7 @@ function connect4(urlOrOpts, pass) {
   };
   const schedule = () => {
     if (!reconnect || closedByUser) return;
-    const delay = Math.min(1e3 * Math.pow(2, retry++), maxDelay);
+    const delay = Math.min(1e3 * Math.pow(2, retry2++), maxDelay);
     setTimeout(() => {
       try {
         openSocket();
@@ -119123,7 +119233,7 @@ function connect4(urlOrOpts, pass) {
       ws = new WebSocket(mkUrl());
       ws.onopen = () => {
         emitter.emit("open");
-        retry = 0;
+        retry2 = 0;
         try {
           window.dispatchEvent(
             new CustomEvent("tp:obs", {
@@ -119204,7 +119314,7 @@ function createOBSAdapter() {
     async stop() {
       return Promise.resolve();
     },
-    connect: connect4,
+    connect: connect3,
     async test(opts) {
       try {
         let conn = adapter.__testConn;
@@ -119217,7 +119327,7 @@ function createOBSAdapter() {
             conn && conn.close && conn.close();
           } catch {
           }
-          conn = connect4({ host, port, password, secure: false, reconnect: false });
+          conn = connect3({ host, port, password, secure: false, reconnect: false });
           adapter.__testConn = conn;
           await new Promise((resolve) => {
             let done = false;
@@ -120167,10 +120277,10 @@ function initScrollModeUiSync() {
   };
   const applyCurrent = () => {
     try {
-      const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
-      if (current2 !== "asr") lastStableUiMode = current2;
-      updateFromStore(current2);
-      applyUiScrollMode(current2, { skipStore: true, allowToast: false, source: "boot" });
+      const current4 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+      if (current4 !== "asr") lastStableUiMode = current4;
+      updateFromStore(current4);
+      applyUiScrollMode(current4, { skipStore: true, allowToast: false, source: "boot" });
     } catch {
     }
     try {
@@ -120231,9 +120341,9 @@ function initScrollModeUiSync() {
     }
     if (help) {
       if (ready) {
-        const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+        const current4 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
         try {
-          applyScrollModeUI(current2);
+          applyScrollModeUI(current4);
         } catch {
           help.textContent = defaultHelpText;
         }
@@ -120260,8 +120370,8 @@ function initScrollModeUiSync() {
   }
   try {
     appStoreSingleton.subscribe?.("asrLive", () => {
-      const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
-      applyScrollModeUI(current2);
+      const current4 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+      applyScrollModeUI(current4);
     });
   } catch {
   }
@@ -120305,8 +120415,8 @@ function initScrollModeUiSync() {
       if (asrGatePending) return;
       asrGatePending = true;
       try {
-        const current2 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
-        const fallback = current2 === "asr" ? "hybrid" : current2;
+        const current4 = normalizeUiScrollMode(appStoreSingleton.get?.("scrollMode"));
+        const fallback = current4 === "asr" ? "hybrid" : current4;
         setScrollModeSelectValue(fallback);
         const ok = await ensureAsrReadyForUser();
         if (ok) {
@@ -120867,6 +120977,15 @@ async function boot() {
         } catch {
         }
         try {
+          initRecordingReadiness();
+        } catch {
+        }
+        try {
+          initRecordingDestinationWarning();
+          initObsRecordingFeedback();
+        } catch {
+        }
+        try {
           bindCameraUI();
         } catch {
         }
@@ -120902,6 +121021,10 @@ async function boot() {
         }
         try {
           settings_default({ store: appStoreSingleton });
+        } catch {
+        }
+        try {
+          initRecordingArmControl();
         } catch {
         }
         if (isCiSmoke()) {
@@ -121448,12 +121571,16 @@ var init_index_app = __esm({
     init_typography_ssot();
     init_recordButtons();
     init_recording_mode_ui();
+    init_recording_readiness();
+    init_recording_destination_warning();
+    init_obs_recording_feedback();
     init_eggs();
     init_ui_binds();
     init_preroll_session();
     init_scroll_session();
     init_recording_session();
     init_rec_pills();
+    init_recording_arm_control();
     init_local_auto();
     init_obs_finished_import();
     init_page_tabs();
@@ -121642,8 +121769,7 @@ var init_index_app = __esm({
       bootTrace("index-app.ts:early:obs-connection:error", { error: String(error) });
     }
     try {
-      const seed = appStoreSingleton.get?.("obsEnabled");
-      if (typeof seed === "boolean") setRecorderEnabled("obs", seed);
+      appStoreSingleton.set("obsEnabled", getRecorderSettings().enabled.obs);
       appStoreSingleton.subscribe?.("obsEnabled", (v) => {
         if (typeof v === "boolean") setRecorderEnabled("obs", v);
       });

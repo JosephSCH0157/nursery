@@ -97,7 +97,7 @@ import * as scrollWriter from './scroll/scroll-writer';
 import './index-hooks/preroll';
 import { initDevDrawer } from './dev/dev-drawer';
 import { renderScript } from './render-script';
-import { setRecorderEnabled } from './state/recorder-settings';
+import { setRecorderEnabled, getRecorderSettings } from './state/recorder-settings';
 import { ensureUserAndProfile, type PersistedAppKey } from './forge/authProfile';
 import { initForgeNavMenu } from './forge/forge-nav';
 import { createProfileSettingsSync } from './forge/profile-settings-sync';
@@ -114,12 +114,16 @@ import { initUiScale } from './ui/ui-scale';
 import { DEFAULT_SCRIPT_FONT_PX } from './ui/typography-ssot';
 import { wireRecordButtons } from './ui/recordButtons';
 import { initRecordingModeUi } from './ui/recording-mode-ui';
+import { initRecordingReadiness } from './ui/recording-readiness';
+import { initRecordingDestinationWarning } from './ui/recording-destination-warning';
+import { initObsRecordingFeedback } from './ui/obs-recording-feedback';
 import { installAboutPopover, installCKEgg, installEasterEggs } from './ui/eggs';
 import './wiring/ui-binds';
 import { initPrerollSession } from './features/preroll-session';
 import { initScrollSessionRouter } from './features/scroll-session';
 import { initRecordingSession } from './features/recording-session';
 import { initRecPillsDisplay, initRecPillsMain } from './features/rec-pills';
+import { initRecordingArmControl } from './features/recording-arm-control';
 import './recording/local-auto'; // ensure core recorder bridge is loaded
 import './recording/obs-finished-import'; // OBS StopRecord output -> authorized Tongs import
 import { ensurePageTabs } from './features/page-tabs';
@@ -316,8 +320,7 @@ try {
 }
 // Keep recorder SSOT in sync with appStore.obsEnabled (legacy flag that can auto-arm the bridge)
 try {
-	const seed = appStore.get?.('obsEnabled');
-	if (typeof seed === 'boolean') setRecorderEnabled('obs', seed);
+	appStore.set('obsEnabled', getRecorderSettings().enabled.obs);
 	appStore.subscribe?.('obsEnabled', (v: any) => {
 		if (typeof v === 'boolean') setRecorderEnabled('obs', v);
 	});
@@ -1997,6 +2000,8 @@ export async function boot() {
           try { bindMicUI(); } catch {}
           try { wireSidebarCalibrationUI(); } catch {}
           try { initRecordingModeUi(); } catch {}
+          try { initRecordingReadiness(); } catch {}
+          try { initRecordingDestinationWarning(); initObsRecordingFeedback(); } catch {}
           try { bindCameraUI(); } catch {}
           try { initRecPillsMain(appStore); } catch {}
           try { initTopbarSessionStatus(); } catch {}
@@ -2010,6 +2015,7 @@ export async function boot() {
 								try { initSingleMonitorRead(appStore); } catch {}
 								// Ensure Settings overlay content uses TS builder (single source of truth)
 								try { wireSettings({ store: appStore }); } catch {}
+          try { initRecordingArmControl(); } catch {}
                 if (isCiSmoke()) {
                   try { injectSettingsFolderForSmoke(); } catch {}
                 }

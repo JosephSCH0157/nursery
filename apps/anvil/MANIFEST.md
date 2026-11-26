@@ -542,3 +542,75 @@ Secondary modernization objective:
 
 See `scroll-mode-ssot.md` for detailed Phase 1A tasks.
 See `docs/scroll-contract.md` for executable runtime boundaries and allowed/forbidden flows.
+
+## Recording integration ownership
+
+Local-finalization repair contract (November 26, 2026): a required mapped local
+file close owns Core Stop completion. Artifact verification and existing cloud
+commit/completion run as a separate background stage; an unresponsive cloud call
+cannot retain local capture ownership. Cloud status is pending until resolved,
+never manufactured as success. Each stage retains its captured authority,
+strategy and media diagnostics; stale results must not relabel a newer take or
+open a stale decision dialog. Failed local writes retain the existing explicit
+retry and block another take. Deliberate cloud-only configuration retains its
+existing canonical-completion requirements; no local receipt is invented.
+
+Arm cleanup binds to the acquired API/stream identity. A replacement mic/camera
+acquisition belongs to its new consumer and must survive both Disarm and failure
+cleanup. Cleanup ownership never establishes readiness: current live mic/camera
+state determines Core armed status, including after Stop and external closure.
+
+Control/readiness contract (November 26, 2026): the upper-right OBS pill is
+visible independently of the session summary and is rendered only by
+`obs-status-bind` from authenticated connection state. Connection, arming and
+confirmed capture are separate truths. `recording-arm-control` consumes registry
+confirmation, never legacy `rec:state`, for active capture. Engine changes await
+owned-resource cleanup and never arm the next engine implicitly. OBS arming and
+selection must not request browser capture devices.
+
+Toolbar and Settings expose the same manual Start/Stop commands, independently
+of Auto-record. `recording-readiness` projects the current Auto-record preference,
+arm snapshot, connection state, session refusal reason and persistent command
+failure into both surfaces. Scrolling with Auto-record off does not capture;
+revoking that preference during pre-roll cancels automatic capture on live.
+These views do not grant capture authorization or own destination management.
+
+Refinement contract (November 26, 2026): destination warning UI is a read-only
+projection of the existing Hearth/Forge directory API. Mapping/grants remain in
+the existing settings. Core Start is blocked until those requirements recover;
+OBS bypasses the Core-only folder projection. Mapping notifications, storage
+events and focus/visibility return refresh readiness without reloading a take.
+
+OBS command confirmation observes RecordStateChanged before sending a command,
+retains early events, and uses bounded status polling for Start as a fallback.
+A successful StopRecord saved-path response is completion evidence; a subsequent
+status RPC is not required. Uncertain capture retains Stop ownership separately
+from confirmed-active truth. Local completion and cloud persistence have distinct
+messages. Cloud feedback includes its take's output path for correlation; it
+cannot undo a successful local Stop or relabel a newer take.
+
+- `recorders-core.ts` owns the in-session selected recording engine and capture mode.
+  `src/recording/recording-settings.ts` translates that selection for device ownership,
+  pre-roll and command dispatch. The existing settings cache must preserve fields
+  owned by the OBS configuration store and must never retain the OBS password.
+- `src/recording/recorderRegistry.ts` owns active capture command routing and Stop
+  ownership. Manual capture is independent of Auto-record. Automatic capture starts
+  on the authorized live phase after pre-roll. No selected-engine failure starts a
+  different engine. Core-specific session/speech event listeners must not bypass it.
+- `adapters/obsBridge.js` owns the authenticated OBS connection. Socket-open events
+  are insufficient: identification and a successful request establish readiness.
+  Concurrent callers share the connection attempt; disarm invalidates stale attempts.
+  `src/obs/obs-connection.ts` projects its events into `state/recorder-settings.ts`.
+  Header/settings binders render that state, including newly mounted controls.
+- OBS owns its capture devices and local output directory. Its StopRecord result
+  confirms a stopped output and supplies its finalized local path. The existing
+  `obs-finished-import.ts` separately handles authorized access/import to Tongs.
+- Core owns its capture streams until MediaRecorder flushes its last chunk. Stop
+  awaits finalization. `local-destination.ts` uses the existing Hearth/Nursery managed
+  directory API, snapshots the authorized destination for the take, and writes and
+  closes that file independently of cloud completion. No automatic Downloads fallback
+  or second destination preference is introduced. A failed local write retains the
+  encoded bytes for explicit retry; that in-memory recovery does not survive reload.
+- Existing Tongs capture authority and approved-script gates remain mandatory.
+  Local file success does not establish canonical recording completion or cloud
+  persistence. See the dated PR #88 acceptance record under `docs/releases/`.

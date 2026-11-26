@@ -96,3 +96,9 @@ supabase/tests/public_slice_a_security_behavior.sql text eol=lf
 apps/anvil/dist/** linguist-generated=true
 apps/nursery/public/anvil/** linguist-generated=true
 apps/nursery/dist/anvil/** linguist-generated=true
+
+# These legacy certification tests pin the original Windows CRLF harness bytes.
+# Keep Git blobs unchanged while reproducing those bytes on Linux CI too.
+scripts/certify-gate6h-successor.ps1 text eol=crlf
+scripts/certify-anvil-recording-authority-historical-successor.ps1 text eol=crlf
+scripts/certify-anvil-recording-authority-historical-current.ps1 text eol=crlf

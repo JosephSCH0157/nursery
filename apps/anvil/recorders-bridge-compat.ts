@@ -7,7 +7,6 @@ import {
     setSelected,
     setSettings,
     setTrackedTimeout,
-    start,
     startSelected,
     stopSelected,
 } from './recorders-core';
@@ -15,11 +14,11 @@ import {
 // --- Compatibility recorder surface used by the app ---
 // Provides a small surface with idempotent lifecycle and status events.
 const recorder = {
-  state: 'disabled',
+  get state() { return isConnected() ? 'connected' : 'disabled'; },
   async init() { return true; },
-  async connect() { return true; },
-  async disconnect() { return true; },
-  setEnabled(_on) { /* no-op for stub */ },
+  async connect() { return safeConnect(); },
+  async disconnect() { return disconnect(); },
+  setEnabled(on) { return safeSetEnabled(on); },
 };
 
 export function initCompat() {
@@ -144,82 +143,15 @@ function getObsBridge(): any | null {
   } catch { return null; }
 }
 
-function inlineConnect(testOnly?: boolean): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const cfgUrl =
-        obsCfg && (obsCfg as any).host
-          ? `${(obsCfg as any).secure ? 'wss' : 'ws'}://${(obsCfg as any).host}:${(obsCfg as any).port}`
-          : null;
-      const url =
-        _cfgBridge.getUrl?.() ||
-        cfgUrl ||
-        'ws://127.0.0.1:4455';
-      const pass = _cfgBridge.getPass?.() || '';
-      try { console.log('[OBS-BRIDGE] inlineConnect', { url, hasPass: !!pass, testOnly: !!testOnly }); } catch {}
-
-      // Simple probe: open WebSocket; resolve on open/close
-      if (typeof WebSocket === 'undefined') {
-        try { console.warn('[OBS-BRIDGE] inlineConnect: WebSocket not available'); } catch {}
-        resolve(false);
-        return;
-      }
-
-      const ws = new WebSocket(url);
-      let settled = false;
-      ws.onopen = () => {
-        settled = true;
-        try { ws.close(1000, 'probe'); } catch {}
-        resolve(true);
-      };
-      ws.onerror = () => {
-        if (settled) return;
-        settled = true;
-        resolve(false);
-      };
-      ws.onclose = () => {
-        if (settled) return;
-        settled = true;
-        resolve(true);
-      };
-    } catch (err) {
-      try { console.warn('[OBS-BRIDGE] inlineConnect error', err); } catch {}
-      resolve(false);
-    }
-  });
-}
-
-async function safeConnect(testOnly?: boolean): Promise<boolean> {
-  try { console.log('[OBS-BRIDGE] connect()', { testOnly: !!testOnly, enabled: _enabled }); } catch {}
+async function safeConnect(_testOnly?: boolean): Promise<boolean> {
   let bridge = getObsBridge();
-  if (!bridge || typeof bridge.connect !== 'function') {
-    if (typeof (window as any).__loadObsBridge === 'function') {
-      try { await (window as any).__loadObsBridge(); } catch {}
-      bridge = getObsBridge();
-    }
+  if (!bridge && typeof (window as any).__loadObsBridge === 'function') {
+    await (window as any).__loadObsBridge();
+    bridge = getObsBridge();
   }
-
-  // If a native bridge exists, try it first; on failure or rejection, fall back to inline WS
-  if (bridge && typeof bridge.connect === 'function') {
-    try {
-      _cfgBridge.isEnabled = () => _enabled === true;
-      const res = await bridge.connect({ testOnly });
-      if (res) return true;
-    } catch (e) {
-      try { console.warn('[OBS] native bridge connect failed, falling back to inline', e); } catch {}
-    }
-  }
-
-  // If maybeConnect exists (inline bridge style), prefer that before raw WS probe
-  try {
-    if (bridge && typeof bridge.maybeConnect === 'function') {
-      try { await bridge.maybeConnect(); } catch {}
-      return !!(bridge.isConnected?.() || false);
-    }
-  } catch {}
-
-  try { console.info('[OBS] connect(testOnly=%o) no native bridge; using inline WebSocket', !!testOnly); } catch {}
-  return inlineConnect(testOnly);
+  if (!bridge || typeof bridge.connect !== 'function' || typeof bridge.isConnected !== 'function') return false;
+  const ok = await bridge.connect();
+  return ok === true && bridge.isConnected() === true;
 }
 
 async function safeSetEnabled(on: boolean): Promise<boolean> {
@@ -240,11 +172,6 @@ async function safeSetEnabled(on: boolean): Promise<boolean> {
       } else if (!on && typeof ctrl.disconnect === 'function') {
         await ctrl.disconnect();
       }
-      return true;
-    }
-    if (typeof bridge.start === 'function' && typeof bridge.stop === 'function') {
-      if (on) await bridge.start();
-      else await bridge.stop();
       return true;
     }
     if (typeof bridge.setEnabled === 'function') {
@@ -334,6 +261,7 @@ export async function test() {
 }
 export async function disconnect() {
   try {
+    await getObsBridge()?.disconnect?.();
     _identified = false;
     _connecting = false;
     try {
@@ -367,7 +295,7 @@ export async function connect2(opts?: { testOnly?: boolean }) {
 }
 
 export function isConnected() {
-  return _identified;
+  return getObsBridge()?.isConnected?.() === true;
 }
 
 // Compat aliases
@@ -378,7 +306,7 @@ export function setEnabled3(on: boolean) {
 // Public initializer for UI wiring. Maps simple UI hooks into the registry settings
 export function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
   try {
-    if (typeof onStatus === 'function') onStatus('recorder loaded', true);
+    if (typeof onStatus === 'function') onStatus(isConnected() ? 'connected' : 'disconnected', isConnected());
 
     if (getUrl || getPass) {
       try {
@@ -398,8 +326,8 @@ export function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {
 
     try {
       if (isEnabled && isEnabled()) {
-        // startSelected alias
-        start();
+        // Enabling initializes the connection, never capture.
+        void safeSetEnabled(true);
       }
     } catch {}
 

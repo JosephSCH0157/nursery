@@ -1,4 +1,4 @@
-import { isSessionRecording, startSessionRecording, stopSessionRecording } from '../recording/recorderRegistry';
+import { isRecordingBusy, reportRecordingError, startSessionRecording, stopSessionRecording } from '../recording/recorderRegistry';
 import { getRecordingEngine } from '../recording/recording-settings';
 import type { AppStore } from '../state/app-store';
 
@@ -65,12 +65,15 @@ export function wireRecordButtons(store?: AppStore | null, opts: WireRecordButto
     startBtn.addEventListener('click', async () => {
       if (startBtn.disabled) return;
       startBtn.disabled = true;
+      startBtn.dataset.recStarting = 'true';
       try {
         await startSessionRecording({ obsEnabled: getObsEnabled(), engine: getRecordingEngine() });
       } catch (err) {
+        reportRecordingError(err);
         console.warn('[recording] manual start failed', err);
       } finally {
-        startBtn.disabled = false;
+        delete startBtn.dataset.recStarting;
+        startBtn.disabled = startBtn.dataset.destinationBlocked === 'true' || isRecordingBusy();
       }
     });
   });
@@ -82,7 +85,7 @@ export function wireRecordButtons(store?: AppStore | null, opts: WireRecordButto
       if (stopBtn.disabled) return;
       stopBtn.disabled = true;
       try {
-        if (isSessionRecording()) {
+        if (isRecordingBusy()) {
           await stopSessionRecording();
         }
       } catch (err) {

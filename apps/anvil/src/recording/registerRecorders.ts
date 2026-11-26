@@ -68,7 +68,7 @@ function createObsRecorder(): RecorderBackend {
     label: 'OBS WebSocket',
     async isAvailable() {
       try {
-        const obs = window?.__tpObs;
+        const obs = window?.__obsBridge;
         if (!obs) return false;
         const probe = typeof obs.isConnected === 'function' ? obs.isConnected() : obs.isConnected;
         return coerceBoolean(probe);
@@ -77,10 +77,23 @@ function createObsRecorder(): RecorderBackend {
       }
     },
     async start() {
-      await window?.__tpObs?.startRecording?.();
+      const obs = window?.__obsBridge;
+      if (!obs?.isConnected?.() || typeof obs.start !== 'function') throw new Error('OBS is disconnected. Connect OBS in Recording Settings.');
+      const { prepareObsRecordingImport } = await import('./obs-finished-import');
+      if (!await prepareObsRecordingImport()) throw new Error('Capture authorization unavailable. Bind the current approved script in Hearth before recording.');
+      await obs.start();
+      window.dispatchEvent(new CustomEvent('tp:recording:obs-started'));
     },
     async stop() {
-      await window?.__tpObs?.stopRecording?.();
+      const obs = window?.__obsBridge;
+      if (!obs?.isConnected?.() || typeof obs.stop !== 'function') throw new Error('OBS is disconnected. Check recording status in OBS before retrying Stop.');
+      const result = await obs.stop();
+      window.dispatchEvent(new CustomEvent('tp:recording:obs-local-complete', { detail: result }));
+      // Local OBS completion and authorized cloud import are separate stages.
+      // The existing importer owns file access, authority, and Storage safeguards.
+      void Promise.resolve().then(() => window.__tpObsImport?.acceptStopResult?.(result)).catch((error) => {
+        window.dispatchEvent(new CustomEvent('tp:obs:recording-import', { detail: { phase: 'failed', reason: String(error), outputPath: result?.outputPath ?? null } }));
+      });
     },
   };
 }
@@ -90,17 +103,7 @@ export function initRecorderBackends(): void {
 
   try {
     const core = createCoreRecorder();
-    let obs: RecorderBackend | undefined;
-
-    try {
-      if (window.__tpObs) {
-        obs = createObsRecorder();
-      }
-    } catch {
-      obs = undefined;
-    }
-
-    registerRecorders({ core, obs });
+    registerRecorders({ core, obs: createObsRecorder() });
   } catch (err) {
     console.warn('[recording] failed to initialize recorder backends', err);
   }

@@ -115,6 +115,8 @@ jobs:
           ./scripts/test-supabase-lineage-guard.ps1
       - name: Verify disposable CI database setup contract
         run: node --test scripts/tests/disposable-ci-database.test.mjs
+      - name: Verify Anvil recording-authority fixture and frozen harness contracts
+        run: node --test scripts/test-anvil-recording-authority-repair.mjs scripts/test-anvil-recording-authority-historical-successor.mjs scripts/test-hammer-h2c-historical-successor.mjs scripts/test-anvil-recording-authority-historical-current.mjs
       - name: Verify hosted smoke isolation
         run: node --test scripts/tests/hosted-smoke-authorization.test.mjs
       - name: Certify fresh baseline and shared tail
