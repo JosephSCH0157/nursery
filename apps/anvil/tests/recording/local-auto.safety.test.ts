@@ -5,6 +5,7 @@ const mockStopSpeechBackendForSession = jest.fn((_reason?: string) => {});
 
 jest.mock('../../src/forge/workpiece-commit', () => ({
   beginRecordingCaptureSession: jest.fn(() => 'cap-test-1'),
+  readPendingRecordingDecisions: jest.fn(async () => []),
   hasCanonicalRecordingScriptIdentity: jest.fn(() => true),
   ensureRecordingCaptureTarget: jest.fn(async () => ({ ok: true, workpieceId: 'w-test-1', captureAuthority: {
     id: '11111111-1111-4111-8111-111111111111', captureSessionId: '22222222-2222-4222-8222-222222222222',
@@ -31,6 +32,7 @@ jest.mock('../../src/forge/workpiece-context', () => ({ resolveActiveWorkpieceId
 jest.mock('../../src/features/scripts-store', () => ({ ScriptStore: { getAll: jest.fn(() => []) } }));
 jest.mock('../../src/recording/recording-decision-dialog', () => ({
   hideRecordingFinalizeIndicator: jest.fn(),
+  isRecordingDecisionPending: jest.fn(() => false),
   showRecordingDecisionDialog: (arg: unknown) => mockShowRecordingDecisionDialog(arg),
   showRecordingFinalizeIndicator: jest.fn(),
 }));
@@ -201,7 +203,7 @@ describe('local-auto recorder safety guards', () => {
       return stream as unknown as MediaStream;
     });
 
-    await (window as any).__tpAutoRecord.start();
+    await expect((window as any).__tpAutoRecord.start()).rejects.toThrow('recorder_stream_missing_audio_track');
     expect(FakeMediaRecorder.created).toBe(0);
     expect((window as any).toast).toHaveBeenCalledWith(
       'Recording cannot start because the recorder has no active audio track. ASR may still hear the mic, but the recording would be silent.',
@@ -287,7 +289,7 @@ describe('local-auto recorder safety guards', () => {
     expect(String((attemptedFailure as any)?.errorMessage || '').length).toBeGreaterThan(0);
 
     expect((window as any).toast).toHaveBeenCalledWith(
-      'Configured folder copy failed (directory_write_failed). Keep this screen open until the browser download finishes.',
+      'The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.',
       { type: 'error' },
     );
 
@@ -323,7 +325,7 @@ describe('local-auto recorder safety guards', () => {
 
     (window as any).__tpRecDir = {
       init: jest.fn(async () => {}),
-      get: jest.fn(() => null),
+      get: jest.fn().mockReturnValueOnce({ name: 'Initial', queryPermission: async () => 'granted', getFileHandle: async () => { throw new Error('Directory removed'); } }).mockReturnValue(null),
       isManaged: jest.fn(() => true),
       managedHint: jest.fn(() => 'Forge Recordings'),
     };
@@ -333,7 +335,7 @@ describe('local-auto recorder safety guards', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const missingHandleFailure = localSafetyEvents.find(
-      (row) => row.attempted === true && row.success === false && row.errorCode === 'missing_directory_handle',
+      (row) => row.attempted === true && row.success === false && row.errorCode === 'directory_file_creation_failed',
     );
     expect(missingHandleFailure).toBeTruthy();
     expect(missingHandleFailure).toEqual(expect.objectContaining({
@@ -347,8 +349,8 @@ describe('local-auto recorder safety guards', () => {
     expect(String((missingHandleFailure as any)?.errorMessage || '').length).toBeGreaterThan(0);
 
     expect((window as any).toast).toHaveBeenCalledWith(
-      `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
-      { type: 'warning' },
+      'The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.',
+      { type: 'error' },
     );
 
     expect(fallbackEvents.length).toBeGreaterThan(0);
@@ -367,8 +369,8 @@ describe('local-auto recorder safety guards', () => {
       canonicalCompletion: expect.objectContaining({ state: 'succeeded' }),
       configuredFolder: expect.objectContaining({
         state: 'failed',
-        handleAvailable: false,
-        errorCode: 'missing_directory_handle',
+        handleAvailable: true,
+        errorCode: 'directory_file_creation_failed',
       }),
       browserDownload: expect.objectContaining({
         state: 'skipped',
@@ -384,7 +386,7 @@ describe('local-auto recorder safety guards', () => {
     });
     const inaccessibleDir = {
       name: 'ConfiguredRecordings',
-      queryPermission: jest.fn(async () => 'denied'),
+      queryPermission: jest.fn().mockResolvedValueOnce('granted').mockResolvedValue('denied'),
       requestPermission: jest.fn(async () => 'denied'),
       getFileHandle: jest.fn(),
     };
@@ -415,8 +417,8 @@ describe('local-auto recorder safety guards', () => {
     }));
     expect(inaccessibleDir.getFileHandle).not.toHaveBeenCalled();
     expect((window as any).toast).toHaveBeenCalledWith(
-      'Recording was saved to Forge, but the configured folder copy failed (directory_permission_not_granted).',
-      { type: 'warning' },
+      'The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.',
+      { type: 'error' },
     );
   });
 
@@ -470,7 +472,7 @@ describe('local-auto recorder safety guards', () => {
 
     (window as any).__tpRecDir = {
       init: jest.fn(async () => {}),
-      get: jest.fn(() => null),
+      get: jest.fn().mockReturnValueOnce({ name: 'Initial', queryPermission: async () => 'granted', getFileHandle: async () => { throw new Error('Directory removed'); } }).mockReturnValue(null),
       isManaged: jest.fn(() => true),
       managedHint: jest.fn(() => 'Forge Recordings'),
     };
@@ -480,7 +482,7 @@ describe('local-auto recorder safety guards', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const missingHandleFailure = localSafetyEvents.find(
-      (row) => row.attempted === true && row.success === false && row.errorCode === 'missing_directory_handle',
+      (row) => row.attempted === true && row.success === false && row.errorCode === 'directory_file_creation_failed',
     );
     expect(missingHandleFailure).toBeTruthy();
     expect(missingHandleFailure).toEqual(expect.objectContaining({
@@ -491,7 +493,7 @@ describe('local-auto recorder safety guards', () => {
     }));
 
     expect((window as any).toast).toHaveBeenCalledWith(
-      `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
+      'The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.',
       { type: 'error' },
     );
 
@@ -501,7 +503,7 @@ describe('local-auto recorder safety guards', () => {
     expect(lastFallback.canonicalSucceeded).toBe(false);
   });
 
-  test('reports browser download success separately from cloud, completion, and configured-folder outcomes', async () => {
+  test('never substitutes a browser download after cloud failure and retains explicit local retry', async () => {
     const destinationEvents: Array<Record<string, any>> = [];
     window.addEventListener('tp:recording:destination-status', (ev: Event) => {
       destinationEvents.push(((ev as CustomEvent).detail || {}) as Record<string, any>);
@@ -530,10 +532,12 @@ describe('local-auto recorder safety guards', () => {
       cloudUpload: expect.objectContaining({ state: 'failed' }),
       canonicalCompletion: expect.objectContaining({ state: 'not_attempted' }),
       configuredFolder: expect.objectContaining({ state: 'not_configured' }),
-      browserDownload: expect.objectContaining({ state: 'succeeded' }),
+      browserDownload: expect.objectContaining({ state: 'skipped', errorCode: 'automatic_download_disabled' }),
     }));
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled();
+    expect(document.getElementById('retryLocalRecordingSave')).toBeTruthy();
     expect((window as any).toast).toHaveBeenCalledWith(
-      expect.stringContaining('Browser download succeeded'),
+      expect.stringContaining('Keep Anvil open and retry'),
       { type: 'warning' },
     );
   });
@@ -610,7 +614,7 @@ describe('local-auto recorder safety guards', () => {
   });
 
   test('allows valid audio-only finalized artifact', async () => {
-    localStorage.setItem('tp_rec_settings_v1', JSON.stringify({ mode: 'single', selected: ['core'], recordingMode: 'audio' }));
+    (await import('../../recorders-core')).setSettings({ mode: 'single', selected: ['core'], recordingMode: 'audio' });
     (window as any).__tpVerifyRecordedArtifact = jest.fn(async () => ({
       hasAudioStream: true,
       hasVideoStream: false,
@@ -627,7 +631,7 @@ describe('local-auto recorder safety guards', () => {
   });
 
   test('allows valid audio+video finalized artifact', async () => {
-    localStorage.setItem('tp_rec_settings_v1', JSON.stringify({ mode: 'single', selected: ['core'], recordingMode: 'av' }));
+    (await import('../../recorders-core')).setSettings({ mode: 'single', selected: ['core'], recordingMode: 'av' });
     (window as any).__tpVerifyRecordedArtifact = jest.fn(async () => ({
       hasAudioStream: true,
       hasVideoStream: true,
@@ -642,4 +646,30 @@ describe('local-auto recorder safety guards', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(mockCommitRecordingBytesToTongs).toHaveBeenCalled();
   });
+  test('closes the local file while cloud completion is still pending', async () => {
+    let finishCloud!: (result: unknown) => void;
+    mockCommitRecordingBytesToTongs.mockImplementationOnce(() => new Promise((resolve) => { finishCloud = resolve; }));
+    const close = jest.fn(async () => {});
+    const dir = { name: 'Hearth', queryPermission: async () => 'granted', getFileHandle: async () => ({ createWritable: async () => ({ write: async () => {}, close }) }) };
+    (window as any).__tpRecDir.get.mockReturnValue(dir);
+    await (window as any).__tpAutoRecord.start();
+    let stopResolved = false;
+    const stopped = (window as any).__tpAutoRecord.stop().then(() => { stopResolved = true; });
+    for (let attempt = 0; attempt < 20 && (!finishCloud || !close.mock.calls.length); attempt++) await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(close).toHaveBeenCalledTimes(1); expect(stopResolved).toBe(false);
+    finishCloud({ ok: false, reason: 'isolated_cloud_failure' });
+    await stopped; expect(stopResolved).toBe(true);
+  });
+
+  test('a microphone failure releases a camera already acquired by Core', async () => {
+    const video = new FakeTrack('video', 'Cam');
+    (navigator.mediaDevices.getUserMedia as jest.Mock).mockImplementation(async (constraints: MediaStreamConstraints) => {
+      if (constraints.video) return new FakeMediaStream([video]);
+      throw new Error('microphone denied');
+    });
+    await expect((window as any).__tpAutoRecord.start()).rejects.toThrow('microphone denied');
+    expect(video.readyState).toBe('ended');
+    expect(FakeMediaRecorder.created).toBe(0);
+  });
+
 });

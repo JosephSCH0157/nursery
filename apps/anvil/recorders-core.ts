@@ -339,7 +339,17 @@ try {
 
 function persistSettings() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(settings));
+    const cached = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+    const safeSettings = JSON.parse(JSON.stringify(settings));
+    // These fields belong to the OBS store, even if an older cache hydrated
+    // them into this legacy settings object.
+    delete safeSettings.enabled;
+    delete safeSettings.obsStatus;
+    delete safeSettings.obsLastError;
+    if (safeSettings.configs?.obs) {
+      safeSettings.configs.obs = { ...safeSettings.configs.obs, ...cached.configs?.obs, password: '' };
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify({ ...cached, ...safeSettings }));
     // Legacy mirrors so old code paths remain consistent
     try { localStorage.setItem('tp_record_mode', String(settings.mode || 'multi')); } catch {}
     try { localStorage.setItem('tp_adapters', JSON.stringify(Array.isArray(settings.selected) ? settings.selected : [])); } catch {}
@@ -582,7 +592,6 @@ interface StartObsOptions {
 // --- OBS start with confirm + retry + bridge fallback (self-contained) -----
 async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 }: StartObsOptions = {}) {
   const obs = (typeof window !== 'undefined') ? (window.__obsBridge || null) : null;
-  const bridgeAdapter = registry.get('bridge');
   // Capture generation to guard against late completions after stop/cancel
   const epoch = __recEpoch;
   const isStale = () => epoch !== __recEpoch;
@@ -590,14 +599,6 @@ async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 }: Sta
   // Announce obs starting explicitly
   try { _recAdapter = 'obs'; _emitRecState('starting'); } catch {}
 
-  let fallbackSent = false;
-  const maybeTapBridge = async () => {
-    const t = __now();
-    if (t - __lastBridgeTap < 1200) return false;
-    __lastBridgeTap = t;
-    try { await bridgeAdapter?.start?.(); } catch {}
-    return true;
-  };
   const confirm = async () => {
     try {
       const s = await obs?.getRecordStatus?.();
@@ -632,21 +633,7 @@ async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 }: Sta
     return { ok: true, adapter: 'obs' };
   }
 
-  // fallback to Bridge (once)
-  const isBridgeAvailable = !!bridgeAdapter;
-  if (!fallbackSent && isBridgeAvailable) {
-    fallbackSent = true;
-    if (isStale()) { try { window.__tpHud?.log?.('[rec] abort fallback (stale)'); } catch {} return { ok:false, adapter:'obs', error:'stale' }; }
-    // flood guard on fallback taps
-    await maybeTapBridge();
-    // stop() might have landed while we were tapping; bail if so
-    if (isStale()) { try { window.__tpHud?.log?.('[rec] abort fallback (stale-2)'); } catch {} return { ok:false, adapter:'obs', error:'stale' }; }
-    try { window.__tpHud?.log?.('[rec] fallback bridge'); } catch {}
-    try { _recAdapter = 'bridge'; _emitRecState('recording', { fallback: true }); } catch {}
-    try { recStats.fallbacks++; } catch {}
-    return { ok: true, adapter: 'bridge', fallback: true };
-  }
-
+  // Selected OBS capture must fail visibly; no alternate engine is started.
   try { window.__tpHud?.log?.('[rec] drop (start-timeout)'); } catch {}
   try { _recAdapter = 'obs'; _emitRecState('error', { reason: 'start-timeout' }); } catch {}
   return { ok: false, adapter: 'obs', error: 'start-timeout' };
@@ -695,7 +682,6 @@ export async function startSelected(): Promise<StartResults | { skipped: true }>
         if (id === 'obs') {
           const res = await startObsWithConfirm({ timeoutMs: Math.min(2000, settings.timeouts.start || 1500), retryDelayMs: 500 });
           if (res && res.ok === false && res.error === 'stale') { return { id, ok: false, error: 'stale' }; }
-          if (res && res.ok && res.adapter === 'bridge' && res.fallback) { /* handled downstream */ }
           if (res.ok) { started.push(id); return { id, ok: true, detail: res }; }
           return { id, ok: false, error: res.error || 'failed' };
         } else {
@@ -912,22 +898,9 @@ function ensureObsDisconnectFallback(){
     if (window.__tpObsDisconnectWired) return; window.__tpObsDisconnectWired = true;
     _onObsDisconnectCb = async () => {
       try {
-        const state = _recState;
-        const bridgeAdapter = registry.get('bridge');
-        const isAuto = __tpReadAutoRecordPref();
         try { recStats.disconnects++; } catch {}
-        if (state === 'starting') {
-          await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
-          return;
-        }
-        if (state === 'recording') {
-          _emitRecState('stopping', { reason: 'disconnect' });
-          if (isAuto && bridgeAdapter) {
-            try { await bridgeAdapter.start?.(); } catch {}
-            try { window.dispatchEvent(new CustomEvent('rec:state', { detail: { adapter: 'bridge', state: 'recording', detail: { fallback: true, reason: 'obs-disconnect' } } })); } catch {}
-          } else {
-            _emitRecState('idle', { reason: 'disconnect' });
-          }
+        if (_recAdapter === 'obs' && (_recState === 'starting' || _recState === 'recording')) {
+          _emitRecState('error', { reason: 'obs-disconnected', message: 'OBS disconnected. Check capture status in OBS before retrying.' });
         }
       } catch {}
     };

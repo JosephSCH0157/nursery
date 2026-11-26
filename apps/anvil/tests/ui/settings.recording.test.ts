@@ -125,7 +125,7 @@ describe('Settings recording UI (TS overlay)', () => {
   it('wires the Start and Stop controls each time Recording Settings mounts', async () => {
     const start = jest.spyOn(SessionRecorder, 'startSessionRecording').mockResolvedValue();
     const stop = jest.spyOn(SessionRecorder, 'stopSessionRecording').mockResolvedValue();
-    jest.spyOn(SessionRecorder, 'isSessionRecording').mockReturnValue(true);
+    jest.spyOn(SessionRecorder, 'isRecordingBusy').mockReturnValue(true);
     mountSettingsOverlay();
     const root = document.getElementById('settingsBody') as HTMLElement;
 

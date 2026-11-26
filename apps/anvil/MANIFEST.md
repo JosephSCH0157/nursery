@@ -542,3 +542,31 @@ Secondary modernization objective:
 
 See `scroll-mode-ssot.md` for detailed Phase 1A tasks.
 See `docs/scroll-contract.md` for executable runtime boundaries and allowed/forbidden flows.
+
+## Recording integration ownership
+
+- `recorders-core.ts` owns the in-session selected recording engine and capture mode.
+  `src/recording/recording-settings.ts` translates that selection for device ownership,
+  pre-roll and command dispatch. The existing settings cache must preserve fields
+  owned by the OBS configuration store and must never retain the OBS password.
+- `src/recording/recorderRegistry.ts` owns active capture command routing and Stop
+  ownership. Manual capture is independent of Auto-record. Automatic capture starts
+  on the authorized live phase after pre-roll. No selected-engine failure starts a
+  different engine. Core-specific session/speech event listeners must not bypass it.
+- `adapters/obsBridge.js` owns the authenticated OBS connection. Socket-open events
+  are insufficient: identification and a successful request establish readiness.
+  Concurrent callers share the connection attempt; disarm invalidates stale attempts.
+  `src/obs/obs-connection.ts` projects its events into `state/recorder-settings.ts`.
+  Header/settings binders render that state, including newly mounted controls.
+- OBS owns its capture devices and local output directory. Its StopRecord result
+  confirms a stopped output and supplies its finalized local path. The existing
+  `obs-finished-import.ts` separately handles authorized access/import to Tongs.
+- Core owns its capture streams until MediaRecorder flushes its last chunk. Stop
+  awaits finalization. `local-destination.ts` uses the existing Hearth/Nursery managed
+  directory API, snapshots the authorized destination for the take, and writes and
+  closes that file independently of cloud completion. No automatic Downloads fallback
+  or second destination preference is introduced. A failed local write retains the
+  encoded bytes for explicit retry; that in-memory recovery does not survive reload.
+- Existing Tongs capture authority and approved-script gates remain mandatory.
+  Local file success does not establish canonical recording completion or cloud
+  persistence. See the dated PR #88 acceptance record under `docs/releases/`.

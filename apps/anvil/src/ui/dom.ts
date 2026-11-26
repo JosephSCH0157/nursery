@@ -709,26 +709,9 @@ function installObsChip() {
         chip.appendChild(icon);
         topbar && topbar.appendChild(chip);
       }
-      const labelEl = chip.querySelector('.obs-chip-label') || chip;
       const iconEl = chip.querySelector('.obs-test-icon');
       let hideTimer = null;
-      const render = ({ status = 'disconnected', recording = false, scene } = {}) => {
-        try {
-          const s = String(status||'disconnected');
-          const detail = `OBS: ${s}${recording ? ' | REC' : ''}${scene ? ` | ${scene}` : ''}`;
-          labelEl.textContent = 'OBS';
-          chip.dataset.sessionText = detail;
-          chip.title = detail;
-          chip.setAttribute('aria-label', detail);
-          // reset state classes and apply new one(s)
-          const base = ['chip', 'obs-pill-compact'];
-          if (s === 'identified' || s === 'open') base.push('obs-connected');
-          else base.push('obs-error');
-          chip.className = base.join(' ');
-        } catch {}
-      };
-      render();
-      window.addEventListener('tp:obs', (e) => { try { render((e && e.detail) || {}); } catch {} });
+      // obs-status-bind owns connection labels and chip status.
       // Show a brief test icon feedback when test completes
       window.addEventListener('tp:obs-test', (e) => {
         try {

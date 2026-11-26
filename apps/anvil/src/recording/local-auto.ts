@@ -1,5 +1,6 @@
 // Lightweight auto-record stub (browser MediaRecorder-based).
 // Mirrors the legacy JS behavior but typed for the TS runtime.
+import { requireLocalRecordingDestination, writeLocalRecording, type LocalDestination } from './local-destination';
 import { getRecordingEngine, getRecordingMode } from './recording-settings';
 import {
   beginRecordingCaptureSession,
@@ -37,6 +38,8 @@ import {
   let mediaRecorder: MediaRecorder | null = null;
   let chunks: Blob[] = [];
   let active = false;
+  let activeDestination: LocalDestination | null = null;
+  let stopping: Promise<void> | null = null;
   let activeMode: 'av' | 'audio' | null = null;
   let currentStream: MediaStream | null = null;
   let audioCtx: AudioContext | null = null;
@@ -782,6 +785,7 @@ import {
 
   const startMediaRecorderWithStrategy = async (strategy: RecordingCaptureStrategy): Promise<void> => {
     const mix = new MediaStream();
+    currentStream = mix;
     if (strategy.mode === 'audio') {
       const audioStream = await getAudioStream();
       try {
@@ -789,12 +793,10 @@ import {
       } catch {}
     } else {
       const videoStream = await getVideoStream();
+      videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
       const audioStream = await getAudioStream();
       try {
         audioStream.getAudioTracks().forEach((track) => mix.addTrack(track));
-      } catch {}
-      try {
-        videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
       } catch {}
     }
 
@@ -854,13 +856,17 @@ import {
   };
 
   async function start(): Promise<void> {
+    if (stopping) await stopping;
+    if (document.getElementById('retryLocalRecordingSave')) throw new Error('Retry the pending local recording save before starting another take.');
     if (active) return;
+    if (getRecordingEngine() !== 'core') throw new Error('Core Recorder cannot start while OBS is selected.');
     try {
       if (mustSkipForMode()) {
-        try { console.log('[core-recorder] start skipped: rehearsal mode'); } catch {}
-        return;
+        throw new Error('Recording is disabled in Rehearsal mode. Select a recording session mode first.');
       }
 
+      void recoverPendingTakeDecision().catch((error) => { console.warn('[recording] pending decision recovery failed', error); });
+      activeDestination = await requireLocalRecordingDestination();
       const recordingMode = getRecordingMode();
       try {
         console.log('[core-recorder] start', {
@@ -920,10 +926,19 @@ import {
       } catch {}
       activeSaveIdentity = null;
       activeStrategy = null;
+      try { currentStream?.getTracks().forEach((track) => track.stop()); } catch {}
+      currentStream = null;
+      throw e;
     }
   }
 
   async function stop(): Promise<void> {
+    if (stopping) return stopping;
+    stopping = stopCapture();
+    try { await stopping; } finally { stopping = null; }
+  }
+
+  async function stopCapture(): Promise<void> {
     try { console.log('[core-recorder] stop called'); } catch {}
     if (!active) return;
     const durationMs = recordingStartedAtMs != null ? Math.max(0, Date.now() - recordingStartedAtMs) : null;
@@ -936,6 +951,7 @@ import {
       return null;
     });
     let cleanupStreamAfterRecorderStop = false;
+    let stopError: unknown = null;
     try {
       if (activeMode === 'audio' && strategyAtStop?.mechanism === 'pcm-wav-fallback') {
         await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
@@ -943,6 +959,9 @@ import {
         const recorder = mediaRecorder;
         cleanupStreamAfterRecorderStop = true;
         const stopName = nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension, saveIdentityAtStop);
+        let finish!: () => void;
+        let fail!: (error: unknown) => void;
+        const finalized = new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; });
         recorder.onstop = async () => {
           try {
             console.log('[core-recorder] mediaRecorder.onstop fired', { chunks: chunks.length });
@@ -962,34 +981,41 @@ import {
             try {
               console.warn('[auto-rec] save failed', e);
             } catch {}
+            fail(e);
           } finally {
+            active = false;
             recordingStartedAtMs = null;
             try {
               currentStream?.getTracks().forEach((track) => track.stop());
             } catch {}
             currentStream = null;
+            finish();
           }
         };
         try { recorder.requestData(); } catch {}
         recorder.stop();
+        await finalized;
       } else {
         recordingStartedAtMs = null;
       }
-    } catch {}
+    } catch (error) { stopError = error; }
     // MediaRecorder.onstop owns stream cleanup so tracks remain live while the
     // browser flushes its final encoded chunk.
     if (!cleanupStreamAfterRecorderStop) {
+      active = false;
       try { currentStream?.getTracks().forEach((track) => track.stop()); } catch {}
       currentStream = null;
     }
     mediaRecorder = null;
     active = false;
     activeMode = null;
+    activeDestination = null;
     activeStrategy = null;
     activeSaveIdentity = null;
     try {
-      window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: 'idle', adapter: 'local-auto' } }));
+      window.dispatchEvent(new CustomEvent('rec:state', { detail: { state: stopError ? 'error' : 'idle', adapter: 'local-auto' } }));
     } catch {}
+    if (stopError) throw stopError;
   }
 
   async function saveBlob(
@@ -1004,7 +1030,7 @@ import {
   ): Promise<boolean> {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const contentType = blob.type || 'application/octet-stream';
-    const localWritePayload = bytes;
+    const localWrite = writeLocalRecording(bytes, name, activeDestination ?? undefined);
     showRecordingFinalizeIndicator({ takeName: name });
     let committed = false;
     let commitResultOk: Extract<RecordingCommitResult, { ok: true }> | null = null;
@@ -1024,7 +1050,6 @@ import {
     let downloadFallbackAttempted = false;
     let downloadFallbackSucceeded = false;
     let downloadFallbackSkippedReason: string | null = null;
-    let downloadFallbackErrorMessage: string | null = null;
     const emitDestinationStatus = (): void => {
       emitRecordingDestinationStatus({
         fileName: name,
@@ -1063,7 +1088,7 @@ import {
                 : 'not_attempted',
           fileName: downloadFallbackAttempted ? name : null,
           errorCode: downloadFallbackAttempted && !downloadFallbackSucceeded ? 'browser_download_failed' : downloadFallbackSkippedReason,
-          errorMessage: downloadFallbackErrorMessage,
+          errorMessage: null,
         },
       });
     };
@@ -1221,223 +1246,51 @@ import {
         }
       }
 
+      const local = await localWrite;
+      localMirrorExpected = local.expected;
+      localMirrorAttempted = !!local.handle || local.expected;
+      localMirrorSucceeded = local.success;
+      localMirrorHandleAvailable = !!local.handle;
+      localMirrorConfiguredPath = local.hint;
+      localMirrorErrorCode = local.errorCode;
+      localMirrorErrorMessage = local.errorMessage;
+      downloadFallbackSkippedReason = 'automatic_download_disabled';
+      emitLocalSafetyCopyStatus({
+        enabled: local.expected, configuredPath: local.hint, attempted: localMirrorAttempted,
+        success: local.success, bytesWritten: local.success ? bytes.length : 0,
+        finalPath: local.success ? `local:directory:${name}` : null,
+        errorCode: local.errorCode, errorMessage: local.errorMessage,
+        safeToLeave: local.success, localCopySecured: local.success,
+        localMirrorExpected, localMirrorAttempted, localMirrorSucceeded,
+        canonicalCommitAttempted: canonicalAttempted, canonicalCommitSucceeded: committed,
+        overallSafeToLeave: local.success || committed,
+        downloadFallbackAttempted: false, downloadFallbackSucceeded: false, downloadFallbackSkippedReason,
+      });
+      if (!local.success && (local.expected || !committed)) {
+        showRecorderToast('The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.', 'error');
+        // Retain the encoded bytes until this explicit recovery action succeeds.
+        const old = document.getElementById('retryLocalRecordingSave');
+        old?.remove();
+        const retry = document.createElement('button');
+        retry.id = 'retryLocalRecordingSave';
+        retry.textContent = 'Retry local recording save';
+        retry.addEventListener('click', async () => {
+          retry.disabled = true;
+          const result = await writeLocalRecording(bytes, name);
+          retry.disabled = false;
+          if (result.success) {
+            localMirrorSucceeded = true;
+            localMirrorErrorCode = null;
+            localMirrorErrorMessage = null;
+            localMirrorConfiguredPath = result.hint;
+            emitDestinationStatus();
+            showRecorderToast('Recording saved to the Hearth recording folder.', 'info');
+            retry.remove();
+          } else showRecorderToast(result.errorMessage || 'Recording folder unavailable. Relink it in Hearth.', 'error');
+        });
+        document.body.appendChild(retry);
+      }
       try {
-        try {
-          console.log('[recording-dir] saveRecordingBlob start', { size: blob.size, name, committed });
-          await import('../fs/recording-dir');
-          try {
-            await (window as any).__tpRecDir?.init?.();
-          } catch {}
-          const dir = (window as any).__tpRecDir?.get?.() || null;
-          const managed = !!(window as any).__tpRecDir?.isManaged?.();
-          const managedLocalPersistenceExpected = managed
-            ? (typeof (window as any).__tpRecDir?.localPersistenceExpected === 'function'
-                ? !!(window as any).__tpRecDir.localPersistenceExpected()
-                : true)
-            : false;
-          const hint = (window as any).__tpRecDir?.managedHint?.();
-          const configuredPath = managed && managedLocalPersistenceExpected
-            ? (typeof hint === 'string' && hint.trim() ? hint.trim() : 'managed:recordings')
-            : (dir && typeof (dir as any).name === 'string' ? String((dir as any).name).trim() : null);
-          localMirrorConfiguredPath = configuredPath || null;
-          localMirrorExpected = managedLocalPersistenceExpected || !!configuredPath || !!dir;
-          localMirrorHandleAvailable = !!dir && typeof dir.getFileHandle === 'function';
-          const safetyEnabled = !!dir;
-          emitLocalSafetyCopyStatus({
-            enabled: safetyEnabled,
-            configuredPath: configuredPath || null,
-            attempted: false,
-            success: false,
-            bytesWritten: 0,
-            finalPath: null,
-            errorCode: null,
-            errorMessage: null,
-            safeToLeave: false,
-            localCopySecured: false,
-            localMirrorExpected,
-            localMirrorAttempted: false,
-            localMirrorSucceeded: false,
-            canonicalCommitAttempted: canonicalAttempted,
-            canonicalCommitSucceeded: committed,
-            overallSafeToLeave: committed,
-            downloadFallbackAttempted,
-            downloadFallbackSucceeded,
-            downloadFallbackSkippedReason,
-          });
-          if (dir && typeof dir.getFileHandle === 'function') {
-            let folderWriteStage: 'permission' | 'file' | 'writable' | 'write' | 'close' = 'permission';
-            try {
-              localMirrorAttempted = true;
-              try {
-                console.log('[core-recorder] writing to directory', { name: (dir as any).name || '(handle)' });
-              } catch {}
-              try {
-                const q = await (dir as any).queryPermission?.({ mode: 'readwrite' });
-                if (q !== 'granted') {
-                  const r = await (dir as any).requestPermission?.({ mode: 'readwrite' });
-                  if (r !== 'granted') {
-                    throw new Error('recording-dir-permission-not-granted');
-                  }
-                }
-              } catch (permErr) {
-                try { console.warn('[core-recorder] directory permission not granted; using download fallback', permErr); } catch {}
-                throw permErr;
-              }
-              folderWriteStage = 'file';
-              const fh = await dir.getFileHandle(name, { create: true });
-              folderWriteStage = 'writable';
-              const w = await fh.createWritable();
-              folderWriteStage = 'write';
-              await w.write(localWritePayload);
-              folderWriteStage = 'close';
-              await w.close();
-              localMirrorSucceeded = true;
-              localMirrorErrorCode = null;
-              localMirrorErrorMessage = null;
-              emitLocalSafetyCopyStatus({
-                enabled: true,
-                configuredPath: configuredPath || null,
-                attempted: true,
-                success: true,
-                bytesWritten: bytes.length,
-                finalPath: `local:directory:${name}`,
-                errorCode: null,
-                errorMessage: null,
-                safeToLeave: true,
-                localCopySecured: true,
-                localMirrorExpected,
-                localMirrorAttempted,
-                localMirrorSucceeded,
-                canonicalCommitAttempted: canonicalAttempted,
-                canonicalCommitSucceeded: committed,
-                overallSafeToLeave: true,
-                downloadFallbackAttempted,
-                downloadFallbackSucceeded,
-                downloadFallbackSkippedReason,
-              });
-              try {
-                console.log('[core-recorder] saved file mirror', name);
-              } catch {}
-              emitDestinationStatus();
-              if (commitResultOk && acceptedCompletionId) {
-                await presentCanonicalTakeDecision();
-              }
-              if (!committed) {
-                emitUploadFallbackAudit({
-                  saveIdentity: opts.saveIdentity ?? null,
-                  originalName: name,
-                  bytes: bytes.length,
-                  canonicalAttempted,
-                  canonicalSucceeded: false,
-                  fallbackUsed: true,
-                  safeToLeave: canonicalErrorCode == null,
-                  errorCode: canonicalErrorCode,
-                  errorMessage: canonicalErrorMessage,
-                  finalStorageKey: `local:directory:${name}`,
-                  localMirrorExpected,
-                  localMirrorAttempted,
-                  localMirrorSucceeded,
-                  localCopySecured: true,
-                  downloadFallbackAttempted,
-                  downloadFallbackSucceeded,
-                  downloadFallbackSkippedReason,
-                });
-              }
-              return true;
-            } catch (err) {
-              const folderErrorCodes = {
-                permission: 'directory_permission_not_granted',
-                file: 'directory_file_creation_failed',
-                writable: 'directory_writable_open_failed',
-                write: 'directory_write_failed',
-                close: 'directory_close_failed',
-              } as const;
-              localMirrorErrorCode = folderErrorCodes[folderWriteStage];
-              localMirrorErrorMessage = String((err as any)?.message || err || 'configured_folder_write_failed');
-              emitLocalSafetyCopyStatus({
-                enabled: true,
-                configuredPath: configuredPath || null,
-                attempted: true,
-                success: false,
-                bytesWritten: 0,
-                finalPath: null,
-                errorCode: localMirrorErrorCode,
-                errorMessage: localMirrorErrorMessage,
-                safeToLeave: false,
-                localCopySecured: false,
-                localMirrorExpected,
-                localMirrorAttempted: true,
-                localMirrorSucceeded: false,
-                canonicalCommitAttempted: canonicalAttempted,
-                canonicalCommitSucceeded: committed,
-                overallSafeToLeave: committed,
-                downloadFallbackAttempted,
-                downloadFallbackSucceeded,
-                downloadFallbackSkippedReason,
-              });
-              if (committed) {
-                showRecorderToast(
-                  `Recording was saved to Forge, but the configured folder copy failed (${localMirrorErrorCode}).`,
-                  'warning',
-                );
-              } else {
-                showRecorderToast(
-                  `Configured folder copy failed (${localMirrorErrorCode}). Keep this screen open until the browser download finishes.`,
-                  'error',
-                );
-              }
-              try { console.warn('[core-recorder] failed to write via FileSystemAccess', err); } catch {}
-            }
-          } else {
-            localMirrorAttempted = localMirrorExpected;
-            localMirrorErrorCode = localMirrorExpected ? 'missing_directory_handle' : null;
-            localMirrorErrorMessage = localMirrorExpected
-              ? `The configured recording folder is not linked for ${window.location.origin}.`
-              : null;
-            try {
-              const managed = !!(window as any).__tpRecDir?.isManaged?.();
-              const hint = (window as any).__tpRecDir?.managedHint?.();
-              console.warn(
-                '[core-recorder] no recording directory handle available; falling back to download',
-                { managed, hint: hint || null },
-              );
-            } catch {}
-            emitLocalSafetyCopyStatus({
-              enabled: localMirrorExpected,
-              configuredPath: configuredPath || null,
-              attempted: localMirrorAttempted,
-              success: false,
-              bytesWritten: 0,
-              finalPath: null,
-              errorCode: localMirrorErrorCode,
-              errorMessage: localMirrorErrorMessage,
-              safeToLeave: false,
-              localCopySecured: false,
-              localMirrorExpected,
-              localMirrorAttempted,
-              localMirrorSucceeded: false,
-              canonicalCommitAttempted: canonicalAttempted,
-              canonicalCommitSucceeded: committed,
-              overallSafeToLeave: committed,
-              downloadFallbackAttempted,
-              downloadFallbackSucceeded,
-              downloadFallbackSkippedReason,
-            });
-            if (localMirrorExpected) {
-              if (committed) {
-                showRecorderToast(
-                    `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
-                  'warning',
-                );
-              } else {
-                showRecorderToast(
-                    `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
-                  'error',
-                );
-              }
-            }
-          }
-        } catch {}
         if (committed) {
           downloadFallbackSkippedReason = 'canonical_commit_succeeded';
           try {
@@ -1468,64 +1321,23 @@ import {
           if (commitResultOk && acceptedCompletionId) {
             await presentCanonicalTakeDecision();
           }
-          return true;
-        }
-        showRecorderToast(
-          'Recording saved locally only. Forge could not complete the canonical cloud save.',
-          'warning',
-        );
-        try {
-          downloadFallbackAttempted = true;
-          const downloadBlob = new Blob([bytes], { type: contentType });
-          const url = URL.createObjectURL(downloadBlob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = name || 'Recording.webm';
-          a.rel = 'noopener noreferrer';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          setTimeout(() => {
-            try {
-              URL.revokeObjectURL(url);
-            } catch {}
-          }, 2000);
-          downloadFallbackSucceeded = true;
-        } catch (error) {
-          downloadFallbackErrorMessage = String((error as any)?.message || error || 'browser_download_failed');
+          return !localMirrorExpected || localMirrorSucceeded;
         }
         emitUploadFallbackAudit({
-          saveIdentity: opts.saveIdentity ?? null,
-          originalName: name,
-          bytes: bytes.length,
-          canonicalAttempted,
-          canonicalSucceeded: false,
-          fallbackUsed: true,
-          safeToLeave: false,
-          errorCode: canonicalErrorCode,
-          errorMessage: canonicalErrorMessage,
-          finalStorageKey: `local:download:${name}`,
-          localMirrorExpected,
-          localMirrorAttempted,
-          localMirrorSucceeded,
-          localCopySecured: downloadFallbackSucceeded,
-          downloadFallbackAttempted,
-          downloadFallbackSucceeded,
-          downloadFallbackSkippedReason,
+          saveIdentity: opts.saveIdentity ?? null, originalName: name, bytes: bytes.length,
+          canonicalAttempted, canonicalSucceeded: false, fallbackUsed: localMirrorSucceeded,
+          safeToLeave: false, errorCode: canonicalErrorCode, errorMessage: canonicalErrorMessage,
+          finalStorageKey: localMirrorSucceeded ? `local:directory:${name}` : null,
+          localMirrorExpected, localMirrorAttempted, localMirrorSucceeded,
+          localCopySecured: localMirrorSucceeded, downloadFallbackAttempted: false,
+          downloadFallbackSucceeded: false, downloadFallbackSkippedReason,
         });
-        if (downloadFallbackSucceeded) {
-          showRecorderToast(
-            `Browser download succeeded for "${name}". Canonical completion${localMirrorExpected ? ' and the configured folder copy' : ''} did not succeed.`,
-            'warning',
-          );
-        } else {
-          showRecorderToast(
-            'Canonical completion and browser download both failed. Do not leave this screen.',
-            'error',
-          );
-        }
+        showRecorderToast(localMirrorSucceeded
+          ? 'Recording saved to the Hearth folder. Canonical cloud completion is still incomplete.'
+          : 'Recording has no confirmed local copy or canonical completion. Keep Anvil open and retry the local save.', 'warning');
         emitDestinationStatus();
-        return false;
+        return localMirrorSucceeded;
+
       } finally {
         hideRecordingFinalizeIndicator();
       }
@@ -1535,38 +1347,8 @@ import {
     }
   }
 
-  try {
-    document.addEventListener(
-      'tp:session:start',
-      () => {
-        void recoverPendingTakeDecision();
-        try {
-          start();
-        } catch {}
-      },
-      { capture: true },
-    );
-    document.addEventListener(
-      'tp:session:stop',
-      () => {
-        try {
-          stop();
-        } catch {}
-      },
-      { capture: true },
-    );
-    document.addEventListener(
-      'tp:speech-state',
-      (e) => {
-        try {
-          const detail = (e as CustomEvent)?.detail;
-          if (detail && detail.running === false) stop();
-          if (detail && detail.running === true) start();
-        } catch {}
-      },
-      { capture: true },
-    );
-  } catch {}
+  // Session/live transitions are routed by recording-session and recorderRegistry.
+  // A Core-specific listener must never acquire devices in OBS mode.
 
   try {
     const auto = ((window as any).__tpAutoRecord = (window as any).__tpAutoRecord || {});

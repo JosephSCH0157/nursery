@@ -275,7 +275,15 @@ try {
 }
 function persistSettings() {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(settings));
+    const cached = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+    const safeSettings = JSON.parse(JSON.stringify(settings));
+    delete safeSettings.enabled;
+    delete safeSettings.obsStatus;
+    delete safeSettings.obsLastError;
+    if (safeSettings.configs?.obs) {
+      safeSettings.configs.obs = { ...safeSettings.configs.obs, ...cached.configs?.obs, password: "" };
+    }
+    localStorage.setItem(LS_KEY, JSON.stringify({ ...cached, ...safeSettings }));
     try {
       localStorage.setItem("tp_record_mode", String(settings.mode || "multi"));
     } catch {
@@ -578,7 +586,6 @@ async function teardownRecorders() {
 }
 async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}) {
   const obs = typeof window !== "undefined" ? window.__obsBridge || null : null;
-  const bridgeAdapter = registry.get("bridge");
   const epoch = __recEpoch;
   const isStale = () => epoch !== __recEpoch;
   try {
@@ -590,17 +597,6 @@ async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}
     _emitRecState("starting");
   } catch {
   }
-  let fallbackSent = false;
-  const maybeTapBridge = async () => {
-    const t = __now();
-    if (t - __lastBridgeTap < 1200) return false;
-    __lastBridgeTap = t;
-    try {
-      await bridgeAdapter?.start?.();
-    } catch {
-    }
-    return true;
-  };
   const confirm = async () => {
     try {
       const s = await obs?.getRecordStatus?.();
@@ -657,39 +653,6 @@ async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}
     } catch {
     }
     return { ok: true, adapter: "obs" };
-  }
-  const isBridgeAvailable = !!bridgeAdapter;
-  if (!fallbackSent && isBridgeAvailable) {
-    fallbackSent = true;
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort fallback (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    await maybeTapBridge();
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort fallback (stale-2)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    try {
-      window.__tpHud?.log?.("[rec] fallback bridge");
-    } catch {
-    }
-    try {
-      _recAdapter = "bridge";
-      _emitRecState("recording", { fallback: true });
-    } catch {
-    }
-    try {
-      recStats.fallbacks++;
-    } catch {
-    }
-    return { ok: true, adapter: "bridge", fallback: true };
   }
   try {
     window.__tpHud?.log?.("[rec] drop (start-timeout)");
@@ -758,8 +721,6 @@ async function startSelected() {
           const res = await startObsWithConfirm({ timeoutMs: Math.min(2e3, settings.timeouts.start || 1500), retryDelayMs: 500 });
           if (res && res.ok === false && res.error === "stale") {
             return { id, ok: false, error: "stale" };
-          }
-          if (res && res.ok && res.adapter === "bridge" && res.fallback) {
           }
           if (res.ok) {
             started.push(id);
@@ -974,31 +935,12 @@ function ensureObsDisconnectFallback() {
     window.__tpObsDisconnectWired = true;
     _onObsDisconnectCb = async () => {
       try {
-        const state = _recState;
-        const bridgeAdapter = registry.get("bridge");
-        const isAuto = __tpReadAutoRecordPref();
         try {
           recStats.disconnects++;
         } catch {
         }
-        if (state === "starting") {
-          await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
-          return;
-        }
-        if (state === "recording") {
-          _emitRecState("stopping", { reason: "disconnect" });
-          if (isAuto && bridgeAdapter) {
-            try {
-              await bridgeAdapter.start?.();
-            } catch {
-            }
-            try {
-              window.dispatchEvent(new CustomEvent("rec:state", { detail: { adapter: "bridge", state: "recording", detail: { fallback: true, reason: "obs-disconnect" } } }));
-            } catch {
-            }
-          } else {
-            _emitRecState("idle", { reason: "disconnect" });
-          }
+        if (_recAdapter === "obs" && (_recState === "starting" || _recState === "recording")) {
+          _emitRecState("error", { reason: "obs-disconnected", message: "OBS disconnected. Check capture status in OBS before retrying." });
         }
       } catch {
       }
@@ -1108,17 +1050,20 @@ try {
 
 // recorders-bridge-compat.ts
 var recorder = {
-  state: "disabled",
+  get state() {
+    return isConnected() ? "connected" : "disabled";
+  },
   async init() {
     return true;
   },
   async connect() {
-    return true;
+    return safeConnect();
   },
   async disconnect() {
-    return true;
+    return disconnect();
   },
-  setEnabled(_on) {
+  setEnabled(on) {
+    return safeSetEnabled(on);
   }
 };
 function initCompat() {
@@ -1229,95 +1174,15 @@ function getObsBridge() {
     return null;
   }
 }
-function inlineConnect(testOnly) {
-  return new Promise((resolve) => {
-    try {
-      const cfgUrl = obsCfg && obsCfg.host ? `${obsCfg.secure ? "wss" : "ws"}://${obsCfg.host}:${obsCfg.port}` : null;
-      const url = _cfgBridge.getUrl?.() || cfgUrl || "ws://127.0.0.1:4455";
-      const pass = _cfgBridge.getPass?.() || "";
-      try {
-        console.log("[OBS-BRIDGE] inlineConnect", { url, hasPass: !!pass, testOnly: !!testOnly });
-      } catch {
-      }
-      if (typeof WebSocket === "undefined") {
-        try {
-          console.warn("[OBS-BRIDGE] inlineConnect: WebSocket not available");
-        } catch {
-        }
-        resolve(false);
-        return;
-      }
-      const ws = new WebSocket(url);
-      let settled = false;
-      ws.onopen = () => {
-        settled = true;
-        try {
-          ws.close(1e3, "probe");
-        } catch {
-        }
-        resolve(true);
-      };
-      ws.onerror = () => {
-        if (settled) return;
-        settled = true;
-        resolve(false);
-      };
-      ws.onclose = () => {
-        if (settled) return;
-        settled = true;
-        resolve(true);
-      };
-    } catch (err) {
-      try {
-        console.warn("[OBS-BRIDGE] inlineConnect error", err);
-      } catch {
-      }
-      resolve(false);
-    }
-  });
-}
-async function safeConnect(testOnly) {
-  try {
-    console.log("[OBS-BRIDGE] connect()", { testOnly: !!testOnly, enabled: _enabled });
-  } catch {
-  }
+async function safeConnect(_testOnly) {
   let bridge = getObsBridge();
-  if (!bridge || typeof bridge.connect !== "function") {
-    if (typeof window.__loadObsBridge === "function") {
-      try {
-        await window.__loadObsBridge();
-      } catch {
-      }
-      bridge = getObsBridge();
-    }
+  if (!bridge && typeof window.__loadObsBridge === "function") {
+    await window.__loadObsBridge();
+    bridge = getObsBridge();
   }
-  if (bridge && typeof bridge.connect === "function") {
-    try {
-      _cfgBridge.isEnabled = () => _enabled === true;
-      const res = await bridge.connect({ testOnly });
-      if (res) return true;
-    } catch (e) {
-      try {
-        console.warn("[OBS] native bridge connect failed, falling back to inline", e);
-      } catch {
-      }
-    }
-  }
-  try {
-    if (bridge && typeof bridge.maybeConnect === "function") {
-      try {
-        await bridge.maybeConnect();
-      } catch {
-      }
-      return !!(bridge.isConnected?.() || false);
-    }
-  } catch {
-  }
-  try {
-    console.info("[OBS] connect(testOnly=%o) no native bridge; using inline WebSocket", !!testOnly);
-  } catch {
-  }
-  return inlineConnect(testOnly);
+  if (!bridge || typeof bridge.connect !== "function" || typeof bridge.isConnected !== "function") return false;
+  const ok = await bridge.connect();
+  return ok === true && bridge.isConnected() === true;
 }
 async function safeSetEnabled(on) {
   _enabled = !!on;
@@ -1338,11 +1203,6 @@ async function safeSetEnabled(on) {
       } else if (!on && typeof ctrl.disconnect === "function") {
         await ctrl.disconnect();
       }
-      return true;
-    }
-    if (typeof bridge.start === "function" && typeof bridge.stop === "function") {
-      if (on) await bridge.start();
-      else await bridge.stop();
       return true;
     }
     if (typeof bridge.setEnabled === "function") {
@@ -1430,6 +1290,7 @@ async function test() {
 }
 async function disconnect() {
   try {
+    await getObsBridge()?.disconnect?.();
     _identified = false;
     _connecting = false;
     try {
@@ -1465,14 +1326,14 @@ async function connect2(opts) {
   return safeConnect(opts?.testOnly);
 }
 function isConnected() {
-  return _identified;
+  return getObsBridge()?.isConnected?.() === true;
 }
 function setEnabled3(on) {
   return safeSetEnabled(on);
 }
 function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
   try {
-    if (typeof onStatus === "function") onStatus("recorder loaded", true);
+    if (typeof onStatus === "function") onStatus(isConnected() ? "connected" : "disconnected", isConnected());
     if (getUrl || getPass) {
       try {
         setSettings({
@@ -1492,7 +1353,7 @@ function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
     }
     try {
       if (isEnabled && isEnabled()) {
-        start();
+        void safeSetEnabled(true);
       }
     } catch {
     }

@@ -97,7 +97,7 @@ import * as scrollWriter from './scroll/scroll-writer';
 import './index-hooks/preroll';
 import { initDevDrawer } from './dev/dev-drawer';
 import { renderScript } from './render-script';
-import { setRecorderEnabled } from './state/recorder-settings';
+import { setRecorderEnabled, getRecorderSettings } from './state/recorder-settings';
 import { ensureUserAndProfile, type PersistedAppKey } from './forge/authProfile';
 import { initForgeNavMenu } from './forge/forge-nav';
 import { createProfileSettingsSync } from './forge/profile-settings-sync';
@@ -317,8 +317,7 @@ try {
 }
 // Keep recorder SSOT in sync with appStore.obsEnabled (legacy flag that can auto-arm the bridge)
 try {
-	const seed = appStore.get?.('obsEnabled');
-	if (typeof seed === 'boolean') setRecorderEnabled('obs', seed);
+	appStore.set('obsEnabled', getRecorderSettings().enabled.obs);
 	appStore.subscribe?.('obsEnabled', (v: any) => {
 		if (typeof v === 'boolean') setRecorderEnabled('obs', v);
 	});

@@ -22294,12 +22294,12 @@ function initScrollPrefsPersistence(store3) {
   if (!store3) return;
   const fromStore = normalizeMode(store3.get?.("scrollMode"));
   const persisted = normalizeMode(loadScrollPrefs()?.mode);
-  const initial2 = normalizeMode(fromStore || persisted || "hybrid") || "hybrid";
+  const initial = normalizeMode(fromStore || persisted || "hybrid") || "hybrid";
   try {
-    if (!fromStore || fromStore !== initial2) {
+    if (!fromStore || fromStore !== initial) {
       withScrollModeWriter("state/app-store", () => {
         try {
-          store3.set?.("scrollMode", initial2);
+          store3.set?.("scrollMode", initial);
         } catch {
         }
       }, { source: "migration" });
@@ -22919,7 +22919,7 @@ function sanitizeState(state9) {
   }
   return state9;
 }
-function createAppStore(initial2) {
+function createAppStore(initial) {
   const subs7 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
   migrateLegacyAsrSettings(loadLegacyAsrSettings());
@@ -22928,7 +22928,7 @@ function createAppStore(initial2) {
       {},
       baseState,
       ensureExistingState(),
-      initial2 || {}
+      initial || {}
     )
   );
   function notify4(key, value) {
@@ -48958,15 +48958,15 @@ function createAsrScrollDriver(options = {}) {
     if (!Number.isFinite(cursorLine) || cursorLine < 0) return null;
     const safeCursor = Math.max(0, Math.floor(cursorLine));
     const safeSpan = Math.max(1, Math.floor(maxSpan));
-    const bridge = findNextSpeakableWithinBridge(safeCursor, safeSpan, { strict: true });
-    const targetLine = bridge.nextLine != null && bridge.nextLine > safeCursor ? Math.max(0, Math.floor(bridge.nextLine)) : -1;
+    const bridge2 = findNextSpeakableWithinBridge(safeCursor, safeSpan, { strict: true });
+    const targetLine = bridge2.nextLine != null && bridge2.nextLine > safeCursor ? Math.max(0, Math.floor(bridge2.nextLine)) : -1;
     if (targetLine <= safeCursor) return null;
     if (targetLine > safeCursor + safeSpan) return null;
     const expectedSkipped = Math.max(0, targetLine - safeCursor - 1);
-    if ((bridge.skippedReasons?.length ?? 0) !== expectedSkipped) return null;
+    if ((bridge2.skippedReasons?.length ?? 0) !== expectedSkipped) return null;
     return {
       targetLine,
-      skippedReasons: Array.isArray(bridge.skippedReasons) ? bridge.skippedReasons : []
+      skippedReasons: Array.isArray(bridge2.skippedReasons) ? bridge2.skippedReasons : []
     };
   };
   const _resolveNthNextSpeakableLine = (fromLine, steps) => {
@@ -76157,24 +76157,1066 @@ var init_asr_log_buffer = __esm({
   }
 });
 
-// src/recording/recording-settings.ts
-function readRawSettings() {
+// recorders-core.ts
+function __tpReadAutoRecordPref() {
   try {
-    if (typeof window === "undefined") return null;
-    const raw = window.localStorage?.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed;
+    if (typeof window !== "undefined") {
+      const store3 = window.__tpStore;
+      if (store3 && typeof store3.get === "function") {
+        const v = store3.get("autoRecord");
+        if (typeof v === "boolean") return v;
+      }
+    }
   } catch {
-    return null;
+  }
+  try {
+    const doc = typeof document !== "undefined" ? document : null;
+    if (doc) {
+      const el = doc.getElementById("autoRecordToggle") || doc.getElementById("autoRecord");
+      if (el) return !!el.checked;
+    }
+  } catch {
+  }
+  try {
+    return localStorage.getItem("tp_auto_record_on_start_v1") === "1";
+  } catch {
+    return false;
   }
 }
+function persistSettings() {
+  try {
+    const cached2 = JSON.parse(localStorage.getItem(LS_KEY2) || "{}");
+    const safeSettings = JSON.parse(JSON.stringify(settings));
+    delete safeSettings.enabled;
+    delete safeSettings.obsStatus;
+    delete safeSettings.obsLastError;
+    if (safeSettings.configs?.obs) {
+      safeSettings.configs.obs = { ...safeSettings.configs.obs, ...cached2.configs?.obs, password: "" };
+    }
+    localStorage.setItem(LS_KEY2, JSON.stringify({ ...cached2, ...safeSettings }));
+    try {
+      localStorage.setItem("tp_record_mode", String(settings.mode || "multi"));
+    } catch {
+    }
+    try {
+      localStorage.setItem("tp_adapters", JSON.stringify(Array.isArray(settings.selected) ? settings.selected : []));
+    } catch {
+    }
+  } catch {
+  }
+}
+function setSettings(next) {
+  if (!next || typeof next !== "object") return;
+  const prev2 = settings;
+  settings = {
+    ...prev2,
+    ..."mode" in next ? { mode: next.mode } : {},
+    ..."selected" in next ? { selected: Array.isArray(next.selected) ? next.selected.slice() : prev2.selected } : {},
+    ..."recordingMode" in next ? { recordingMode: next.recordingMode === "audio" ? "audio" : "av" } : {},
+    ..."preferObsHandoff" in next ? { preferObsHandoff: !!next.preferObsHandoff } : {},
+    ..."configs" in next ? { configs: { ...prev2.configs, ...next.configs || {} } } : {},
+    ..."timeouts" in next ? { timeouts: { ...prev2.timeouts, ...next.timeouts || {} } } : {},
+    ..."failPolicy" in next ? { failPolicy: next.failPolicy } : {}
+  };
+  persistSettings();
+  applyConfigs();
+}
+function getSettings() {
+  return JSON.parse(JSON.stringify(settings));
+}
+function setSelected(ids) {
+  setSettings({ selected: Array.isArray(ids) ? ids : [] });
+}
+function setMode(mode) {
+  setSettings({ mode });
+}
+function setRecordingMode(mode) {
+  setSettings({ recordingMode: mode });
+}
+function getRecordingMode() {
+  return settings.recordingMode === "audio" ? "audio" : "av";
+}
+function setTimeouts(t) {
+  setSettings({ timeouts: t });
+}
+function setFailPolicy(p) {
+  setSettings({ failPolicy: p });
+}
+function applyConfigs() {
+  for (const [id, a] of registry.entries()) {
+    try {
+      const cfg = settings.configs[id];
+      if (cfg && typeof a.configure === "function") a.configure(cfg);
+    } catch {
+    }
+  }
+}
+function callWithTimeout(promiseOrFn, ms = 0) {
+  const p = typeof promiseOrFn === "function" ? promiseOrFn() : promiseOrFn;
+  return Promise.race([
+    Promise.resolve().then(() => p),
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), Math.max(0, ms || 0)))
+  ]);
+}
+async function guarded(fn) {
+  if (_busy) return { skipped: true };
+  _busy = true;
+  try {
+    return await fn();
+  } finally {
+    _busy = false;
+  }
+}
+function describeError(err) {
+  if (err instanceof Error && typeof err.message === "string") return err.message;
+  try {
+    return String(err);
+  } catch {
+    return "error";
+  }
+}
+function setTrackedTimeout(fn, ms) {
+  const h = setTimeout(() => {
+    try {
+      __recTimers.delete(h);
+    } catch {
+    }
+    try {
+      fn();
+    } catch {
+    }
+  }, Math.max(0, ms || 0));
+  try {
+    __recTimers.add(h);
+  } catch {
+  }
+  return h;
+}
+function _emitRecState(state9, detail = null) {
+  try {
+    _recState = state9;
+    _recDetail = detail || null;
+    if (typeof window !== "undefined") {
+      try {
+        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
+      } catch {
+      }
+      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
+      try {
+        const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
+        if (key === __lastRecKey) return;
+        __lastRecKey = key;
+      } catch {
+      }
+      window.dispatchEvent(new CustomEvent("rec:state", { detail: payload }));
+      try {
+        window.__tpHud?.log?.("[rec:state]", payload);
+      } catch {
+      }
+    }
+  } catch {
+  }
+}
+function _isActiveState(s) {
+  return s === "starting" || s === "recording";
+}
+function getRecState() {
+  return { state: _recState, adapter: _recAdapter, detail: _recDetail };
+}
+function isNoRecordMode() {
+  try {
+    return !!(window.__tpNoRecord || typeof document !== "undefined" && document.body && document.body.classList && document.body.classList.contains("mode-rehearsal"));
+  } catch {
+    return false;
+  }
+}
+function selectedIds() {
+  const ids = Array.isArray(settings.selected) ? settings.selected.slice() : [];
+  if (settings.mode === "single" && ids.length > 1) ids.length = 1;
+  return ids.filter((id) => registry.has(id));
+}
+function clearHandoffTimer() {
+  try {
+    if (__handoffTimer) {
+      clearInterval(__handoffTimer);
+      __handoffTimer = null;
+    }
+  } catch {
+  }
+}
+async function tryObsHandoffOnce(reason = "watchdog") {
+  try {
+    if (!settings?.preferObsHandoff) return false;
+    if (_recState !== "recording" || _recAdapter !== "bridge") return false;
+    const br = typeof window !== "undefined" ? window.__obsBridge || null : null;
+    if (!br || typeof br.getRecordStatus !== "function") return false;
+    let isRec = false;
+    try {
+      const s = await br.getRecordStatus();
+      isRec = !!(s && (s.outputActive === true || s.recording === true));
+    } catch {
+    }
+    if (!isRec) return false;
+    const bridgeAdapter = registry.get("bridge");
+    _emitRecState("stopping", { reason: "obs-handoff", via: reason });
+    try {
+      await bridgeAdapter?.stop?.();
+    } catch {
+    }
+    _recAdapter = "obs";
+    _emitRecState("recording", { handoff: true });
+    clearHandoffTimer();
+    return true;
+  } catch {
+    return false;
+  }
+}
+function armObsHandoffWatchdog() {
+  clearHandoffTimer();
+  try {
+    if (!settings?.preferObsHandoff) return;
+    if (_recState === "recording" && _recAdapter === "bridge") {
+      const t = setInterval(() => {
+        tryObsHandoffOnce("watchdog");
+      }, 1e3);
+      try {
+        const maybeTimer = t;
+        if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
+      } catch {
+      }
+      __handoffTimer = t;
+    }
+  } catch {
+  }
+}
+async function teardownRecorders() {
+  try {
+    __recEpoch++;
+  } catch {
+  }
+  try {
+    __lastBridgeTap = 0;
+  } catch {
+  }
+  try {
+    for (const h of Array.from(__recTimers)) {
+      clearTimeout(h);
+      __recTimers.delete(h);
+    }
+  } catch {
+  }
+  try {
+    clearHandoffTimer();
+  } catch {
+  }
+  try {
+    if (__recStatsTimer) {
+      clearInterval(__recStatsTimer);
+      __recStatsTimer = null;
+    }
+  } catch {
+  }
+  try {
+    const br = typeof window !== "undefined" ? window.__obsBridge : null;
+    if (br) {
+      if (typeof br.off === "function") {
+        try {
+          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
+            br.off("disconnect", _onObsDisconnectCb);
+            window.__tpObsDisconnectWired = false;
+          }
+        } catch {
+        }
+        try {
+          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
+            br.off("recordingStarted", _onObsRecordingStartedCb);
+            window.__tpObsHandoffWired = false;
+          }
+        } catch {
+        }
+      } else if (typeof br.removeListener === "function") {
+        try {
+          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
+            br.removeListener("disconnect", _onObsDisconnectCb);
+            window.__tpObsDisconnectWired = false;
+          }
+        } catch {
+        }
+        try {
+          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
+            br.removeListener("recordingStarted", _onObsRecordingStartedCb);
+            window.__tpObsHandoffWired = false;
+          }
+        } catch {
+        }
+      }
+    }
+  } catch {
+  }
+}
+async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}) {
+  const obs = typeof window !== "undefined" ? window.__obsBridge || null : null;
+  const epoch = __recEpoch;
+  const isStale = () => epoch !== __recEpoch;
+  try {
+    window.__tpHud?.log?.("[rec] start obs");
+  } catch {
+  }
+  try {
+    _recAdapter = "obs";
+    _emitRecState("starting");
+  } catch {
+  }
+  const confirm = async () => {
+    try {
+      const s = await obs?.getRecordStatus?.();
+      return !!(s && s.outputActive === true);
+    } catch {
+      return false;
+    }
+  };
+  const tryStart = async () => {
+    try {
+      if (obs && typeof obs.start === "function") await obs.start();
+      else if (obs && typeof obs.startRecord === "function") await obs.startRecord();
+    } catch {
+    }
+  };
+  await tryStart();
+  let ok = false;
+  let deadline = __now() + timeoutMs;
+  while (!ok && __now() < deadline) {
+    if (isStale()) {
+      try {
+        window.__tpHud?.log?.("[rec] abort confirm (stale)");
+      } catch {
+      }
+      return { ok: false, adapter: "obs", error: "stale" };
+    }
+    ok = await confirm();
+    if (!ok) await __sleep(120);
+  }
+  if (!ok) {
+    try {
+      window.__tpHud?.log?.("[rec] retry");
+    } catch {
+    }
+    await __sleep(Math.max(0, retryDelayMs));
+    if (isStale()) {
+      try {
+        window.__tpHud?.log?.("[rec] abort retry (stale)");
+      } catch {
+      }
+      return { ok: false, adapter: "obs", error: "stale" };
+    }
+    await tryStart();
+    try {
+      recStats.retries++;
+    } catch {
+    }
+    ok = await confirm();
+  }
+  if (ok) {
+    try {
+      _recAdapter = "obs";
+      _emitRecState("recording");
+    } catch {
+    }
+    return { ok: true, adapter: "obs" };
+  }
+  try {
+    window.__tpHud?.log?.("[rec] drop (start-timeout)");
+  } catch {
+  }
+  try {
+    _recAdapter = "obs";
+    _emitRecState("error", { reason: "start-timeout" });
+  } catch {
+  }
+  return { ok: false, adapter: "obs", error: "start-timeout" };
+}
+async function startSelected() {
+  return guarded(async () => {
+    if (isNoRecordMode()) {
+      try {
+        window.HUD?.log?.("rehearsal", { skip: "startSelected (no-record)" });
+      } catch {
+      }
+      return { results: [], started: [] };
+    }
+    if (_recState === "stopping") {
+      try {
+        window.__tpHud?.log?.("[rec] busy (stopping)");
+      } catch {
+      }
+      return { results: [], started: [], reason: "idempotent-start-while-stopping" };
+    }
+    if (_isActiveState(_recState)) {
+      try {
+        window.__tpHud?.log?.("[rec] already recording");
+      } catch {
+      }
+      _emitRecState(_recState, { reason: "idempotent-start" });
+      return { results: [], started: selectedIds() };
+    }
+    applyConfigs();
+    try {
+      ensureObsDisconnectFallback();
+    } catch {
+    }
+    try {
+      ensureObsRecordingStartedHandoff();
+    } catch {
+    }
+    const ids = selectedIds();
+    _recAdapter = settings.mode === "single" ? ids[0] || null : ids[0] || null;
+    _emitRecState("starting");
+    const t0 = __now();
+    try {
+      recStats.starts++;
+    } catch {
+    }
+    const started = [];
+    const actions = ids.map((id) => ({ id, a: registry.get(id) }));
+    const doStart = async ({ id, a }) => {
+      if (!a) return { id, ok: false, error: "missing" };
+      try {
+        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.start);
+        if (!avail) return { id, ok: false, error: "unavailable" };
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+      try {
+        if (id === "obs") {
+          const res = await startObsWithConfirm({ timeoutMs: Math.min(2e3, settings.timeouts.start || 1500), retryDelayMs: 500 });
+          if (res && res.ok === false && res.error === "stale") {
+            return { id, ok: false, error: "stale" };
+          }
+          if (res.ok) {
+            started.push(id);
+            return { id, ok: true, detail: res };
+          }
+          return { id, ok: false, error: res.error || "failed" };
+        } else {
+          await callWithTimeout(() => a.start(), settings.timeouts.start);
+          started.push(id);
+          return { id, ok: true };
+        }
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+    };
+    const results = [];
+    if (settings.failPolicy === "abort-on-first-fail") {
+      for (const act of actions) {
+        const r = await doStart(act);
+        results.push(r);
+        if (!r.ok) break;
+      }
+    } else {
+      const rs = await Promise.all(actions.map(doStart));
+      results.push(...rs);
+    }
+    if (started.length) {
+      try {
+        window.__tpHud?.log?.("[rec] recording");
+      } catch {
+      }
+      const anyFallback = results.find((r) => r && r.id === "obs" && r.detail && r.detail.fallback);
+      if (anyFallback) {
+        _recAdapter = "bridge";
+        _emitRecState("recording", { fallback: true, via: "bridge" });
+      } else {
+        _emitRecState("recording");
+      }
+      try {
+        recStats.startLat.push(Math.max(0, __now() - t0));
+      } catch {
+      }
+    } else {
+      _emitRecState("error", { results });
+    }
+    return { results, started };
+  });
+}
+async function stopSelected() {
+  __recEpoch++;
+  __lastBridgeTap = 0;
+  clearHandoffTimer();
+  if (isNoRecordMode()) {
+    try {
+      window.HUD?.log?.("rehearsal", { note: "stopSelected (allowed during no-record)" });
+    } catch {
+    }
+  }
+  if (_recState === "idle" || _recState === "stopping") {
+    _emitRecState("idle", { reason: "idempotent-stop" });
+    return { results: [] };
+  }
+  try {
+    window.__tpHud?.log?.("[rec] stop");
+  } catch {
+  }
+  _emitRecState("stopping");
+  const t0 = __now();
+  const ids = selectedIds();
+  const actions = ids.map((id) => ({ id, a: registry.get(id) })).filter((x) => !!x.a);
+  const rs = await Promise.all(
+    actions.map(async ({ id, a }) => {
+      try {
+        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.stop);
+        if (!avail) return { id, ok: false, error: "unavailable" };
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+      try {
+        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
+        return { id, ok: true, ...detail && typeof detail === "object" ? { detail } : {} };
+      } catch (e) {
+        return { id, ok: false, error: describeError(e) };
+      }
+    })
+  );
+  _emitRecState("idle");
+  for (const result of rs) {
+    if (result.id !== "obs" || !result.ok || !result.detail) continue;
+    try {
+      void window.__tpObsImport?.acceptStopResult?.(result.detail);
+    } catch {
+    }
+  }
+  try {
+    recStats.stopLat.push(Math.max(0, __now() - t0));
+  } catch {
+  }
+  return { results: rs };
+}
+function register(adapter) {
+  registry.set(adapter.id, adapter);
+}
+function get2(id) {
+  return registry.get(id);
+}
+function all() {
+  return [...registry.values()];
+}
+async function initBuiltIns() {
+  if (_builtInsInit) return _builtInsReady;
+  _builtInsInit = true;
+  try {
+    const adapters = [];
+    const resolver = typeof window !== "undefined" && typeof window.__TP_ADDV === "function" ? window.__TP_ADDV.bind(window) : ((p) => p);
+    try {
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/bridge.js")
+      );
+      const a = m?.createBridgeAdapter?.();
+      if (a) adapters.push(a);
+    } catch {
+    }
+    try {
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/obs.js")
+      );
+      const a = m?.createOBSAdapter?.();
+      if (a) adapters.push(a);
+    } catch {
+    }
+    try {
+      const m = await import(
+        /* @vite-ignore */
+        resolver("./adapters/hotkey.js")
+      );
+      const aPrem = m?.createHotkeyAdapter?.("premiere", "Adobe Premiere Pro");
+      if (aPrem) adapters.push(aPrem);
+    } catch {
+    }
+    try {
+      if (typeof window !== "undefined" && window.__obsBridge) {
+        const bridge2 = window.__obsBridge;
+        const wrapper = {
+          id: "obs",
+          label: "OBS (WebSocket) - bridge",
+          configure(cfg) {
+            try {
+              bridge2.configure(cfg);
+            } catch {
+            }
+          },
+          async isAvailable() {
+            try {
+              return bridge2.isConnected ? bridge2.isConnected() : bridge2.isConnected && bridge2.isConnected();
+            } catch {
+              return !!bridge2.isConnected && bridge2.isConnected();
+            }
+          },
+          async start() {
+            return bridge2.start();
+          },
+          async stop() {
+            return bridge2.stop();
+          },
+          async test() {
+            return bridge2.getRecordStatus();
+          }
+        };
+        adapters.push(wrapper);
+      }
+    } catch {
+    }
+    for (const a of adapters) {
+      try {
+        register(a);
+      } catch {
+      }
+    }
+    applyConfigs();
+    try {
+      ensureObsDisconnectFallback();
+    } catch {
+    }
+    try {
+      ensureObsRecordingStartedHandoff();
+    } catch {
+    }
+  } catch {
+  } finally {
+    _resolveBuiltInsReady?.();
+    _resolveBuiltInsReady = null;
+  }
+}
+function ensureObsDisconnectFallback() {
+  try {
+    if (typeof window === "undefined") return;
+    const br = window.__obsBridge;
+    if (!br || typeof br.on !== "function") return;
+    if (window.__tpObsDisconnectWired) return;
+    window.__tpObsDisconnectWired = true;
+    _onObsDisconnectCb = async () => {
+      try {
+        try {
+          recStats.disconnects++;
+        } catch {
+        }
+        if (_recAdapter === "obs" && (_recState === "starting" || _recState === "recording")) {
+          _emitRecState("error", { reason: "obs-disconnected", message: "OBS disconnected. Check capture status in OBS before retrying." });
+        }
+      } catch {
+      }
+    };
+    br.on("disconnect", _onObsDisconnectCb);
+  } catch {
+  }
+}
+function ensureObsRecordingStartedHandoff() {
+  try {
+    if (typeof window === "undefined") return;
+    const br = window.__obsBridge;
+    if (!br || typeof br.on !== "function") return;
+    if (window.__tpObsHandoffWired) return;
+    window.__tpObsHandoffWired = true;
+    _onObsRecordingStartedCb = async () => {
+      try {
+        const prefer = !!(settings && settings.preferObsHandoff);
+        if (_recState === "recording" && _recAdapter === "bridge") {
+          if (!prefer) {
+            try {
+              window.__tpHud?.log?.("[rec] obs up (handoff disabled)");
+            } catch {
+            }
+            return;
+          }
+          const bridgeAdapter = registry.get("bridge");
+          _emitRecState("stopping", { reason: "obs-handoff" });
+          try {
+            await bridgeAdapter?.stop?.();
+          } catch {
+          }
+          _recAdapter = "obs";
+          _emitRecState("recording", { handoff: true });
+        }
+      } catch {
+      }
+    };
+    br.on("recordingStarted", _onObsRecordingStartedCb);
+  } catch {
+  }
+}
+async function start() {
+  return startSelected();
+}
+async function stop2() {
+  return stopSelected();
+}
+function p95(arr) {
+  if (!arr || !arr.length) return 0;
+  const a = arr.slice().sort((x, y) => x - y);
+  const i = Math.min(a.length - 1, Math.floor(a.length * 0.95));
+  return a[i] || 0;
+}
+function emitRecStats(_final = false) {
+  try {
+    const payload = {
+      starts: recStats.starts | 0,
+      retries: recStats.retries | 0,
+      fallbacks: recStats.fallbacks | 0,
+      disconnects: recStats.disconnects | 0,
+      startP95Ms: Math.round(p95(recStats.startLat)),
+      stopP95Ms: Math.round(p95(recStats.stopLat))
+    };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rec:stats", { detail: payload }));
+    }
+  } catch {
+  }
+}
+var registry, LS_KEY2, defaultSettings, settings, _busy, _recState, _recDetail, _recAdapter, __recEpoch, __lastBridgeTap, __recTimers, _onObsDisconnectCb, _onObsRecordingStartedCb, __now, __sleep, __lastRecKey, __handoffTimer, _builtInsInit, _resolveBuiltInsReady, _builtInsReady, recStats, __recStatsTimer;
+var init_recorders_core = __esm({
+  "recorders-core.ts"() {
+    "use strict";
+    (function() {
+      try {
+        let getJSON2 = function(k, d) {
+          try {
+            const raw = localStorage.getItem(k);
+            return raw ? JSON.parse(raw) : d;
+          } catch {
+            return d;
+          }
+        }, getCfg2 = function() {
+          const a = getJSON2(LS.cfg, {});
+          const b = getJSON2(LS.modern, {});
+          const inner = b && b.configs || {};
+          const merged = { ...inner, ...a };
+          if (a && a.recording) merged.recording = a.recording;
+          return merged;
+        }, getSelectedAdapterId2 = function() {
+          const cfg = getCfg2();
+          try {
+            return cfg.recording && cfg.recording.adapter || localStorage.getItem(LS.recAdapter) || DEFAULT_ADAPTER;
+          } catch {
+            return DEFAULT_ADAPTER;
+          }
+        }, wantsAuto2 = function() {
+          return __tpReadAutoRecordPref();
+        }, getAdapter2 = function(id) {
+          if (typeof id === "string" && id.length > 0) {
+            try {
+              return get2(id);
+            } catch {
+              return void 0;
+            }
+          }
+          return getSelectedAdapterId2();
+        }, bridgeCfg2 = function() {
+          const cfg = getCfg2().bridge || {};
+          return {
+            mode: cfg.mode || "hotkey",
+            baseUrl: String(cfg.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, ""),
+            startHotkey: cfg.startHotkey || cfg.preset || "Ctrl+R",
+            stopHotkey: cfg.stopHotkey || "",
+            startUrl: cfg.startUrl || "",
+            stopUrl: cfg.stopUrl || ""
+          };
+        }, getRecorderSurface2 = function() {
+          try {
+            const w3 = window;
+            return w3.__tpRecorder || w3.__recorder || null;
+          } catch {
+            return null;
+          }
+        };
+        var getJSON = getJSON2, getCfg = getCfg2, getSelectedAdapterId = getSelectedAdapterId2, wantsAuto = wantsAuto2, getAdapter = getAdapter2, bridgeCfg = bridgeCfg2, getRecorderSurface = getRecorderSurface2;
+        if (typeof window === "undefined") return;
+        const DEFAULT_ADAPTER = "recorder";
+        const LS = {
+          cfg: "configs",
+          // whole app config blob (optional)
+          recAdapter: "tp_rec_adapter",
+          // 'obs' | 'bridge' | 'premiere'
+          autoStart: "tp_auto_record_on_start_v1",
+          modern: "tp_rec_settings_v1"
+          // modern settings blob from registry (has .configs)
+        };
+        async function httpSend(url, body) {
+          if (!url) throw new Error("Missing URL");
+          const res = await fetch(url, {
+            method: body ? "POST" : "GET",
+            headers: body ? { "content-type": "application/json" } : void 0,
+            body: body ? JSON.stringify(body) : void 0,
+            mode: "no-cors"
+          });
+          try {
+            return !!res.ok || true;
+          } catch {
+            return true;
+          }
+        }
+        async function recorderStart() {
+          const rec2 = getRecorderSurface2();
+          if (!rec2 || typeof rec2.start !== "function") return true;
+          try {
+            await rec2.start();
+            return true;
+          } catch (err) {
+            try {
+              console.warn("[recorder] start failed", err);
+            } catch {
+            }
+            return false;
+          }
+        }
+        async function recorderStop() {
+          const rec2 = getRecorderSurface2();
+          if (!rec2 || typeof rec2.stop !== "function") return true;
+          try {
+            await rec2.stop();
+            return true;
+          } catch (err) {
+            try {
+              console.warn("[recorder] stop failed", err);
+            } catch {
+            }
+            return false;
+          }
+        }
+        async function bridgeStart() {
+          const b = bridgeCfg2();
+          if (b.mode === "http") {
+            return httpSend(b.startUrl);
+          }
+          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.startHotkey);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(b.baseUrl + "/send", { keys: b.startHotkey });
+          }
+        }
+        async function bridgeStop() {
+          const b = bridgeCfg2();
+          if (b.mode === "http") {
+            return b.stopUrl ? httpSend(b.stopUrl) : true;
+          }
+          if (!b.stopHotkey) return true;
+          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.stopHotkey);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(b.baseUrl + "/send", { keys: b.stopHotkey });
+          }
+        }
+        async function obsStart() {
+          try {
+            if (window.__obsBridge && typeof window.__obsBridge.start === "function") {
+              await window.__obsBridge.start();
+              return true;
+            }
+          } catch {
+          }
+          try {
+            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
+              return !!await window.__tpObs.ensureRecording(true);
+            }
+          } catch {
+          }
+          return false;
+        }
+        async function obsStop() {
+          try {
+            if (window.__obsBridge && typeof window.__obsBridge.stop === "function") {
+              await window.__obsBridge.stop();
+              return true;
+            }
+          } catch {
+          }
+          try {
+            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
+              return !!await window.__tpObs.ensureRecording(false);
+            }
+          } catch {
+          }
+          return false;
+        }
+        async function premStart() {
+          const p = getCfg2().premiere || {};
+          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
+          const hk = String(p.startHotkey || "Ctrl+R");
+          const url = base + "/send?keys=" + encodeURIComponent(hk);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(base + "/send", { keys: hk });
+          }
+        }
+        async function premStop() {
+          const p = getCfg2().premiere || {};
+          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
+          const hk = String(p.stopHotkey || "");
+          if (!hk) return true;
+          const url = base + "/send?keys=" + encodeURIComponent(hk);
+          try {
+            return await httpSend(url);
+          } catch {
+            return httpSend(base + "/send", { keys: hk });
+          }
+        }
+        async function start2() {
+          const a = getSelectedAdapterId2();
+          try {
+            window.__tpHud?.log?.("[rec]", "start", a);
+          } catch {
+          }
+          if (a === "recorder") return recorderStart();
+          if (a === "obs") return obsStart();
+          if (a === "descript") return premStart();
+          if (a === "premiere") return premStart();
+          return bridgeStart();
+        }
+        async function stop3() {
+          const a = getSelectedAdapterId2();
+          try {
+            window.__tpHud?.log?.("[rec]", "stop", a);
+          } catch {
+          }
+          if (a === "recorder") return recorderStop();
+          if (a === "obs") return obsStop();
+          if (a === "descript") return premStop();
+          if (a === "premiere") return premStop();
+          return bridgeStop();
+        }
+        window.__tpRecording = { start: start2, stop: stop3, wantsAuto: wantsAuto2, getAdapter: getAdapter2 };
+      } catch {
+      }
+    })();
+    registry = /* @__PURE__ */ new Map();
+    LS_KEY2 = "tp_rec_settings_v1";
+    defaultSettings = {
+      mode: "single",
+      selected: ["core"],
+      recordingMode: "av",
+      preferObsHandoff: false,
+      configs: {
+        obs: { url: "ws://127.0.0.1:4455", password: "" },
+        companion: { url: "http://127.0.0.1:8000", buttonId: "1.1" },
+        bridge: { startUrl: "http://127.0.0.1:5723/record/start", stopUrl: "" },
+        descript: { startHotkey: "Ctrl+R", via: "bridge" },
+        capcut: { startHotkey: "Ctrl+R", via: "companion" },
+        winmedia: { startHotkey: "Ctrl+R", via: "bridge" },
+        premiere: { startHotkey: "Ctrl+R", stopHotkey: "", baseUrl: "http://127.0.0.1:5723" }
+      },
+      timeouts: { start: 3e3, stop: 3e3 },
+      failPolicy: "continue"
+    };
+    settings = JSON.parse(JSON.stringify(defaultSettings));
+    try {
+      const raw = localStorage.getItem(LS_KEY2);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") settings = { ...settings, ...parsed };
+      } else {
+        try {
+          localStorage.setItem(LS_KEY2, JSON.stringify(settings));
+        } catch {
+        }
+      }
+    } catch {
+    }
+    _busy = false;
+    _recState = "idle";
+    _recDetail = null;
+    _recAdapter = null;
+    __recEpoch = 0;
+    __lastBridgeTap = 0;
+    __recTimers = /* @__PURE__ */ new Set();
+    _onObsDisconnectCb = null;
+    _onObsRecordingStartedCb = null;
+    __now = () => typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    __sleep = (ms) => new Promise((resolve) => {
+      setTrackedTimeout(() => resolve(), Math.max(0, ms || 0));
+    });
+    __lastRecKey = "";
+    __handoffTimer = null;
+    try {
+      if (typeof window !== "undefined") {
+        window.__recorder = window.__recorder || {};
+        if (!window.__recorder.__finalizeForTests) {
+          window.__recorder.__finalizeForTests = () => {
+            try {
+              clearHandoffTimer();
+            } catch {
+            }
+            try {
+              __recEpoch++;
+            } catch {
+            }
+            try {
+              if (__recStatsTimer) {
+                clearInterval(__recStatsTimer);
+                __recStatsTimer = null;
+              }
+            } catch {
+            }
+          };
+        }
+      }
+    } catch {
+    }
+    _builtInsInit = false;
+    _resolveBuiltInsReady = null;
+    _builtInsReady = new Promise((resolve) => {
+      _resolveBuiltInsReady = resolve;
+    });
+    try {
+      initBuiltIns();
+    } catch {
+    }
+    (function wireRecStateWatchdog() {
+      try {
+        if (typeof window === "undefined") return;
+        if (window.__tpRecWatchdogWired) return;
+        window.__tpRecWatchdogWired = true;
+        window.addEventListener("rec:state", (e) => {
+          try {
+            const evt = e;
+            const d = evt && evt.detail || {};
+            if (d && d.state === "recording" && d.adapter === "bridge" && settings?.preferObsHandoff) {
+              armObsHandoffWatchdog();
+            }
+            if (d && (d.state === "idle" || d.state === "stopping")) {
+              clearHandoffTimer();
+            }
+          } catch {
+          }
+        });
+      } catch {
+      }
+    })();
+    recStats = { starts: 0, retries: 0, fallbacks: 0, disconnects: 0, startLat: [], stopLat: [] };
+    __recStatsTimer = null;
+    try {
+      if (typeof window !== "undefined") {
+        if (__recStatsTimer) clearInterval(__recStatsTimer);
+        __recStatsTimer = setInterval(() => emitRecStats(false), 5e3);
+        try {
+          const maybeTimer = __recStatsTimer;
+          if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
+        } catch {
+        }
+        window.addEventListener("beforeunload", () => emitRecStats(true));
+      }
+    } catch {
+    }
+  }
+});
+
+// src/recording/recording-settings.ts
 function normalizeSelected(raw) {
   if (!Array.isArray(raw)) return [];
   return raw.map((v) => String(v)).filter(Boolean);
 }
-function getRecordingMode() {
+function getRecordingMode2() {
   const raw = readRawSettings();
   const mode = String(raw?.recordingMode || "").toLowerCase();
   const resolved = mode === "audio" ? "audio" : "av";
@@ -76185,34 +77227,33 @@ function getRecordingEngine() {
   const raw = readRawSettings();
   const selected = normalizeSelected(raw?.selected);
   const mode = String(raw?.mode || "").toLowerCase();
-  if (mode === "single") {
-    if (selected.includes("obs")) return "obs";
-    if (selected.includes("core")) return "core";
+  if (mode !== "single" && mode !== "multi" || selected.length !== 1 || !["obs", "core"].includes(selected[0])) {
+    throw new Error("Select one recording engine in Recording Settings.");
   }
-  if (selected.includes("obs") && !selected.includes("core")) return "obs";
-  return "core";
+  return selected[0];
 }
 function readSavedRecordingConfiguration() {
+  if (!window.localStorage.getItem("tp_rec_settings_v1")) return { ok: false, reason: "missing" };
   const raw = readRawSettings();
-  if (!raw) return { ok: false, reason: "missing" };
   const selected = normalizeSelected(raw.selected);
   const mode = String(raw.mode || "").toLowerCase();
   const recordingMode = String(raw.recordingMode || "").toLowerCase();
   if (mode !== "single" && mode !== "multi" || recordingMode !== "av" && recordingMode !== "audio") {
     return { ok: false, reason: "invalid" };
   }
-  if (selected.length === 0 || selected.some((id) => id !== "core" && id !== "obs")) {
+  if (selected.length !== 1 || selected.some((id) => id !== "core" && id !== "obs")) {
     return { ok: false, reason: "invalid" };
   }
   const engine = selected.includes("obs") && !selected.includes("core") ? "obs" : "core";
   if (engine === "obs" && recordingMode === "audio") return { ok: false, reason: "invalid" };
   return { ok: true, configuration: { engine, mode: recordingMode } };
 }
-var SETTINGS_KEY;
+var readRawSettings;
 var init_recording_settings = __esm({
   "src/recording/recording-settings.ts"() {
     "use strict";
-    SETTINGS_KEY = "tp_rec_settings_v1";
+    init_recorders_core();
+    readRawSettings = getSettings;
   }
 });
 
@@ -76221,12 +77262,13 @@ function withTimeout(taskOrFactory, timeoutMs, context) {
   const timeout = Math.max(0, Math.floor(timeoutMs));
   const task = typeof taskOrFactory === "function" ? Promise.resolve().then(taskOrFactory) : Promise.resolve(taskOrFactory);
   if (timeout <= 0) return task;
+  let timer;
   return Promise.race([
     task,
     new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
+      timer = setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
     })
-  ]);
+  ]).finally(() => clearTimeout(timer));
 }
 function emitRecordingState(recording) {
   try {
@@ -76260,132 +77302,90 @@ function emitStopPhase(phase, detail = {}) {
 }
 function registerRecorder(backend) {
   if (!backend) return;
-  registry.set(backend.id, backend);
+  registry2.set(backend.id, backend);
 }
 function listRecorders() {
-  return [...registry.values()];
+  return [...registry2.values()];
 }
 function registerRecorders(options) {
   if (options?.core) registerRecorder(options.core);
   if (options?.obs) registerRecorder(options.obs);
 }
-async function startSessionRecording(opts) {
+async function startSessionRecording(opts = {}) {
+  if (stopInFlight) await stopInFlight;
   if (sessionRecording) return;
   if (startInFlight) return startInFlight;
   startInFlight = (async () => {
-    const engine = opts?.engine ?? getRecordingEngine();
-    const obsEnabled = !!opts?.obsEnabled;
-    const tasks = [];
-    activeSessionRecorderIds.clear();
-    const queueStart = (backend) => {
-      tasks.push(
-        (async () => {
-          const id = backend.id;
-          const available = await withTimeout(
-            () => backend.isAvailable(),
-            RECORDER_TIMEOUT_MS.availability,
-            `${id}:isAvailable:start`
-          ).catch((err) => {
-            console.warn("[recording] availability probe failed (start)", id, err);
-            return false;
-          });
-          if (!available) return { id, started: false };
-          await withTimeout(
-            () => backend.start(),
-            RECORDER_TIMEOUT_MS.start,
-            `${id}:start`
-          ).catch((err) => {
-            console.warn("[recording] start failed", id, err);
-            throw err;
-          });
-          return { id, started: true };
-        })().catch(() => ({ id: backend.id, started: false }))
-      );
-    };
-    const core = registry.get("core");
-    if (core && engine === "core") {
-      try {
-        console.debug("[recording-session] startRecorders: core available", { engine, obsEnabled });
-      } catch {
-      }
-      queueStart(core);
-    } else {
-      console.warn('[recording] no "core" recorder registered');
-    }
-    if (engine === "obs" && obsEnabled) {
-      const obs = registry.get("obs");
-      if (obs) {
-        try {
-          console.debug("[recording-session] startRecorders: obs available", { engine });
-        } catch {
-        }
-        queueStart(obs);
-      }
-    }
-    if (tasks.length === 0) return;
+    const engine = opts.engine ?? getRecordingEngine();
+    const backend = registry2.get(engine);
+    if (!backend) throw new Error(`${engine === "obs" ? "OBS" : "Core Recorder"} is unavailable. Check Recording Settings.`);
+    const available = await withTimeout(() => backend.isAvailable(), RECORDER_TIMEOUT_MS.availability, `${engine}:isAvailable:start`);
+    if (!available) throw new Error(`${backend.label} is unavailable. ${engine === "obs" ? "Connect OBS in Recording Settings." : "Check camera and microphone permissions."}`);
     try {
-      console.debug("[recording-session] startRecorders", { count: tasks.length, enabled: true });
-    } catch {
+      await backend.start();
+    } catch (error) {
+      if (error?.captureMayBeActive) {
+        activeSessionRecorderIds.add(engine);
+        sessionRecording = true;
+        emitRecordingState(true);
+      }
+      throw error;
     }
-    const results = await Promise.all(tasks);
-    results.forEach((result) => {
-      if (result?.started) activeSessionRecorderIds.add(result.id);
-    });
-    if (activeSessionRecorderIds.size === 0) return;
+    activeSessionRecorderIds.clear();
+    activeSessionRecorderIds.add(engine);
     sessionRecording = true;
     emitRecordingState(true);
   })();
   try {
     await startInFlight;
+  } catch (error) {
+    reportRecordingError(error);
+    throw error;
   } finally {
     startInFlight = null;
   }
 }
+function reportRecordingError(error) {
+  const message = error?.message || String(error);
+  try {
+    window.toast?.(message, { type: "error" });
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:recording:error", { detail: { message } }));
+  } catch {
+  }
+}
 async function stopSessionRecording() {
+  if (startInFlight) {
+    try {
+      await startInFlight;
+    } catch (error) {
+      if (!sessionRecording) throw error;
+    }
+  }
   if (!sessionRecording) return;
   if (stopInFlight) return stopInFlight;
   stopInFlight = (async () => {
     const startedAt = Date.now();
-    const targetRecorders = activeSessionRecorderIds.size > 0 ? Array.from(activeSessionRecorderIds.values()).map((id) => registry.get(id)).filter((rec2) => !!rec2) : listRecorders();
-    emitStopPhase("begin", {
-      recorderCount: targetRecorders.length,
-      scopedToSession: activeSessionRecorderIds.size > 0
-    });
-    const tasks = targetRecorders.map(async (rec2) => {
-      emitStopPhase("probe", { recorderId: rec2.id });
-      const available = await withTimeout(
-        () => rec2.isAvailable(),
-        RECORDER_TIMEOUT_MS.availability,
-        `${rec2.id}:isAvailable:stop`
-      ).catch((err) => {
-        console.warn("[recording] availability probe failed (stop)", rec2.id, err);
-        return false;
-      });
-      if (!available) return;
-      emitStopPhase("stop-call", { recorderId: rec2.id });
-      await withTimeout(
-        () => rec2.stop(),
-        RECORDER_TIMEOUT_MS.stop,
-        `${rec2.id}:stop`
-      ).catch((err) => {
-        console.warn("[recording] stop failed", rec2.id, err);
-      });
-    });
-    await Promise.allSettled(tasks);
-    activeSessionRecorderIds.clear();
+    emitStopPhase("begin", { recorderCount: activeSessionRecorderIds.size, scopedToSession: true });
+    for (const id of activeSessionRecorderIds) {
+      const rec2 = registry2.get(id);
+      if (!rec2) throw new Error(`Active recorder ${id} is unavailable. Check the recorder before leaving.`);
+      emitStopPhase("stop-call", { recorderId: id });
+      if (id === "core") await rec2.stop();
+      else await withTimeout(() => rec2.stop(), 15e3, `${id}:stop`);
+      activeSessionRecorderIds.delete(id);
+    }
     sessionRecording = false;
     emitRecordingState(false);
-    const elapsedMs = Math.max(0, Date.now() - startedAt);
-    emitStopPhase("end", { elapsedMs });
-    if (elapsedMs > STOP_SLOW_WARN_MS) {
-      try {
-        console.warn("[recording] stop exceeded latency budget", { elapsedMs, budgetMs: STOP_SLOW_WARN_MS });
-      } catch {
-      }
-    }
+    emitStopPhase("end", { elapsedMs: Date.now() - startedAt });
   })();
   try {
     await stopInFlight;
+  } catch (error) {
+    reportRecordingError(error);
+    throw error;
   } finally {
     stopInFlight = null;
   }
@@ -76393,12 +77393,15 @@ async function stopSessionRecording() {
 function isSessionRecording() {
   return sessionRecording;
 }
-var registry, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS, STOP_SLOW_WARN_MS;
+function isRecordingBusy() {
+  return sessionRecording || startInFlight !== null || stopInFlight !== null;
+}
+var registry2, sessionRecording, activeSessionRecorderIds, startInFlight, stopInFlight, RECORDER_TIMEOUT_MS;
 var init_recorderRegistry = __esm({
   "src/recording/recorderRegistry.ts"() {
     "use strict";
     init_recording_settings();
-    registry = /* @__PURE__ */ new Map();
+    registry2 = /* @__PURE__ */ new Map();
     sessionRecording = false;
     activeSessionRecorderIds = /* @__PURE__ */ new Set();
     startInFlight = null;
@@ -76408,7 +77411,6 @@ var init_recorderRegistry = __esm({
       start: 5e3,
       stop: 2e3
     };
-    STOP_SLOW_WARN_MS = 2e3;
   }
 });
 
@@ -80265,7 +81267,7 @@ function computeRecordArmOnLive(recordingEnabledOverride) {
     if (!recordingEnabled) {
       return { recordOnLive: false, reason: "disabled-by-settings" };
     }
-    const recordingMode = getRecordingMode();
+    const recordingMode = getRecordingMode2();
     const engine = getRecordingEngine();
     const needsCamera = recordingMode === "av" && engine === "core";
     if (needsCamera && !hasCameraActive()) {
@@ -80282,7 +81284,7 @@ function computeRecordArmOnLive(recordingEnabledOverride) {
       }
       return { recordOnLive: false, reason: "no-camera" };
     }
-    if (!hasMicDevice()) {
+    if (engine === "core" && !hasMicDevice()) {
       return { recordOnLive: false, reason: "no-mic" };
     }
     if (listRecorders().length === 0) {
@@ -85486,6 +86488,8 @@ function deepMergeDefaults(defaults, stored) {
   const result = cloneState2(defaults);
   for (const [key, value] of Object.entries(stored)) {
     if (!(key in result)) continue;
+    if (value === void 0) continue;
+    if (result[key] && typeof result[key] === "object" && !Array.isArray(result[key]) && (!value || typeof value !== "object" || Array.isArray(value))) continue;
     if (value && typeof value === "object" && !Array.isArray(value) && typeof result[key] === "object" && result[key] !== null) {
       result[key] = deepMergeDefaults(result[key], value);
     } else {
@@ -85520,6 +86524,7 @@ function persistState(state9) {
   try {
     if (typeof window === "undefined") return;
     const toStore = {
+      ...JSON.parse(window.localStorage.getItem(STORAGE_KEY8) || "{}"),
       enabled: cloneState2(state9.enabled),
       configs: cloneState2(state9.configs)
     };
@@ -85553,10 +86558,17 @@ function updateRecorderSettings(updater) {
   notify2();
 }
 function setRecorderEnabled(id, enabled2) {
+  if (currentState.enabled[id] === enabled2) return;
   updateRecorderSettings((prev2) => ({
     ...prev2,
     enabled: { ...prev2.enabled, [id]: enabled2 }
   }));
+  if (id === "obs") {
+    try {
+      window.__tpStore?.set?.("obsEnabled", enabled2);
+    } catch {
+    }
+  }
 }
 function setObsConfig(patch) {
   updateRecorderSettings((prev2) => ({
@@ -85616,1891 +86628,763 @@ var init_recorder_settings = __esm({
 });
 
 // src/obs/obs-connection.ts
-function logObsCommand(cmd, extra = {}) {
-  if (shouldSilenceObsLogs) return;
-  const payload = { cmd, ...extra };
-  try {
-    console.log("[OBS-CMD]", payload);
-  } catch {
-  }
-  try {
-    window.HUD?.log?.("obs:command", payload);
-  } catch {
-  }
+function resolveBridge() {
+  return window.__obsBridge ?? null;
 }
-function getBridge() {
-  try {
-    const w3 = window;
-    return w3.__obsBridge || null;
-  } catch {
-    return null;
-  }
-}
-function updateStatus(status2, err) {
-  setObsStatus(status2, err ?? null);
-}
-function toastObs(msg, type = "info") {
-  if (shouldSilenceObsLogs) return;
-  try {
-    const w3 = window;
-    const toast6 = w3._toast || w3.toast;
-    if (typeof toast6 === "function") {
-      toast6(msg, { type });
-      return;
-    }
-  } catch {
-  }
-  try {
-    console.log(msg);
-  } catch {
-  }
-}
-function wireBridgeEvents() {
-  if (wiredEvents) return;
-  const bridge = getBridge();
-  if (!bridge?.on) return;
-  bridge.on("connect", () => updateStatus("connected"));
-  bridge.on("disconnect", () => updateStatus("disconnected"));
-  bridge.on("error", (err) => {
-    const msg = err?.message || String(err || "error");
-    updateStatus("error", msg);
-  });
-  wiredEvents = true;
-}
-function closeBridge(reason) {
-  if (bridgeRetryTimer) {
-    try {
-      clearTimeout(bridgeRetryTimer);
-    } catch {
-    }
-    bridgeRetryTimer = 0;
-  }
-  connectQueued = false;
-  connectInFlight = null;
-  const bridge = getBridge();
-  if (reason === "disabled" && !bridgeArmed) return;
-  logObsCommand("close", { reason });
-  try {
-    void Promise.resolve(bridge?.enableAutoReconnect?.(false)).catch(() => {
-    });
-  } catch {
-  }
-  try {
-    void Promise.resolve(bridge?.setArmed?.(false)).catch(() => {
-    });
-  } catch {
-  }
-  try {
-    void Promise.resolve(bridge?.disconnect?.()).catch(() => {
-    });
-  } catch {
-  }
-  bridgeArmed = false;
-  updateStatus("disconnected", reason);
-}
-async function safeInvoke(label, fn) {
-  if (!fn) return { ok: false };
-  try {
-    const value = await fn();
-    return { ok: true, value };
-  } catch (err) {
-    logObsCommand(`bridge:${label}:error`, { error: String(err?.message || err) });
-    return { ok: false, error: err };
-  }
-}
-function notifyBridgeMissing() {
-  updateStatus("error", "OBS bridge unavailable");
-  const now3 = Date.now();
-  if (now3 - lastBridgeMissingToastAt >= BRIDGE_MISSING_TOAST_COOLDOWN_MS) {
-    lastBridgeMissingToastAt = now3;
-    toastObs("OBS bridge unavailable. Install/enable the OBS bridge to connect.", "warn");
-  } else {
-    try {
-      console.warn("[OBS] bridge unavailable");
-    } catch {
+async function connectObs() {
+  const state9 = getRecorderSettings();
+  const current2 = resolveBridge();
+  if (current2 !== bridge) {
+    unsubscribers.forEach((off2) => off2());
+    unsubscribers = [];
+    bridge = current2;
+    if (bridge) {
+      const source = bridge;
+      unsubscribers = [
+        source.on("connect", () => {
+          if (source === bridge && getRecorderSettings().enabled.obs && source.isConnected()) setObsStatus("connected");
+        }),
+        source.on("disconnect", () => {
+          if (source === bridge) setObsStatus("disconnected");
+        }),
+        source.on("error", (error) => {
+          if (source === bridge) setObsStatus("error", error?.message || String(error));
+        })
+      ];
     }
   }
-}
-function scheduleBridgeRetry(reason) {
-  if (bridgeRetryTimer) return;
-  if (!getRecorderSettings().enabled.obs) return;
-  bridgeRetryTimer = window.setTimeout(() => {
-    bridgeRetryTimer = 0;
-    connectViaBridge();
-  }, BRIDGE_RETRY_MS);
-  logObsCommand("bridge:retry", { reason, delayMs: BRIDGE_RETRY_MS });
-}
-function connectViaBridge() {
-  if (connectInFlight) {
-    connectQueued = true;
-    return;
+  if (!state9.enabled.obs) {
+    current2?.setArmed(false);
+    setObsStatus("disconnected");
+    return false;
   }
-  const run = async () => {
-    const state9 = getRecorderSettings();
-    if (!state9.enabled.obs) {
-      closeBridge();
-      return;
-    }
-    const bridge = getBridge();
-    wireBridgeEvents();
-    if (!bridge) {
-      notifyBridgeMissing();
-      scheduleBridgeRetry("missing-bridge");
-      return;
-    }
-    await safeInvoke(
-      "configure",
-      () => bridge.configure?.({ url: state9.configs.obs.url, password: state9.configs.obs.password || "" })
-    );
-    logObsCommand("configure", { url: state9.configs.obs.url });
-    await safeInvoke("setArmed", () => bridge.setArmed?.(true));
-    bridgeArmed = true;
-    logObsCommand("setArmed", { armed: true });
-    await safeInvoke("enableAutoReconnect", () => bridge.enableAutoReconnect?.(true));
-    logObsCommand("enableAutoReconnect", { on: true });
-    updateStatus("connecting");
-    await safeInvoke("maybeConnect", () => bridge.maybeConnect?.());
-    logObsCommand("connect:maybe");
-    const connectRes = await safeInvoke("connect", () => bridge.connect?.());
-    logObsCommand("connect:explicit");
-    if (connectRes.error || typeof connectRes.value === "boolean" && !connectRes.value) {
-      updateStatus("disconnected", "OBS connection failed");
-      toastObs("OBS connection failed. Make sure OBS is running.", "warn");
-      return;
-    }
-  };
-  connectInFlight = run().catch((err) => {
-    updateStatus("disconnected", "OBS connection failed");
-    try {
-      console.warn("[OBS] connect failed", err);
-    } catch {
-    }
-  }).finally(() => {
-    connectInFlight = null;
-    if (connectQueued) {
-      connectQueued = false;
-      connectViaBridge();
-    }
-  });
+  if (!current2) {
+    setObsStatus("error", "OBS bridge unavailable. Reload Anvil and check Recording Settings.");
+    if (!retry) retry = setTimeout(() => {
+      retry = null;
+      void connectObs();
+    }, 1200);
+    return false;
+  }
+  const attempt = revision;
+  try {
+    current2.configure(state9.configs.obs);
+    current2.setArmed(true);
+    if (!current2.isConnected()) setObsStatus("connecting");
+    const ok = await current2.connect();
+    if (attempt !== revision || !getRecorderSettings().enabled.obs) return false;
+    const connected = ok === true && current2.isConnected();
+    setObsStatus(connected ? "connected" : "error", connected ? null : "OBS connection failed. Check OBS WebSocket authentication and address.");
+    return connected;
+  } catch (error) {
+    if (attempt === revision) setObsStatus("error", error.message);
+    return false;
+  }
 }
 function initObsConnection() {
-  const initial2 = getRecorderSettings();
-  lastEnabled = initial2.enabled.obs;
-  lastUrl = initial2.configs.obs.url;
-  lastPassword = initial2.configs.obs.password;
-  subscribeRecorderSettings((s) => {
-    const prevEnabled = lastEnabled;
-    const prevUrl = lastUrl;
-    const prevPwd = lastPassword;
-    const urlChanged = s.configs.obs.url !== prevUrl;
-    const pwdChanged = s.configs.obs.password !== prevPwd;
-    const enabledChanged = s.enabled.obs !== prevEnabled;
-    lastEnabled = s.enabled.obs;
-    lastUrl = s.configs.obs.url;
-    lastPassword = s.configs.obs.password;
-    if (!s.enabled.obs) {
-      if (enabledChanged) {
-        closeBridge("disabled");
-      }
-      return;
+  if (initialized) return;
+  initialized = true;
+  subscribeRecorderSettings((state9) => {
+    const intent = JSON.stringify([state9.enabled.obs, state9.configs.obs]);
+    if (intent === lastIntent) return;
+    lastIntent = intent;
+    revision += 1;
+    if (retry) {
+      clearTimeout(retry);
+      retry = null;
     }
-    if (!enabledChanged && !urlChanged && !pwdChanged) return;
-    closeBridge(enabledChanged ? "reconnect" : void 0);
-    connectViaBridge();
+    resolveBridge()?.setArmed(false);
+    void connectObs();
   });
-  if (initial2.enabled.obs) {
-    connectViaBridge();
-  } else {
-    updateStatus("disconnected");
-  }
 }
-var shouldSilenceObsLogs, lastUrl, lastPassword, lastEnabled, wiredEvents, bridgeArmed, connectInFlight, connectQueued, bridgeRetryTimer, lastBridgeMissingToastAt, BRIDGE_RETRY_MS, BRIDGE_MISSING_TOAST_COOLDOWN_MS;
+var initialized, bridge, unsubscribers, revision, lastIntent, retry;
 var init_obs_connection = __esm({
   "src/obs/obs-connection.ts"() {
     "use strict";
     init_recorder_settings();
-    shouldSilenceObsLogs = (() => {
-      try {
-        const w3 = window;
-        if (w3.__TP_SILENCE_OBS_LOGS) return true;
-        const search = String(location.search || "").toLowerCase();
-        return search.includes("ci=1") || search.includes("uimock=1");
-      } catch {
-        return false;
-      }
-    })();
-    lastUrl = "";
-    lastPassword = "";
-    lastEnabled = false;
-    wiredEvents = false;
-    bridgeArmed = false;
-    connectInFlight = null;
-    connectQueued = false;
-    bridgeRetryTimer = 0;
-    lastBridgeMissingToastAt = 0;
-    BRIDGE_RETRY_MS = 1200;
-    BRIDGE_MISSING_TOAST_COOLDOWN_MS = 8e3;
-  }
-});
-
-// recorders-core.ts
-function __tpReadAutoRecordPref() {
-  try {
-    if (typeof window !== "undefined") {
-      const store3 = window.__tpStore;
-      if (store3 && typeof store3.get === "function") {
-        const v = store3.get("autoRecord");
-        if (typeof v === "boolean") return v;
-      }
-    }
-  } catch {
-  }
-  try {
-    const doc = typeof document !== "undefined" ? document : null;
-    if (doc) {
-      const el = doc.getElementById("autoRecordToggle") || doc.getElementById("autoRecord");
-      if (el) return !!el.checked;
-    }
-  } catch {
-  }
-  try {
-    return localStorage.getItem("tp_auto_record_on_start_v1") === "1";
-  } catch {
-    return false;
-  }
-}
-function persistSettings() {
-  try {
-    localStorage.setItem(LS_KEY2, JSON.stringify(settings));
-    try {
-      localStorage.setItem("tp_record_mode", String(settings.mode || "multi"));
-    } catch {
-    }
-    try {
-      localStorage.setItem("tp_adapters", JSON.stringify(Array.isArray(settings.selected) ? settings.selected : []));
-    } catch {
-    }
-  } catch {
-  }
-}
-function setSettings(next) {
-  if (!next || typeof next !== "object") return;
-  const prev2 = settings;
-  settings = {
-    ...prev2,
-    ..."mode" in next ? { mode: next.mode } : {},
-    ..."selected" in next ? { selected: Array.isArray(next.selected) ? next.selected.slice() : prev2.selected } : {},
-    ..."recordingMode" in next ? { recordingMode: next.recordingMode === "audio" ? "audio" : "av" } : {},
-    ..."preferObsHandoff" in next ? { preferObsHandoff: !!next.preferObsHandoff } : {},
-    ..."configs" in next ? { configs: { ...prev2.configs, ...next.configs || {} } } : {},
-    ..."timeouts" in next ? { timeouts: { ...prev2.timeouts, ...next.timeouts || {} } } : {},
-    ..."failPolicy" in next ? { failPolicy: next.failPolicy } : {}
-  };
-  persistSettings();
-  applyConfigs();
-}
-function getSettings() {
-  return JSON.parse(JSON.stringify(settings));
-}
-function setSelected(ids) {
-  setSettings({ selected: Array.isArray(ids) ? ids : [] });
-}
-function setMode(mode) {
-  setSettings({ mode });
-}
-function setRecordingMode(mode) {
-  setSettings({ recordingMode: mode });
-}
-function getRecordingMode2() {
-  return settings.recordingMode === "audio" ? "audio" : "av";
-}
-function setTimeouts(t) {
-  setSettings({ timeouts: t });
-}
-function setFailPolicy(p) {
-  setSettings({ failPolicy: p });
-}
-function applyConfigs() {
-  for (const [id, a] of registry2.entries()) {
-    try {
-      const cfg = settings.configs[id];
-      if (cfg && typeof a.configure === "function") a.configure(cfg);
-    } catch {
-    }
-  }
-}
-function callWithTimeout(promiseOrFn, ms = 0) {
-  const p = typeof promiseOrFn === "function" ? promiseOrFn() : promiseOrFn;
-  return Promise.race([
-    Promise.resolve().then(() => p),
-    new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), Math.max(0, ms || 0)))
-  ]);
-}
-async function guarded(fn) {
-  if (_busy) return { skipped: true };
-  _busy = true;
-  try {
-    return await fn();
-  } finally {
-    _busy = false;
-  }
-}
-function describeError(err) {
-  if (err instanceof Error && typeof err.message === "string") return err.message;
-  try {
-    return String(err);
-  } catch {
-    return "error";
-  }
-}
-function setTrackedTimeout(fn, ms) {
-  const h = setTimeout(() => {
-    try {
-      __recTimers.delete(h);
-    } catch {
-    }
-    try {
-      fn();
-    } catch {
-    }
-  }, Math.max(0, ms || 0));
-  try {
-    __recTimers.add(h);
-  } catch {
-  }
-  return h;
-}
-function _emitRecState(state9, detail = null) {
-  try {
-    _recState = state9;
-    _recDetail = detail || null;
-    if (typeof window !== "undefined") {
-      try {
-        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
-      } catch {
-      }
-      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
-      try {
-        const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
-        if (key === __lastRecKey) return;
-        __lastRecKey = key;
-      } catch {
-      }
-      window.dispatchEvent(new CustomEvent("rec:state", { detail: payload }));
-      try {
-        window.__tpHud?.log?.("[rec:state]", payload);
-      } catch {
-      }
-    }
-  } catch {
-  }
-}
-function _isActiveState(s) {
-  return s === "starting" || s === "recording";
-}
-function getRecState() {
-  return { state: _recState, adapter: _recAdapter, detail: _recDetail };
-}
-function isNoRecordMode() {
-  try {
-    return !!(window.__tpNoRecord || typeof document !== "undefined" && document.body && document.body.classList && document.body.classList.contains("mode-rehearsal"));
-  } catch {
-    return false;
-  }
-}
-function selectedIds() {
-  const ids = Array.isArray(settings.selected) ? settings.selected.slice() : [];
-  if (settings.mode === "single" && ids.length > 1) ids.length = 1;
-  return ids.filter((id) => registry2.has(id));
-}
-function clearHandoffTimer() {
-  try {
-    if (__handoffTimer) {
-      clearInterval(__handoffTimer);
-      __handoffTimer = null;
-    }
-  } catch {
-  }
-}
-async function tryObsHandoffOnce(reason = "watchdog") {
-  try {
-    if (!settings?.preferObsHandoff) return false;
-    if (_recState !== "recording" || _recAdapter !== "bridge") return false;
-    const br = typeof window !== "undefined" ? window.__obsBridge || null : null;
-    if (!br || typeof br.getRecordStatus !== "function") return false;
-    let isRec = false;
-    try {
-      const s = await br.getRecordStatus();
-      isRec = !!(s && (s.outputActive === true || s.recording === true));
-    } catch {
-    }
-    if (!isRec) return false;
-    const bridgeAdapter = registry2.get("bridge");
-    _emitRecState("stopping", { reason: "obs-handoff", via: reason });
-    try {
-      await bridgeAdapter?.stop?.();
-    } catch {
-    }
-    _recAdapter = "obs";
-    _emitRecState("recording", { handoff: true });
-    clearHandoffTimer();
-    return true;
-  } catch {
-    return false;
-  }
-}
-function armObsHandoffWatchdog() {
-  clearHandoffTimer();
-  try {
-    if (!settings?.preferObsHandoff) return;
-    if (_recState === "recording" && _recAdapter === "bridge") {
-      const t = setInterval(() => {
-        tryObsHandoffOnce("watchdog");
-      }, 1e3);
-      try {
-        const maybeTimer = t;
-        if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
-      } catch {
-      }
-      __handoffTimer = t;
-    }
-  } catch {
-  }
-}
-async function teardownRecorders() {
-  try {
-    __recEpoch++;
-  } catch {
-  }
-  try {
-    __lastBridgeTap = 0;
-  } catch {
-  }
-  try {
-    for (const h of Array.from(__recTimers)) {
-      clearTimeout(h);
-      __recTimers.delete(h);
-    }
-  } catch {
-  }
-  try {
-    clearHandoffTimer();
-  } catch {
-  }
-  try {
-    if (__recStatsTimer) {
-      clearInterval(__recStatsTimer);
-      __recStatsTimer = null;
-    }
-  } catch {
-  }
-  try {
-    const br = typeof window !== "undefined" ? window.__obsBridge : null;
-    if (br) {
-      if (typeof br.off === "function") {
-        try {
-          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
-            br.off("disconnect", _onObsDisconnectCb);
-            window.__tpObsDisconnectWired = false;
-          }
-        } catch {
-        }
-        try {
-          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
-            br.off("recordingStarted", _onObsRecordingStartedCb);
-            window.__tpObsHandoffWired = false;
-          }
-        } catch {
-        }
-      } else if (typeof br.removeListener === "function") {
-        try {
-          if (_onObsDisconnectCb && window.__tpObsDisconnectWired) {
-            br.removeListener("disconnect", _onObsDisconnectCb);
-            window.__tpObsDisconnectWired = false;
-          }
-        } catch {
-        }
-        try {
-          if (_onObsRecordingStartedCb && window.__tpObsHandoffWired) {
-            br.removeListener("recordingStarted", _onObsRecordingStartedCb);
-            window.__tpObsHandoffWired = false;
-          }
-        } catch {
-        }
-      }
-    }
-  } catch {
-  }
-}
-async function startObsWithConfirm({ timeoutMs = 1200, retryDelayMs = 500 } = {}) {
-  const obs = typeof window !== "undefined" ? window.__obsBridge || null : null;
-  const bridgeAdapter = registry2.get("bridge");
-  const epoch = __recEpoch;
-  const isStale = () => epoch !== __recEpoch;
-  try {
-    window.__tpHud?.log?.("[rec] start obs");
-  } catch {
-  }
-  try {
-    _recAdapter = "obs";
-    _emitRecState("starting");
-  } catch {
-  }
-  let fallbackSent = false;
-  const maybeTapBridge = async () => {
-    const t = __now();
-    if (t - __lastBridgeTap < 1200) return false;
-    __lastBridgeTap = t;
-    try {
-      await bridgeAdapter?.start?.();
-    } catch {
-    }
-    return true;
-  };
-  const confirm = async () => {
-    try {
-      const s = await obs?.getRecordStatus?.();
-      return !!(s && s.outputActive === true);
-    } catch {
-      return false;
-    }
-  };
-  const tryStart = async () => {
-    try {
-      if (obs && typeof obs.start === "function") await obs.start();
-      else if (obs && typeof obs.startRecord === "function") await obs.startRecord();
-    } catch {
-    }
-  };
-  await tryStart();
-  let ok = false;
-  let deadline = __now() + timeoutMs;
-  while (!ok && __now() < deadline) {
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort confirm (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    ok = await confirm();
-    if (!ok) await __sleep(120);
-  }
-  if (!ok) {
-    try {
-      window.__tpHud?.log?.("[rec] retry");
-    } catch {
-    }
-    await __sleep(Math.max(0, retryDelayMs));
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort retry (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    await tryStart();
-    try {
-      recStats.retries++;
-    } catch {
-    }
-    ok = await confirm();
-  }
-  if (ok) {
-    try {
-      _recAdapter = "obs";
-      _emitRecState("recording");
-    } catch {
-    }
-    return { ok: true, adapter: "obs" };
-  }
-  const isBridgeAvailable = !!bridgeAdapter;
-  if (!fallbackSent && isBridgeAvailable) {
-    fallbackSent = true;
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort fallback (stale)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    await maybeTapBridge();
-    if (isStale()) {
-      try {
-        window.__tpHud?.log?.("[rec] abort fallback (stale-2)");
-      } catch {
-      }
-      return { ok: false, adapter: "obs", error: "stale" };
-    }
-    try {
-      window.__tpHud?.log?.("[rec] fallback bridge");
-    } catch {
-    }
-    try {
-      _recAdapter = "bridge";
-      _emitRecState("recording", { fallback: true });
-    } catch {
-    }
-    try {
-      recStats.fallbacks++;
-    } catch {
-    }
-    return { ok: true, adapter: "bridge", fallback: true };
-  }
-  try {
-    window.__tpHud?.log?.("[rec] drop (start-timeout)");
-  } catch {
-  }
-  try {
-    _recAdapter = "obs";
-    _emitRecState("error", { reason: "start-timeout" });
-  } catch {
-  }
-  return { ok: false, adapter: "obs", error: "start-timeout" };
-}
-async function startSelected() {
-  return guarded(async () => {
-    if (isNoRecordMode()) {
-      try {
-        window.HUD?.log?.("rehearsal", { skip: "startSelected (no-record)" });
-      } catch {
-      }
-      return { results: [], started: [] };
-    }
-    if (_recState === "stopping") {
-      try {
-        window.__tpHud?.log?.("[rec] busy (stopping)");
-      } catch {
-      }
-      return { results: [], started: [], reason: "idempotent-start-while-stopping" };
-    }
-    if (_isActiveState(_recState)) {
-      try {
-        window.__tpHud?.log?.("[rec] already recording");
-      } catch {
-      }
-      _emitRecState(_recState, { reason: "idempotent-start" });
-      return { results: [], started: selectedIds() };
-    }
-    applyConfigs();
-    try {
-      ensureObsDisconnectFallback();
-    } catch {
-    }
-    try {
-      ensureObsRecordingStartedHandoff();
-    } catch {
-    }
-    const ids = selectedIds();
-    _recAdapter = settings.mode === "single" ? ids[0] || null : ids[0] || null;
-    _emitRecState("starting");
-    const t0 = __now();
-    try {
-      recStats.starts++;
-    } catch {
-    }
-    const started = [];
-    const actions = ids.map((id) => ({ id, a: registry2.get(id) }));
-    const doStart = async ({ id, a }) => {
-      if (!a) return { id, ok: false, error: "missing" };
-      try {
-        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.start);
-        if (!avail) return { id, ok: false, error: "unavailable" };
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-      try {
-        if (id === "obs") {
-          const res = await startObsWithConfirm({ timeoutMs: Math.min(2e3, settings.timeouts.start || 1500), retryDelayMs: 500 });
-          if (res && res.ok === false && res.error === "stale") {
-            return { id, ok: false, error: "stale" };
-          }
-          if (res && res.ok && res.adapter === "bridge" && res.fallback) {
-          }
-          if (res.ok) {
-            started.push(id);
-            return { id, ok: true, detail: res };
-          }
-          return { id, ok: false, error: res.error || "failed" };
-        } else {
-          await callWithTimeout(() => a.start(), settings.timeouts.start);
-          started.push(id);
-          return { id, ok: true };
-        }
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-    };
-    const results = [];
-    if (settings.failPolicy === "abort-on-first-fail") {
-      for (const act of actions) {
-        const r = await doStart(act);
-        results.push(r);
-        if (!r.ok) break;
-      }
-    } else {
-      const rs = await Promise.all(actions.map(doStart));
-      results.push(...rs);
-    }
-    if (started.length) {
-      try {
-        window.__tpHud?.log?.("[rec] recording");
-      } catch {
-      }
-      const anyFallback = results.find((r) => r && r.id === "obs" && r.detail && r.detail.fallback);
-      if (anyFallback) {
-        _recAdapter = "bridge";
-        _emitRecState("recording", { fallback: true, via: "bridge" });
-      } else {
-        _emitRecState("recording");
-      }
-      try {
-        recStats.startLat.push(Math.max(0, __now() - t0));
-      } catch {
-      }
-    } else {
-      _emitRecState("error", { results });
-    }
-    return { results, started };
-  });
-}
-async function stopSelected() {
-  __recEpoch++;
-  __lastBridgeTap = 0;
-  clearHandoffTimer();
-  if (isNoRecordMode()) {
-    try {
-      window.HUD?.log?.("rehearsal", { note: "stopSelected (allowed during no-record)" });
-    } catch {
-    }
-  }
-  if (_recState === "idle" || _recState === "stopping") {
-    _emitRecState("idle", { reason: "idempotent-stop" });
-    return { results: [] };
-  }
-  try {
-    window.__tpHud?.log?.("[rec] stop");
-  } catch {
-  }
-  _emitRecState("stopping");
-  const t0 = __now();
-  const ids = selectedIds();
-  const actions = ids.map((id) => ({ id, a: registry2.get(id) })).filter((x) => !!x.a);
-  const rs = await Promise.all(
-    actions.map(async ({ id, a }) => {
-      try {
-        const avail = await callWithTimeout(() => a.isAvailable(), settings.timeouts.stop);
-        if (!avail) return { id, ok: false, error: "unavailable" };
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-      try {
-        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
-        return { id, ok: true, ...detail && typeof detail === "object" ? { detail } : {} };
-      } catch (e) {
-        return { id, ok: false, error: describeError(e) };
-      }
-    })
-  );
-  _emitRecState("idle");
-  for (const result of rs) {
-    if (result.id !== "obs" || !result.ok || !result.detail) continue;
-    try {
-      void window.__tpObsImport?.acceptStopResult?.(result.detail);
-    } catch {
-    }
-  }
-  try {
-    recStats.stopLat.push(Math.max(0, __now() - t0));
-  } catch {
-  }
-  return { results: rs };
-}
-function register(adapter) {
-  registry2.set(adapter.id, adapter);
-}
-function get2(id) {
-  return registry2.get(id);
-}
-function all() {
-  return [...registry2.values()];
-}
-async function initBuiltIns() {
-  if (_builtInsInit) return _builtInsReady;
-  _builtInsInit = true;
-  try {
-    const adapters = [];
-    const resolver = typeof window !== "undefined" && typeof window.__TP_ADDV === "function" ? window.__TP_ADDV.bind(window) : ((p) => p);
-    try {
-      const m = await import(
-        /* @vite-ignore */
-        resolver("./adapters/bridge.js")
-      );
-      const a = m?.createBridgeAdapter?.();
-      if (a) adapters.push(a);
-    } catch {
-    }
-    try {
-      const m = await import(
-        /* @vite-ignore */
-        resolver("./adapters/obs.js")
-      );
-      const a = m?.createOBSAdapter?.();
-      if (a) adapters.push(a);
-    } catch {
-    }
-    try {
-      const m = await import(
-        /* @vite-ignore */
-        resolver("./adapters/hotkey.js")
-      );
-      const aPrem = m?.createHotkeyAdapter?.("premiere", "Adobe Premiere Pro");
-      if (aPrem) adapters.push(aPrem);
-    } catch {
-    }
-    try {
-      if (typeof window !== "undefined" && window.__obsBridge) {
-        const bridge = window.__obsBridge;
-        const wrapper = {
-          id: "obs",
-          label: "OBS (WebSocket) - bridge",
-          configure(cfg) {
-            try {
-              bridge.configure(cfg);
-            } catch {
-            }
-          },
-          async isAvailable() {
-            try {
-              return bridge.isConnected ? bridge.isConnected() : bridge.isConnected && bridge.isConnected();
-            } catch {
-              return !!bridge.isConnected && bridge.isConnected();
-            }
-          },
-          async start() {
-            return bridge.start();
-          },
-          async stop() {
-            return bridge.stop();
-          },
-          async test() {
-            return bridge.getRecordStatus();
-          }
-        };
-        adapters.push(wrapper);
-      }
-    } catch {
-    }
-    for (const a of adapters) {
-      try {
-        register(a);
-      } catch {
-      }
-    }
-    applyConfigs();
-    try {
-      ensureObsDisconnectFallback();
-    } catch {
-    }
-    try {
-      ensureObsRecordingStartedHandoff();
-    } catch {
-    }
-  } catch {
-  } finally {
-    _resolveBuiltInsReady?.();
-    _resolveBuiltInsReady = null;
-  }
-}
-function ensureObsDisconnectFallback() {
-  try {
-    if (typeof window === "undefined") return;
-    const br = window.__obsBridge;
-    if (!br || typeof br.on !== "function") return;
-    if (window.__tpObsDisconnectWired) return;
-    window.__tpObsDisconnectWired = true;
-    _onObsDisconnectCb = async () => {
-      try {
-        const state9 = _recState;
-        const bridgeAdapter = registry2.get("bridge");
-        const isAuto = __tpReadAutoRecordPref();
-        try {
-          recStats.disconnects++;
-        } catch {
-        }
-        if (state9 === "starting") {
-          await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
-          return;
-        }
-        if (state9 === "recording") {
-          _emitRecState("stopping", { reason: "disconnect" });
-          if (isAuto && bridgeAdapter) {
-            try {
-              await bridgeAdapter.start?.();
-            } catch {
-            }
-            try {
-              window.dispatchEvent(new CustomEvent("rec:state", { detail: { adapter: "bridge", state: "recording", detail: { fallback: true, reason: "obs-disconnect" } } }));
-            } catch {
-            }
-          } else {
-            _emitRecState("idle", { reason: "disconnect" });
-          }
-        }
-      } catch {
-      }
-    };
-    br.on("disconnect", _onObsDisconnectCb);
-  } catch {
-  }
-}
-function ensureObsRecordingStartedHandoff() {
-  try {
-    if (typeof window === "undefined") return;
-    const br = window.__obsBridge;
-    if (!br || typeof br.on !== "function") return;
-    if (window.__tpObsHandoffWired) return;
-    window.__tpObsHandoffWired = true;
-    _onObsRecordingStartedCb = async () => {
-      try {
-        const prefer = !!(settings && settings.preferObsHandoff);
-        if (_recState === "recording" && _recAdapter === "bridge") {
-          if (!prefer) {
-            try {
-              window.__tpHud?.log?.("[rec] obs up (handoff disabled)");
-            } catch {
-            }
-            return;
-          }
-          const bridgeAdapter = registry2.get("bridge");
-          _emitRecState("stopping", { reason: "obs-handoff" });
-          try {
-            await bridgeAdapter?.stop?.();
-          } catch {
-          }
-          _recAdapter = "obs";
-          _emitRecState("recording", { handoff: true });
-        }
-      } catch {
-      }
-    };
-    br.on("recordingStarted", _onObsRecordingStartedCb);
-  } catch {
-  }
-}
-async function start() {
-  return startSelected();
-}
-async function stop2() {
-  return stopSelected();
-}
-function p95(arr) {
-  if (!arr || !arr.length) return 0;
-  const a = arr.slice().sort((x, y) => x - y);
-  const i = Math.min(a.length - 1, Math.floor(a.length * 0.95));
-  return a[i] || 0;
-}
-function emitRecStats(_final = false) {
-  try {
-    const payload = {
-      starts: recStats.starts | 0,
-      retries: recStats.retries | 0,
-      fallbacks: recStats.fallbacks | 0,
-      disconnects: recStats.disconnects | 0,
-      startP95Ms: Math.round(p95(recStats.startLat)),
-      stopP95Ms: Math.round(p95(recStats.stopLat))
-    };
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rec:stats", { detail: payload }));
-    }
-  } catch {
-  }
-}
-var registry2, LS_KEY2, defaultSettings, settings, _busy, _recState, _recDetail, _recAdapter, __recEpoch, __lastBridgeTap, __recTimers, _onObsDisconnectCb, _onObsRecordingStartedCb, __now, __sleep, __lastRecKey, __handoffTimer, _builtInsInit, _resolveBuiltInsReady, _builtInsReady, recStats, __recStatsTimer;
-var init_recorders_core = __esm({
-  "recorders-core.ts"() {
-    "use strict";
-    (function() {
-      try {
-        let getJSON2 = function(k, d) {
-          try {
-            const raw = localStorage.getItem(k);
-            return raw ? JSON.parse(raw) : d;
-          } catch {
-            return d;
-          }
-        }, getCfg2 = function() {
-          const a = getJSON2(LS.cfg, {});
-          const b = getJSON2(LS.modern, {});
-          const inner = b && b.configs || {};
-          const merged = { ...inner, ...a };
-          if (a && a.recording) merged.recording = a.recording;
-          return merged;
-        }, getSelectedAdapterId2 = function() {
-          const cfg = getCfg2();
-          try {
-            return cfg.recording && cfg.recording.adapter || localStorage.getItem(LS.recAdapter) || DEFAULT_ADAPTER;
-          } catch {
-            return DEFAULT_ADAPTER;
-          }
-        }, wantsAuto2 = function() {
-          return __tpReadAutoRecordPref();
-        }, getAdapter2 = function(id) {
-          if (typeof id === "string" && id.length > 0) {
-            try {
-              return get2(id);
-            } catch {
-              return void 0;
-            }
-          }
-          return getSelectedAdapterId2();
-        }, bridgeCfg2 = function() {
-          const cfg = getCfg2().bridge || {};
-          return {
-            mode: cfg.mode || "hotkey",
-            baseUrl: String(cfg.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, ""),
-            startHotkey: cfg.startHotkey || cfg.preset || "Ctrl+R",
-            stopHotkey: cfg.stopHotkey || "",
-            startUrl: cfg.startUrl || "",
-            stopUrl: cfg.stopUrl || ""
-          };
-        }, getRecorderSurface2 = function() {
-          try {
-            const w3 = window;
-            return w3.__tpRecorder || w3.__recorder || null;
-          } catch {
-            return null;
-          }
-        };
-        var getJSON = getJSON2, getCfg = getCfg2, getSelectedAdapterId = getSelectedAdapterId2, wantsAuto = wantsAuto2, getAdapter = getAdapter2, bridgeCfg = bridgeCfg2, getRecorderSurface = getRecorderSurface2;
-        if (typeof window === "undefined") return;
-        const DEFAULT_ADAPTER = "recorder";
-        const LS = {
-          cfg: "configs",
-          // whole app config blob (optional)
-          recAdapter: "tp_rec_adapter",
-          // 'obs' | 'bridge' | 'premiere'
-          autoStart: "tp_auto_record_on_start_v1",
-          modern: "tp_rec_settings_v1"
-          // modern settings blob from registry (has .configs)
-        };
-        async function httpSend(url, body) {
-          if (!url) throw new Error("Missing URL");
-          const res = await fetch(url, {
-            method: body ? "POST" : "GET",
-            headers: body ? { "content-type": "application/json" } : void 0,
-            body: body ? JSON.stringify(body) : void 0,
-            mode: "no-cors"
-          });
-          try {
-            return !!res.ok || true;
-          } catch {
-            return true;
-          }
-        }
-        async function recorderStart() {
-          const rec2 = getRecorderSurface2();
-          if (!rec2 || typeof rec2.start !== "function") return true;
-          try {
-            await rec2.start();
-            return true;
-          } catch (err) {
-            try {
-              console.warn("[recorder] start failed", err);
-            } catch {
-            }
-            return false;
-          }
-        }
-        async function recorderStop() {
-          const rec2 = getRecorderSurface2();
-          if (!rec2 || typeof rec2.stop !== "function") return true;
-          try {
-            await rec2.stop();
-            return true;
-          } catch (err) {
-            try {
-              console.warn("[recorder] stop failed", err);
-            } catch {
-            }
-            return false;
-          }
-        }
-        async function bridgeStart() {
-          const b = bridgeCfg2();
-          if (b.mode === "http") {
-            return httpSend(b.startUrl);
-          }
-          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.startHotkey);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(b.baseUrl + "/send", { keys: b.startHotkey });
-          }
-        }
-        async function bridgeStop() {
-          const b = bridgeCfg2();
-          if (b.mode === "http") {
-            return b.stopUrl ? httpSend(b.stopUrl) : true;
-          }
-          if (!b.stopHotkey) return true;
-          const url = b.baseUrl + "/send?keys=" + encodeURIComponent(b.stopHotkey);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(b.baseUrl + "/send", { keys: b.stopHotkey });
-          }
-        }
-        async function obsStart() {
-          try {
-            if (window.__obsBridge && typeof window.__obsBridge.start === "function") {
-              await window.__obsBridge.start();
-              return true;
-            }
-          } catch {
-          }
-          try {
-            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
-              return !!await window.__tpObs.ensureRecording(true);
-            }
-          } catch {
-          }
-          return false;
-        }
-        async function obsStop() {
-          try {
-            if (window.__obsBridge && typeof window.__obsBridge.stop === "function") {
-              await window.__obsBridge.stop();
-              return true;
-            }
-          } catch {
-          }
-          try {
-            if (window.__tpObs && typeof window.__tpObs.ensureRecording === "function") {
-              return !!await window.__tpObs.ensureRecording(false);
-            }
-          } catch {
-          }
-          return false;
-        }
-        async function premStart() {
-          const p = getCfg2().premiere || {};
-          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
-          const hk = String(p.startHotkey || "Ctrl+R");
-          const url = base + "/send?keys=" + encodeURIComponent(hk);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(base + "/send", { keys: hk });
-          }
-        }
-        async function premStop() {
-          const p = getCfg2().premiere || {};
-          const base = String(p.baseUrl || "http://127.0.0.1:5723").replace(/\/+$/, "");
-          const hk = String(p.stopHotkey || "");
-          if (!hk) return true;
-          const url = base + "/send?keys=" + encodeURIComponent(hk);
-          try {
-            return await httpSend(url);
-          } catch {
-            return httpSend(base + "/send", { keys: hk });
-          }
-        }
-        async function start2() {
-          const a = getSelectedAdapterId2();
-          try {
-            window.__tpHud?.log?.("[rec]", "start", a);
-          } catch {
-          }
-          if (a === "recorder") return recorderStart();
-          if (a === "obs") return obsStart();
-          if (a === "descript") return premStart();
-          if (a === "premiere") return premStart();
-          return bridgeStart();
-        }
-        async function stop3() {
-          const a = getSelectedAdapterId2();
-          try {
-            window.__tpHud?.log?.("[rec]", "stop", a);
-          } catch {
-          }
-          if (a === "recorder") return recorderStop();
-          if (a === "obs") return obsStop();
-          if (a === "descript") return premStop();
-          if (a === "premiere") return premStop();
-          return bridgeStop();
-        }
-        window.__tpRecording = { start: start2, stop: stop3, wantsAuto: wantsAuto2, getAdapter: getAdapter2 };
-      } catch {
-      }
-    })();
-    registry2 = /* @__PURE__ */ new Map();
-    LS_KEY2 = "tp_rec_settings_v1";
-    defaultSettings = {
-      mode: "single",
-      selected: ["core"],
-      recordingMode: "av",
-      preferObsHandoff: false,
-      configs: {
-        obs: { url: "ws://127.0.0.1:4455", password: "" },
-        companion: { url: "http://127.0.0.1:8000", buttonId: "1.1" },
-        bridge: { startUrl: "http://127.0.0.1:5723/record/start", stopUrl: "" },
-        descript: { startHotkey: "Ctrl+R", via: "bridge" },
-        capcut: { startHotkey: "Ctrl+R", via: "companion" },
-        winmedia: { startHotkey: "Ctrl+R", via: "bridge" },
-        premiere: { startHotkey: "Ctrl+R", stopHotkey: "", baseUrl: "http://127.0.0.1:5723" }
-      },
-      timeouts: { start: 3e3, stop: 3e3 },
-      failPolicy: "continue"
-    };
-    settings = JSON.parse(JSON.stringify(defaultSettings));
-    try {
-      const raw = localStorage.getItem(LS_KEY2);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") settings = { ...settings, ...parsed };
-      } else {
-        try {
-          localStorage.setItem(LS_KEY2, JSON.stringify(settings));
-        } catch {
-        }
-      }
-    } catch {
-    }
-    _busy = false;
-    _recState = "idle";
-    _recDetail = null;
-    _recAdapter = null;
-    __recEpoch = 0;
-    __lastBridgeTap = 0;
-    __recTimers = /* @__PURE__ */ new Set();
-    _onObsDisconnectCb = null;
-    _onObsRecordingStartedCb = null;
-    __now = () => typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
-    __sleep = (ms) => new Promise((resolve) => {
-      setTrackedTimeout(() => resolve(), Math.max(0, ms || 0));
-    });
-    __lastRecKey = "";
-    __handoffTimer = null;
-    try {
-      if (typeof window !== "undefined") {
-        window.__recorder = window.__recorder || {};
-        if (!window.__recorder.__finalizeForTests) {
-          window.__recorder.__finalizeForTests = () => {
-            try {
-              clearHandoffTimer();
-            } catch {
-            }
-            try {
-              __recEpoch++;
-            } catch {
-            }
-            try {
-              if (__recStatsTimer) {
-                clearInterval(__recStatsTimer);
-                __recStatsTimer = null;
-              }
-            } catch {
-            }
-          };
-        }
-      }
-    } catch {
-    }
-    _builtInsInit = false;
-    _resolveBuiltInsReady = null;
-    _builtInsReady = new Promise((resolve) => {
-      _resolveBuiltInsReady = resolve;
-    });
-    try {
-      initBuiltIns();
-    } catch {
-    }
-    (function wireRecStateWatchdog() {
-      try {
-        if (typeof window === "undefined") return;
-        if (window.__tpRecWatchdogWired) return;
-        window.__tpRecWatchdogWired = true;
-        window.addEventListener("rec:state", (e) => {
-          try {
-            const evt = e;
-            const d = evt && evt.detail || {};
-            if (d && d.state === "recording" && d.adapter === "bridge" && settings?.preferObsHandoff) {
-              armObsHandoffWatchdog();
-            }
-            if (d && (d.state === "idle" || d.state === "stopping")) {
-              clearHandoffTimer();
-            }
-          } catch {
-          }
-        });
-      } catch {
-      }
-    })();
-    recStats = { starts: 0, retries: 0, fallbacks: 0, disconnects: 0, startLat: [], stopLat: [] };
-    __recStatsTimer = null;
-    try {
-      if (typeof window !== "undefined") {
-        if (__recStatsTimer) clearInterval(__recStatsTimer);
-        __recStatsTimer = setInterval(() => emitRecStats(false), 5e3);
-        try {
-          const maybeTimer = __recStatsTimer;
-          if (maybeTimer && typeof maybeTimer.unref === "function") maybeTimer.unref();
-        } catch {
-        }
-        window.addEventListener("beforeunload", () => emitRecStats(true));
-      }
-    } catch {
-    }
-  }
-});
-
-// recorders-bridge-compat.ts
-function initCompat() {
-  if (typeof window !== "undefined") {
-    if (!window.__recorder) {
-      window.__recorder = {
-        get(name) {
-          return name === "obs" ? recorder : null;
-        }
-      };
-    }
-    window.recorders = window.recorders || window.__recorder;
-  }
-  return typeof window !== "undefined" ? window.__recorder : { get: () => null };
-}
-function getObsBridge() {
-  try {
-    if (typeof window === "undefined") return null;
-    if (window.__obsBridge) return window.__obsBridge;
-    if (window.__tpObsBridge) return window.__tpObsBridge;
-    const legacy = window.__tpObs;
-    if (legacy && typeof legacy === "object") return legacy;
-    return null;
-  } catch {
-    return null;
-  }
-}
-function inlineConnect(testOnly) {
-  return new Promise((resolve) => {
-    try {
-      const cfgUrl = obsCfg && obsCfg.host ? `${obsCfg.secure ? "wss" : "ws"}://${obsCfg.host}:${obsCfg.port}` : null;
-      const url = _cfgBridge.getUrl?.() || cfgUrl || "ws://127.0.0.1:4455";
-      const pass = _cfgBridge.getPass?.() || "";
-      try {
-        console.log("[OBS-BRIDGE] inlineConnect", { url, hasPass: !!pass, testOnly: !!testOnly });
-      } catch {
-      }
-      if (typeof WebSocket === "undefined") {
-        try {
-          console.warn("[OBS-BRIDGE] inlineConnect: WebSocket not available");
-        } catch {
-        }
-        resolve(false);
-        return;
-      }
-      const ws = new WebSocket(url);
-      let settled = false;
-      ws.onopen = () => {
-        settled = true;
-        try {
-          ws.close(1e3, "probe");
-        } catch {
-        }
-        resolve(true);
-      };
-      ws.onerror = () => {
-        if (settled) return;
-        settled = true;
-        resolve(false);
-      };
-      ws.onclose = () => {
-        if (settled) return;
-        settled = true;
-        resolve(true);
-      };
-    } catch (err) {
-      try {
-        console.warn("[OBS-BRIDGE] inlineConnect error", err);
-      } catch {
-      }
-      resolve(false);
-    }
-  });
-}
-async function safeConnect(testOnly) {
-  try {
-    console.log("[OBS-BRIDGE] connect()", { testOnly: !!testOnly, enabled: _enabled });
-  } catch {
-  }
-  let bridge = getObsBridge();
-  if (!bridge || typeof bridge.connect !== "function") {
-    if (typeof window.__loadObsBridge === "function") {
-      try {
-        await window.__loadObsBridge();
-      } catch {
-      }
-      bridge = getObsBridge();
-    }
-  }
-  if (bridge && typeof bridge.connect === "function") {
-    try {
-      _cfgBridge.isEnabled = () => _enabled === true;
-      const res = await bridge.connect({ testOnly });
-      if (res) return true;
-    } catch (e) {
-      try {
-        console.warn("[OBS] native bridge connect failed, falling back to inline", e);
-      } catch {
-      }
-    }
-  }
-  try {
-    if (bridge && typeof bridge.maybeConnect === "function") {
-      try {
-        await bridge.maybeConnect();
-      } catch {
-      }
-      return !!(bridge.isConnected?.() || false);
-    }
-  } catch {
-  }
-  try {
-    console.info("[OBS] connect(testOnly=%o) no native bridge; using inline WebSocket", !!testOnly);
-  } catch {
-  }
-  return inlineConnect(testOnly);
-}
-async function safeSetEnabled(on3) {
-  _enabled = !!on3;
-  const bridge = getObsBridge();
-  if (!bridge) {
-    try {
-      console.info("[OBS] setEnabled(%o) no bridge; flag set inline", on3);
-    } catch {
-    }
-    return true;
-  }
-  try {
-    const ctrl = bridge.setArmed ? bridge : window.__tpObs;
-    if (ctrl && typeof ctrl.setArmed === "function") {
-      ctrl.setArmed(!!on3);
-      if (on3 && typeof ctrl.maybeConnect === "function") {
-        await ctrl.maybeConnect();
-      } else if (!on3 && typeof ctrl.disconnect === "function") {
-        await ctrl.disconnect();
-      }
-      return true;
-    }
-    if (typeof bridge.start === "function" && typeof bridge.stop === "function") {
-      if (on3) await bridge.start();
-      else await bridge.stop();
-      return true;
-    }
-    if (typeof bridge.setEnabled === "function") {
-      await bridge.setEnabled(!!on3);
-      return true;
-    }
-    try {
-      console.warn("[OBS] safeSetEnabled: bridge present but does not support known methods");
-    } catch {
-    }
-    return true;
-  } catch (e) {
-    try {
-      console.warn("[OBS] setEnabled(%o) failed", on3, e);
-    } catch {
-    }
-    return false;
-  }
-}
-function initBridge(opts = {}) {
-  _cfgBridge = { ..._cfgBridge, ...opts };
-  try {
-    if (_cfgBridge.isEnabled()) connect();
-  } catch {
-  }
-}
-function setEnabled(on3) {
-  return safeSetEnabled(on3);
-}
-async function reconfigure(cfg = {}) {
-  try {
-    obsCfg = { ...obsCfg, ...cfg };
-    if (typeof cfg?.port !== "undefined") {
-      const n = typeof cfg.port === "string" ? parseInt(cfg.port, 10) : Number(cfg.port);
-      if (!Number.isNaN(n) && n > 0) {
-        obsCfg.port = n;
-      }
-    }
-    const password = typeof cfg?.password === "string" ? cfg.password : obsCfg.password || "";
-    obsCfg.password = password;
-    const explicitUrl = cfg && typeof cfg.url === "string" && cfg.url.trim() ? cfg.url.trim() : "";
-    const host = obsCfg.host || "127.0.0.1";
-    const port = obsCfg.port || 4455;
-    const scheme = obsCfg.secure ? "wss" : "ws";
-    const url = explicitUrl || `${scheme}://${host}:${port}/`;
-    try {
-      _cfgBridge.getUrl = () => url;
-      _cfgBridge.getPass = () => password;
-    } catch {
-    }
-    try {
-      const bridge = getObsBridge();
-      if (bridge && typeof bridge.configure === "function") {
-        bridge.configure({ url, password });
-      }
-    } catch (err) {
-      try {
-        console.warn("[OBS] bridge.configure failed", err);
-      } catch {
-      }
-    }
-    try {
-      if (_ws) {
-        try {
-          _ws.close(1e3, "reconfig");
-        } catch {
-        }
-        reconnectSoon(200);
-      }
-    } catch {
-    }
-  } catch (err) {
-    try {
-      console.warn("[OBS] reconfigure failed", err);
-    } catch {
-    }
-  }
-}
-async function test() {
-  try {
-    return await connect({ testOnly: true });
-  } catch {
-    return false;
-  }
-}
-async function disconnect() {
-  try {
-    _identified = false;
-    _connecting = false;
-    try {
-      _ws && _ws.close(1e3, "manual");
-    } catch {
-    }
-    _ws = null;
-    try {
-      _cfgBridge.onStatus?.("disconnected", false);
-    } catch {
-    }
-  } catch {
-  }
-  return true;
-}
-function reconnectSoon(ms = 400) {
-  try {
-    clearTimeout(_reconnTimer);
-    _reconnTimer = setTrackedTimeout(() => {
-      try {
-        connect();
-      } catch {
-      }
-    }, ms);
-  } catch {
-  }
-}
-async function connect({ testOnly = false } = {}) {
-  return safeConnect(testOnly);
-}
-async function connect2(opts) {
-  return safeConnect(opts?.testOnly);
-}
-function isConnected() {
-  return _identified;
-}
-function setEnabled3(on3) {
-  return safeSetEnabled(on3);
-}
-function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
-  try {
-    if (typeof onStatus === "function") onStatus("recorder loaded", true);
-    if (getUrl || getPass) {
-      try {
-        setSettings({
-          configs: {
-            obs: {
-              url: getUrl ? getUrl() : void 0,
-              password: getPass ? getPass() : void 0
-            }
-          }
-        });
-      } catch {
-      }
-    }
-    try {
-      applyConfigs();
-    } catch {
-    }
-    try {
-      if (isEnabled && isEnabled()) {
-        start();
-      }
-    } catch {
-    }
-    try {
-      if (typeof initBridge === "function") {
-        initBridge({ getUrl, getPass, isEnabled, onStatus, onRecordState });
-      }
-    } catch {
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-var recorder, compatDefault, recorders_bridge_compat_default, _ws, _connecting, _identified, obsCfg, _cfgBridge, _enabled, _reconnTimer;
-var init_recorders_bridge_compat = __esm({
-  "recorders-bridge-compat.ts"() {
-    "use strict";
-    init_recorders_core();
-    recorder = {
-      state: "disabled",
-      async init() {
-        return true;
-      },
-      async connect() {
-        return true;
-      },
-      async disconnect() {
-        return true;
-      },
-      setEnabled(_on) {
-      }
-    };
-    compatDefault = {
-      init: initCompat,
-      get(name) {
-        return name === "obs" ? recorder : null;
-      },
-      // Also surface the modern API explicitly if anyone wants it
-      recorder
-    };
-    recorders_bridge_compat_default = compatDefault;
-    if (typeof window !== "undefined") {
-      window.__recorder = window.__recorder || {
-        get(name) {
-          return name === "obs" ? recorder : null;
-        }
-      };
-      window.recorders = window.recorders || window.__recorder;
-    }
-    try {
-      if (typeof window !== "undefined") {
-        initCompat();
-        const api = window.__recorder;
-        if (!api.start) api.start = () => startSelected();
-        if (!api.stop) api.stop = () => stopSelected();
-        if (!api.preflight) api.preflight = async (target = "obs") => {
-          const issues = [];
-          try {
-            if (target === "obs") {
-              const bridge = window.__obsBridge || null;
-              if (!bridge) issues.push("OBS bridge missing");
-              else {
-                try {
-                  const st = await bridge.getRecordStatus();
-                  if (!st) issues.push("OBS not responding");
-                } catch {
-                  issues.push("OBS GetRecordStatus failed");
-                }
-                try {
-                  if (typeof bridge.getRecordDirectory === "function") {
-                    const dir = await bridge.getRecordDirectory();
-                    if (!dir || !dir.recordDirectory) issues.push("Record directory unknown");
-                  }
-                } catch {
-                }
-                try {
-                  const stats = await bridge.getStats();
-                  const bytes = stats?.recording?.freeDiskSpace || stats?.free_disk_space || null;
-                  const free = typeof bytes === "number" ? bytes : typeof bytes === "string" && /^\d+$/.test(bytes) ? Number(bytes) : null;
-                  if (free != null && free < 2 * 1024 * 1024 * 1024) issues.push("Low disk space (<2 GB)");
-                } catch {
-                }
-              }
-            }
-          } catch {
-          }
-          return issues;
-        };
-        if (!api.getSettings) api.getSettings = () => getSettings();
-        if (!api.setSettings) api.setSettings = (next) => setSettings(next);
-        if (!api.setSelected) api.setSelected = (ids) => setSelected(ids);
-        if (!api.setMode) api.setMode = (mode) => setMode(mode);
-        if (!api.__finalizeForTests) api.__finalizeForTests = () => {
-          try {
-            clearHandoffTimer();
-          } catch {
-          }
-        };
-        window.recorders = window.recorders || api;
-      }
-    } catch {
-    }
-    _ws = null;
-    _connecting = false;
-    _identified = false;
-    obsCfg = { host: "127.0.0.1", port: 4455, secure: false };
-    _cfgBridge = {
-      getUrl: () => "ws://127.0.0.1:4455",
-      getPass: () => "",
-      isEnabled: () => false,
-      onStatus: (txt, ok) => console.log("[OBS]", txt, ok),
-      onRecordState: () => {
-      }
-    };
-    _enabled = false;
-    _reconnTimer = 0;
+    initialized = false;
+    bridge = null;
+    unsubscribers = [];
+    revision = 0;
+    lastIntent = "";
+    retry = null;
   }
 });
 
 // src/obs/obs-wiring.ts
-function toast(msg, type = "info") {
-  try {
-    if (typeof window._toast === "function") {
-      window._toast(msg, { type });
-      return;
-    }
-  } catch {
-  }
-  try {
-    console.log(msg);
-  } catch {
-  }
-}
-function mapObsTextToStatus(txt, ok) {
-  const t = (txt || "").toLowerCase().trim();
-  if (!t) return ok ? "connected" : "disconnected";
-  if (t.includes("connecting")) return "connecting";
-  if (t.includes("connected") || t.includes("initialized")) return "connected";
-  if (t.startsWith("closed")) {
-    if (t.includes("1000")) return "disconnected";
-    return "error";
-  }
-  if (t.includes("error") || t.includes("auth")) return "error";
-  return ok ? "connected" : "disconnected";
-}
-function readObsSettings(src) {
-  let state9 = src;
-  if (!state9) {
-    try {
-      state9 = getRecorderSettings();
-    } catch {
-      state9 = null;
-    }
-  }
-  const hasCfg = !!state9?.configs?.obs;
-  if (!hasCfg) {
-    try {
-      console.warn("[obs-wiring] No OBS settings yet; using defaults");
-    } catch {
-    }
-  }
-  const enabled2 = Boolean(state9?.enabled?.obs);
-  const url = hasCfg && state9?.configs?.obs?.url || DEFAULT_OBS_URL;
-  const pass = hasCfg && state9?.configs?.obs?.password || "";
-  return { enabled: enabled2, url, pass };
-}
-async function applyObsStateFromSettings() {
-  const { enabled: enabled2, url, pass } = readObsSettings();
-  if (!enabled2) {
-    if (lastEnabled2) {
-      try {
-        await setEnabled?.(false);
-      } catch {
-      }
-      setObsStatus("disconnected", null);
-      toast("OBS disabled in settings.", "info");
-    }
-    lastEnabled2 = false;
-    lastUrl2 = url;
-    lastPass = pass;
-    return;
-  }
-  lastEnabled2 = true;
-  const urlChanged = url !== lastUrl2 || pass !== lastPass;
-  lastUrl2 = url;
-  lastPass = pass;
-  setObsStatus("connecting", null);
-  toast(`Connecting to OBS at ${url}`, "info");
-  try {
-    try {
-      await reconfigure?.({ url, password: pass });
-    } catch {
-    }
-    try {
-      await setEnabled?.(true);
-    } catch {
-    }
-    if (typeof test === "function" && urlChanged) {
-      try {
-        await test();
-      } catch {
-      }
-    }
-    setObsStatus("connected", null);
-    toast("OBS: connected and ready.", "ok");
-  } catch (err) {
-    const msg = err?.message || String(err || "Unknown error");
-    setObsStatus("error", msg);
-    toast(`OBS connection failed: ${msg}`, "error");
-  }
-}
 function initObsWiring() {
-  try {
-    init?.({
-      getUrl: () => readObsSettings().url,
-      getPass: () => readObsSettings().pass,
-      isEnabled: () => readObsSettings().enabled,
-      onStatus: (txt, ok) => {
-        const status2 = mapObsTextToStatus(txt, ok);
-        setObsStatus(status2, status2 === "error" ? txt : null);
-        if (status2 === "connected") {
-          toast("OBS connected.", "ok");
-        } else if (status2 === "connecting") {
-          toast("Connecting to OBS", "info");
-        } else if (status2 === "error") {
-          toast(txt || "OBS connection error.", "error");
-        } else if (status2 === "disconnected") {
-          toast("OBS disconnected.", "warn");
-        }
-      },
-      onRecordState: () => {
-      }
-    });
-  } catch {
-  }
-  subscribeRecorderSettings((s) => {
-    const { enabled: enabled2, url, pass } = readObsSettings(s);
-    if (enabled2 === lastEnabled2 && url === lastUrl2 && pass === lastPass) {
-      return;
-    }
-    lastEnabled2 = enabled2;
-    lastUrl2 = url;
-    lastPass = pass;
-    void applyObsStateFromSettings();
-  });
+  initObsConnection();
 }
-var initial, lastEnabled2, lastUrl2, lastPass;
 var init_obs_wiring = __esm({
   "src/obs/obs-wiring.ts"() {
     "use strict";
-    init_recorder_settings();
-    init_recorders_bridge_compat();
-    initial = readObsSettings();
-    lastEnabled2 = initial.enabled;
-    lastUrl2 = initial.url;
-    lastPass = initial.pass;
+    init_obs_connection();
+  }
+});
+
+// src/fs/recording-dir.ts
+var recording_dir_exports = {};
+var init_recording_dir = __esm({
+  "src/fs/recording-dir.ts"() {
+    "use strict";
+    init_nursery_mounts();
+    (function() {
+      const DB_NAME2 = "tp-db";
+      const STORE2 = "fs-handles";
+      const KEY6 = "recordingDir";
+      async function openDB2() {
+        return await new Promise((resolve, reject) => {
+          try {
+            const req = indexedDB.open(DB_NAME2, 1);
+            req.onupgradeneeded = () => {
+              try {
+                const db = req.result;
+                if (!db.objectStoreNames.contains(STORE2)) db.createObjectStore(STORE2);
+              } catch {
+              }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      }
+      async function idbGet2(key) {
+        try {
+          const db = await openDB2();
+          return await new Promise((resolve, reject) => {
+            try {
+              const tx = db.transaction(STORE2, "readonly");
+              const st = tx.objectStore(STORE2);
+              const req = st.get(key);
+              req.onsuccess = () => resolve(req.result || null);
+              req.onerror = () => reject(req.error);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch {
+          return null;
+        }
+      }
+      async function idbSet2(key, val) {
+        try {
+          const db = await openDB2();
+          await new Promise((resolve, reject) => {
+            try {
+              const tx = db.transaction(STORE2, "readwrite");
+              const st = tx.objectStore(STORE2);
+              const req = st.put(val, key);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch {
+        }
+      }
+      async function idbDel2(key) {
+        try {
+          const db = await openDB2();
+          await new Promise((resolve, reject) => {
+            try {
+              const tx = db.transaction(STORE2, "readwrite");
+              const st = tx.objectStore(STORE2);
+              const req = st.delete(key);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        } catch {
+        }
+      }
+      function hasFsApi() {
+        try {
+          return !!("showDirectoryPicker" in window || window.isSecureContext && "FileSystemDirectoryHandle" in window);
+        } catch {
+          return false;
+        }
+      }
+      let _dir2 = null;
+      let _managedByNursery2 = false;
+      let _localPersistenceExpected = false;
+      let _managedHint2 = null;
+      async function syncManagedRecordingDir() {
+        try {
+          const managed = await getNurseryManagedDirectory("recordings");
+          if (!managed.managed) {
+            _managedByNursery2 = false;
+            _localPersistenceExpected = false;
+            _managedHint2 = null;
+            _dir2 = null;
+            return false;
+          }
+          _managedByNursery2 = true;
+          _localPersistenceExpected = managed.localPersistenceExpected;
+          _managedHint2 = managed.hint ?? null;
+          _dir2 = managed.handle ?? null;
+          return true;
+        } catch {
+          _managedByNursery2 = true;
+          _localPersistenceExpected = true;
+          _managedHint2 = "Hearth recording folder unavailable";
+          _dir2 = null;
+          return true;
+        }
+      }
+      async function initRecordingDir() {
+        if (await syncManagedRecordingDir()) return;
+        try {
+          const h = await idbGet2(KEY6);
+          if (h) {
+            const ok = await h.queryPermission?.({ mode: "readwrite" }) || await h.requestPermission?.({ mode: "readwrite" });
+            if (ok === "granted" || ok === "prompt") _dir2 = h;
+            else _dir2 = h;
+          }
+        } catch {
+        }
+      }
+      function getRecordingDir() {
+        return _dir2 || null;
+      }
+      async function setRecordingDir(h) {
+        if (_managedByNursery2) return;
+        _dir2 = h || null;
+        if (h) await idbSet2(KEY6, h);
+        else await idbDel2(KEY6);
+      }
+      async function clearRecordingDir() {
+        if (_managedByNursery2) return;
+        _dir2 = null;
+        await idbDel2(KEY6);
+      }
+      async function pickRecordingDir() {
+        if (_managedByNursery2) return _dir2 || null;
+        if (!hasFsApi()) return null;
+        try {
+          const dir = await window.showDirectoryPicker({ mode: "readwrite", id: "tp-recordings" });
+          const ok = await dir?.requestPermission?.({ mode: "readwrite" }) || await dir?.queryPermission?.({ mode: "readwrite" });
+          if (ok === "granted" || ok === "prompt") {
+            await setRecordingDir(dir);
+            return dir;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      }
+      const api = {
+        init: initRecordingDir,
+        get: getRecordingDir,
+        set: setRecordingDir,
+        clear: clearRecordingDir,
+        pick: pickRecordingDir,
+        supported: hasFsApi,
+        isManaged: () => _managedByNursery2,
+        localPersistenceExpected: () => _localPersistenceExpected,
+        managedHint: () => _managedHint2
+      };
+      try {
+        window.__tpRecDir = api;
+      } catch {
+      }
+    })();
+  }
+});
+
+// src/recording/recording-decision-dialog.ts
+function isRecordingDecisionPending() {
+  return typeof document !== "undefined" && document.getElementById(MODAL_ID2) !== null;
+}
+function escapeHtml2(value) {
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function describeDecisionError(error) {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (message === "ready_workspace_missing") {
+    return "Anvil lost the episode workspace context before saving this decision. The recording is still saved. Reopen this episode from Hearth, then choose Keep Take again.";
+  }
+  if (message === "recording_keep_unavailable" || message === "recording_discard_unavailable") {
+    return "Anvil could not save this take decision to Tongs. The recording is still saved; check the Forge connection and try again.";
+  }
+  return message || "Could not save your take decision. Try again.";
+}
+function closeModal2() {
+  const existing = document.getElementById(MODAL_ID2);
+  if (existing?.parentElement) {
+    existing.parentElement.removeChild(existing);
+  }
+}
+function closeWorkingModal() {
+  const existing = document.getElementById(WORKING_MODAL_ID);
+  if (existing?.parentElement) {
+    existing.parentElement.removeChild(existing);
+  }
+}
+function closeAllRecordingOverlays() {
+  if (_activeDecisionCleanup) {
+    _activeDecisionCleanup();
+    _activeDecisionCleanup = null;
+  }
+  closeModal2();
+  closeWorkingModal();
+}
+function applyStyles2() {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `
+    #${MODAL_ID2} {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(8, 15, 30, 0.74);
+      z-index: 1700;
+    }
+    #${WORKING_MODAL_ID} {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(8, 15, 30, 0.74);
+      z-index: 1700;
+    }
+    #${MODAL_ID2} .tp-recording-decision-panel {
+      width: min(460px, 100%);
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
+      padding: 22px;
+      font-family: system-ui, "Segoe UI", sans-serif;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-decision-panel {
+      width: min(420px, 100%);
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      border-radius: 14px;
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
+      padding: 22px;
+      font-family: system-ui, "Segoe UI", sans-serif;
+    }
+    #${MODAL_ID2} h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+    #${WORKING_MODAL_ID} h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.15;
+    }
+    #${MODAL_ID2} .tp-recording-decision-copy {
+      margin: 0;
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-decision-copy {
+      margin: 0;
+      color: rgba(226, 232, 240, 0.82);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    #${MODAL_ID2} .tp-recording-decision-file {
+      margin: 14px 0 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      color: rgba(248, 250, 252, 0.92);
+      font-size: 13px;
+      word-break: break-word;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-decision-file {
+      margin: 14px 0 0;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      color: rgba(248, 250, 252, 0.92);
+      font-size: 13px;
+      word-break: break-word;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-working-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 18px;
+      color: rgba(226, 232, 240, 0.92);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    #${WORKING_MODAL_ID} .tp-recording-working-spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 2px solid rgba(148, 163, 184, 0.28);
+      border-top-color: #22c55e;
+      animation: tp-recording-working-spin 0.8s linear infinite;
+      flex: 0 0 auto;
+    }
+    @keyframes tp-recording-working-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    #${MODAL_ID2} .tp-recording-decision-error {
+      min-height: 20px;
+      margin: 14px 0 0;
+      color: #fca5a5;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    #${MODAL_ID2} .tp-recording-decision-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 18px;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn {
+      min-width: 120px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: transparent;
+      color: #e2e8f0;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 16px;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn[disabled] {
+      opacity: 0.6;
+      cursor: wait;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn--keep {
+      background: #22c55e;
+      border-color: #22c55e;
+      color: #052e16;
+    }
+    #${MODAL_ID2} .tp-recording-decision-btn--discard {
+      background: rgba(148, 163, 184, 0.12);
+    }
+  `;
+  document.head.appendChild(style);
+}
+function buildWorkingMarkup(options) {
+  const detail = String(options.detail || "").trim() || "Saving your take and preparing review options.";
+  const takeName = String(options.takeName || "").trim();
+  return `
+    <div class="tp-recording-decision-panel" role="status" aria-live="polite" aria-labelledby="${WORKING_MODAL_ID}-title">
+      <h2 id="${WORKING_MODAL_ID}-title">Finalizing recording</h2>
+      <p class="tp-recording-decision-copy">${escapeHtml2(detail)}</p>
+      ${takeName ? `<div class="tp-recording-decision-file">${escapeHtml2(takeName)}</div>` : ""}
+      <div class="tp-recording-working-status">
+        <span class="tp-recording-working-spinner" aria-hidden="true"></span>
+        <span>Working\u2026</span>
+      </div>
+    </div>
+  `;
+}
+function buildMarkup(takeName, isRecovery) {
+  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
+  const copy = isRecovery ? "This recording was saved but not reviewed. Keep or discard it?" : "Keep this take for editing?";
+  return `
+    <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID2}-title">
+      <h2 id="${MODAL_ID2}-title">${title}</h2>
+      <p class="tp-recording-decision-copy">${copy}</p>
+      <div class="tp-recording-decision-file">${escapeHtml2(takeName)}</div>
+      <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
+      <div class="tp-recording-decision-actions">
+        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--discard" data-action="discard">Discard Take</button>
+        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--keep" data-action="keep">Keep Take</button>
+      </div>
+    </div>
+  `;
+}
+function showRecordingFinalizeIndicator(options = {}) {
+  if (typeof document === "undefined") return;
+  closeAllRecordingOverlays();
+  applyStyles2();
+  const overlay = document.createElement("div");
+  overlay.id = WORKING_MODAL_ID;
+  overlay.className = "tp-recording-working-overlay";
+  overlay.innerHTML = buildWorkingMarkup(options);
+  document.body.appendChild(overlay);
+}
+function hideRecordingFinalizeIndicator() {
+  if (typeof document === "undefined") return;
+  closeWorkingModal();
+}
+async function showRecordingDecisionDialog(options) {
+  if (typeof document === "undefined") return;
+  closeAllRecordingOverlays();
+  applyStyles2();
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.id = MODAL_ID2;
+    overlay.className = "tp-recording-decision-overlay";
+    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
+    const discardButton = overlay.querySelector('[data-action="discard"]');
+    const keepButton = overlay.querySelector('[data-action="keep"]');
+    const errorNode = overlay.querySelector('[data-role="error"]');
+    let finished = false;
+    const setBusy = (busy, action) => {
+      if (discardButton) {
+        discardButton.disabled = busy;
+        discardButton.textContent = busy && action === "discard" ? "Discarding..." : "Discard Take";
+      }
+      if (keepButton) {
+        keepButton.disabled = busy;
+        keepButton.textContent = busy && action === "keep" ? "Saving..." : "Keep Take";
+      }
+    };
+    const visibilityGuard = () => {
+      try {
+        if (document.visibilityState !== "visible") return;
+        if (!finished && !document.body.contains(overlay)) {
+          document.body.appendChild(overlay);
+          keepButton?.focus();
+        }
+      } catch {
+      }
+    };
+    const beforeUnloadGuard = (event) => {
+      if (!finished) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    const cleanupGuards = () => {
+      _activeDecisionCleanup = null;
+      try {
+        document.removeEventListener("visibilitychange", visibilityGuard);
+      } catch {
+      }
+      try {
+        window.removeEventListener("beforeunload", beforeUnloadGuard);
+      } catch {
+      }
+    };
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      cleanupGuards();
+      closeModal2();
+      resolve();
+    };
+    const fail3 = (error) => {
+      if (finished) return;
+      finished = true;
+      cleanupGuards();
+      closeModal2();
+      reject(error);
+    };
+    const runAction = async (action) => {
+      setBusy(true, action);
+      if (errorNode) errorNode.textContent = "";
+      try {
+        if (action === "keep") {
+          await options.onKeep();
+        } else {
+          await options.onDiscard();
+        }
+        finish();
+      } catch (error) {
+        setBusy(false);
+        if (errorNode) {
+          errorNode.textContent = describeDecisionError(error);
+        }
+      }
+    };
+    discardButton?.addEventListener("click", () => {
+      void runAction("discard");
+    });
+    keepButton?.addEventListener("click", () => {
+      void runAction("keep");
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void runAction("keep");
+      }
+    });
+    try {
+      document.body.appendChild(overlay);
+      _activeDecisionCleanup = cleanupGuards;
+      try {
+        document.addEventListener("visibilitychange", visibilityGuard);
+      } catch {
+      }
+      try {
+        window.addEventListener("beforeunload", beforeUnloadGuard);
+      } catch {
+      }
+      keepButton?.focus();
+    } catch (error) {
+      cleanupGuards();
+      fail3(error);
+    }
+  });
+}
+var MODAL_ID2, WORKING_MODAL_ID, STYLE_ID, _activeDecisionCleanup;
+var init_recording_decision_dialog = __esm({
+  "src/recording/recording-decision-dialog.ts"() {
+    "use strict";
+    MODAL_ID2 = "tp-recording-decision-modal";
+    WORKING_MODAL_ID = "tp-recording-working-modal";
+    STYLE_ID = "tp-recording-decision-styles";
+    _activeDecisionCleanup = null;
+  }
+});
+
+// src/recording/obs-finished-import.ts
+var obs_finished_import_exports = {};
+__export(obs_finished_import_exports, {
+  importFinishedObsRecording: () => importFinishedObsRecording,
+  prepareObsRecordingImport: () => prepareObsRecordingImport,
+  relativeObsOutputPath: () => relativeObsOutputPath,
+  selectAndImportFinishedObsRecording: () => selectAndImportFinishedObsRecording
+});
+function segments(path) {
+  return path.replace(/\\/g, "/").split("/").filter(Boolean);
+}
+function relativeObsOutputPath(outputPath, directoryName) {
+  const parts = segments(outputPath);
+  if (!parts.length || parts.some((part) => part === "." || part === "..")) return null;
+  const rootAt = parts.map((part) => part.toLowerCase()).lastIndexOf(directoryName.trim().toLowerCase());
+  if (rootAt < 0 || rootAt === parts.length - 1) return null;
+  return parts.slice(rootAt + 1);
+}
+async function resolveFromLinkedDirectory(outputPath) {
+  await window.__tpRecDir?.init?.();
+  const root = window.__tpRecDir?.get?.();
+  if (!root) return null;
+  const permission = await root.queryPermission?.({ mode: "read" });
+  if (permission !== "granted") return null;
+  const relative = relativeObsOutputPath(outputPath, root.name);
+  if (!relative) return null;
+  let directory = root;
+  for (const part of relative.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+  const handle = await directory.getFileHandle(relative[relative.length - 1]);
+  return handle.getFile();
+}
+async function selectFinishedFile() {
+  const picker = window.showOpenFilePicker;
+  if (typeof picker !== "function") return null;
+  try {
+    const handles = await picker({ id: "anvil-obs-finished-recording", multiple: false });
+    return handles?.[0]?.getFile?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+function announce(name, detail) {
+  try {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  } catch {
+  }
+}
+async function prepareObsRecordingImport() {
+  const target = await ensureRecordingCaptureTarget();
+  state5.authority = target.ok ? target.captureAuthority : null;
+  return target.ok;
+}
+async function importFinishedObsRecording(result) {
+  state5.lastStop = result;
+  if (!result.stopped || !result.outputPath) {
+    announce("tp:obs:recording-import", { phase: "needs-file", reason: "output_path_missing" });
+    return;
+  }
+  let captureAuthority = state5.authority;
+  if (!captureAuthority) {
+    const target = await ensureRecordingCaptureTarget();
+    if (target.ok) captureAuthority = target.captureAuthority;
+  }
+  if (!captureAuthority) {
+    announce("tp:obs:recording-import", { phase: "failed", reason: "capture_authority_missing" });
+    return;
+  }
+  let file = state5.selectedFile;
+  state5.selectedFile = null;
+  if (!file) try {
+    file = await resolveFromLinkedDirectory(result.outputPath);
+  } catch {
+  }
+  if (!file) {
+    announce("tp:obs:recording-import", { phase: "needs-file", reason: "local_file_permission_required", retryAvailable: true });
+    return;
+  }
+  announce("tp:obs:recording-import", { phase: "uploading", name: file.name, bytes: file.size });
+  const committed = await commitRecordingFileToTongs({ file, originalName: file.name, captureAuthority });
+  if (!committed.ok) {
+    announce("tp:obs:recording-import", { phase: "failed", reason: committed.reason, errorCode: committed.errorCode ?? null });
+    return;
+  }
+  const completed = await transitionRecordingCompleted({ commit: committed });
+  if (!completed.ok || !completed.completionId) {
+    announce("tp:obs:recording-import", { phase: "failed", reason: completed.reason ?? completed.outcome });
+    return;
+  }
+  announce("tp:obs:recording-import", { phase: "decision-required", completionId: completed.completionId });
+  await showRecordingDecisionDialog({
+    takeName: file.name,
+    onKeep: async () => {
+      const decision = await transitionRecordingKept({ commit: committed, completionId: completed.completionId });
+      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
+      announce("tp:obs:recording-import", { phase: "kept", completionId: completed.completionId });
+    },
+    onDiscard: async () => {
+      const decision = await transitionRecordingDiscarded({ commit: committed, completionId: completed.completionId });
+      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
+      announce("tp:obs:recording-import", { phase: "discarded", completionId: completed.completionId });
+    }
+  });
+}
+async function selectAndImportFinishedObsRecording() {
+  const file = await selectFinishedFile();
+  if (!file) return;
+  state5.selectedFile = file;
+  await importFinishedObsRecording(state5.lastStop ?? { adapter: "obs", stopped: true, outputPath: file.name });
+}
+function acceptStopResult(result) {
+  if (state5.running) return state5.running;
+  state5.running = importFinishedObsRecording(result).finally(() => {
+    state5.running = null;
+  });
+  return state5.running;
+}
+var state5;
+var init_obs_finished_import = __esm({
+  "src/recording/obs-finished-import.ts"() {
+    "use strict";
+    init_recording_dir();
+    init_workpiece_commit();
+    init_recording_decision_dialog();
+    init_workpiece_commit();
+    state5 = { authority: null, running: null, lastStop: null, selectedFile: null };
+    try {
+      window.__tpObsImport = {
+        prepare: prepareObsRecordingImport,
+        acceptStopResult,
+        retryWithFilePicker: selectAndImportFinishedObsRecording
+      };
+      window.addEventListener("rec:state", (event) => {
+        const detail = event.detail;
+        if (detail?.adapter === "obs" && detail?.state === "starting") void prepareObsRecordingImport();
+      });
+    } catch {
+    }
   }
 });
 
@@ -87577,7 +87461,7 @@ function createObsRecorder() {
     label: "OBS WebSocket",
     async isAvailable() {
       try {
-        const obs = window?.__tpObs;
+        const obs = window?.__obsBridge;
         if (!obs) return false;
         const probe = typeof obs.isConnected === "function" ? obs.isConnected() : obs.isConnected;
         return coerceBoolean(probe);
@@ -87586,10 +87470,20 @@ function createObsRecorder() {
       }
     },
     async start() {
-      await window?.__tpObs?.startRecording?.();
+      const obs = window?.__obsBridge;
+      if (!obs?.isConnected?.() || typeof obs.start !== "function") throw new Error("OBS is disconnected. Connect OBS in Recording Settings.");
+      const { prepareObsRecordingImport: prepareObsRecordingImport2 } = await Promise.resolve().then(() => (init_obs_finished_import(), obs_finished_import_exports));
+      if (!await prepareObsRecordingImport2()) throw new Error("Capture authorization unavailable. Bind the current approved script in Hearth before recording.");
+      await obs.start();
     },
     async stop() {
-      await window?.__tpObs?.stopRecording?.();
+      const obs = window?.__obsBridge;
+      if (!obs?.isConnected?.() || typeof obs.stop !== "function") throw new Error("OBS is disconnected. Check recording status in OBS before retrying Stop.");
+      const result = await obs.stop();
+      window.dispatchEvent(new CustomEvent("tp:recording:obs-local-complete", { detail: result }));
+      void Promise.resolve(window.__tpObsImport?.acceptStopResult?.(result)).catch((error) => {
+        window.dispatchEvent(new CustomEvent("tp:obs:recording-import", { detail: { phase: "failed", reason: String(error) } }));
+      });
     }
   };
 }
@@ -87597,15 +87491,7 @@ function initRecorderBackends() {
   if (typeof window === "undefined") return;
   try {
     const core = createCoreRecorder();
-    let obs;
-    try {
-      if (window.__tpObs) {
-        obs = createObsRecorder();
-      }
-    } catch {
-      obs = void 0;
-    }
-    registerRecorders({ core, obs });
+    registerRecorders({ core, obs: createObsRecorder() });
   } catch (err) {
     console.warn("[recording] failed to initialize recorder backends", err);
   }
@@ -87636,8 +87522,8 @@ function readStoreBoolean(store3, key) {
   }
   return false;
 }
-function resolveStore(initial2) {
-  if (initial2) return initial2;
+function resolveStore(initial) {
+  if (initial) return initial;
   if (typeof window === "undefined") return null;
   try {
     return window.__tpStore || null;
@@ -88195,7 +88081,7 @@ function buildDrawerStructure() {
   quickControls.appendChild(asrLaneWrap);
 }
 function initDevDrawer() {
-  if (initialized) return;
+  if (initialized2) return;
   if (!isBrowser2()) return;
   if (!isDevActive()) return;
   if (!document.body) return;
@@ -88209,12 +88095,12 @@ function initDevDrawer() {
   updateZenState(zenMode);
   updateDock();
   attachListeners();
-  initialized = true;
+  initialized2 = true;
 }
 function getDevDrawerContentHost() {
   return contentHost;
 }
-var ROOT_ID, DRAWER_ID, DRAWER_PILL, initialized, drawerOpen, zenMode, rootEl, drawerEl, pillEl, zenButtonEl, contentHost, asrLaneSelectEl, currentDock, lastDockUpdate, listenersAttached;
+var ROOT_ID, DRAWER_ID, DRAWER_PILL, initialized2, drawerOpen, zenMode, rootEl, drawerEl, pillEl, zenButtonEl, contentHost, asrLaneSelectEl, currentDock, lastDockUpdate, listenersAttached;
 var init_dev_drawer = __esm({
   "src/dev/dev-drawer.ts"() {
     "use strict";
@@ -88223,7 +88109,7 @@ var init_dev_drawer = __esm({
     ROOT_ID = "tp-dev-root";
     DRAWER_ID = "tp-dev-drawer";
     DRAWER_PILL = "tp-dev-pill";
-    initialized = false;
+    initialized2 = false;
     drawerOpen = false;
     zenMode = false;
     rootEl = null;
@@ -88576,7 +88462,7 @@ var init_normalize = __esm({
 });
 
 // src/format-inline.ts
-function escapeHtml2(s) {
+function escapeHtml3(s) {
   return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
 }
 function safeColor(c) {
@@ -88592,7 +88478,7 @@ function roleStyle(key) {
   return `color:${item.color}; font-size:inherit; line-height:inherit;`;
 }
 function formatInlineMarkup(text) {
-  let s = escapeHtml2(text);
+  let s = escapeHtml3(text);
   s = s.replace(/\[b\]([\s\S]+?)\[\/b\]/gi, "<strong>$1</strong>").replace(/\[i\]([\s\S]+?)\[\/i\]/gi, "<em>$1</em>").replace(/\[u\]([\s\S]+?)\[\/u\]/gi, '<span class="u">$1</span>').replace(/\[note\]([\s\S]+?)\[\/note\]/gi, '<div class="note">$1</div>');
   s = s.replace(/\[color=([^\]]+)\]([\s\S]+?)\[\/color\]/gi, (_m, col, inner) => {
     const c = safeColor(col);
@@ -91133,25 +91019,25 @@ function setNetworkDisplayPairToken(token) {
   if (!relayEnabled || !isSupported) return;
   if (!relayPairToken) {
     resetSocket();
-    updateStatus2({ state: "error", connectedDisplays: 0, lastError: "Pair token unavailable" });
+    updateStatus({ state: "error", connectedDisplays: 0, lastError: "Pair token unavailable" });
     return;
   }
   resetSocket();
-  connect3();
+  connect();
 }
 function enableNetworkDisplayRelay() {
   if (!isSupported) return;
   if (isRelayDisabled()) return;
   if (relayEnabled) return;
   if (!relayPairToken) {
-    updateStatus2({ state: "error", lastError: "Pair token unavailable" });
+    updateStatus({ state: "error", lastError: "Pair token unavailable" });
     return;
   }
   relayEnabled = true;
   persistRelayEnabled(true);
-  connect3();
+  connect();
 }
-var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, relayPairToken, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus2, normalizePairToken, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect3, loadRelayEnabled, persistRelayEnabled;
+var status, listeners2, socket, reconnectDelay, reconnectTimer, sendQueue, SCROLL_THROTTLE_MS, scrollTimer, pendingScroll, relayEnabled, relayPairToken, RELAY_ENABLED_KEY, flushScroll, queueScrollMessage, isDisplayContext, isSupported, isRelayDisabled, notifyListeners, updateStatus, normalizePairToken, getWsUrl, flushQueue, scheduleReconnect, handleMessage, resetSocket, connect, loadRelayEnabled, persistRelayEnabled;
 var init_display_ws_client = __esm({
   "src/net/display-ws-client.ts"() {
     "use strict";
@@ -91230,7 +91116,7 @@ var init_display_ws_client = __esm({
         }
       });
     };
-    updateStatus2 = (patch) => {
+    updateStatus = (patch) => {
       Object.assign(status, patch);
       notifyListeners();
     };
@@ -91256,7 +91142,7 @@ var init_display_ws_client = __esm({
       if (reconnectTimer || !isSupported || !relayEnabled) return;
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
-        connect3();
+        connect();
       }, reconnectDelay);
       reconnectDelay = Math.min(15e3, reconnectDelay * 1.5);
     };
@@ -91264,12 +91150,12 @@ var init_display_ws_client = __esm({
       try {
         const data = JSON.parse(event.data);
         if (data?.type === "ready") {
-          updateStatus2({ connectedDisplays: 1 });
+          updateStatus({ connectedDisplays: 1 });
           return;
         }
         if (data?.type === "tp-display-status") {
           const connected = typeof data.connected === "number" ? data.connected : status.connectedDisplays;
-          updateStatus2({ connectedDisplays: connected });
+          updateStatus({ connectedDisplays: connected });
         }
       } catch {
       }
@@ -91283,13 +91169,13 @@ var init_display_ws_client = __esm({
       }
       socket = null;
     };
-    connect3 = () => {
+    connect = () => {
       if (!isSupported || !relayEnabled) return;
       if (socket && socket.readyState === WebSocket.OPEN) return;
-      updateStatus2({ state: "connecting", lastError: void 0 });
+      updateStatus({ state: "connecting", lastError: void 0 });
       const url = getWsUrl();
       if (!url) {
-        updateStatus2({ state: "error", lastError: "Pair token unavailable" });
+        updateStatus({ state: "error", lastError: "Pair token unavailable" });
         return;
       }
       resetSocket();
@@ -91297,7 +91183,7 @@ var init_display_ws_client = __esm({
       socket = ws;
       ws.addEventListener("open", () => {
         reconnectDelay = 1e3;
-        updateStatus2({ state: "connected", lastError: void 0 });
+        updateStatus({ state: "connected", lastError: void 0 });
         try {
           ws.send("ping");
         } catch {
@@ -91306,13 +91192,13 @@ var init_display_ws_client = __esm({
       });
       ws.addEventListener("message", handleMessage);
       const cleanup = () => {
-        updateStatus2({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
+        updateStatus({ state: "disconnected", connectedDisplays: 0, lastError: void 0 });
         socket = null;
         scheduleReconnect();
       };
       ws.addEventListener("close", cleanup);
       ws.addEventListener("error", (event) => {
-        updateStatus2({ state: "error", lastError: String(event?.reason || "WebSocket error") });
+        updateStatus({ state: "error", lastError: String(event?.reason || "WebSocket error") });
       });
     };
     loadRelayEnabled = () => {
@@ -91337,7 +91223,7 @@ var init_display_ws_client = __esm({
     };
     relayEnabled = loadRelayEnabled();
     if (isSupported && relayEnabled) {
-      connect3();
+      connect();
     }
     try {
       window.addEventListener("beforeunload", () => {
@@ -92500,15 +92386,15 @@ function classifyProductionScriptHttpFailure(status2, responseOk) {
 function parseProductionScriptPayload(body) {
   const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
   const text = typeof data?.script_text === "string" ? data.script_text : "";
-  const revision = Number(data?.source_file_revision);
+  const revision2 = Number(data?.source_file_revision);
   const hash = readString7(data?.script_content_hash)?.toLowerCase() ?? "";
   const readyTransitionId = normalizeUuid3(data?.ready_transition_id);
   const scriptApprovalId = normalizeUuid3(data?.script_approval_id);
   const scriptApprovalRevision = Number(data?.script_approval_revision);
-  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) {
+  if (!text || !Number.isInteger(revision2) || revision2 < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) {
     return null;
   }
-  return { text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
+  return { text, revision: revision2, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
 }
 var UUID_RE3;
 var init_workpiece_script_handoff_policy = __esm({
@@ -92882,9 +92768,9 @@ function handleToggle(on3, sourceId) {
         const doc2 = window.document;
         syncEnabledCheckboxes(doc2, false);
         try {
-          const toast6 = window.toast;
-          if (typeof toast6 === "function") {
-            toast6("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
+          const toast5 = window.toast;
+          if (typeof toast5 === "function") {
+            toast5("Finish configuring OBS in Settings \u2192 Recording before enabling remote OBS.");
           }
         } catch {
         }
@@ -92926,112 +92812,58 @@ function buildUrl2(hostWithPort, explicitPort) {
   return `ws://${host}:${port}`;
 }
 function bindObsSettingsUI(doc = document) {
-  let syncing = false;
-  let wired3 = false;
-  const wire2 = () => {
-    const enableEl = doc.getElementById(ENABLE_ID);
-    const sidebarEnableEl = doc.getElementById(SIDEBAR_ENABLE_ID);
-    const toggleEls = Array.from(
-      new Set(
-        Array.from(doc.querySelectorAll("[data-tp-obs-toggle]")).concat(
-          enableEl ? [enableEl] : [],
-          sidebarEnableEl ? [sidebarEnableEl] : []
-        )
-      )
-    ).filter((el) => el instanceof HTMLInputElement);
-    const hostEl = doc.getElementById(HOST_ID);
-    const portEl = doc.getElementById(PORT_ID);
-    const passEl = doc.getElementById(PASS_ID);
-    if (toggleEls.length === 0 && !hostEl && !portEl && !passEl) {
-      return false;
-    }
-    if (wired3) return true;
-    wired3 = true;
+  if (boundDocuments.has(doc)) return;
+  boundDocuments.add(doc);
+  const sync = () => {
+    const state9 = getRecorderSettings();
+    syncEnabledCheckboxes(doc, state9.enabled.obs);
+    doc.querySelectorAll("[data-tp-obs-toggle]").forEach((el) => {
+      el.checked = state9.enabled.obs;
+    });
+    const host = doc.getElementById(HOST_ID);
+    const port = doc.getElementById(PORT_ID);
+    const pass = doc.getElementById(PASS_ID);
     try {
-      console.info("[OBS-UI] wiring settings/sidebar controls");
+      const url = new URL(state9.configs.obs.url);
+      if (host && host !== doc.activeElement) host.value = url.host;
+      if (port && port !== doc.activeElement) port.value = url.port || "4455";
     } catch {
     }
-    subscribeRecorderSettings((state9) => {
-      syncing = true;
-      try {
-        syncEnabledCheckboxes(doc, !!state9.enabled.obs);
-        const url = state9.configs.obs.url || "";
-        try {
-          const parsed = new URL(url);
-          if (hostEl && hostEl !== doc.activeElement) {
-            const hostPort = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname || "";
-            hostEl.value = hostPort;
-          }
-          if (portEl && portEl !== doc.activeElement) portEl.value = parsed.port || "4455";
-        } catch {
-          if (hostEl && hostEl !== doc.activeElement) hostEl.value = "";
-          if (portEl && portEl !== doc.activeElement) portEl.value = "4455";
-        }
-        if (passEl && passEl !== doc.activeElement) {
-          passEl.value = state9.configs.obs.password || "";
-        }
-      } finally {
-        syncing = false;
-      }
-    });
-    const writeEnabled = (on3, src) => {
-      if (syncing) return;
-      handleToggle(on3, src?.id);
-    };
-    toggleEls.forEach((el) => {
-      el.addEventListener("change", () => writeEnabled(!!el.checked, el));
-    });
-    const pushUrl = () => {
-      if (syncing) return;
-      const next = buildUrl2(hostEl?.value ?? "", portEl?.value ?? "");
-      const cur = getRecorderSettings().configs.obs.url;
-      if (next === cur) return;
-      try {
-        console.info("[OBS-UI] setObsConfig url", next);
-      } catch {
-      }
-      setObsConfig({ url: next });
-    };
-    hostEl?.addEventListener("blur", pushUrl);
-    hostEl?.addEventListener("change", pushUrl);
-    portEl?.addEventListener("blur", pushUrl);
-    portEl?.addEventListener("change", pushUrl);
-    passEl?.addEventListener("change", () => {
-      if (syncing) return;
-      try {
-        console.info("[OBS-UI] setObsConfig password");
-      } catch {
-      }
-      setObsConfig({ password: passEl.value });
-    });
-    return true;
+    if (pass && pass !== doc.activeElement) pass.value = state9.configs.obs.password || "";
   };
-  if (!wire2()) {
-    try {
-      const mo = new MutationObserver(() => {
-        if (wire2()) {
-          mo.disconnect();
-        }
-      });
-      mo.observe(doc.documentElement, { childList: true, subtree: true });
-    } catch {
+  const unsubscribe = subscribeRecorderSettings(sync);
+  const observer = new MutationObserver((changes) => {
+    if (changes.some((change) => change.addedNodes.length)) sync();
+  });
+  observer.observe(doc.documentElement, { childList: true, subtree: true });
+  const pushConfig = (ev) => {
+    const input = ev.target;
+    if (!input) return;
+    if (input.id === PASS_ID) {
+      if (input.value !== getRecorderSettings().configs.obs.password) setObsConfig({ password: input.value });
+    } else if (input.id === HOST_ID || input.id === PORT_ID) {
+      const host = doc.getElementById(HOST_ID);
+      const port = doc.getElementById(PORT_ID);
+      const url = buildUrl2(host?.value || "", port?.value);
+      if (url !== getRecorderSettings().configs.obs.url) setObsConfig({ url });
     }
-  }
-  try {
-    doc.addEventListener(
-      "change",
-      (ev) => {
-        const t = ev.target;
-        const input = t && t.closest("[data-tp-obs-toggle]");
-        if (!input) return;
-        handleToggle(!!input.checked, input.id);
-      },
-      { capture: true }
-    );
-  } catch {
-  }
+  };
+  const onChange = (ev) => {
+    const input = ev.target;
+    if (input?.matches(`[data-tp-obs-toggle], #${ENABLE_ID}, #${SIDEBAR_ENABLE_ID}`)) handleToggle(input.checked, input.id);
+    else pushConfig(ev);
+  };
+  doc.addEventListener("change", onChange);
+  doc.addEventListener("blur", pushConfig, true);
+  return () => {
+    observer.disconnect();
+    unsubscribe();
+    doc.removeEventListener("change", onChange);
+    doc.removeEventListener("blur", pushConfig, true);
+    boundDocuments.delete(doc);
+  };
 }
-var ENABLE_ID, SIDEBAR_ENABLE_ID, HOST_ID, PASS_ID, PORT_ID;
+var ENABLE_ID, SIDEBAR_ENABLE_ID, HOST_ID, PASS_ID, PORT_ID, boundDocuments;
 var init_obs_settings_bind = __esm({
   "src/ui/obs-settings-bind.ts"() {
     "use strict";
@@ -93041,6 +92873,7 @@ var init_obs_settings_bind = __esm({
     HOST_ID = "settingsObsHost";
     PASS_ID = "settingsObsPassword";
     PORT_ID = "settingsObsPort";
+    boundDocuments = /* @__PURE__ */ new WeakSet();
   }
 });
 
@@ -93052,50 +92885,45 @@ function computeLabel(enabled2, status2) {
   if (status2 === "connecting") return { text: "Connecting\u2026", css: "obs-pill--pending" };
   if (status2 === "connected") return { text: "Connected", css: "obs-pill--on" };
   if (status2 === "error") return { text: "Error", css: "obs-pill--error" };
-  return { text: "Enabled", css: "obs-pill--pending" };
+  return { text: "Disconnected", css: "obs-pill--pending" };
 }
 function bindObsStatusPills() {
-  const roots = [];
-  const add = (el) => {
-    if (el && !roots.includes(el)) roots.push(el);
-  };
-  const scan = () => {
-    add(document.getElementById("obsStatus"));
-    add(document.getElementById("obsStatusText"));
-    add(document.getElementById("obsConnStatus"));
-    document.querySelectorAll(".obs-status").forEach(add);
-    document.querySelectorAll("[data-obs-status]").forEach(add);
-    document.querySelectorAll(".obs-chip-label").forEach(add);
-  };
-  scan();
-  if (roots.length === 0) {
-    try {
-      console.info("[OBS-STATUS] no status elements found; skipping bind");
-    } catch {
-    }
-    return;
-  }
-  try {
-    const mo = new MutationObserver(() => scan());
-    mo.observe(document.documentElement, { childList: true, subtree: true });
-  } catch {
-  }
-  subscribeRecorderSettings((s) => {
+  if (bound) return;
+  bound = true;
+  const render = () => {
+    const s = getRecorderSettings();
     const { text, css } = computeLabel(s.enabled.obs, s.obsStatus);
-    roots.forEach((el) => {
-      const wantsPrefix = el.id === "obsStatus" || el.classList.contains("chip");
-      el.textContent = wantsPrefix ? `OBS: ${text}` : text;
-      const base = ["obs-pill"];
-      const existing = (el.className || "").split(" ").map((c) => c.trim()).filter(Boolean).filter((c) => !c.startsWith("obs-status-") && !c.startsWith("obs-pill--"));
-      base.push(...existing, css);
-      el.className = base.join(" ");
+    document.querySelectorAll("#obsStatus, #obsStatusText, #obsConnStatus, .obs-status, [data-obs-status], .obs-chip-label").forEach((el) => {
+      const label = el.id === "obsStatus" || el.id === "obsConnStatus" || el.classList.contains("chip") ? `OBS: ${text}` : text;
+      if (el.textContent !== label) el.textContent = label;
+      el.classList.add("obs-pill");
+      ["obs-pill--off", "obs-pill--pending", "obs-pill--on", "obs-pill--error"].forEach((name) => el.classList.toggle(name, name === css));
+      if (el.classList.contains("obs-chip-label")) {
+        const chip = el.closest("#obsChip");
+        if (chip) {
+          chip.title = `OBS: ${text}`;
+          chip.setAttribute("aria-label", chip.title);
+          chip.classList.toggle("obs-connected", s.enabled.obs && s.obsStatus === "connected");
+          chip.classList.toggle("obs-error", s.enabled.obs && s.obsStatus === "error");
+        }
+      }
     });
-  });
+  };
+  const unsubscribe = subscribeRecorderSettings(render);
+  const observer = new MutationObserver(render);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    unsubscribe();
+    bound = false;
+  };
 }
+var bound;
 var init_obs_status_bind = __esm({
   "src/ui/obs-status-bind.ts"() {
     "use strict";
     init_recorder_settings();
+    bound = false;
   }
 });
 
@@ -93178,7 +93006,7 @@ function normalizeState(raw, previous) {
   return out;
 }
 function getTypography(d) {
-  return state5[d];
+  return state6[d];
 }
 function isMaxChManual(d) {
   return !!meta?.[d]?.maxChManual;
@@ -93192,19 +93020,19 @@ function setTypography(d, t) {
     } catch {
     }
   }
-  state5 = { ...state5, [d]: normalizeTypography({ ...state5[d], ...t }, state5[d] || DEFAULTS3[d]) };
+  state6 = { ...state6, [d]: normalizeTypography({ ...state6[d], ...t }, state6[d] || DEFAULTS3[d]) };
   try {
-    localStorage.setItem(KEY4, JSON.stringify(state5));
+    localStorage.setItem(KEY4, JSON.stringify(state6));
   } catch {
   }
   subs5.forEach((fn) => {
     try {
-      fn(d, state5[d]);
+      fn(d, state6[d]);
     } catch {
     }
   });
   try {
-    window.dispatchEvent(new CustomEvent("tp:typographyChanged", { detail: { display: d, settings: state5[d] } }));
+    window.dispatchEvent(new CustomEvent("tp:typographyChanged", { detail: { display: d, settings: state6[d] } }));
   } catch {
   }
 }
@@ -93225,7 +93053,7 @@ function clampTypography(t) {
     dimOthers: clamp12(t.dimOthers, 0, 0.7)
   };
 }
-var KEY4, META_KEY, DISPLAYS, state5, meta, subs5;
+var KEY4, META_KEY, DISPLAYS, state6, meta, subs5;
 var init_typographyStore = __esm({
   "src/settings/typographyStore.ts"() {
     "use strict";
@@ -93233,7 +93061,7 @@ var init_typographyStore = __esm({
     KEY4 = "tp_typography_v1";
     META_KEY = "tp_typography_meta_v1";
     DISPLAYS = ["main", "display"];
-    state5 = (() => {
+    state6 = (() => {
       try {
         const parsed = JSON.parse(localStorage.getItem(KEY4) || "{}");
         const normalized = normalizeState(parsed);
@@ -93260,11 +93088,11 @@ var init_typographyStore = __esm({
         if (e.key === KEY4) {
           try {
             const next = JSON.parse(e.newValue || "{}");
-            state5 = normalizeState(next, state5);
+            state6 = normalizeState(next, state6);
             DISPLAYS.forEach((d) => {
               subs5.forEach((fn) => {
                 try {
-                  fn(d, state5[d]);
+                  fn(d, state6[d]);
                 } catch {
                 }
               });
@@ -93400,9 +93228,9 @@ function wireUiScaleControls(root) {
     const next = persist2 ? persistUiScale(value) : applyUiScale(value);
     syncFields(next);
   };
-  const initial2 = readUiScale();
-  syncFields(initial2);
-  applyUiScale(initial2);
+  const initial = readUiScale();
+  syncFields(initial);
+  applyUiScale(initial);
   const handleInput = (ev) => {
     const target = ev.target;
     if (!target) return;
@@ -93497,7 +93325,7 @@ function wireRecordButtons(store3, opts = {}) {
       if (stopBtn.disabled) return;
       stopBtn.disabled = true;
       try {
-        if (isSessionRecording()) {
+        if (isRecordingBusy()) {
           await stopSessionRecording();
         }
       } catch (err) {
@@ -93522,7 +93350,7 @@ var init_recordButtons = __esm({
 // src/ui/recording-mode-ui.ts
 function applyRecordingModeUi(mode) {
   try {
-    const resolved = mode || getRecordingMode();
+    const resolved = mode || getRecordingMode2();
     const root = document.documentElement;
     root.classList.toggle("tp-audio-only", resolved === "audio");
     root.dataset.recordingMode = resolved;
@@ -94365,7 +94193,7 @@ function maybeStartOnLive2(phase) {
 }
 function maybeStopOnEnd(phase) {
   if (phase !== "wrap" && phase !== "idle") return;
-  if (!isSessionRecording()) return;
+  if (!isRecordingBusy()) return;
   try {
     console.debug("[recording-session] stopping recorders; phase=", phase);
   } catch {
@@ -94550,7 +94378,7 @@ function renderPill(pill, next, prev2, variant) {
     return;
   }
   if (isRecording) {
-    pill.textContent = getRecordingMode() === "audio" ? "REC \u2022 AUDIO" : "REC";
+    pill.textContent = getRecordingMode2() === "audio" ? "REC \u2022 AUDIO" : "REC";
   } else {
     pill.textContent = "REC ARMED";
   }
@@ -94888,7 +94716,7 @@ function defaultDependencies() {
     setObsEnabled: (enabled2) => setRecorderEnabled("obs", enabled2),
     readSavedMicDeviceId: () => readStored("tp_mic_device_v1"),
     readSavedCameraDeviceId: () => readStored("tp_camera_device_v1"),
-    isRecording: isSessionRecording,
+    isRecording: isRecordingBusy,
     dispatch: (snapshot) => {
       window.dispatchEvent(new CustomEvent("tp:recording:arm-state", { detail: snapshot }));
     }
@@ -95117,8 +94945,8 @@ function buttonLabel(state9) {
   return "Arm Recording";
 }
 function initRecordingArmControl() {
-  if (initialized2 || typeof document === "undefined") return;
-  initialized2 = true;
+  if (initialized3 || typeof document === "undefined") return;
+  initialized3 = true;
   const controller = createRecordingArmController();
   const render = (state9, failure) => {
     const buttons = Array.from(document.querySelectorAll('[data-action="recording-arm-toggle"]'));
@@ -95177,12 +95005,70 @@ function initRecordingArmControl() {
   });
   window.__tpRecordingArm = controller;
 }
-var initialized2;
+var initialized3;
 var init_recording_arm_control = __esm({
   "src/features/recording-arm-control.ts"() {
     "use strict";
     init_recording_arm();
-    initialized2 = false;
+    initialized3 = false;
+  }
+});
+
+// src/recording/local-destination.ts
+async function resolveLocalRecordingDestination() {
+  const api = window.__tpRecDir;
+  if (!api) throw new Error("Recording destination unavailable. Link the recording folder through Hearth and reopen Anvil.");
+  await api.init?.();
+  const handle = api.get?.() ?? null;
+  const managed = !!api.isManaged?.();
+  const expected = managed ? api.localPersistenceExpected?.() ?? true : !!handle;
+  const hint = api.managedHint?.() || handle?.name || null;
+  return { handle, expected, hint };
+}
+async function requireLocalRecordingDestination() {
+  const destination = await resolveLocalRecordingDestination();
+  if (!destination.expected) return destination;
+  if (!destination.handle) throw new Error("The Hearth recording folder is unavailable. Relink it in Hearth before recording.");
+  const handle = destination.handle;
+  if (handle.queryPermission && await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
+    if (!handle.requestPermission || await handle.requestPermission({ mode: "readwrite" }) !== "granted") {
+      throw new Error("Recording folder permission denied. Grant access through Hearth before recording.");
+    }
+  }
+  return destination;
+}
+async function writeLocalRecording(bytes, name, capturedDestination) {
+  let destination = { handle: null, expected: true, hint: null };
+  let stage = "directory_resolution_failed";
+  let writable = null;
+  try {
+    destination = capturedDestination ?? await resolveLocalRecordingDestination();
+    if (!destination.handle) return { ...destination, success: false, errorCode: destination.expected ? "missing_directory_handle" : null, errorMessage: destination.expected ? "The Hearth recording folder is unavailable. Relink it in Hearth and retry local save." : null };
+    stage = "directory_permission_not_granted";
+    const handle = destination.handle;
+    if (handle.queryPermission && await handle.queryPermission({ mode: "readwrite" }) !== "granted") {
+      throw new Error("Recording folder permission is not granted. Relink it in Hearth and retry local save.");
+    }
+    stage = "directory_file_creation_failed";
+    const file = await handle.getFileHandle(name, { create: true });
+    stage = "directory_writable_open_failed";
+    writable = await file.createWritable();
+    stage = "directory_write_failed";
+    await writable.write(bytes);
+    stage = "directory_close_failed";
+    await writable.close();
+    return { ...destination, success: true, errorCode: null, errorMessage: null };
+  } catch (error) {
+    try {
+      await writable?.abort();
+    } catch {
+    }
+    return { ...destination, success: false, errorCode: stage, errorMessage: error.message };
+  }
+}
+var init_local_destination = __esm({
+  "src/recording/local-destination.ts"() {
+    "use strict";
   }
 });
 
@@ -95923,358 +95809,6 @@ var init_scripts_store = __esm({
   }
 });
 
-// src/recording/recording-decision-dialog.ts
-function isRecordingDecisionPending() {
-  return typeof document !== "undefined" && document.getElementById(MODAL_ID2) !== null;
-}
-function escapeHtml3(value) {
-  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-function describeDecisionError(error) {
-  const message = error instanceof Error ? error.message.trim() : "";
-  if (message === "ready_workspace_missing") {
-    return "Anvil lost the episode workspace context before saving this decision. The recording is still saved. Reopen this episode from Hearth, then choose Keep Take again.";
-  }
-  if (message === "recording_keep_unavailable" || message === "recording_discard_unavailable") {
-    return "Anvil could not save this take decision to Tongs. The recording is still saved; check the Forge connection and try again.";
-  }
-  return message || "Could not save your take decision. Try again.";
-}
-function closeModal2() {
-  const existing = document.getElementById(MODAL_ID2);
-  if (existing?.parentElement) {
-    existing.parentElement.removeChild(existing);
-  }
-}
-function closeWorkingModal() {
-  const existing = document.getElementById(WORKING_MODAL_ID);
-  if (existing?.parentElement) {
-    existing.parentElement.removeChild(existing);
-  }
-}
-function closeAllRecordingOverlays() {
-  if (_activeDecisionCleanup) {
-    _activeDecisionCleanup();
-    _activeDecisionCleanup = null;
-  }
-  closeModal2();
-  closeWorkingModal();
-}
-function applyStyles2() {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    #${MODAL_ID2} {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      background: rgba(8, 15, 30, 0.74);
-      z-index: 1700;
-    }
-    #${WORKING_MODAL_ID} {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      background: rgba(8, 15, 30, 0.74);
-      z-index: 1700;
-    }
-    #${MODAL_ID2} .tp-recording-decision-panel {
-      width: min(460px, 100%);
-      background: #0f172a;
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
-      padding: 22px;
-      font-family: system-ui, "Segoe UI", sans-serif;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-decision-panel {
-      width: min(420px, 100%);
-      background: #0f172a;
-      color: #f8fafc;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.55);
-      padding: 22px;
-      font-family: system-ui, "Segoe UI", sans-serif;
-    }
-    #${MODAL_ID2} h2 {
-      margin: 0 0 10px;
-      font-size: 22px;
-      line-height: 1.15;
-    }
-    #${WORKING_MODAL_ID} h2 {
-      margin: 0 0 10px;
-      font-size: 22px;
-      line-height: 1.15;
-    }
-    #${MODAL_ID2} .tp-recording-decision-copy {
-      margin: 0;
-      color: rgba(226, 232, 240, 0.82);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-decision-copy {
-      margin: 0;
-      color: rgba(226, 232, 240, 0.82);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-    #${MODAL_ID2} .tp-recording-decision-file {
-      margin: 14px 0 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      color: rgba(248, 250, 252, 0.92);
-      font-size: 13px;
-      word-break: break-word;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-decision-file {
-      margin: 14px 0 0;
-      padding: 10px 12px;
-      border-radius: 10px;
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      color: rgba(248, 250, 252, 0.92);
-      font-size: 13px;
-      word-break: break-word;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-working-status {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 18px;
-      color: rgba(226, 232, 240, 0.92);
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    #${WORKING_MODAL_ID} .tp-recording-working-spinner {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 2px solid rgba(148, 163, 184, 0.28);
-      border-top-color: #22c55e;
-      animation: tp-recording-working-spin 0.8s linear infinite;
-      flex: 0 0 auto;
-    }
-    @keyframes tp-recording-working-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    #${MODAL_ID2} .tp-recording-decision-error {
-      min-height: 20px;
-      margin: 14px 0 0;
-      color: #fca5a5;
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    #${MODAL_ID2} .tp-recording-decision-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 18px;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn {
-      min-width: 120px;
-      border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: transparent;
-      color: #e2e8f0;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      padding: 10px 16px;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn[disabled] {
-      opacity: 0.6;
-      cursor: wait;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn--keep {
-      background: #22c55e;
-      border-color: #22c55e;
-      color: #052e16;
-    }
-    #${MODAL_ID2} .tp-recording-decision-btn--discard {
-      background: rgba(148, 163, 184, 0.12);
-    }
-  `;
-  document.head.appendChild(style);
-}
-function buildWorkingMarkup(options) {
-  const detail = String(options.detail || "").trim() || "Saving your take and preparing review options.";
-  const takeName = String(options.takeName || "").trim();
-  return `
-    <div class="tp-recording-decision-panel" role="status" aria-live="polite" aria-labelledby="${WORKING_MODAL_ID}-title">
-      <h2 id="${WORKING_MODAL_ID}-title">Finalizing recording</h2>
-      <p class="tp-recording-decision-copy">${escapeHtml3(detail)}</p>
-      ${takeName ? `<div class="tp-recording-decision-file">${escapeHtml3(takeName)}</div>` : ""}
-      <div class="tp-recording-working-status">
-        <span class="tp-recording-working-spinner" aria-hidden="true"></span>
-        <span>Working\u2026</span>
-      </div>
-    </div>
-  `;
-}
-function buildMarkup(takeName, isRecovery) {
-  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
-  const copy = isRecovery ? "This recording was saved but not reviewed. Keep or discard it?" : "Keep this take for editing?";
-  return `
-    <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID2}-title">
-      <h2 id="${MODAL_ID2}-title">${title}</h2>
-      <p class="tp-recording-decision-copy">${copy}</p>
-      <div class="tp-recording-decision-file">${escapeHtml3(takeName)}</div>
-      <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
-      <div class="tp-recording-decision-actions">
-        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--discard" data-action="discard">Discard Take</button>
-        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--keep" data-action="keep">Keep Take</button>
-      </div>
-    </div>
-  `;
-}
-function showRecordingFinalizeIndicator(options = {}) {
-  if (typeof document === "undefined") return;
-  closeAllRecordingOverlays();
-  applyStyles2();
-  const overlay = document.createElement("div");
-  overlay.id = WORKING_MODAL_ID;
-  overlay.className = "tp-recording-working-overlay";
-  overlay.innerHTML = buildWorkingMarkup(options);
-  document.body.appendChild(overlay);
-}
-function hideRecordingFinalizeIndicator() {
-  if (typeof document === "undefined") return;
-  closeWorkingModal();
-}
-async function showRecordingDecisionDialog(options) {
-  if (typeof document === "undefined") return;
-  closeAllRecordingOverlays();
-  applyStyles2();
-  return new Promise((resolve, reject) => {
-    const overlay = document.createElement("div");
-    overlay.id = MODAL_ID2;
-    overlay.className = "tp-recording-decision-overlay";
-    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
-    const discardButton = overlay.querySelector('[data-action="discard"]');
-    const keepButton = overlay.querySelector('[data-action="keep"]');
-    const errorNode = overlay.querySelector('[data-role="error"]');
-    let finished = false;
-    const setBusy = (busy, action) => {
-      if (discardButton) {
-        discardButton.disabled = busy;
-        discardButton.textContent = busy && action === "discard" ? "Discarding..." : "Discard Take";
-      }
-      if (keepButton) {
-        keepButton.disabled = busy;
-        keepButton.textContent = busy && action === "keep" ? "Saving..." : "Keep Take";
-      }
-    };
-    const visibilityGuard = () => {
-      try {
-        if (document.visibilityState !== "visible") return;
-        if (!finished && !document.body.contains(overlay)) {
-          document.body.appendChild(overlay);
-          keepButton?.focus();
-        }
-      } catch {
-      }
-    };
-    const beforeUnloadGuard = (event) => {
-      if (!finished) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    const cleanupGuards = () => {
-      _activeDecisionCleanup = null;
-      try {
-        document.removeEventListener("visibilitychange", visibilityGuard);
-      } catch {
-      }
-      try {
-        window.removeEventListener("beforeunload", beforeUnloadGuard);
-      } catch {
-      }
-    };
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      cleanupGuards();
-      closeModal2();
-      resolve();
-    };
-    const fail3 = (error) => {
-      if (finished) return;
-      finished = true;
-      cleanupGuards();
-      closeModal2();
-      reject(error);
-    };
-    const runAction = async (action) => {
-      setBusy(true, action);
-      if (errorNode) errorNode.textContent = "";
-      try {
-        if (action === "keep") {
-          await options.onKeep();
-        } else {
-          await options.onDiscard();
-        }
-        finish();
-      } catch (error) {
-        setBusy(false);
-        if (errorNode) {
-          errorNode.textContent = describeDecisionError(error);
-        }
-      }
-    };
-    discardButton?.addEventListener("click", () => {
-      void runAction("discard");
-    });
-    keepButton?.addEventListener("click", () => {
-      void runAction("keep");
-    });
-    overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void runAction("keep");
-      }
-    });
-    try {
-      document.body.appendChild(overlay);
-      _activeDecisionCleanup = cleanupGuards;
-      try {
-        document.addEventListener("visibilitychange", visibilityGuard);
-      } catch {
-      }
-      try {
-        window.addEventListener("beforeunload", beforeUnloadGuard);
-      } catch {
-      }
-      keepButton?.focus();
-    } catch (error) {
-      cleanupGuards();
-      fail3(error);
-    }
-  });
-}
-var MODAL_ID2, WORKING_MODAL_ID, STYLE_ID, _activeDecisionCleanup;
-var init_recording_decision_dialog = __esm({
-  "src/recording/recording-decision-dialog.ts"() {
-    "use strict";
-    MODAL_ID2 = "tp-recording-decision-modal";
-    WORKING_MODAL_ID = "tp-recording-working-modal";
-    STYLE_ID = "tp-recording-decision-styles";
-    _activeDecisionCleanup = null;
-  }
-});
-
 // src/recording/recording-name.ts
 function readString11(value) {
   if (typeof value !== "string") return null;
@@ -97004,180 +96538,11 @@ var init_selectBestRecordingStrategy = __esm({
   }
 });
 
-// src/fs/recording-dir.ts
-var recording_dir_exports = {};
-var init_recording_dir = __esm({
-  "src/fs/recording-dir.ts"() {
-    "use strict";
-    init_nursery_mounts();
-    (function() {
-      const DB_NAME2 = "tp-db";
-      const STORE2 = "fs-handles";
-      const KEY6 = "recordingDir";
-      async function openDB2() {
-        return await new Promise((resolve, reject) => {
-          try {
-            const req = indexedDB.open(DB_NAME2, 1);
-            req.onupgradeneeded = () => {
-              try {
-                const db = req.result;
-                if (!db.objectStoreNames.contains(STORE2)) db.createObjectStore(STORE2);
-              } catch {
-              }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-          } catch (e) {
-            reject(e);
-          }
-        });
-      }
-      async function idbGet2(key) {
-        try {
-          const db = await openDB2();
-          return await new Promise((resolve, reject) => {
-            try {
-              const tx = db.transaction(STORE2, "readonly");
-              const st = tx.objectStore(STORE2);
-              const req = st.get(key);
-              req.onsuccess = () => resolve(req.result || null);
-              req.onerror = () => reject(req.error);
-            } catch (e) {
-              reject(e);
-            }
-          });
-        } catch {
-          return null;
-        }
-      }
-      async function idbSet2(key, val) {
-        try {
-          const db = await openDB2();
-          await new Promise((resolve, reject) => {
-            try {
-              const tx = db.transaction(STORE2, "readwrite");
-              const st = tx.objectStore(STORE2);
-              const req = st.put(val, key);
-              req.onsuccess = () => resolve();
-              req.onerror = () => reject(req.error);
-            } catch (e) {
-              reject(e);
-            }
-          });
-        } catch {
-        }
-      }
-      async function idbDel2(key) {
-        try {
-          const db = await openDB2();
-          await new Promise((resolve, reject) => {
-            try {
-              const tx = db.transaction(STORE2, "readwrite");
-              const st = tx.objectStore(STORE2);
-              const req = st.delete(key);
-              req.onsuccess = () => resolve();
-              req.onerror = () => reject(req.error);
-            } catch (e) {
-              reject(e);
-            }
-          });
-        } catch {
-        }
-      }
-      function hasFsApi() {
-        try {
-          return !!("showDirectoryPicker" in window || window.isSecureContext && "FileSystemDirectoryHandle" in window);
-        } catch {
-          return false;
-        }
-      }
-      let _dir2 = null;
-      let _managedByNursery2 = false;
-      let _localPersistenceExpected = false;
-      let _managedHint2 = null;
-      async function syncManagedRecordingDir() {
-        try {
-          const managed = await getNurseryManagedDirectory("recordings");
-          if (!managed.managed) {
-            _managedByNursery2 = false;
-            _localPersistenceExpected = false;
-            _managedHint2 = null;
-            _dir2 = null;
-            return false;
-          }
-          _managedByNursery2 = true;
-          _localPersistenceExpected = managed.localPersistenceExpected;
-          _managedHint2 = managed.hint ?? null;
-          _dir2 = managed.handle ?? null;
-          return true;
-        } catch {
-          return false;
-        }
-      }
-      async function initRecordingDir() {
-        if (await syncManagedRecordingDir()) return;
-        try {
-          const h = await idbGet2(KEY6);
-          if (h) {
-            const ok = await h.queryPermission?.({ mode: "readwrite" }) || await h.requestPermission?.({ mode: "readwrite" });
-            if (ok === "granted" || ok === "prompt") _dir2 = h;
-            else _dir2 = h;
-          }
-        } catch {
-        }
-      }
-      function getRecordingDir() {
-        return _dir2 || null;
-      }
-      async function setRecordingDir(h) {
-        if (_managedByNursery2) return;
-        _dir2 = h || null;
-        if (h) await idbSet2(KEY6, h);
-        else await idbDel2(KEY6);
-      }
-      async function clearRecordingDir() {
-        if (_managedByNursery2) return;
-        _dir2 = null;
-        await idbDel2(KEY6);
-      }
-      async function pickRecordingDir() {
-        if (_managedByNursery2) return _dir2 || null;
-        if (!hasFsApi()) return null;
-        try {
-          const dir = await window.showDirectoryPicker({ mode: "readwrite", id: "tp-recordings" });
-          const ok = await dir?.requestPermission?.({ mode: "readwrite" }) || await dir?.queryPermission?.({ mode: "readwrite" });
-          if (ok === "granted" || ok === "prompt") {
-            await setRecordingDir(dir);
-            return dir;
-          }
-          return null;
-        } catch {
-          return null;
-        }
-      }
-      const api = {
-        init: initRecordingDir,
-        get: getRecordingDir,
-        set: setRecordingDir,
-        clear: clearRecordingDir,
-        pick: pickRecordingDir,
-        supported: hasFsApi,
-        isManaged: () => _managedByNursery2,
-        localPersistenceExpected: () => _localPersistenceExpected,
-        managedHint: () => _managedHint2
-      };
-      try {
-        window.__tpRecDir = api;
-      } catch {
-      }
-    })();
-  }
-});
-
 // src/recording/local-auto.ts
 var init_local_auto = __esm({
   "src/recording/local-auto.ts"() {
     "use strict";
+    init_local_destination();
     init_recording_settings();
     init_workpiece_commit();
     init_speech_loader();
@@ -97192,6 +96557,8 @@ var init_local_auto = __esm({
       let mediaRecorder = null;
       let chunks = [];
       let active = false;
+      let activeDestination = null;
+      let stopping = null;
       let activeMode = null;
       let currentStream = null;
       let audioCtx2 = null;
@@ -97285,9 +96652,9 @@ var init_local_auto = __esm({
       }
       function showRecorderToast(message, type = "warning") {
         try {
-          const toast6 = window.toast;
-          if (typeof toast6 === "function") {
-            toast6(message, { type });
+          const toast5 = window.toast;
+          if (typeof toast5 === "function") {
+            toast5(message, { type });
           }
         } catch {
         }
@@ -97774,6 +97141,7 @@ var init_local_auto = __esm({
       };
       const startMediaRecorderWithStrategy = async (strategy) => {
         const mix = new MediaStream();
+        currentStream = mix;
         if (strategy.mode === "audio") {
           const audioStream2 = await getAudioStream();
           try {
@@ -97782,13 +97150,10 @@ var init_local_auto = __esm({
           }
         } else {
           const videoStream = await getVideoStream();
+          videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
           const audioStream2 = await getAudioStream();
           try {
             audioStream2.getAudioTracks().forEach((track) => mix.addTrack(track));
-          } catch {
-          }
-          try {
-            videoStream.getVideoTracks().forEach((track) => mix.addTrack(track));
           } catch {
           }
         }
@@ -97850,16 +97215,19 @@ var init_local_auto = __esm({
         mediaRecorder.start(1e3);
       };
       async function start2() {
+        if (stopping) await stopping;
+        if (document.getElementById("retryLocalRecordingSave")) throw new Error("Retry the pending local recording save before starting another take.");
         if (active) return;
+        if (getRecordingEngine() !== "core") throw new Error("Core Recorder cannot start while OBS is selected.");
         try {
           if (mustSkipForMode()) {
-            try {
-              console.log("[core-recorder] start skipped: rehearsal mode");
-            } catch {
-            }
-            return;
+            throw new Error("Recording is disabled in Rehearsal mode. Select a recording session mode first.");
           }
-          const recordingMode = getRecordingMode();
+          void recoverPendingTakeDecision().catch((error) => {
+            console.warn("[recording] pending decision recovery failed", error);
+          });
+          activeDestination = await requireLocalRecordingDestination();
+          const recordingMode = getRecordingMode2();
           try {
             console.log("[core-recorder] start", {
               mode: window.__tpStore?.get?.("scrollMode") || null,
@@ -97925,9 +97293,24 @@ var init_local_auto = __esm({
           }
           activeSaveIdentity = null;
           activeStrategy = null;
+          try {
+            currentStream?.getTracks().forEach((track) => track.stop());
+          } catch {
+          }
+          currentStream = null;
+          throw e;
         }
       }
       async function stop3() {
+        if (stopping) return stopping;
+        stopping = stopCapture();
+        try {
+          await stopping;
+        } finally {
+          stopping = null;
+        }
+      }
+      async function stopCapture() {
         try {
           console.log("[core-recorder] stop called");
         } catch {
@@ -97946,6 +97329,7 @@ var init_local_auto = __esm({
           return null;
         });
         let cleanupStreamAfterRecorderStop = false;
+        let stopError = null;
         try {
           if (activeMode === "audio" && strategyAtStop?.mechanism === "pcm-wav-fallback") {
             await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
@@ -97953,6 +97337,12 @@ var init_local_auto = __esm({
             const recorder2 = mediaRecorder;
             cleanupStreamAfterRecorderStop = true;
             const stopName = nowName(strategyAtStop?.mode ?? "av", strategyAtStop?.fileExtension, saveIdentityAtStop);
+            let finish;
+            let fail3;
+            const finalized = new Promise((resolve, reject) => {
+              finish = resolve;
+              fail3 = reject;
+            });
             recorder2.onstop = async () => {
               try {
                 console.log("[core-recorder] mediaRecorder.onstop fired", { chunks: chunks.length });
@@ -97974,13 +97364,16 @@ var init_local_auto = __esm({
                   console.warn("[auto-rec] save failed", e);
                 } catch {
                 }
+                fail3(e);
               } finally {
+                active = false;
                 recordingStartedAtMs = null;
                 try {
                   currentStream?.getTracks().forEach((track) => track.stop());
                 } catch {
                 }
                 currentStream = null;
+                finish();
               }
             };
             try {
@@ -97988,12 +97381,15 @@ var init_local_auto = __esm({
             } catch {
             }
             recorder2.stop();
+            await finalized;
           } else {
             recordingStartedAtMs = null;
           }
-        } catch {
+        } catch (error) {
+          stopError = error;
         }
         if (!cleanupStreamAfterRecorderStop) {
+          active = false;
           try {
             currentStream?.getTracks().forEach((track) => track.stop());
           } catch {
@@ -98003,17 +97399,19 @@ var init_local_auto = __esm({
         mediaRecorder = null;
         active = false;
         activeMode = null;
+        activeDestination = null;
         activeStrategy = null;
         activeSaveIdentity = null;
         try {
-          window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: "idle", adapter: "local-auto" } }));
+          window.dispatchEvent(new CustomEvent("rec:state", { detail: { state: stopError ? "error" : "idle", adapter: "local-auto" } }));
         } catch {
         }
+        if (stopError) throw stopError;
       }
       async function saveBlob(blob, name, opts = {}) {
         const bytes = new Uint8Array(await blob.arrayBuffer());
         const contentType = blob.type || "application/octet-stream";
-        const localWritePayload = bytes;
+        const localWrite = writeLocalRecording(bytes, name, activeDestination ?? void 0);
         showRecordingFinalizeIndicator({ takeName: name });
         let committed = false;
         let commitResultOk = null;
@@ -98033,7 +97431,6 @@ var init_local_auto = __esm({
         let downloadFallbackAttempted = false;
         let downloadFallbackSucceeded = false;
         let downloadFallbackSkippedReason = null;
-        let downloadFallbackErrorMessage = null;
         const emitDestinationStatus = () => {
           emitRecordingDestinationStatus({
             fileName: name,
@@ -98060,7 +97457,7 @@ var init_local_auto = __esm({
               state: downloadFallbackSucceeded ? "succeeded" : downloadFallbackAttempted ? "failed" : downloadFallbackSkippedReason ? "skipped" : "not_attempted",
               fileName: downloadFallbackAttempted ? name : null,
               errorCode: downloadFallbackAttempted && !downloadFallbackSucceeded ? "browser_download_failed" : downloadFallbackSkippedReason,
-              errorMessage: downloadFallbackErrorMessage
+              errorMessage: null
             }
           });
         };
@@ -98224,226 +97621,60 @@ var init_local_auto = __esm({
               }
             }
           }
+          const local = await localWrite;
+          localMirrorExpected = local.expected;
+          localMirrorAttempted = !!local.handle || local.expected;
+          localMirrorSucceeded = local.success;
+          localMirrorHandleAvailable = !!local.handle;
+          localMirrorConfiguredPath = local.hint;
+          localMirrorErrorCode = local.errorCode;
+          localMirrorErrorMessage = local.errorMessage;
+          downloadFallbackSkippedReason = "automatic_download_disabled";
+          emitLocalSafetyCopyStatus({
+            enabled: local.expected,
+            configuredPath: local.hint,
+            attempted: localMirrorAttempted,
+            success: local.success,
+            bytesWritten: local.success ? bytes.length : 0,
+            finalPath: local.success ? `local:directory:${name}` : null,
+            errorCode: local.errorCode,
+            errorMessage: local.errorMessage,
+            safeToLeave: local.success,
+            localCopySecured: local.success,
+            localMirrorExpected,
+            localMirrorAttempted,
+            localMirrorSucceeded,
+            canonicalCommitAttempted: canonicalAttempted,
+            canonicalCommitSucceeded: committed,
+            overallSafeToLeave: local.success || committed,
+            downloadFallbackAttempted: false,
+            downloadFallbackSucceeded: false,
+            downloadFallbackSkippedReason
+          });
+          if (!local.success && (local.expected || !committed)) {
+            showRecorderToast("The Hearth recording folder copy failed. Keep Anvil open, relink the folder in Hearth, then retry local save.", "error");
+            const old = document.getElementById("retryLocalRecordingSave");
+            old?.remove();
+            const retry2 = document.createElement("button");
+            retry2.id = "retryLocalRecordingSave";
+            retry2.textContent = "Retry local recording save";
+            retry2.addEventListener("click", async () => {
+              retry2.disabled = true;
+              const result = await writeLocalRecording(bytes, name);
+              retry2.disabled = false;
+              if (result.success) {
+                localMirrorSucceeded = true;
+                localMirrorErrorCode = null;
+                localMirrorErrorMessage = null;
+                localMirrorConfiguredPath = result.hint;
+                emitDestinationStatus();
+                showRecorderToast("Recording saved to the Hearth recording folder.", "info");
+                retry2.remove();
+              } else showRecorderToast(result.errorMessage || "Recording folder unavailable. Relink it in Hearth.", "error");
+            });
+            document.body.appendChild(retry2);
+          }
           try {
-            try {
-              console.log("[recording-dir] saveRecordingBlob start", { size: blob.size, name, committed });
-              await Promise.resolve().then(() => (init_recording_dir(), recording_dir_exports));
-              try {
-                await window.__tpRecDir?.init?.();
-              } catch {
-              }
-              const dir = window.__tpRecDir?.get?.() || null;
-              const managed = !!window.__tpRecDir?.isManaged?.();
-              const managedLocalPersistenceExpected = managed ? typeof window.__tpRecDir?.localPersistenceExpected === "function" ? !!window.__tpRecDir.localPersistenceExpected() : true : false;
-              const hint = window.__tpRecDir?.managedHint?.();
-              const configuredPath = managed && managedLocalPersistenceExpected ? typeof hint === "string" && hint.trim() ? hint.trim() : "managed:recordings" : dir && typeof dir.name === "string" ? String(dir.name).trim() : null;
-              localMirrorConfiguredPath = configuredPath || null;
-              localMirrorExpected = managedLocalPersistenceExpected || !!configuredPath || !!dir;
-              localMirrorHandleAvailable = !!dir && typeof dir.getFileHandle === "function";
-              const safetyEnabled = !!dir;
-              emitLocalSafetyCopyStatus({
-                enabled: safetyEnabled,
-                configuredPath: configuredPath || null,
-                attempted: false,
-                success: false,
-                bytesWritten: 0,
-                finalPath: null,
-                errorCode: null,
-                errorMessage: null,
-                safeToLeave: false,
-                localCopySecured: false,
-                localMirrorExpected,
-                localMirrorAttempted: false,
-                localMirrorSucceeded: false,
-                canonicalCommitAttempted: canonicalAttempted,
-                canonicalCommitSucceeded: committed,
-                overallSafeToLeave: committed,
-                downloadFallbackAttempted,
-                downloadFallbackSucceeded,
-                downloadFallbackSkippedReason
-              });
-              if (dir && typeof dir.getFileHandle === "function") {
-                let folderWriteStage = "permission";
-                try {
-                  localMirrorAttempted = true;
-                  try {
-                    console.log("[core-recorder] writing to directory", { name: dir.name || "(handle)" });
-                  } catch {
-                  }
-                  try {
-                    const q3 = await dir.queryPermission?.({ mode: "readwrite" });
-                    if (q3 !== "granted") {
-                      const r = await dir.requestPermission?.({ mode: "readwrite" });
-                      if (r !== "granted") {
-                        throw new Error("recording-dir-permission-not-granted");
-                      }
-                    }
-                  } catch (permErr) {
-                    try {
-                      console.warn("[core-recorder] directory permission not granted; using download fallback", permErr);
-                    } catch {
-                    }
-                    throw permErr;
-                  }
-                  folderWriteStage = "file";
-                  const fh = await dir.getFileHandle(name, { create: true });
-                  folderWriteStage = "writable";
-                  const w3 = await fh.createWritable();
-                  folderWriteStage = "write";
-                  await w3.write(localWritePayload);
-                  folderWriteStage = "close";
-                  await w3.close();
-                  localMirrorSucceeded = true;
-                  localMirrorErrorCode = null;
-                  localMirrorErrorMessage = null;
-                  emitLocalSafetyCopyStatus({
-                    enabled: true,
-                    configuredPath: configuredPath || null,
-                    attempted: true,
-                    success: true,
-                    bytesWritten: bytes.length,
-                    finalPath: `local:directory:${name}`,
-                    errorCode: null,
-                    errorMessage: null,
-                    safeToLeave: true,
-                    localCopySecured: true,
-                    localMirrorExpected,
-                    localMirrorAttempted,
-                    localMirrorSucceeded,
-                    canonicalCommitAttempted: canonicalAttempted,
-                    canonicalCommitSucceeded: committed,
-                    overallSafeToLeave: true,
-                    downloadFallbackAttempted,
-                    downloadFallbackSucceeded,
-                    downloadFallbackSkippedReason
-                  });
-                  try {
-                    console.log("[core-recorder] saved file mirror", name);
-                  } catch {
-                  }
-                  emitDestinationStatus();
-                  if (commitResultOk && acceptedCompletionId) {
-                    await presentCanonicalTakeDecision();
-                  }
-                  if (!committed) {
-                    emitUploadFallbackAudit({
-                      saveIdentity: opts.saveIdentity ?? null,
-                      originalName: name,
-                      bytes: bytes.length,
-                      canonicalAttempted,
-                      canonicalSucceeded: false,
-                      fallbackUsed: true,
-                      safeToLeave: canonicalErrorCode == null,
-                      errorCode: canonicalErrorCode,
-                      errorMessage: canonicalErrorMessage,
-                      finalStorageKey: `local:directory:${name}`,
-                      localMirrorExpected,
-                      localMirrorAttempted,
-                      localMirrorSucceeded,
-                      localCopySecured: true,
-                      downloadFallbackAttempted,
-                      downloadFallbackSucceeded,
-                      downloadFallbackSkippedReason
-                    });
-                  }
-                  return true;
-                } catch (err) {
-                  const folderErrorCodes = {
-                    permission: "directory_permission_not_granted",
-                    file: "directory_file_creation_failed",
-                    writable: "directory_writable_open_failed",
-                    write: "directory_write_failed",
-                    close: "directory_close_failed"
-                  };
-                  localMirrorErrorCode = folderErrorCodes[folderWriteStage];
-                  localMirrorErrorMessage = String(err?.message || err || "configured_folder_write_failed");
-                  emitLocalSafetyCopyStatus({
-                    enabled: true,
-                    configuredPath: configuredPath || null,
-                    attempted: true,
-                    success: false,
-                    bytesWritten: 0,
-                    finalPath: null,
-                    errorCode: localMirrorErrorCode,
-                    errorMessage: localMirrorErrorMessage,
-                    safeToLeave: false,
-                    localCopySecured: false,
-                    localMirrorExpected,
-                    localMirrorAttempted: true,
-                    localMirrorSucceeded: false,
-                    canonicalCommitAttempted: canonicalAttempted,
-                    canonicalCommitSucceeded: committed,
-                    overallSafeToLeave: committed,
-                    downloadFallbackAttempted,
-                    downloadFallbackSucceeded,
-                    downloadFallbackSkippedReason
-                  });
-                  if (committed) {
-                    showRecorderToast(
-                      `Recording was saved to Forge, but the configured folder copy failed (${localMirrorErrorCode}).`,
-                      "warning"
-                    );
-                  } else {
-                    showRecorderToast(
-                      `Configured folder copy failed (${localMirrorErrorCode}). Keep this screen open until the browser download finishes.`,
-                      "error"
-                    );
-                  }
-                  try {
-                    console.warn("[core-recorder] failed to write via FileSystemAccess", err);
-                  } catch {
-                  }
-                }
-              } else {
-                localMirrorAttempted = localMirrorExpected;
-                localMirrorErrorCode = localMirrorExpected ? "missing_directory_handle" : null;
-                localMirrorErrorMessage = localMirrorExpected ? `The configured recording folder is not linked for ${window.location.origin}.` : null;
-                try {
-                  const managed2 = !!window.__tpRecDir?.isManaged?.();
-                  const hint2 = window.__tpRecDir?.managedHint?.();
-                  console.warn(
-                    "[core-recorder] no recording directory handle available; falling back to download",
-                    { managed: managed2, hint: hint2 || null }
-                  );
-                } catch {
-                }
-                emitLocalSafetyCopyStatus({
-                  enabled: localMirrorExpected,
-                  configuredPath: configuredPath || null,
-                  attempted: localMirrorAttempted,
-                  success: false,
-                  bytesWritten: 0,
-                  finalPath: null,
-                  errorCode: localMirrorErrorCode,
-                  errorMessage: localMirrorErrorMessage,
-                  safeToLeave: false,
-                  localCopySecured: false,
-                  localMirrorExpected,
-                  localMirrorAttempted,
-                  localMirrorSucceeded: false,
-                  canonicalCommitAttempted: canonicalAttempted,
-                  canonicalCommitSucceeded: committed,
-                  overallSafeToLeave: committed,
-                  downloadFallbackAttempted,
-                  downloadFallbackSucceeded,
-                  downloadFallbackSkippedReason
-                });
-                if (localMirrorExpected) {
-                  if (committed) {
-                    showRecorderToast(
-                      `Recording was saved to Forge, but the configured folder is not linked for ${window.location.origin}.`,
-                      "warning"
-                    );
-                  } else {
-                    showRecorderToast(
-                      `The configured recording folder is not linked for ${window.location.origin}. Keep this screen open until the browser download finishes.`,
-                      "error"
-                    );
-                  }
-                }
-              }
-            } catch {
-            }
             if (committed) {
               downloadFallbackSkippedReason = "canonical_commit_succeeded";
               try {
@@ -98475,32 +97706,7 @@ var init_local_auto = __esm({
               if (commitResultOk && acceptedCompletionId) {
                 await presentCanonicalTakeDecision();
               }
-              return true;
-            }
-            showRecorderToast(
-              "Recording saved locally only. Forge could not complete the canonical cloud save.",
-              "warning"
-            );
-            try {
-              downloadFallbackAttempted = true;
-              const downloadBlob = new Blob([bytes], { type: contentType });
-              const url = URL.createObjectURL(downloadBlob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = name || "Recording.webm";
-              a.rel = "noopener noreferrer";
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-              setTimeout(() => {
-                try {
-                  URL.revokeObjectURL(url);
-                } catch {
-                }
-              }, 2e3);
-              downloadFallbackSucceeded = true;
-            } catch (error) {
-              downloadFallbackErrorMessage = String(error?.message || error || "browser_download_failed");
+              return !localMirrorExpected || localMirrorSucceeded;
             }
             emitUploadFallbackAudit({
               saveIdentity: opts.saveIdentity ?? null,
@@ -98508,32 +97714,22 @@ var init_local_auto = __esm({
               bytes: bytes.length,
               canonicalAttempted,
               canonicalSucceeded: false,
-              fallbackUsed: true,
+              fallbackUsed: localMirrorSucceeded,
               safeToLeave: false,
               errorCode: canonicalErrorCode,
               errorMessage: canonicalErrorMessage,
-              finalStorageKey: `local:download:${name}`,
+              finalStorageKey: localMirrorSucceeded ? `local:directory:${name}` : null,
               localMirrorExpected,
               localMirrorAttempted,
               localMirrorSucceeded,
-              localCopySecured: downloadFallbackSucceeded,
-              downloadFallbackAttempted,
-              downloadFallbackSucceeded,
+              localCopySecured: localMirrorSucceeded,
+              downloadFallbackAttempted: false,
+              downloadFallbackSucceeded: false,
               downloadFallbackSkippedReason
             });
-            if (downloadFallbackSucceeded) {
-              showRecorderToast(
-                `Browser download succeeded for "${name}". Canonical completion${localMirrorExpected ? " and the configured folder copy" : ""} did not succeed.`,
-                "warning"
-              );
-            } else {
-              showRecorderToast(
-                "Canonical completion and browser download both failed. Do not leave this screen.",
-                "error"
-              );
-            }
+            showRecorderToast(localMirrorSucceeded ? "Recording saved to the Hearth folder. Canonical cloud completion is still incomplete." : "Recording has no confirmed local copy or canonical completion. Keep Anvil open and retry the local save.", "warning");
             emitDestinationStatus();
-            return false;
+            return localMirrorSucceeded;
           } finally {
             hideRecordingFinalizeIndicator();
           }
@@ -98541,42 +97737,6 @@ var init_local_auto = __esm({
           hideRecordingFinalizeIndicator();
           throw error;
         }
-      }
-      try {
-        document.addEventListener(
-          "tp:session:start",
-          () => {
-            void recoverPendingTakeDecision();
-            try {
-              start2();
-            } catch {
-            }
-          },
-          { capture: true }
-        );
-        document.addEventListener(
-          "tp:session:stop",
-          () => {
-            try {
-              stop3();
-            } catch {
-            }
-          },
-          { capture: true }
-        );
-        document.addEventListener(
-          "tp:speech-state",
-          (e) => {
-            try {
-              const detail = e?.detail;
-              if (detail && detail.running === false) stop3();
-              if (detail && detail.running === true) start2();
-            } catch {
-            }
-          },
-          { capture: true }
-        );
-      } catch {
       }
       try {
         const auto2 = window.__tpAutoRecord = window.__tpAutoRecord || {};
@@ -98614,139 +97774,6 @@ var init_local_auto = __esm({
       } catch {
       }
     })();
-  }
-});
-
-// src/recording/obs-finished-import.ts
-function segments(path) {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean);
-}
-function relativeObsOutputPath(outputPath, directoryName) {
-  const parts = segments(outputPath);
-  if (!parts.length || parts.some((part) => part === "." || part === "..")) return null;
-  const rootAt = parts.map((part) => part.toLowerCase()).lastIndexOf(directoryName.trim().toLowerCase());
-  if (rootAt < 0 || rootAt === parts.length - 1) return null;
-  return parts.slice(rootAt + 1);
-}
-async function resolveFromLinkedDirectory(outputPath) {
-  await window.__tpRecDir?.init?.();
-  const root = window.__tpRecDir?.get?.();
-  if (!root) return null;
-  const permission = await root.queryPermission?.({ mode: "read" });
-  if (permission !== "granted") return null;
-  const relative = relativeObsOutputPath(outputPath, root.name);
-  if (!relative) return null;
-  let directory = root;
-  for (const part of relative.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
-  const handle = await directory.getFileHandle(relative[relative.length - 1]);
-  return handle.getFile();
-}
-async function selectFinishedFile() {
-  const picker = window.showOpenFilePicker;
-  if (typeof picker !== "function") return null;
-  try {
-    const handles = await picker({ id: "anvil-obs-finished-recording", multiple: false });
-    return handles?.[0]?.getFile?.() ?? null;
-  } catch {
-    return null;
-  }
-}
-function announce(name, detail) {
-  try {
-    window.dispatchEvent(new CustomEvent(name, { detail }));
-  } catch {
-  }
-}
-async function prepareObsRecordingImport() {
-  const target = await ensureRecordingCaptureTarget();
-  state6.authority = target.ok ? target.captureAuthority : null;
-  return target.ok;
-}
-async function importFinishedObsRecording(result) {
-  state6.lastStop = result;
-  if (!result.stopped || !result.outputPath) {
-    announce("tp:obs:recording-import", { phase: "needs-file", reason: "output_path_missing" });
-    return;
-  }
-  let captureAuthority = state6.authority;
-  if (!captureAuthority) {
-    const target = await ensureRecordingCaptureTarget();
-    if (target.ok) captureAuthority = target.captureAuthority;
-  }
-  if (!captureAuthority) {
-    announce("tp:obs:recording-import", { phase: "failed", reason: "capture_authority_missing" });
-    return;
-  }
-  let file = state6.selectedFile;
-  state6.selectedFile = null;
-  if (!file) try {
-    file = await resolveFromLinkedDirectory(result.outputPath);
-  } catch {
-  }
-  if (!file) {
-    announce("tp:obs:recording-import", { phase: "needs-file", reason: "local_file_permission_required", retryAvailable: true });
-    return;
-  }
-  announce("tp:obs:recording-import", { phase: "uploading", name: file.name, bytes: file.size });
-  const committed = await commitRecordingFileToTongs({ file, originalName: file.name, captureAuthority });
-  if (!committed.ok) {
-    announce("tp:obs:recording-import", { phase: "failed", reason: committed.reason, errorCode: committed.errorCode ?? null });
-    return;
-  }
-  const completed = await transitionRecordingCompleted({ commit: committed });
-  if (!completed.ok || !completed.completionId) {
-    announce("tp:obs:recording-import", { phase: "failed", reason: completed.reason ?? completed.outcome });
-    return;
-  }
-  announce("tp:obs:recording-import", { phase: "decision-required", completionId: completed.completionId });
-  await showRecordingDecisionDialog({
-    takeName: file.name,
-    onKeep: async () => {
-      const decision = await transitionRecordingKept({ commit: committed, completionId: completed.completionId });
-      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
-      announce("tp:obs:recording-import", { phase: "kept", completionId: completed.completionId });
-    },
-    onDiscard: async () => {
-      const decision = await transitionRecordingDiscarded({ commit: committed, completionId: completed.completionId });
-      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
-      announce("tp:obs:recording-import", { phase: "discarded", completionId: completed.completionId });
-    }
-  });
-}
-async function selectAndImportFinishedObsRecording() {
-  const file = await selectFinishedFile();
-  if (!file) return;
-  state6.selectedFile = file;
-  await importFinishedObsRecording(state6.lastStop ?? { adapter: "obs", stopped: true, outputPath: file.name });
-}
-function acceptStopResult(result) {
-  if (state6.running) return state6.running;
-  state6.running = importFinishedObsRecording(result).finally(() => {
-    state6.running = null;
-  });
-  return state6.running;
-}
-var state6;
-var init_obs_finished_import = __esm({
-  "src/recording/obs-finished-import.ts"() {
-    "use strict";
-    init_recording_dir();
-    init_workpiece_commit();
-    init_recording_decision_dialog();
-    init_workpiece_commit();
-    state6 = { authority: null, running: null, lastStop: null, selectedFile: null };
-    try {
-      window.__tpObsImport = {
-        prepare: prepareObsRecordingImport,
-        acceptStopResult,
-        retryWithFilePicker: selectAndImportFinishedObsRecording
-      };
-      window.addEventListener("rec:state", (event) => {
-        const detail = event.detail;
-        if (detail?.adapter === "obs" && detail?.state === "starting") void prepareObsRecordingImport();
-      });
-    } catch {
-    }
   }
 });
 
@@ -99770,7 +98797,7 @@ function initSpeechNotesHud(options = {}) {
     if (m !== "asr" && m !== "hybrid") return `mode-${m || "unknown"}`;
     return "ok";
   };
-  const updateStatus3 = () => {
+  const updateStatus2 = () => {
     if (!statusEl) return;
     const m = currentMode(store3);
     const on3 = canCapture();
@@ -99799,7 +98826,7 @@ function initSpeechNotesHud(options = {}) {
   const onSpeechState = (e) => {
     const detail = e?.detail || {};
     captureOn = !!detail.running;
-    updateStatus3();
+    updateStatus2();
   };
   const onTranscript = (e) => {
     const detail = e?.detail || {};
@@ -99824,7 +98851,7 @@ function initSpeechNotesHud(options = {}) {
   const onRuntimeStatus = (e) => {
     const detail = e?.detail || {};
     activeAsrLane2 = String(detail.activeAsrLane || activeAsrLane2 || "ASR1_CURRENT");
-    updateStatus3();
+    updateStatus2();
   };
   const onPartial = (p) => {
     if (canCapture()) addNote(p);
@@ -99833,12 +98860,12 @@ function initSpeechNotesHud(options = {}) {
     if (canCapture()) addNote(p);
   };
   window.addEventListener("tp:speech-state", onSpeechState, true);
-  window.addEventListener("tp:scroll:mode", updateStatus3, true);
+  window.addEventListener("tp:scroll:mode", updateStatus2, true);
   window.addEventListener("tp:speech:transcript", onTranscript, true);
   window.addEventListener("tp:asr:runtime-status", onRuntimeStatus, true);
   const onSpeechToggle = (on3) => {
     captureOn = !!on3;
-    updateStatus3();
+    updateStatus2();
   };
   try {
     bus?.on("speech:toggle", onSpeechToggle);
@@ -99847,7 +98874,7 @@ function initSpeechNotesHud(options = {}) {
   } catch {
   }
   render();
-  updateStatus3();
+  updateStatus2();
   const show2 = () => {
     panel.style.display = "";
   };
@@ -99866,7 +98893,7 @@ function initSpeechNotesHud(options = {}) {
       }
     }
     window.removeEventListener("tp:speech-state", onSpeechState, true);
-    window.removeEventListener("tp:scroll:mode", updateStatus3, true);
+    window.removeEventListener("tp:scroll:mode", updateStatus2, true);
     window.removeEventListener("tp:speech:transcript", onTranscript, true);
     window.removeEventListener("tp:asr:runtime-status", onRuntimeStatus, true);
     try {
@@ -101018,9 +100045,9 @@ function initHudPopup(opts = {}) {
   const getStore5 = opts.getStore;
   const maxLines = opts.maxLines ?? 600;
   const isPopout = opts.popout ?? !!window.__TP_HUD_POPOUT__;
-  const bridge = createHudBridge();
+  const bridge2 = createHudBridge();
   try {
-    window.__tpHudBridge = bridge;
+    window.__tpHudBridge = bridge2;
   } catch {
   }
   const storeLines = [];
@@ -101169,7 +100196,7 @@ function initHudPopup(opts = {}) {
     ta.value = "";
     storeLines.length = 0;
     snapshotText = "";
-    if (!isPopout) bridge.send({ type: "hud:clear" });
+    if (!isPopout) bridge2.send({ type: "hud:clear" });
   };
   const copyText = async (text) => {
     const content = String(text ?? ta.value);
@@ -101233,7 +100260,7 @@ function initHudPopup(opts = {}) {
     }
     window.__tpHudPopoutWin = win;
     setPopout(true);
-    bridge.send({ type: "hud:state", state: state9 });
+    bridge2.send({ type: "hud:state", state: state9 });
   };
   const closePopout = () => {
     setPopout(false);
@@ -101247,16 +100274,16 @@ function initHudPopup(opts = {}) {
     }
   };
   const broadcastState2 = () => {
-    bridge.send({ type: "hud:state", state: state9 });
+    bridge2.send({ type: "hud:state", state: state9 });
   };
   const broadcastAppend = (lines) => {
     if (!lines.length) return;
-    bridge.send({ type: "hud:append", lines });
+    bridge2.send({ type: "hud:append", lines });
   };
   const broadcastSnapshot = (text) => {
-    bridge.send({ type: "hud:snapshot", text });
+    bridge2.send({ type: "hud:snapshot", text });
   };
-  bridge.on((msg) => {
+  bridge2.on((msg) => {
     if (isPopout) {
       switch (msg.type) {
         case "hud:state":
@@ -101286,8 +100313,8 @@ function initHudPopup(opts = {}) {
     switch (msg.type) {
       case "hud:requestSync":
         broadcastState2();
-        if (storeLines.length) bridge.send({ type: "hud:append", lines: [...storeLines] });
-        if (snapshotText) bridge.send({ type: "hud:snapshot", text: snapshotText });
+        if (storeLines.length) bridge2.send({ type: "hud:append", lines: [...storeLines] });
+        if (snapshotText) bridge2.send({ type: "hud:snapshot", text: snapshotText });
         break;
       case "hud:clear":
         clear();
@@ -101329,7 +100356,7 @@ function initHudPopup(opts = {}) {
     broadcastState2();
   }
   window.addEventListener("beforeunload", () => {
-    bridge.close();
+    bridge2.close();
   });
   return {
     isOpen: () => state9.open,
@@ -101555,9 +100582,9 @@ function initHud(opts = { store: window.__tpStore ?? null }) {
   };
   const subscribePopoutBridge = () => {
     popoutBridgeUnsub?.();
-    const bridge = window.__tpHudBridge;
-    if (!bridge?.on) return;
-    popoutBridgeUnsub = bridge.on((msg) => {
+    const bridge2 = window.__tpHudBridge;
+    if (!bridge2?.on) return;
+    popoutBridgeUnsub = bridge2.on((msg) => {
       if (msg.type === "hud:state") {
         if (msg.state?.popout) {
           startPopoutClosedPoll();
@@ -102207,8 +101234,8 @@ async function loadInitialAuthState() {
   }
 }
 function initAuthUnlock() {
-  if (initialized3) return;
-  initialized3 = true;
+  if (initialized4) return;
+  initialized4 = true;
   wireTrialGuards();
   try {
     appStoreSingleton.subscribe("session.phase", (phase) => {
@@ -102225,7 +101252,7 @@ function initAuthUnlock() {
   }
   void loadInitialAuthState();
 }
-var TRIAL_LIMIT_MS, LOGIN_PATH, SESSION_CACHE_KEYS, initialized3, currentSession, trialLocked, liveStartedAt, trialTimerId, trialChannel;
+var TRIAL_LIMIT_MS, LOGIN_PATH, SESSION_CACHE_KEYS, initialized4, currentSession, trialLocked, liveStartedAt, trialTimerId, trialChannel;
 var init_auth_unlock = __esm({
   "src/features/auth-unlock.ts"() {
     "use strict";
@@ -102237,7 +101264,7 @@ var init_auth_unlock = __esm({
     TRIAL_LIMIT_MS = 5 * 60 * 1e3;
     LOGIN_PATH = "/login";
     SESSION_CACHE_KEYS = ["forge_profile_cache", "forge_user_cache"];
-    initialized3 = false;
+    initialized4 = false;
     currentSession = null;
     trialLocked = false;
     liveStartedAt = 0;
@@ -103107,7 +102134,7 @@ var init_calibration = __esm({
 function $(id) {
   return document.getElementById(id);
 }
-function toast2(msg, opts) {
+function toast(msg, opts) {
   try {
     showToast(msg, opts);
   } catch {
@@ -103163,13 +102190,13 @@ function syncAsrDeviceFromSettingsMic() {
 async function grantMicLabels() {
   try {
     if (!navigator.mediaDevices?.getUserMedia) {
-      toast2("This browser does not support direct microphone access.");
+      toast("This browser does not support direct microphone access.");
       return;
     }
     await navigator.mediaDevices.getUserMedia({ audio: true });
-    toast2("Mic access granted \u2014 device names unlocked.");
+    toast("Mic access granted \u2014 device names unlocked.");
   } catch {
-    toast2("Mic access denied. You can still calibrate with generic names.");
+    toast("Mic access denied. You can still calibrate with generic names.");
   }
   await populateMicSelect();
   syncAsrDeviceFromSettingsMic();
@@ -103221,7 +102248,7 @@ function renderDerived(profile) {
       speechEl.textContent = `${profile.cal.speechRmsDbfs.toFixed(1)} dBFS`;
     if (snrEl) snrEl.textContent = `${profile.cal.snrDb.toFixed(1)} dB`;
     if (profile.cal.snrDb < 15) {
-      toast2("Increase mic gain or move closer. (SNR < 15 dB)");
+      toast("Increase mic gain or move closer. (SNR < 15 dB)");
     }
   } catch {
   }
@@ -103262,7 +102289,7 @@ function wireProfileSelector() {
       if (!id) return;
       try {
         setActiveProfile(id);
-        toast2("ASR profile selected", { type: "info" });
+        toast("ASR profile selected", { type: "info" });
       } catch {
       }
       renderProfileOptions();
@@ -103286,12 +102313,12 @@ function wireProfileLoadButton() {
       if (!select) return;
       const id = select.value;
       if (!id) {
-        toast2("Select a profile first", { type: "warning" });
+        toast("Select a profile first", { type: "warning" });
         return;
       }
       try {
         setActiveProfile(id);
-        toast2("ASR profile applied", { type: "info" });
+        toast("ASR profile applied", { type: "info" });
       } catch {
       }
       renderProfileOptions();
@@ -103410,7 +102437,7 @@ function wire() {
         }
         upsertProfile(current.profile);
         setActiveProfile(current.profile.id);
-        toast2("ASR profile saved and activated.");
+        toast("ASR profile saved and activated.");
         renderProfileOptions();
       } catch {
       }
@@ -104091,19 +103118,347 @@ var init_typographyPanel = __esm({
   }
 });
 
+// recorders-bridge-compat.ts
+function initCompat() {
+  if (typeof window !== "undefined") {
+    if (!window.__recorder) {
+      window.__recorder = {
+        get(name) {
+          return name === "obs" ? recorder : null;
+        }
+      };
+    }
+    window.recorders = window.recorders || window.__recorder;
+  }
+  return typeof window !== "undefined" ? window.__recorder : { get: () => null };
+}
+function getObsBridge() {
+  try {
+    if (typeof window === "undefined") return null;
+    if (window.__obsBridge) return window.__obsBridge;
+    if (window.__tpObsBridge) return window.__tpObsBridge;
+    const legacy = window.__tpObs;
+    if (legacy && typeof legacy === "object") return legacy;
+    return null;
+  } catch {
+    return null;
+  }
+}
+async function safeConnect(_testOnly) {
+  let bridge2 = getObsBridge();
+  if (!bridge2 && typeof window.__loadObsBridge === "function") {
+    await window.__loadObsBridge();
+    bridge2 = getObsBridge();
+  }
+  if (!bridge2 || typeof bridge2.connect !== "function" || typeof bridge2.isConnected !== "function") return false;
+  const ok = await bridge2.connect();
+  return ok === true && bridge2.isConnected() === true;
+}
+async function safeSetEnabled(on3) {
+  _enabled = !!on3;
+  const bridge2 = getObsBridge();
+  if (!bridge2) {
+    try {
+      console.info("[OBS] setEnabled(%o) no bridge; flag set inline", on3);
+    } catch {
+    }
+    return true;
+  }
+  try {
+    const ctrl = bridge2.setArmed ? bridge2 : window.__tpObs;
+    if (ctrl && typeof ctrl.setArmed === "function") {
+      ctrl.setArmed(!!on3);
+      if (on3 && typeof ctrl.maybeConnect === "function") {
+        await ctrl.maybeConnect();
+      } else if (!on3 && typeof ctrl.disconnect === "function") {
+        await ctrl.disconnect();
+      }
+      return true;
+    }
+    if (typeof bridge2.setEnabled === "function") {
+      await bridge2.setEnabled(!!on3);
+      return true;
+    }
+    try {
+      console.warn("[OBS] safeSetEnabled: bridge present but does not support known methods");
+    } catch {
+    }
+    return true;
+  } catch (e) {
+    try {
+      console.warn("[OBS] setEnabled(%o) failed", on3, e);
+    } catch {
+    }
+    return false;
+  }
+}
+function initBridge(opts = {}) {
+  _cfgBridge = { ..._cfgBridge, ...opts };
+  try {
+    if (_cfgBridge.isEnabled()) connect2();
+  } catch {
+  }
+}
+function setEnabled(on3) {
+  return safeSetEnabled(on3);
+}
+async function reconfigure(cfg = {}) {
+  try {
+    obsCfg = { ...obsCfg, ...cfg };
+    if (typeof cfg?.port !== "undefined") {
+      const n = typeof cfg.port === "string" ? parseInt(cfg.port, 10) : Number(cfg.port);
+      if (!Number.isNaN(n) && n > 0) {
+        obsCfg.port = n;
+      }
+    }
+    const password = typeof cfg?.password === "string" ? cfg.password : obsCfg.password || "";
+    obsCfg.password = password;
+    const explicitUrl = cfg && typeof cfg.url === "string" && cfg.url.trim() ? cfg.url.trim() : "";
+    const host = obsCfg.host || "127.0.0.1";
+    const port = obsCfg.port || 4455;
+    const scheme = obsCfg.secure ? "wss" : "ws";
+    const url = explicitUrl || `${scheme}://${host}:${port}/`;
+    try {
+      _cfgBridge.getUrl = () => url;
+      _cfgBridge.getPass = () => password;
+    } catch {
+    }
+    try {
+      const bridge2 = getObsBridge();
+      if (bridge2 && typeof bridge2.configure === "function") {
+        bridge2.configure({ url, password });
+      }
+    } catch (err) {
+      try {
+        console.warn("[OBS] bridge.configure failed", err);
+      } catch {
+      }
+    }
+    try {
+      if (_ws) {
+        try {
+          _ws.close(1e3, "reconfig");
+        } catch {
+        }
+        reconnectSoon(200);
+      }
+    } catch {
+    }
+  } catch (err) {
+    try {
+      console.warn("[OBS] reconfigure failed", err);
+    } catch {
+    }
+  }
+}
+async function test() {
+  try {
+    return await connect2({ testOnly: true });
+  } catch {
+    return false;
+  }
+}
+async function disconnect() {
+  try {
+    await getObsBridge()?.disconnect?.();
+    _identified = false;
+    _connecting = false;
+    try {
+      _ws && _ws.close(1e3, "manual");
+    } catch {
+    }
+    _ws = null;
+    try {
+      _cfgBridge.onStatus?.("disconnected", false);
+    } catch {
+    }
+  } catch {
+  }
+  return true;
+}
+function reconnectSoon(ms = 400) {
+  try {
+    clearTimeout(_reconnTimer);
+    _reconnTimer = setTrackedTimeout(() => {
+      try {
+        connect2();
+      } catch {
+      }
+    }, ms);
+  } catch {
+  }
+}
+async function connect2({ testOnly = false } = {}) {
+  return safeConnect(testOnly);
+}
+async function connect22(opts) {
+  return safeConnect(opts?.testOnly);
+}
+function isConnected() {
+  return getObsBridge()?.isConnected?.() === true;
+}
+function setEnabled3(on3) {
+  return safeSetEnabled(on3);
+}
+function init({ getUrl, getPass, isEnabled, onStatus, onRecordState } = {}) {
+  try {
+    if (typeof onStatus === "function") onStatus(isConnected() ? "connected" : "disconnected", isConnected());
+    if (getUrl || getPass) {
+      try {
+        setSettings({
+          configs: {
+            obs: {
+              url: getUrl ? getUrl() : void 0,
+              password: getPass ? getPass() : void 0
+            }
+          }
+        });
+      } catch {
+      }
+    }
+    try {
+      applyConfigs();
+    } catch {
+    }
+    try {
+      if (isEnabled && isEnabled()) {
+        void safeSetEnabled(true);
+      }
+    } catch {
+    }
+    try {
+      if (typeof initBridge === "function") {
+        initBridge({ getUrl, getPass, isEnabled, onStatus, onRecordState });
+      }
+    } catch {
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+var recorder, compatDefault, recorders_bridge_compat_default, _ws, _connecting, _identified, obsCfg, _cfgBridge, _enabled, _reconnTimer;
+var init_recorders_bridge_compat = __esm({
+  "recorders-bridge-compat.ts"() {
+    "use strict";
+    init_recorders_core();
+    recorder = {
+      get state() {
+        return isConnected() ? "connected" : "disabled";
+      },
+      async init() {
+        return true;
+      },
+      async connect() {
+        return safeConnect();
+      },
+      async disconnect() {
+        return disconnect();
+      },
+      setEnabled(on3) {
+        return safeSetEnabled(on3);
+      }
+    };
+    compatDefault = {
+      init: initCompat,
+      get(name) {
+        return name === "obs" ? recorder : null;
+      },
+      // Also surface the modern API explicitly if anyone wants it
+      recorder
+    };
+    recorders_bridge_compat_default = compatDefault;
+    if (typeof window !== "undefined") {
+      window.__recorder = window.__recorder || {
+        get(name) {
+          return name === "obs" ? recorder : null;
+        }
+      };
+      window.recorders = window.recorders || window.__recorder;
+    }
+    try {
+      if (typeof window !== "undefined") {
+        initCompat();
+        const api = window.__recorder;
+        if (!api.start) api.start = () => startSelected();
+        if (!api.stop) api.stop = () => stopSelected();
+        if (!api.preflight) api.preflight = async (target = "obs") => {
+          const issues = [];
+          try {
+            if (target === "obs") {
+              const bridge2 = window.__obsBridge || null;
+              if (!bridge2) issues.push("OBS bridge missing");
+              else {
+                try {
+                  const st = await bridge2.getRecordStatus();
+                  if (!st) issues.push("OBS not responding");
+                } catch {
+                  issues.push("OBS GetRecordStatus failed");
+                }
+                try {
+                  if (typeof bridge2.getRecordDirectory === "function") {
+                    const dir = await bridge2.getRecordDirectory();
+                    if (!dir || !dir.recordDirectory) issues.push("Record directory unknown");
+                  }
+                } catch {
+                }
+                try {
+                  const stats = await bridge2.getStats();
+                  const bytes = stats?.recording?.freeDiskSpace || stats?.free_disk_space || null;
+                  const free = typeof bytes === "number" ? bytes : typeof bytes === "string" && /^\d+$/.test(bytes) ? Number(bytes) : null;
+                  if (free != null && free < 2 * 1024 * 1024 * 1024) issues.push("Low disk space (<2 GB)");
+                } catch {
+                }
+              }
+            }
+          } catch {
+          }
+          return issues;
+        };
+        if (!api.getSettings) api.getSettings = () => getSettings();
+        if (!api.setSettings) api.setSettings = (next) => setSettings(next);
+        if (!api.setSelected) api.setSelected = (ids) => setSelected(ids);
+        if (!api.setMode) api.setMode = (mode) => setMode(mode);
+        if (!api.__finalizeForTests) api.__finalizeForTests = () => {
+          try {
+            clearHandoffTimer();
+          } catch {
+          }
+        };
+        window.recorders = window.recorders || api;
+      }
+    } catch {
+    }
+    _ws = null;
+    _connecting = false;
+    _identified = false;
+    obsCfg = { host: "127.0.0.1", port: 4455, secure: false };
+    _cfgBridge = {
+      getUrl: () => "ws://127.0.0.1:4455",
+      getPass: () => "",
+      isEnabled: () => false,
+      onStatus: (txt, ok) => console.log("[OBS]", txt, ok),
+      onRecordState: () => {
+      }
+    };
+    _enabled = false;
+    _reconnTimer = 0;
+  }
+});
+
 // recorders.ts
 var recorders_exports = {};
 __export(recorders_exports, {
   all: () => all,
   applyConfigs: () => applyConfigs,
   clearHandoffTimer: () => clearHandoffTimer,
-  connect: () => connect,
-  connect2: () => connect2,
+  connect: () => connect2,
+  connect2: () => connect22,
   default: () => recorders_bridge_compat_default,
   disconnect: () => disconnect,
   get: () => get2,
   getRecState: () => getRecState,
-  getRecordingMode: () => getRecordingMode2,
+  getRecordingMode: () => getRecordingMode,
   getSettings: () => getSettings,
   init: () => init,
   initBridge: () => initBridge,
@@ -104204,8 +103559,8 @@ function wireSettingsTabs(root, store3) {
         return null;
       }
     })();
-    const initial2 = fromStore ?? tabButtons[0]?.dataset.settingsTab ?? "general";
-    setActive(initial2);
+    const initial = fromStore ?? tabButtons[0]?.dataset.settingsTab ?? "general";
+    setActive(initial);
   } catch {
   }
 }
@@ -104466,7 +103821,7 @@ function wireRecordingModeControls(rootEl2) {
     return "core";
   };
   const guardRecordingChange = (message) => {
-    if (!isSessionRecording()) return true;
+    if (!isRecordingBusy()) return true;
     try {
       window.toast?.(message || "Stop recording to change recording mode.", { type: "warn" });
     } catch {
@@ -104504,6 +103859,10 @@ function wireRecordingModeControls(rootEl2) {
   };
   const setEngine = (engine) => {
     if (!guardRecordingChange("Stop recording to change recording engine.")) return;
+    const arm = window.__tpRecordingArm;
+    if (arm?.getSnapshot?.().state === "arming") return;
+    void Promise.resolve(arm?.disarm?.()).catch(() => {
+    });
     try {
       setMode("single");
     } catch {
@@ -105625,21 +104984,21 @@ function onKeydown(event) {
   }
 }
 function initHotkeys() {
-  if (initialized4) return;
+  if (initialized5) return;
   if (typeof window === "undefined") return;
   window.addEventListener("keydown", onKeydown, { capture: true });
-  initialized4 = true;
+  initialized5 = true;
   try {
     console.log("[src/features/hotkeys] initHotkeys");
   } catch {
   }
 }
-var initialized4;
+var initialized5;
 var init_hotkeys = __esm({
   "src/features/hotkeys.ts"() {
     "use strict";
     init_kick();
-    initialized4 = false;
+    initialized5 = false;
   }
 });
 
@@ -105680,7 +105039,7 @@ function isDevMode10() {
     return false;
   }
 }
-function toast3(message, type = "info", timeoutMs) {
+function toast2(message, type = "info", timeoutMs) {
   try {
     showToast(message, { type, ...timeoutMs == null ? {} : { timeoutMs } });
   } catch {
@@ -105701,7 +105060,7 @@ function onUploadWarning(ev) {
   const detail = ev.detail ?? {};
   const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "unknown";
   const threshold = Number.isFinite(Number(detail.thresholdMb)) ? Number(detail.thresholdMb).toFixed(0) : "unknown";
-  toast3(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning");
+  toast2(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning");
 }
 function onUploadStatus(ev) {
   const detail = ev.detail ?? {};
@@ -105720,23 +105079,23 @@ function onUploadStatus(ev) {
   if (phase === "uploading" && strategy === "chunked" && isDevMode10() && !chunkedNoticeShown) {
     const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "?";
     const chunkLabel = Number.isFinite(totalChunks) && totalChunks > 0 ? ` in ${totalChunks} chunks` : "";
-    toast3(`Chunked upload active (${mb} MB${chunkLabel})`, "info");
+    toast2(`Chunked upload active (${mb} MB${chunkLabel})`, "info");
     chunkedNoticeShown = true;
     return;
   }
   if (phase === "uploading" && strategy === "chunked" && isDevMode10() && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 1 && shouldEmitProgressToast(Date.now())) {
     const progressText = pct == null ? "" : ` (${pct}%)`;
-    toast3(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 4e3);
+    toast2(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 4e3);
     return;
   }
   if (phase === "done" && detail.safeToLeave && !safeToLeaveShown) {
-    toast3("Recording upload complete. Safe to leave.", "success");
+    toast2("Recording upload complete. Safe to leave.", "success");
     safeToLeaveShown = true;
     return;
   }
   if (phase === "failed" && !failedShown) {
     const msg = detail.errorMessage ? ` (${detail.errorMessage})` : "";
-    toast3(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 2e4);
+    toast2(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 2e4);
     failedShown = true;
   }
 }
@@ -107128,7 +106487,7 @@ function writeAutoRecordPref(next) {
   } catch {
   }
 }
-function toast4(msg) {
+function toast3(msg) {
   try {
     window.toasts?.show?.(msg);
   } catch {
@@ -107210,11 +106569,11 @@ function keyGuard(e) {
     e.stopImmediatePropagation();
     e.stopPropagation();
     if (k === " ") {
-      toast4("Auto-scroll disabled in Rehearsal Mode");
+      toast3("Auto-scroll disabled in Rehearsal Mode");
     } else if (nav.includes(k)) {
-      toast4("Keyboard scroll is disabled in Rehearsal Mode");
+      toast3("Keyboard scroll is disabled in Rehearsal Mode");
     } else {
-      toast4("Recording/automation is disabled in Rehearsal Mode");
+      toast3("Recording/automation is disabled in Rehearsal Mode");
     }
   }
 }
@@ -107343,7 +106702,7 @@ function enable() {
     keyListenerInstalled = true;
   }
   wireSelectObserversOnce();
-  toast4("Rehearsal Mode enabled");
+  toast3("Rehearsal Mode enabled");
   try {
     broadcastRehearsal(true);
   } catch {
@@ -107355,7 +106714,7 @@ function disable() {
   setState(false);
   markUiDisabled(false);
   restorePrev();
-  toast4("Exited Rehearsal Mode");
+  toast3("Exited Rehearsal Mode");
   try {
     broadcastRehearsal(false);
   } catch {
@@ -108056,8 +107415,8 @@ function installStepScroll(cfg = {}) {
   try {
     const s = window.__tpStore;
     if (s && typeof s.subscribe === "function") {
-      const initial2 = s.get?.("scrollMode");
-      if (uiWrap) uiWrap.style.display = shouldShowStepUi(initial2) ? "" : "none";
+      const initial = s.get?.("scrollMode");
+      if (uiWrap) uiWrap.style.display = shouldShowStepUi(initial) ? "" : "none";
       s.subscribe("scrollMode", (next) => {
         if (!uiWrap) return;
         uiWrap.style.display = shouldShowStepUi(next) ? "" : "none";
@@ -108533,8 +107892,8 @@ function q(id) {
   return document.getElementById(id);
 }
 function bindCameraUI() {
-  if (bound) return;
-  bound = true;
+  if (bound2) return;
+  bound2 = true;
   const startBtn = q("startCam");
   const stopBtn = q("stopCam");
   const camWrap = q("camWrap");
@@ -108712,10 +108071,10 @@ function bindCameraUI() {
       setButtons(false, false);
       updateChip("CamRTC: error");
       try {
-        const toast6 = window.toast;
-        if (typeof toast6 === "function") {
+        const toast5 = window.toast;
+        if (typeof toast5 === "function") {
           const msg = busy ? 'Camera is in use by another app. Close it or pick "OBS Virtual Camera" in Settings \u2192 Recording.' : "Camera failed to start. Check permissions or pick another device.";
-          toast6(msg, { type: "warn" });
+          toast5(msg, { type: "warn" });
         }
       } catch {
       }
@@ -108900,12 +108259,12 @@ function bindCameraUI() {
   window.__tpCamera = api;
   if (!window.__camApi) window.__camApi = api;
 }
-var bound;
+var bound2;
 var init_camera_bridge = __esm({
   "src/media/camera-bridge.ts"() {
     "use strict";
     init_app_store();
-    bound = false;
+    bound2 = false;
   }
 });
 
@@ -110650,8 +110009,8 @@ function bindStepControlsVisibility() {
     });
   };
   try {
-    const initial2 = appStoreSingleton.get?.("scrollMode");
-    apply(initial2);
+    const initial = appStoreSingleton.get?.("scrollMode");
+    apply(initial);
   } catch {
   }
   try {
@@ -111083,8 +110442,8 @@ function initSingleMonitorRead(store3) {
   if (!Number.isFinite(baseMarkerPct) || baseMarkerPct <= 0) {
     baseMarkerPct = DEFAULT_MARKER_PCT;
   }
-  const initial2 = !!resolved?.get?.("singleMonitorReadEnabled");
-  applySingleMonitor(initial2);
+  const initial = !!resolved?.get?.("singleMonitorReadEnabled");
+  applySingleMonitor(initial);
   wireControls(resolved);
   try {
     resolved?.subscribe?.("singleMonitorReadEnabled", (value) => {
@@ -111124,8 +110483,8 @@ var init_single_monitor = __esm({
 
 // src/media/recorders-bridge-compat.ts
 function ensureBridgeInit() {
-  if (initialized5) return;
-  initialized5 = true;
+  if (initialized6) return;
+  initialized6 = true;
   try {
     initCompat();
   } catch {
@@ -111157,12 +110516,12 @@ function unregisterObsAdapter() {
   } catch {
   }
 }
-var initialized5;
+var initialized6;
 var init_recorders_bridge_compat2 = __esm({
   "src/media/recorders-bridge-compat.ts"() {
     "use strict";
     init_recorders_bridge_compat();
-    initialized5 = false;
+    initialized6 = false;
   }
 });
 
@@ -113177,31 +112536,8 @@ function installObsChip() {
         chip.appendChild(icon);
         topbar && topbar.appendChild(chip);
       }
-      const labelEl = chip.querySelector(".obs-chip-label") || chip;
       const iconEl = chip.querySelector(".obs-test-icon");
       let hideTimer = null;
-      const render = ({ status: status2 = "disconnected", recording = false, scene } = {}) => {
-        try {
-          const s = String(status2 || "disconnected");
-          const detail = `OBS: ${s}${recording ? " | REC" : ""}${scene ? ` | ${scene}` : ""}`;
-          labelEl.textContent = "OBS";
-          chip.dataset.sessionText = detail;
-          chip.title = detail;
-          chip.setAttribute("aria-label", detail);
-          const base = ["chip", "obs-pill-compact"];
-          if (s === "identified" || s === "open") base.push("obs-connected");
-          else base.push("obs-error");
-          chip.className = base.join(" ");
-        } catch {
-        }
-      };
-      render();
-      window.addEventListener("tp:obs", (e) => {
-        try {
-          render(e && e.detail || {});
-        } catch {
-        }
-      });
       window.addEventListener("tp:obs-test", (e) => {
         try {
           const d = e && e.detail || {};
@@ -113602,8 +112938,8 @@ function wireOverlays() {
           const selector = '#settingsBtn, [data-action="settings-open"]';
           const buttons = document.querySelectorAll(selector);
           buttons.forEach((btn) => {
-            const bound2 = btn.__tpSettingsBound;
-            if (bound2) return;
+            const bound3 = btn.__tpSettingsBound;
+            if (bound3) return;
             try {
               btn.addEventListener("click", (e) => {
                 try {
@@ -118080,7 +117416,7 @@ async function bindMappedFolderUI(opts) {
           hudLog("folder:permission:denied", { id: sel.id });
         } catch {
         }
-        toast5(
+        toast4(
           isMappedFolderManagedByNursery() ? `Allow folder access, then re-link scripts mount in The Forge Storage (${getNurseryStorageSettingsUrl()}).` : "Allow folder access to load scripts, or re-pick the folder in Settings."
         );
         return;
@@ -118159,7 +117495,7 @@ async function bindMappedFolderUI(opts) {
       } catch {
       }
       try {
-        toast5(
+        toast4(
           isMappedFolderManagedByNursery() ? `Could not load script from The Forge-managed folder. Recheck The Forge Storage link (${getNurseryStorageSettingsUrl()}).` : "Could not load script from the mapped folder. Recheck permissions or pick the folder again."
         );
       } catch {
@@ -118650,18 +117986,18 @@ async function docxToTextViaMammoth(file) {
 async function recheckMappedFolderPermissions() {
   try {
     if (isMappedFolderManagedByNursery()) {
-      toast5(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
+      toast4(`Scripts folder is managed by The Forge. Configure it in The Forge > Settings > Storage (${getNurseryStorageSettingsUrl()}).`);
       return false;
     }
     const dir = window.__tpFolder?.get?.();
     if (!dir) {
-      toast5("No folder mapped");
+      toast4("No folder mapped");
       return false;
     }
     const res = await dir.requestPermission?.({ mode: "read" });
     const granted = res === "granted";
     hudLog("folder:permission", { granted });
-    toast5(granted ? "Folder access granted" : "Folder access denied");
+    toast4(granted ? "Folder access granted" : "Folder access denied");
     if (!granted) {
       try {
         await window.__tpFolder?.clear?.();
@@ -118673,7 +118009,7 @@ async function recheckMappedFolderPermissions() {
     return false;
   }
 }
-function toast5(msg) {
+function toast4(msg) {
   hudLog("toast", { msg });
   try {
     window.dispatchEvent(new CustomEvent("tp:toast", { detail: { msg, ts: Date.now() } }));
@@ -119203,7 +118539,7 @@ var init_io_anchor = __esm({
 var obs_exports = {};
 __export(obs_exports, {
   configure: () => configure,
-  connect: () => connect4,
+  connect: () => connect3,
   createOBSAdapter: () => createOBSAdapter,
   init: () => init2
 });
@@ -119329,9 +118665,9 @@ async function computeAuth(pass, salt, challenge) {
 }
 function notifyObsConnectionError(reason) {
   try {
-    const toast6 = window.toast;
-    if (typeof toast6 === "function") {
-      toast6("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
+    const toast5 = window.toast;
+    if (typeof toast5 === "function") {
+      toast5("Could not connect to OBS. Make sure OBS is running and check Settings \u2192 Recording.");
     }
   } catch {
   }
@@ -119340,7 +118676,7 @@ function notifyObsConnectionError(reason) {
   } catch {
   }
 }
-function connect4(urlOrOpts, pass) {
+function connect3(urlOrOpts, pass) {
   const emitter = createEmitter();
   const isStringUrl = typeof urlOrOpts === "string";
   const options = isStringUrl ? { url: urlOrOpts, password: pass } : urlOrOpts || {};
@@ -119372,7 +118708,7 @@ function connect4(urlOrOpts, pass) {
   let hello = null;
   const pending = /* @__PURE__ */ new Map();
   let rid = 1;
-  let retry = 0;
+  let retry2 = 0;
   const mkUrl = () => {
     if (url) return url;
     const proto = secure ? "wss" : "ws";
@@ -119526,7 +118862,7 @@ function connect4(urlOrOpts, pass) {
   };
   const schedule = () => {
     if (!reconnect || closedByUser) return;
-    const delay = Math.min(1e3 * Math.pow(2, retry++), maxDelay);
+    const delay = Math.min(1e3 * Math.pow(2, retry2++), maxDelay);
     setTimeout(() => {
       try {
         openSocket();
@@ -119544,7 +118880,7 @@ function connect4(urlOrOpts, pass) {
       ws = new WebSocket(mkUrl());
       ws.onopen = () => {
         emitter.emit("open");
-        retry = 0;
+        retry2 = 0;
         try {
           window.dispatchEvent(
             new CustomEvent("tp:obs", {
@@ -119625,7 +118961,7 @@ function createOBSAdapter() {
     async stop() {
       return Promise.resolve();
     },
-    connect: connect4,
+    connect: connect3,
     async test(opts) {
       try {
         let conn = adapter.__testConn;
@@ -119638,7 +118974,7 @@ function createOBSAdapter() {
             conn && conn.close && conn.close();
           } catch {
           }
-          conn = connect4({ host, port, password, secure: false, reconnect: false });
+          conn = connect3({ host, port, password, secure: false, reconnect: false });
           adapter.__testConn = conn;
           await new Promise((resolve) => {
             let done = false;
@@ -122068,8 +121404,7 @@ var init_index_app = __esm({
       bootTrace("index-app.ts:early:obs-connection:error", { error: String(error) });
     }
     try {
-      const seed = appStoreSingleton.get?.("obsEnabled");
-      if (typeof seed === "boolean") setRecorderEnabled("obs", seed);
+      appStoreSingleton.set("obsEnabled", getRecorderSettings().enabled.obs);
       appStoreSingleton.subscribe?.("obsEnabled", (v) => {
         if (typeof v === "boolean") setRecorderEnabled("obs", v);
       });

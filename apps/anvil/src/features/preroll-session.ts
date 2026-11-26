@@ -83,7 +83,7 @@ function computeRecordArmOnLive(recordingEnabledOverride?: boolean): { recordOnL
       return { recordOnLive: false, reason: 'no-camera' };
     }
 
-    if (!hasMicDevice()) {
+    if (engine === 'core' && !hasMicDevice()) {
       return { recordOnLive: false, reason: 'no-mic' };
     }
 

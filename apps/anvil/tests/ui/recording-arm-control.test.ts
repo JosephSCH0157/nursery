@@ -1,9 +1,11 @@
+import { setSettings } from '../../recorders-core';
 import {
   __resetRecordingArmControlForTests,
   initRecordingArmControl,
 } from '../../src/features/recording-arm-control';
 
 function setConfiguration(value: unknown): void {
+  setSettings(value as any);
   localStorage.setItem('tp_rec_settings_v1', JSON.stringify(value));
 }
 

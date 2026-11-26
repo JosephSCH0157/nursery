@@ -1,4 +1,4 @@
-import { isSessionRecording, startSessionRecording, stopSessionRecording } from '../recording/recorderRegistry';
+import { isRecordingBusy, startSessionRecording, stopSessionRecording } from '../recording/recorderRegistry';
 import { getRecordingEngine } from '../recording/recording-settings';
 import type { AppStore } from '../state/app-store';
 
@@ -82,7 +82,7 @@ export function wireRecordButtons(store?: AppStore | null, opts: WireRecordButto
       if (stopBtn.disabled) return;
       stopBtn.disabled = true;
       try {
-        if (isSessionRecording()) {
+        if (isRecordingBusy()) {
           await stopSessionRecording();
         }
       } catch (err) {

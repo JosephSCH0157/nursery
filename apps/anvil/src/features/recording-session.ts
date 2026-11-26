@@ -3,7 +3,7 @@ import {
   type SessionPhase,
 } from '../state/session';
 import {
-  isSessionRecording,
+  isRecordingBusy,
   startSessionRecording,
   stopSessionRecording,
   listRecorders,
@@ -57,7 +57,7 @@ function maybeStartOnLive(phase: SessionPhase): void {
 
 function maybeStopOnEnd(phase: SessionPhase): void {
   if (phase !== 'wrap' && phase !== 'idle') return;
-  if (!isSessionRecording()) return;
+  if (!isRecordingBusy()) return;
   try {
     console.debug('[recording-session] stopping recorders; phase=', phase);
   } catch {

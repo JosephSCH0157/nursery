@@ -115,7 +115,12 @@ import { getNurseryManagedDirectory } from '../forge/nursery-mounts';
       _dir = managed.handle ?? null;
       return true;
     } catch {
-      return false;
+      // A managed lookup failure must not select a stale standalone folder.
+      _managedByNursery = true;
+      _localPersistenceExpected = true;
+      _managedHint = 'Hearth recording folder unavailable';
+      _dir = null;
+      return true;
     }
   }
 

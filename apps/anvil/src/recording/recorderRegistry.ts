@@ -21,7 +21,6 @@ const RECORDER_TIMEOUT_MS = {
   start: 5000,
   stop: 2000,
 } as const;
-const STOP_SLOW_WARN_MS = 2000;
 
 function withTimeout<T>(
   taskOrFactory: Promise<T> | (() => Promise<T> | T),
@@ -31,12 +30,13 @@ function withTimeout<T>(
   const timeout = Math.max(0, Math.floor(timeoutMs));
   const task = typeof taskOrFactory === 'function' ? Promise.resolve().then(taskOrFactory) : Promise.resolve(taskOrFactory);
   if (timeout <= 0) return task;
+  let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
     task,
     new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
+      timer = setTimeout(() => reject(new Error(`[recording-timeout] ${context} exceeded ${timeout}ms`)), timeout);
     }),
-  ]);
+  ]).finally(() => clearTimeout(timer));
 }
 
 function emitRecordingState(recording: boolean): void {
@@ -93,140 +93,76 @@ export function registerRecorders(options: {
 }
 
 
-export async function startSessionRecording(opts: { obsEnabled?: boolean; engine?: RecordingEngine }): Promise<void> {
+export async function startSessionRecording(opts: { obsEnabled?: boolean; engine?: RecordingEngine } = {}): Promise<void> {
+  if (stopInFlight) await stopInFlight;
   if (sessionRecording) return;
   if (startInFlight) return startInFlight;
-
   startInFlight = (async () => {
-    const engine = opts?.engine ?? getRecordingEngine();
-    const obsEnabled = !!opts?.obsEnabled;
-    const tasks: Promise<{ id: RecorderId; started: boolean }>[] = [];
-    activeSessionRecorderIds.clear();
-
-    const queueStart = (backend: RecorderBackend) => {
-      tasks.push(
-        (async () => {
-          const id = backend.id;
-          const available = await withTimeout(
-            () => backend.isAvailable(),
-            RECORDER_TIMEOUT_MS.availability,
-            `${id}:isAvailable:start`,
-          ).catch((err) => {
-            console.warn('[recording] availability probe failed (start)', id, err);
-            return false;
-          });
-          if (!available) return { id, started: false };
-          await withTimeout(
-            () => backend.start(),
-            RECORDER_TIMEOUT_MS.start,
-            `${id}:start`,
-          ).catch((err) => {
-            console.warn('[recording] start failed', id, err);
-            throw err;
-          });
-          return { id, started: true };
-        })().catch(() => ({ id: backend.id, started: false })),
-      );
-    };
-
-    const core = registry.get('core');
-    if (core && engine === 'core') {
-      try {
-        console.debug('[recording-session] startRecorders: core available', { engine, obsEnabled });
-      } catch {}
-      queueStart(core);
-    } else {
-      console.warn('[recording] no "core" recorder registered');
-    }
-
-    if (engine === 'obs' && obsEnabled) {
-      const obs = registry.get('obs');
-      if (obs) {
-        try {
-          console.debug('[recording-session] startRecorders: obs available', { engine });
-        } catch {}
-        queueStart(obs);
+    const engine = opts.engine ?? getRecordingEngine();
+    const backend = registry.get(engine);
+    if (!backend) throw new Error(`${engine === 'obs' ? 'OBS' : 'Core Recorder'} is unavailable. Check Recording Settings.`);
+    const available = await withTimeout(() => backend.isAvailable(), RECORDER_TIMEOUT_MS.availability, `${engine}:isAvailable:start`);
+    if (!available) throw new Error(`${backend.label} is unavailable. ${engine === 'obs' ? 'Connect OBS in Recording Settings.' : 'Check camera and microphone permissions.'}`);
+    // Start must confirm capture. Do not time out an uncancellable capture operation
+    // and allow it to start later without an active session owner.
+    try { await backend.start(); }
+    catch (error) {
+      if ((error as { captureMayBeActive?: boolean })?.captureMayBeActive) {
+        activeSessionRecorderIds.add(engine);
+        sessionRecording = true;
+        emitRecordingState(true);
       }
+      throw error;
     }
-
-    if (tasks.length === 0) return;
-    try {
-      console.debug('[recording-session] startRecorders', { count: tasks.length, enabled: true });
-    } catch {}
-    const results = await Promise.all(tasks);
-    results.forEach((result) => {
-      if (result?.started) activeSessionRecorderIds.add(result.id);
-    });
-    if (activeSessionRecorderIds.size === 0) return;
+    activeSessionRecorderIds.clear();
+    activeSessionRecorderIds.add(engine);
     sessionRecording = true;
     emitRecordingState(true);
   })();
-  try {
-    await startInFlight;
-  } finally {
-    startInFlight = null;
-  }
+  try { await startInFlight; }
+  catch (error) { reportRecordingError(error); throw error; }
+  finally { startInFlight = null; }
+}
+
+function reportRecordingError(error: unknown): void {
+  const message = (error as Error)?.message || String(error);
+  try { (window as any).toast?.(message, { type: 'error' }); } catch {}
+  try { window.dispatchEvent(new CustomEvent('tp:recording:error', { detail: { message } })); } catch {}
 }
 
 export async function stopSessionRecording(): Promise<void> {
+  if (startInFlight) {
+    try { await startInFlight; }
+    catch (error) { if (!sessionRecording) throw error; }
+  }
   if (!sessionRecording) return;
   if (stopInFlight) return stopInFlight;
-
   stopInFlight = (async () => {
     const startedAt = Date.now();
-
-    const targetRecorders =
-      activeSessionRecorderIds.size > 0
-        ? Array.from(activeSessionRecorderIds.values())
-            .map((id) => registry.get(id))
-            .filter((rec): rec is RecorderBackend => !!rec)
-        : listRecorders();
-    emitStopPhase('begin', {
-      recorderCount: targetRecorders.length,
-      scopedToSession: activeSessionRecorderIds.size > 0,
-    });
-    const tasks = targetRecorders.map(async (rec) => {
-      emitStopPhase('probe', { recorderId: rec.id });
-      const available = await withTimeout(
-        () => rec.isAvailable(),
-        RECORDER_TIMEOUT_MS.availability,
-        `${rec.id}:isAvailable:stop`,
-      ).catch((err) => {
-        console.warn('[recording] availability probe failed (stop)', rec.id, err);
-        return false;
-      });
-      if (!available) return;
-      emitStopPhase('stop-call', { recorderId: rec.id });
-      await withTimeout(
-        () => rec.stop(),
-        RECORDER_TIMEOUT_MS.stop,
-        `${rec.id}:stop`,
-      ).catch((err) => {
-        console.warn('[recording] stop failed', rec.id, err);
-      });
-    });
-
-    await Promise.allSettled(tasks);
-    activeSessionRecorderIds.clear();
+    emitStopPhase('begin', { recorderCount: activeSessionRecorderIds.size, scopedToSession: true });
+    // The engine that started the take owns Stop, even if settings changed or a
+    // device became unavailable. A failed Stop retains ownership for retry.
+    for (const id of activeSessionRecorderIds) {
+      const rec = registry.get(id);
+      if (!rec) throw new Error(`Active recorder ${id} is unavailable. Check the recorder before leaving.`);
+      emitStopPhase('stop-call', { recorderId: id });
+      if (id === 'core') await rec.stop();
+      else await withTimeout(() => rec.stop(), 15000, `${id}:stop`);
+      activeSessionRecorderIds.delete(id);
+    }
     sessionRecording = false;
     emitRecordingState(false);
-    const elapsedMs = Math.max(0, Date.now() - startedAt);
-    emitStopPhase('end', { elapsedMs });
-    if (elapsedMs > STOP_SLOW_WARN_MS) {
-      try {
-        console.warn('[recording] stop exceeded latency budget', { elapsedMs, budgetMs: STOP_SLOW_WARN_MS });
-      } catch {
-        // best-effort only
-      }
-    }
+    emitStopPhase('end', { elapsedMs: Date.now() - startedAt });
   })();
-  try {
-    await stopInFlight;
-  } finally {
-    stopInFlight = null;
-  }
+  try { await stopInFlight; }
+  catch (error) { reportRecordingError(error); throw error; }
+  finally { stopInFlight = null; }
 }
 
 export function isSessionRecording(): boolean {
   return sessionRecording;
+}
+
+export function isRecordingBusy(): boolean {
+  return sessionRecording || startInFlight !== null || stopInFlight !== null;
 }

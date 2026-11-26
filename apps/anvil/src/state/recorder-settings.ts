@@ -108,6 +108,9 @@ function deepMergeDefaults<T>(defaults: T, stored: unknown): T {
 
   for (const [key, value] of Object.entries(stored)) {
     if (!(key in result)) continue;
+    if (value === undefined) continue;
+    if (result[key] && typeof result[key] === 'object' && !Array.isArray(result[key])
+      && (!value || typeof value !== 'object' || Array.isArray(value))) continue;
 
     if (
       value &&
@@ -155,6 +158,7 @@ function persistState(state: RecorderSettingsState): void {
     if (typeof window === 'undefined') return;
     // Persist only config fields; never store live status/error or password.
     const toStore = {
+      ...JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}'),
       enabled: cloneState(state.enabled),
       configs: cloneState(state.configs),
     };
@@ -206,10 +210,14 @@ export function updateRecorderSettings(
 }
 
 export function setRecorderEnabled(id: RecorderId, enabled: boolean): void {
+  if (currentState.enabled[id] === enabled) return;
   updateRecorderSettings((prev) => ({
     ...prev,
     enabled: { ...prev.enabled, [id]: enabled },
   }));
+  if (id === 'obs') {
+    try { (window as any).__tpStore?.set?.('obsEnabled', enabled); } catch {}
+  }
 }
 
 export function setObsConfig(patch: Partial<ObsConfig>): void {

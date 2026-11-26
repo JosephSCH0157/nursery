@@ -48,6 +48,7 @@ Run with: node tools/rec_smoke.js
       async isAvailable(){ return true; },
       async start(){}, async stop(){},
     };
+    window.__obsBridge = { start: async () => {}, getRecordStatus: async () => ({ outputActive: true }), on: () => {} };
     rec.register(fakeObs);
     rec.register(fakeBridge);
 
@@ -78,23 +79,24 @@ Run with: node tools/rec_smoke.js
     const rawSel = (typeof localStorage !== 'undefined' && localStorage.getItem && localStorage.getItem('tp_adapters')) || null;
     if (rawMode && rawSel) pass('rec: legacy mirrors present'); else pass('rec: legacy mirrors present (no LS)');
 
-    // 5) Start-timeout → Bridge fallback
-    // Mock window.__obsBridge so startObsWithConfirm will fail confirm and fallback to bridge
+    // 5) Selected OBS failure must not start Bridge
+    // Mock an OBS start that never confirms.
     global.window.__obsBridge = {
       async start(){ /* no-op */ },
       async getRecordStatus(){ return { outputActive: false }; },
       on(){},
     };
     // Ensure bridge adapter exists and isAvailable
-    rec.register({ id:'bridge', label:'Bridge (fake)', async isAvailable(){ return true; }, async start(){}, async stop(){} });
+    let alternateStarts = 0;
+    rec.register({ id:'bridge', label:'Bridge (fake)', async isAvailable(){ return true; }, async start(){ alternateStarts++; }, async stop(){} });
     // Select OBS so startSelected chooses obs path
     rec.setSettings({ mode:'single', selected:['obs'] });
     const events = [];
     window.addEventListener('rec:state', (e) => events.push(e.detail));
     await rec.startSelected();
     const lastEv = events.slice(-1)[0] || {};
-    if (lastEv.adapter === 'bridge' && lastEv.state === 'recording' && lastEv.detail && lastEv.detail.fallback === true) pass('rec: fallback when obs start times out');
-    else fail('rec: fallback when obs start times out', JSON.stringify(lastEv));
+    if (lastEv.adapter === 'obs' && lastEv.state === 'error' && alternateStarts === 0) pass('rec: OBS timeout fails without alternate capture');
+    else fail('rec: OBS timeout fails without alternate capture', JSON.stringify(lastEv));
 
     // 6) Idempotent stop while stopping (double stop)
     const p1 = rec.stopSelected();
@@ -113,26 +115,13 @@ Run with: node tools/rec_smoke.js
   else fail('rec: start→stop race cancels fallback', JSON.stringify(finalIdle||{}));
   await afterEach();
 
-  // 8) Late OBS after Bridge (handoff off/on)
-  // Prefer no handoff by default
-  rec.setSettings({ preferObsHandoff: false });
-  // Force bridge active by causing obs confirm failure
-  global.window.__obsBridge = global.window.__obsBridge || {};
-  window.__obsBridge.getRecordStatus = async () => ({ outputActive: false, recording: false });
-  await rec.startSelected();
-  // Simulate OBS starting later; with handoff disabled, adapter remains 'bridge'
-  const st3 = rec.getRecState?.() || {};
-  if (st3.adapter === 'bridge' && st3.state === 'recording') pass('rec: no mid-run handoff by default');
-  else fail('rec: no mid-run handoff by default', JSON.stringify(st3));
-  await rec.stopSelected();
-  // Enable handoff and simulate later OBS recording via getRecordStatus toggling
+  // 8) An unavailable selected OBS stays failed even with a saved handoff preference.
   rec.setSettings({ preferObsHandoff: true });
-  let flipAt = Date.now() + 300;
-  window.__obsBridge.getRecordStatus = async () => ({ recording: Date.now() >= flipAt });
-  await rec.startSelected(); // should land on bridge; watchdog may hand off once OBS reports recording
-  const handed = await withTimeout(waitForRec(d => d && d.state==='recording' && d.adapter==='obs' && d.detail && d.detail.handoff), 3000, 'handoff not observed');
-  if (handed && handed.adapter === 'obs') pass('rec: handoff to OBS when enabled');
-  else fail('rec: handoff to OBS when enabled', JSON.stringify(handed||{}));
+  window.__obsBridge.getRecordStatus = async () => ({ outputActive: false });
+  await rec.startSelected();
+  const failed = rec.getRecState?.() || {};
+  if (failed.adapter === 'obs' && failed.state === 'error' && alternateStarts === 0) pass('rec: saved handoff preference cannot select another capture engine');
+  else fail('rec: saved handoff preference cannot select another capture engine', JSON.stringify(failed));
   await afterEach();
 
   } catch (e) {

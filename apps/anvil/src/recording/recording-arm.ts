@@ -1,4 +1,4 @@
-import { isSessionRecording } from './recorderRegistry';
+import { isRecordingBusy } from './recorderRegistry';
 import {
   readSavedRecordingConfiguration,
   type SavedRecordingConfiguration,
@@ -104,7 +104,7 @@ function defaultDependencies(): RecordingArmDependencies {
     setObsEnabled: (enabled) => setRecorderEnabled('obs', enabled),
     readSavedMicDeviceId: () => readStored('tp_mic_device_v1'),
     readSavedCameraDeviceId: () => readStored('tp_camera_device_v1'),
-    isRecording: isSessionRecording,
+    isRecording: isRecordingBusy,
     dispatch: (snapshot) => {
       window.dispatchEvent(new CustomEvent('tp:recording:arm-state', { detail: snapshot }));
     },
